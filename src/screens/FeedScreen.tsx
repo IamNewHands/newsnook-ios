@@ -4,7 +4,7 @@ import { ChevronLeft, Loader2, RotateCw, Search, X } from 'lucide-react'
 import { ArticleRow, LeadStory } from '../components/ArticleItem'
 import { CategoryRail } from '../components/CategoryRail'
 import { FeedSkeleton } from '../components/FeedSkeleton'
-import { PresetSwitcher, type PresetSwitcherItem } from '../components/PresetSwitcher'
+import { PresetSwitcher, type PresetSwitcherProps } from '../components/PresetSwitcher'
 import { PullIndicator } from '../components/PullIndicator'
 import { SourceFilterChips } from '../components/SourceFilterChips'
 import { useIsDesktop } from '../hooks/useMediaQuery'
@@ -56,14 +56,7 @@ interface Props {
   /** 预览邻页用：按分类取已缓存的文章，横滑时并排露出 */
   articlesForCategory?: (id: CategoryId) => Article[]
   /** 首页场景预设快捷切换；单源聚焦页不传 */
-  presetSwitcher?: {
-    activeName: string
-    items: PresetSwitcherItem[]
-    onSelect: (id: string) => void
-    onManage: () => void
-    onSites?: () => void
-    siteCount?: number
-  }
+  presetSwitcher?: Omit<PresetSwitcherProps, 'variant'>
   translationPrefs?: TranslationPrefs
   /** 自定义源，用于刷新进度显示名称 */
   customSources?: NewsSource[]
@@ -855,14 +848,7 @@ export const FeedScreen = memo(function FeedScreen({
 
             {presetSwitcher && (
               <div className="lg:hidden" data-tour="preset-switcher">
-                <PresetSwitcher
-                  activeName={presetSwitcher.activeName}
-                  items={presetSwitcher.items}
-                  onSelect={presetSwitcher.onSelect}
-                  onManage={presetSwitcher.onManage}
-                  onSites={presetSwitcher.onSites}
-                  siteCount={presetSwitcher.siteCount}
-                />
+                <PresetSwitcher {...presetSwitcher} />
               </div>
             )}
 

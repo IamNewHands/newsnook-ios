@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import { loadActiveSiteId, saveActiveSiteId, type LayoutStorage } from '../src/features/sites/layoutState'
 import { createZhihuRootFrame, reduceRoutes } from '../src/features/zhihu/navigation'
@@ -63,6 +64,20 @@ assert.throws(
   () => parseSourcePayload(community!, '{}'),
   /workspaceOnly source must be loaded by its dedicated site adapter/,
   '知乎社区源误走普通 Feed 解析时必须显式失败，不能落进 RSS/日报解析器',
+)
+
+// 移动端首页的布局切换器必须转发完整的共享配置。这里刻意守住整对象转发，
+// 避免桌面端新增 siteItems/onSelectSite 后，移动端因逐字段传参再次漏掉第三方站点入口。
+const feedScreenSource = readFileSync(new URL('../src/screens/FeedScreen.tsx', import.meta.url), 'utf8')
+assert.match(
+  feedScreenSource,
+  /presetSwitcher\?:\s*Omit<PresetSwitcherProps,\s*'variant'>/,
+  '移动端 FeedScreen 必须复用 PresetSwitcher 的完整共享类型契约',
+)
+assert.match(
+  feedScreenSource,
+  /<PresetSwitcher\s+\{\.\.\.presetSwitcher\}\s*\/>/,
+  '移动端布局切换器必须完整转发 siteItems/onSelectSite，不能逐字段漏传',
 )
 
 console.log('zhihu navigation/layout contract ok')
