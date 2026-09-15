@@ -15,6 +15,7 @@ import {
   sharePayloadFromAppUrl,
   shareTokenFromAppUrl,
 } from '../src/lib/appDeepLink'
+import { ANDROID_APP_DOWNLOAD_URL, shouldShowWebAppDownloadBanner } from '../src/lib/appDownload'
 import { encodeShareToken } from '../src/lib/shareToken'
 
 console.log('Testing app deep links...')
@@ -95,5 +96,10 @@ assert.equal(
   isAndroidBrowser('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126.0.0.0 Safari/537.36'),
   false,
 )
+
+// 8. 通用 Web 下载提示：浏览器显示，Capacitor 原生壳不显示；下载入口始终指向最新 Release。
+assert.equal(shouldShowWebAppDownloadBanner(false), true)
+assert.equal(shouldShowWebAppDownloadBanner(true), false)
+assert.equal(ANDROID_APP_DOWNLOAD_URL, 'https://github.com/t59688/newsnook/releases/latest')
 
 console.log('App deep link tests: ALL PASSED')

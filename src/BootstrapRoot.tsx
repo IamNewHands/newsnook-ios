@@ -3,11 +3,13 @@ import { Capacitor } from '@capacitor/core'
 
 import App from './App'
 import { StartupSplash, type SplashMode } from './components/StartupSplash'
+import { WebAppDownloadBanner } from './components/WebAppDownloadBanner'
 import {
   hydrateRuntimeSecrets,
   migrateLegacyNativeSecretsOnce,
 } from './features/account/secretStore'
 import { initCompositorWakeListener } from './lib/compositorWake'
+import { ANDROID_APP_DOWNLOAD_URL, shouldShowWebAppDownloadBanner } from './lib/appDownload'
 import { applyNativeChrome } from './lib/nativeChrome'
 import { bootMark, bootMeasure } from './lib/startupPerf'
 import {
@@ -76,12 +78,18 @@ export function BootstrapRoot() {
   const [appReady, setAppReady] = useState(false)
   const [splashComplete, setSplashComplete] = useState(false)
   const [splashDetached, setSplashDetached] = useState(false)
+  const [appDownloadDismissed, setAppDownloadDismissed] = useState(false)
   const [splashMode] = useState<SplashMode>(() =>
     hasSeenStartupSplash() ? 'static' : 'full',
   )
   // 启动页放完时 App 可能仍在恢复原生偏好，此时撤掉启动页只会露出空屏
   const splashLeaving = splashComplete && appReady
   const showSplash = SPLASH_ENABLED && !splashDetached
+  const showAppDownload =
+    appReady &&
+    !showSplash &&
+    !appDownloadDismissed &&
+    shouldShowWebAppDownloadBanner(Capacitor.isNativePlatform())
 
   // React 启动页（含静态竖排）一旦进入 DOM，立刻摘掉 HTML 深色壳（仍保留 data-boot）
   useLayoutEffect(() => {
@@ -153,6 +161,12 @@ export function BootstrapRoot() {
           mode={splashMode}
           leaving={splashLeaving}
           onComplete={finishSplash}
+        />
+      )}
+      {showAppDownload && (
+        <WebAppDownloadBanner
+          href={ANDROID_APP_DOWNLOAD_URL}
+          onDismiss={() => setAppDownloadDismissed(true)}
         />
       )}
     </>
