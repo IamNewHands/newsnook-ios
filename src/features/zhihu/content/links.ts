@@ -1,5 +1,18 @@
 import type { ZhihuEntityRef } from '../types'
 
+export function parseZhihuMessagePeerId(input: string): string | null {
+  let url: URL
+  try {
+    url = new URL(input, 'https://www.zhihu.com')
+  } catch {
+    return null
+  }
+  const host = url.hostname.toLowerCase()
+  if (host !== 'www.zhihu.com' && host !== 'zhihu.com') return null
+  const inbox = url.pathname.match(/^\/inbox\/([^/?#]+)/)
+  return inbox?.[1] ? decodeURIComponent(inbox[1]) : null
+}
+
 export function parseZhihuLink(input: string): ZhihuEntityRef | null {
   let url: URL
   try {

@@ -58,6 +58,8 @@ function canonicalUrl(ref: ZhihuEntityRef, object: JsonRecord): string {
     case 'question': return `https://www.zhihu.com/question/${ref.id}`
     case 'pin': return `https://www.zhihu.com/pin/${ref.id}`
     case 'people': return `https://www.zhihu.com/people/${encodeURIComponent(stringValue(object.url_token) ?? ref.id)}`
+    case 'collection': return `https://www.zhihu.com/collection/${encodeURIComponent(ref.id)}`
+    case 'topic': return `https://www.zhihu.com/topic/${encodeURIComponent(ref.id)}/hot`
     default: return `https://www.zhihu.com/`
   }
 }
@@ -66,7 +68,7 @@ export function decodeZhihuSummary(value: unknown): ZhihuContentSummary | null {
   let object = asRecord(value)
   if (!object) return null
   // feed/search wrappers
-  object = asRecord(object.target) ?? asRecord(object.object) ?? object
+  object = asRecord(object.target) ?? asRecord(object.object) ?? asRecord(object.content) ?? object
 
   const kind = entityKind(object.type) ?? (object.question && object.content ? 'answer' : null)
   const id = stringValue(object.id)
@@ -83,6 +85,7 @@ export function decodeZhihuSummary(value: unknown): ZhihuContentSummary | null {
     author: decodeZhihuAuthor(object.author),
     voteupCount: numberValue(object.voteup_count),
     commentCount: numberValue(object.comment_count),
+    createdAt: numberValue(object.created_time) ?? numberValue(object.created_at),
   }
 }
 
@@ -117,6 +120,9 @@ export function decodeZhihuPage(value: unknown): DecodedZhihuPage {
 export interface ZhihuContentDetail extends ZhihuContentSummary {
   contentHtml: string
   createdAt?: number
+  questionId?: string
+  voteState: 'up' | 'down' | 'neutral'
+  isFollowing: boolean
 }
 
 export function decodeZhihuContentDetail(value: unknown): ZhihuContentDetail {
@@ -124,5 +130,18 @@ export function decodeZhihuContentDetail(value: unknown): ZhihuContentDetail {
   const summary = decodeZhihuSummary(object)
   if (!object || !summary) throw new Error('知乎正文缺少实体 id/type')
   const contentHtml = stringValue(object.content) ?? stringValue(object.detail) ?? ''
-  return { ...summary, contentHtml, createdAt: numberValue(object.created_time) }
+  const question = asRecord(object.question)
+  const reaction = asRecord(object.reaction)
+  const relation = asRecord(reaction?.relation)
+  const relationship = asRecord(object.relationship)
+  const rawVote = stringValue(relation?.vote)?.toLowerCase()
+  const voteState = rawVote === 'up' || rawVote === 'down' ? rawVote : 'neutral'
+  return {
+    ...summary,
+    contentHtml,
+    createdAt: numberValue(object.created_time),
+    questionId: stringValue(question?.id),
+    voteState,
+    isFollowing: relationship?.is_following === true || relation?.following === true,
+  }
 }

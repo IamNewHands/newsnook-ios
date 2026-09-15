@@ -28,12 +28,17 @@ export function createZhihuSafeReadTransport(): ZhihuTransport {
         throw new Error(`知乎操作需要独立认证会话：${input.operation}`)
       }
 
+      const extraHeaders = Object.fromEntries(
+        Object.entries(input.headers ?? {}).filter(([name]) => name.toLowerCase() !== 'user-agent'),
+      )
+
       const body = await fetchAbsoluteText(input.url, {
         signal,
         accept: 'application/json, text/plain;q=0.9, */*;q=0.1',
         headers: {
           Referer: 'https://www.zhihu.com/',
           'X-Requested-With': 'XMLHttpRequest',
+          ...extraHeaders,
         },
       })
       return { status: 200, headers: {}, body }

@@ -3,6 +3,12 @@ import type { FormEvent } from 'react'
 import { Search } from 'lucide-react'
 
 import { ZhihuApiError } from '../api/errors'
+import type {
+  ZhihuSearchContentType,
+  ZhihuSearchSort,
+  ZhihuSearchTab,
+  ZhihuSearchTimeRange,
+} from '../api/endpoints'
 import type { ZhihuFeedService } from '../feed/service'
 import type { ZhihuContentSummary, ZhihuEntityRef } from '../types'
 
@@ -16,8 +22,12 @@ interface Props {
 export function ZhihuSearchScreen({ initialQuery, service, onQueryChange, onOpen }: Props) {
   const [input, setInput] = useState(initialQuery)
   const [query, setQuery] = useState(initialQuery)
+  const [tab, setTab] = useState<ZhihuSearchTab>('general')
+  const [sort, setSort] = useState<ZhihuSearchSort>('default')
+  const [contentType, setContentType] = useState<ZhihuSearchContentType>('all')
+  const [timeRange, setTimeRange] = useState<ZhihuSearchTimeRange>('all')
   const [items, setItems] = useState<ZhihuContentSummary[]>([])
-  const [nextOffset, setNextOffset] = useState<number | null>(null)
+  const [nextCursor, setNextCursor] = useState<string | undefined>()
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -26,7 +36,7 @@ export function ZhihuSearchScreen({ initialQuery, service, onQueryChange, onOpen
   useEffect(() => {
     if (!query.trim()) {
       setItems([])
-      setNextOffset(null)
+      setNextCursor(undefined)
       setError(null)
       return
     }
@@ -34,11 +44,11 @@ export function ZhihuSearchScreen({ initialQuery, service, onQueryChange, onOpen
     const controller = new AbortController()
     setLoading(true)
     setError(null)
-    void service.search(query, 0, controller.signal).then(
+    void service.search(query, undefined, controller.signal, { tab, sort, contentType, timeRange }).then(
       (page) => {
         if (request !== epoch.current) return
         setItems(page.items)
-        setNextOffset(page.hasMore ? Number(page.nextCursor ?? 20) : null)
+        setNextCursor(page.nextCursor)
         setLoading(false)
       },
       (reason) => {
@@ -49,7 +59,7 @@ export function ZhihuSearchScreen({ initialQuery, service, onQueryChange, onOpen
       },
     )
     return () => controller.abort()
-  }, [query, service])
+  }, [contentType, query, service, sort, tab, timeRange])
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -59,19 +69,19 @@ export function ZhihuSearchScreen({ initialQuery, service, onQueryChange, onOpen
   }
 
   const loadMore = () => {
-    if (nextOffset == null || loadingMore || !query.trim()) return
-    const offset = nextOffset
+    if (!nextCursor || loadingMore || !query.trim()) return
+    const cursor = nextCursor
     const request = epoch.current
     setLoadingMore(true)
     setError(null)
-    void service.search(query, offset).then(
+    void service.search(query, cursor, undefined, { tab, sort, contentType, timeRange }).then(
       (page) => {
         if (request !== epoch.current) return
         setItems((prev) => {
           const seen = new Set(prev.map((item) => `${item.ref.kind}:${item.ref.id}`))
           return [...prev, ...page.items.filter((item) => !seen.has(`${item.ref.kind}:${item.ref.id}`))]
         })
-        setNextOffset(page.hasMore ? Number(page.nextCursor ?? offset + 20) : null)
+        setNextCursor(page.nextCursor)
         setLoadingMore(false)
       },
       (reason) => {
@@ -99,6 +109,52 @@ export function ZhihuSearchScreen({ initialQuery, service, onQueryChange, onOpen
         </button>
       </form>
 
+      <div className="mt-3 grid grid-cols-3 gap-1 rounded-xl border border-haze/70 bg-ink-raised/65 p-1">
+        {([['general', '全站'], ['people', '用户'], ['topic', '话题']] as const).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setTab(value)}
+            className={`min-h-9 rounded-lg font-mono text-[10.5px] ${tab === value ? 'bg-cinnabar text-white' : 'text-paper-muted hover:bg-ink'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'general' && (
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <label className="rounded-xl border border-haze/70 bg-ink-raised px-3 py-2">
+            <span className="block font-mono text-[8.5px] tracking-wide text-paper-faint">排序</span>
+            <select value={sort} onChange={(event) => setSort(event.target.value as ZhihuSearchSort)} className="mt-1 w-full bg-transparent text-[11px] text-paper outline-none">
+              <option value="default">综合排序</option>
+              <option value="latest">最新发布</option>
+              <option value="most-voted">最多赞同</option>
+            </select>
+          </label>
+          <label className="rounded-xl border border-haze/70 bg-ink-raised px-3 py-2">
+            <span className="block font-mono text-[8.5px] tracking-wide text-paper-faint">内容</span>
+            <select value={contentType} onChange={(event) => setContentType(event.target.value as ZhihuSearchContentType)} className="mt-1 w-full bg-transparent text-[11px] text-paper outline-none">
+              <option value="all">全部内容</option>
+              <option value="answer">回答</option>
+              <option value="article">文章</option>
+            </select>
+          </label>
+          <label className="rounded-xl border border-haze/70 bg-ink-raised px-3 py-2">
+            <span className="block font-mono text-[8.5px] tracking-wide text-paper-faint">时间</span>
+            <select value={timeRange} onChange={(event) => setTimeRange(event.target.value as ZhihuSearchTimeRange)} className="mt-1 w-full bg-transparent text-[11px] text-paper outline-none">
+              <option value="all">不限时间</option>
+              <option value="day">一天内</option>
+              <option value="week">一周内</option>
+              <option value="month">一个月内</option>
+              <option value="three-months">三个月内</option>
+              <option value="half-year">半年内</option>
+              <option value="year">一年内</option>
+            </select>
+          </label>
+        </div>
+      )}
+
       {loading && <div className="py-12 text-center font-mono text-[11px] text-paper-faint">正在搜索…</div>}
       {error && <div role="alert" className="mt-4 rounded-xl border border-cinnabar/35 bg-cinnabar/8 p-3 text-[12px] text-paper-muted">{error}</div>}
       {!loading && query && !error && items.length === 0 && (
@@ -114,10 +170,11 @@ export function ZhihuSearchScreen({ initialQuery, service, onQueryChange, onOpen
           >
             <h2 className="font-display text-[16px] font-semibold leading-7 text-paper">{item.title}</h2>
             {item.excerpt && <p className="mt-1 line-clamp-2 text-[12.5px] leading-6 text-paper-muted">{item.excerpt}</p>}
+            <div className="mt-2 font-mono text-[9.5px] uppercase tracking-wide text-paper-faint">{item.ref.kind}</div>
           </button>
         ))}
       </div>
-      {nextOffset != null && items.length > 0 && (
+      {nextCursor && items.length > 0 && (
         <button
           type="button"
           onClick={loadMore}

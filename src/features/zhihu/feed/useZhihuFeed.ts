@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ZhihuApiError } from '../api/errors'
 import { loadZhihuPublicFeedCache, saveZhihuPublicFeedCache } from '../storage/cache'
-import type { Page, ZhihuContentSummary, ZhihuFeedMode } from '../types'
+import type { Page, ZhihuContentSummary, ZhihuFeedMode, ZhihuRecommendationMode } from '../types'
 import { mergeZhihuPages, type ZhihuFeedService } from './service'
 
 interface FeedState extends Page<ZhihuContentSummary> {
@@ -19,7 +19,12 @@ function asApiError(error: unknown): ZhihuApiError {
     : new ZhihuApiError('network', error instanceof Error ? error.message : '知乎网络请求失败')
 }
 
-export function useZhihuFeed(service: ZhihuFeedService, mode: ZhihuFeedMode) {
+export function useZhihuFeed(
+  service: ZhihuFeedService,
+  mode: ZhihuFeedMode,
+  recommendationMode: ZhihuRecommendationMode = 'android',
+  accountId?: string | null,
+) {
   const [state, setState] = useState<FeedState>(EMPTY)
   const requestEpoch = useRef(0)
 
@@ -27,7 +32,7 @@ export function useZhihuFeed(service: ZhihuFeedService, mode: ZhihuFeedMode) {
     requestEpoch.current += 1
     const epoch = requestEpoch.current
     const controller = new AbortController()
-    const cached = loadZhihuPublicFeedCache(mode)
+    const cached = loadZhihuPublicFeedCache(mode, undefined, Date.now(), recommendationMode)
     setState((prev) => ({
       ...prev,
       items: cached?.items ?? [],
@@ -36,10 +41,10 @@ export function useZhihuFeed(service: ZhihuFeedService, mode: ZhihuFeedMode) {
       loading: true,
       error: null,
     }))
-    void service.listFeed(mode, undefined, controller.signal).then(
+    void service.listFeed(mode, undefined, controller.signal, recommendationMode, accountId).then(
       (page) => {
         if (requestEpoch.current !== epoch) return
-        saveZhihuPublicFeedCache(mode, page)
+        saveZhihuPublicFeedCache(mode, page, undefined, Date.now(), recommendationMode)
         setState({ ...page, loading: false, loadingMore: false, error: null })
       },
       (error) => {
@@ -48,7 +53,7 @@ export function useZhihuFeed(service: ZhihuFeedService, mode: ZhihuFeedMode) {
       },
     )
     return () => controller.abort()
-  }, [mode, service])
+  }, [accountId, mode, recommendationMode, service])
 
   useEffect(() => refresh(), [refresh])
 
@@ -57,12 +62,12 @@ export function useZhihuFeed(service: ZhihuFeedService, mode: ZhihuFeedMode) {
     const epoch = requestEpoch.current
     const cursor = state.nextCursor
     setState((prev) => ({ ...prev, loadingMore: true, error: null }))
-    void service.listFeed(mode, cursor).then(
+    void service.listFeed(mode, cursor, undefined, recommendationMode, accountId).then(
       (page) => {
         if (requestEpoch.current !== epoch) return
         setState((prev) => {
           const merged = mergeZhihuPages(prev, page)
-          saveZhihuPublicFeedCache(mode, merged)
+          saveZhihuPublicFeedCache(mode, merged, undefined, Date.now(), recommendationMode)
           return { ...merged, loading: false, loadingMore: false, error: null }
         })
       },
@@ -71,7 +76,7 @@ export function useZhihuFeed(service: ZhihuFeedService, mode: ZhihuFeedMode) {
         setState((prev) => ({ ...prev, loadingMore: false, error: asApiError(error) }))
       },
     )
-  }, [mode, service, state.hasMore, state.loading, state.loadingMore, state.nextCursor])
+  }, [accountId, mode, recommendationMode, service, state.hasMore, state.loading, state.loadingMore, state.nextCursor])
 
   return { ...state, refresh, loadMore }
 }

@@ -4,9 +4,14 @@ import { existsSync, readFileSync } from 'node:fs'
 import {
   ZHIHU_OPERATIONS,
   canAttemptZhihuRead,
+  canExecuteZhihuOperation,
   isZhihuOperationEnabled,
   zhihuOperation,
 } from '../src/features/zhihu/protocol'
+import { ZhihuApiClient } from '../src/features/zhihu/api/client'
+import { ZhihuApiError } from '../src/features/zhihu/api/errors'
+import { ZhihuSessionService } from '../src/features/zhihu/session/service'
+import type { ZhihuRequest, ZhihuResponse, ZhihuTransport } from '../src/features/zhihu/transport/types'
 
 const expectedZIds = Array.from({ length: 18 }, (_, index) => `Z${String(index + 1).padStart(2, '0')}`)
 const covered = new Set(ZHIHU_OPERATIONS.flatMap((item) => item.zIds))
@@ -90,4 +95,35 @@ assert.equal(zhihuOperation('message.send')?.retry, 'never')
 assert.equal(zhihuOperation('comment.update')?.status, 'blocked')
 assert.equal(zhihuOperation('draft.remote.list')?.endpoint, null)
 
-console.log(`zhihu protocol contract ok (${ZHIHU_OPERATIONS.length} operations, 0 fabricated verified capabilities)`)
+class WriteGateTransport implements ZhihuTransport {
+  calls: ZhihuRequest[] = []
+
+  async request(input: ZhihuRequest): Promise<ZhihuResponse> {
+    this.calls.push(input)
+    return { status: 200, headers: {}, body: '{}' }
+  }
+}
+
+const writeGateSession = new ZhihuSessionService()
+writeGateSession.switchAccount({ id: 'gate-account', name: '测试账号' }, 'authenticated')
+const writeGateTransport = new WriteGateTransport()
+const writeGateClient = new ZhihuApiClient(writeGateTransport, writeGateSession)
+assert.equal(canExecuteZhihuOperation('vote.set'), true, '已有明确 endpoint 的 source-only 写操作应可在原生 transport 尝试')
+await writeGateClient.postJson('vote.set', 'https://www.zhihu.com/api/v4/answers/1/voters', { type: 'up' })
+assert.equal(writeGateTransport.calls.length, 1, 'source-only 写操作应到达 transport，并以真实上游响应决定成功/失败')
+assert.equal(writeGateTransport.calls[0]?.operation, 'vote.set')
+
+await assert.rejects(
+  writeGateClient.requestRawJson(
+    'comment.update',
+    'https://www.zhihu.com/api/v4/comment_v5/comment/1',
+    'PATCH',
+    '{}',
+    { 'Content-Type': 'application/json' },
+  ),
+  (error: unknown) => error instanceof ZhihuApiError && error.code === 'unsupported',
+  'blocked 写操作仍必须在 API 层拒绝',
+)
+assert.equal(writeGateTransport.calls.length, 1, 'blocked 写操作不得到达 transport')
+
+console.log(`zhihu protocol contract ok (${ZHIHU_OPERATIONS.length} operations, source-backed execution without fabricated verified status)`)

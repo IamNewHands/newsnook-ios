@@ -5,6 +5,22 @@ import type { Page, ZhihuAuthor, ZhihuEntityRef } from '../types'
 import type { ZhihuCommentNode } from './types'
 
 export interface ZhihuCommentCacheEntry extends Page<ZhihuCommentNode> {}
+export type ZhihuCommentSort = 'score' | 'time'
+
+interface ZhihuCommentApi extends ZhihuReadApi {
+  postJson(operation: string, url: string, body?: unknown, signal?: AbortSignal): Promise<unknown>
+  deleteJson(operation: string, url: string, body?: unknown, signal?: AbortSignal): Promise<unknown>
+}
+
+function escapeCommentText(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+    .replace(/\r?\n/g, '<br>')
+}
 
 function stringValue(value: unknown): string | undefined {
   if (typeof value === 'string') return value
@@ -12,8 +28,8 @@ function stringValue(value: unknown): string | undefined {
   return undefined
 }
 
-function rootCacheKey(ref: ZhihuEntityRef): string {
-  return `${ref.kind}:${ref.id}`
+function rootCacheKey(ref: ZhihuEntityRef, sort: ZhihuCommentSort): string {
+  return `${ref.kind}:${ref.id}:${sort}`
 }
 
 function mergeCommentPages(
@@ -111,31 +127,37 @@ function assertCommentCursor(cursor: string): string {
 }
 
 export class ZhihuCommentsService {
-  private readonly api: ZhihuReadApi
+  private readonly api: ZhihuCommentApi
   private readonly rootCache = new Map<string, ZhihuCommentCacheEntry>()
   private readonly childCache = new Map<string, ZhihuCommentCacheEntry>()
 
-  constructor(api: ZhihuReadApi) {
+  constructor(api: ZhihuCommentApi) {
     this.api = api
   }
 
-  cachedRoot(ref: ZhihuEntityRef): ZhihuCommentCacheEntry | undefined {
-    return this.rootCache.get(rootCacheKey(ref))
+  cachedRoot(ref: ZhihuEntityRef, sort: ZhihuCommentSort = 'score'): ZhihuCommentCacheEntry | undefined {
+    return this.rootCache.get(rootCacheKey(ref, sort))
   }
 
   cachedChildren(commentId: string): ZhihuCommentCacheEntry | undefined {
     return this.childCache.get(commentId)
   }
 
-  async listRoot(ref: ZhihuEntityRef, cursor?: string, signal?: AbortSignal): Promise<Page<ZhihuCommentNode>> {
+  async listRoot(
+    ref: ZhihuEntityRef,
+    cursor?: string,
+    signal?: AbortSignal,
+    sort: ZhihuCommentSort = 'score',
+  ): Promise<Page<ZhihuCommentNode>> {
     const type = rootCommentType(ref)
     if (!type) throw new ZhihuApiError('unsupported', `${ref.kind} 暂无评论读取适配`)
     const url = cursor
       ? assertCommentCursor(cursor)
-      : `https://www.zhihu.com/api/v4/comment_v5/${type}/${encodeURIComponent(ref.id)}/root_comment?order_by=score`
+      : `https://www.zhihu.com/api/v4/comment_v5/${type}/${encodeURIComponent(ref.id)}/root_comment?order_by=${sort === 'time' ? 'ts' : 'score'}`
     const page = decodeCommentPage(await this.api.getJson('comment.list-root', url, signal))
-    const merged = mergeCommentPages(cursor ? this.rootCache.get(rootCacheKey(ref)) : undefined, page)
-    this.rootCache.set(rootCacheKey(ref), merged)
+    const key = rootCacheKey(ref, sort)
+    const merged = mergeCommentPages(cursor ? this.rootCache.get(key) : undefined, page)
+    this.rootCache.set(key, merged)
     return page
   }
 
@@ -147,5 +169,92 @@ export class ZhihuCommentsService {
     const merged = mergeCommentPages(cursor ? this.childCache.get(commentId) : undefined, page)
     this.childCache.set(commentId, merged)
     return page
+  }
+
+  async create(
+    ref: ZhihuEntityRef,
+    text: string,
+    replyToCommentId?: string,
+    signal?: AbortSignal,
+  ): Promise<ZhihuCommentNode> {
+    const type = rootCommentType(ref)
+    const normalized = text.trim()
+    if (!type) throw new ZhihuApiError('unsupported', `${ref.kind} 暂不支持发表评论`)
+    if (!normalized) throw new ZhihuApiError('invalid-response', '评论内容不能为空')
+    const body: Record<string, string> = {
+      content: `<p>${escapeCommentText(normalized)}</p>`,
+    }
+    if (replyToCommentId) body.reply_comment_id = replyToCommentId
+    const raw = await this.api.postJson(
+      'comment.create',
+      `https://www.zhihu.com/api/v4/comment_v5/${type}/${encodeURIComponent(ref.id)}/comment`,
+      body,
+      signal,
+    )
+    const created = decodeZhihuComment(raw)
+    if (!created) throw new ZhihuApiError('invalid-response', '知乎评论成功响应缺少评论实体')
+    // 新评论同时投影到已经存在的两种根评论缓存；不创建尚未读取的缓存，
+    // 避免让本地插入条目伪装成已加载服务端页面。
+    for (const sort of ['score', 'time'] as const) {
+      const key = rootCacheKey(ref, sort)
+      const current = this.rootCache.get(key)
+      if (!current) continue
+      this.rootCache.set(key, {
+        items: [created, ...current.items.filter((item) => item.id !== created.id)],
+        nextCursor: current.nextCursor,
+        hasMore: current.hasMore,
+      })
+    }
+    return created
+  }
+
+  async setLiked(commentId: string, liked: boolean, signal?: AbortSignal): Promise<void> {
+    const encoded = encodeURIComponent(commentId)
+    if (liked) {
+      await this.api.postJson('comment.like.set', `https://www.zhihu.com/api/v4/comments/${encoded}/like`, undefined, signal)
+    } else {
+      await this.api.deleteJson('comment.like.clear', `https://www.zhihu.com/api/v4/comments/${encoded}/like`, undefined, signal)
+    }
+    const apply = (entry: ZhihuCommentCacheEntry | undefined) => {
+      if (!entry) return
+      const visit = (items: ZhihuCommentNode[]): boolean => {
+        for (const item of items) {
+          if (item.id === commentId) {
+            item.likeCount = Math.max(0, item.likeCount + (liked === item.liked ? 0 : liked ? 1 : -1))
+            item.liked = liked
+            return true
+          }
+          if (visit(item.children)) return true
+        }
+        return false
+      }
+      visit(entry.items)
+    }
+    for (const entry of this.rootCache.values()) apply(entry)
+    for (const entry of this.childCache.values()) apply(entry)
+  }
+
+  async delete(commentId: string, signal?: AbortSignal): Promise<void> {
+    await this.api.deleteJson(
+      'comment.delete',
+      `https://www.zhihu.com/api/v4/comment_v5/comment/${encodeURIComponent(commentId)}`,
+      undefined,
+      signal,
+    )
+    const remove = (entry: ZhihuCommentCacheEntry | undefined) => {
+      if (!entry) return
+      entry.items = entry.items.filter((item) => item.id !== commentId)
+      const visit = (items: ZhihuCommentNode[]) => {
+        for (const item of items) {
+          const before = item.children.length
+          item.children = item.children.filter((child) => child.id !== commentId)
+          if (item.children.length !== before) item.childCount = Math.max(item.children.length, item.childCount - 1)
+          visit(item.children)
+        }
+      }
+      visit(entry.items)
+    }
+    for (const entry of this.rootCache.values()) remove(entry)
+    for (const entry of this.childCache.values()) remove(entry)
   }
 }

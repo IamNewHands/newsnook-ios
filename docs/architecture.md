@@ -124,8 +124,9 @@ PresetSwitcher / 切换布局
 - 知乎工作区挂载自己的顶栏、底部导航和 route reducer；普通 `DesktopSidebar` / `TabBar` 不叠加。Android 返回键先弹知乎局部栈，到根页再退出工作区。
 - `zhihu-community` 是 `workspaceOnly` 公共 Article 桥接源：`findSource`/分享能识别它，但 `allRegisteredSources` 排除它；即使误走 `parseSourcePayload` 也会显式抛错，因此不会混进普通综合刷新。
 - `zhihu-daily` 继续保持原 `kind: 'zhihu'` 和日期游标解析，社区适配绝不复用日报语义。
-- `features/zhihu/protocol.ts` 是远端能力的唯一闸门。`source-only` 只表示源码/脱敏语料证明“曾存在这种协议”；只有附带授权实网证据的 `verified` 才能开放写操作。详见 [知乎协议矩阵](./zhihu-protocol.md)。
-- 当前远端 transport 只开放白名单域 (`www.zhihu.com` / `api.zhihu.com`) 的安全 GET；会话 generation 在请求前后校验，账号切换后旧响应不得提交。知乎凭据使用 `site.zhihu.*` SecureStore 命名空间，不进入 Preferences、配置备份或 Cloud Sync。
+- `features/zhihu/protocol.ts` 是远端能力的权威 contract；API client 在 transport 之前执行强制能力闸门，UI 只做第二层可用性提示。`source-only` 只表示源码/脱敏语料证明“曾存在这种协议”：这类 GET 可以作为受限只读能力尝试，所有 POST/PUT/PATCH/DELETE 必须达到带授权实网证据的 `verified` 才能真正发出。详见 [知乎协议矩阵](./zhihu-protocol.md)。
+- Android transport 仅接受知乎白名单 HTTPS 域 (`www.zhihu.com` / `api.zhihu.com`，以及被显式列入上传流程的受限域)，GET 才允许一次安全重试，写操作始终 `retry=never`。会话 generation 在请求前后校验，账号切换后旧响应不得提交。知乎凭据使用 `site.zhihu.*` SecureStore 命名空间；私信/评论输入与本机创作草稿使用账号隔离 IndexedDB，不进入 Preferences、配置备份、公共正文缓存或 Cloud Sync。
+- Android 已实现受控第一方 WebView 登录/验证码返回、多账号保存/切换/移除与 `/api/v4/me` 身份校验，但当前仓库没有授权实网会话，因此认证及所有账号私有远端能力仍保持 `source-only`，不能把“代码可执行”写成“线上已验证”。
 - 公共推荐/热榜可进入 `newsnook:zhihu:public-feed:v1:*` 的本机公开缓存；账号关注流明确禁止进入该缓存。正文桥接使用 `feedArticleId('zhihu-community', canonicalUrl)`，分享发出/接收必须保持同一 Article.id。
 
 ## 7. 源模型

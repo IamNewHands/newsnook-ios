@@ -68,6 +68,13 @@ assert.throws(
 
 // 移动端首页的布局切换器必须转发完整的共享配置。这里刻意守住整对象转发，
 // 避免桌面端新增 siteItems/onSelectSite 后，移动端因逐字段传参再次漏掉第三方站点入口。
+const workspaceSource = readFileSync(new URL('../src/features/zhihu/ui/ZhihuWorkspace.tsx', import.meta.url), 'utf8')
+assert.doesNotMatch(
+  workspaceSource,
+  /<header[^>]+paddingTop:\s*'var\(--sat\)'/,
+  '知乎工作区挂在 AppShell 内，header 不能再次叠加顶部 safe-area',
+)
+
 const feedScreenSource = readFileSync(new URL('../src/screens/FeedScreen.tsx', import.meta.url), 'utf8')
 assert.match(
   feedScreenSource,
@@ -79,5 +86,15 @@ assert.match(
   /<PresetSwitcher\s+\{\.\.\.presetSwitcher\}\s*\/>/,
   '移动端布局切换器必须完整转发 siteItems/onSelectSite，不能逐字段漏传',
 )
+
+// 推荐传输策略是内部实现细节，不能再暴露成 Web/Android/混合/本地这类开发者选项。
+const zhihuFeedScreenSource = readFileSync(new URL('../src/features/zhihu/ui/ZhihuFeedScreen.tsx', import.meta.url), 'utf8')
+const zhihuWorkspaceSource = readFileSync(new URL('../src/features/zhihu/ui/ZhihuWorkspace.tsx', import.meta.url), 'utf8')
+assert.doesNotMatch(zhihuFeedScreenSource, /ZHIHU_RECOMMENDATION_MODES|recommendationMode|onRecommendationModeChange/)
+assert.doesNotMatch(zhihuFeedScreenSource, />\s*(Web|Android|混合|本地)\s*</)
+assert.match(zhihuWorkspaceSource, /useZhihuFeed\(service, mode, 'android', accountId\)/)
+assert.match(zhihuWorkspaceSource, /<span>首页<\/span>/)
+assert.match(zhihuWorkspaceSource, /<span>消息<\/span>/)
+assert.match(zhihuWorkspaceSource, /<span>我的<\/span>/)
 
 console.log('zhihu navigation/layout contract ok')

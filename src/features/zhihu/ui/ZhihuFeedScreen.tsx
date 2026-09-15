@@ -1,8 +1,7 @@
 import { RefreshCw, Search } from 'lucide-react'
 
 import type { ZhihuApiError } from '../api/errors'
-import { isZhihuOperationEnabled } from '../protocol'
-import type { ZhihuContentSummary, ZhihuEntityRef, ZhihuFeedMode } from '../types'
+import type { ZhihuContentSummary, ZhihuFeedMode } from '../types'
 
 interface Props {
   mode: ZhihuFeedMode
@@ -11,23 +10,13 @@ interface Props {
   loadingMore: boolean
   hasMore: boolean
   error: ZhihuApiError | null
+  authenticated: boolean
   onModeChange: (mode: ZhihuFeedMode) => void
   onRefresh: () => void
   onLoadMore: () => void
-  onOpen: (ref: ZhihuEntityRef) => void
+  onOpen: (item: ZhihuContentSummary) => void
   onSearch: () => void
 }
-
-const MODES: Array<{ id: ZhihuFeedMode; label: string; enabled: boolean; hint?: string }> = [
-  { id: 'recommended', label: '推荐', enabled: true },
-  { id: 'hot', label: '热榜', enabled: true },
-  {
-    id: 'following',
-    label: '关注',
-    enabled: isZhihuOperationEnabled('feed.following'),
-    hint: '需完成独立登录实网验证',
-  },
-]
 
 function errorMessage(error: ZhihuApiError): string {
   switch (error.code) {
@@ -46,17 +35,23 @@ export function ZhihuFeedScreen({
   loadingMore,
   hasMore,
   error,
+  authenticated,
   onModeChange,
   onRefresh,
   onLoadMore,
   onOpen,
   onSearch,
 }: Props) {
+  const modes: Array<{ id: ZhihuFeedMode; label: string; enabled: boolean; hint?: string }> = [
+    { id: 'recommended', label: '推荐', enabled: true },
+    { id: 'hot', label: '热榜', enabled: true },
+    { id: 'following', label: '关注', enabled: authenticated, hint: authenticated ? undefined : '登录知乎后可读关注动态' },
+  ]
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-28 pt-3 sm:px-6">
       <div className="mb-3 flex items-center gap-2">
         <div className="flex min-w-0 flex-1 gap-1 rounded-xl border border-haze/70 bg-ink-raised/70 p-1">
-          {MODES.map((item) => (
+          {modes.map((item) => (
             <button
               key={item.id}
               type="button"
@@ -85,10 +80,7 @@ export function ZhihuFeedScreen({
         </button>
       </div>
 
-      <div className="mb-3 flex items-center justify-between rounded-xl border border-haze/60 bg-ink-raised/45 px-3 py-2">
-        <p className="pr-3 text-[11.5px] leading-5 text-paper-faint">
-          当前为公开只读适配。接口来自源码证据，运行时若遇验证页/字段变化会明确报错，不会显示假空列表。
-        </p>
+      <div className="mb-3 flex items-center justify-end">
         <button
           type="button"
           onClick={onRefresh}
@@ -116,7 +108,7 @@ export function ZhihuFeedScreen({
             <button
               key={`${item.ref.kind}:${item.ref.id}`}
               type="button"
-              onClick={() => onOpen(item.ref)}
+              onClick={() => onOpen(item)}
               className="block w-full rounded-2xl border border-haze/70 bg-ink-raised/55 p-4 text-left transition-colors hover:border-cinnabar/35 hover:bg-ink-raised"
             >
               <h2 className="font-display text-[17px] font-semibold leading-7 text-paper">{item.title}</h2>
@@ -127,8 +119,12 @@ export function ZhihuFeedScreen({
                 {item.author?.name && <span>{item.author.name}</span>}
                 {typeof item.voteupCount === 'number' && <span>{item.voteupCount} 赞同</span>}
                 {typeof item.commentCount === 'number' && <span>{item.commentCount} 评论</span>}
+                {item.recommendationSource && <span>{item.recommendationSource}</span>}
                 <span>{item.ref.kind}</span>
               </div>
+              {item.recommendationReason && (
+                <div className="mt-2 text-[10.5px] leading-5 text-cinnabar/85">{item.recommendationReason}</div>
+              )}
             </button>
           ))}
         </div>

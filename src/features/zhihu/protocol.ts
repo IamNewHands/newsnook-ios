@@ -44,11 +44,16 @@ export const ZHIHU_OPERATIONS = [
   {
     operation: 'session.login', zIds: ['Z01'], status: 'source-only', method: 'POST', auth: 'guest', retry: 'never', endpoint: null,
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/account/ZhihuAccountClient.kt`, note: '参考项目存在认证客户端；本项目未获授权账号完成实网登录闭环。' }],
-    note: '登录参数、挑战与今日签名仍需授权实网验证，当前 UI 不宣称可登录。',
+    note: 'Android 使用受控第一方 WebView 完成登录/注册/验证码，再以 /api/v4/me 判定成功；协议状态仍等待授权实网验收。',
   },
   {
-    operation: 'session.switch-account', zIds: ['Z01'], status: 'blocked', method: 'LOCAL', auth: 'local-only', retry: 'never', endpoint: null,
-    evidence: [], note: '先实现 generation 隔离；在登录闭环完成前不提供可选远端账号。',
+    operation: 'session.validate', zIds: ['Z01'], status: 'source-only', method: 'GET', auth: 'required', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/me',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/data/ZhihuDataTypes.kt`, note: '参考实现定义 ZHIHU_ME_URL=https://www.zhihu.com/api/v4/me。' }],
+    note: '恢复/切换账号后使用当前 Cookie 验证身份；不会把失败会话当成已登录。',
+  },
+  {
+    operation: 'session.switch-account', zIds: ['Z01'], status: 'source-only', method: 'LOCAL', auth: 'local-only', retry: 'never', endpoint: null,
+    evidence: [{ kind: 'local-test', path: 'scripts/zhihu-session.test.ts', note: 'generation 栅栏保证账号切换后旧请求结果被丢弃。' }], note: '纯本地账号作用域切换已经实现并测试，但不伪装成 live verified 远端协议。',
   },
   {
     operation: 'feed.recommended', zIds: ['Z02', 'Z03'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://api.zhihu.com/topstory/recommend',
@@ -56,7 +61,14 @@ export const ZHIHU_OPERATIONS = [
     evidence: [
       { kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/feed/HomeFeedViewModel.kt`, note: '参考实现标记 allowGuestAccess。' },
       { kind: 'corpus', path: `${REF}shared/src/jvmTest/resources/real-api/mobile-home-card.json`, note: '参考仓库保存的脱敏真实响应语料。' },
-    ], note: '允许匿名只读尝试；挑战页/非 JSON 必须作为错误呈现。',
+    ], note: 'Android/mobile 推荐候选；实际 Android 头部配置来自参考实现，挑战页/非 JSON 必须作为错误呈现。',
+  },
+  {
+    operation: 'feed.recommended-web', zIds: ['Z02', 'Z03'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v3/feed/topstory/recommend',
+    evidence: [
+      { kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/local/LocalRecommendationEngine.kt`, note: '参考本地推荐候选抓取使用 desktop=true 的 Web topstory 推荐。' },
+      { kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/feed/HomeFeedViewModel.kt`, note: '参考 Web feed 实现保留该网页推荐路径。' },
+    ], note: 'Web 推荐与 Android 推荐独立保留游标；混合模式只做客户端合并，不篡改各自上游顺序。',
   },
   {
     operation: 'feed.hot', zIds: ['Z02'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v3/feed/topstory/hot-lists/total',
@@ -82,7 +94,7 @@ export const ZHIHU_OPERATIONS = [
     note: '公开只读候选。',
   },
   {
-    operation: 'question.answers', zIds: ['Z05'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/questions/:id/answers',
+    operation: 'question.answers', zIds: ['Z05'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/questions/:id/feeds',
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/feed/QuestionFeedViewModel.kt`, note: '参考项目回答分页实现。' }],
     note: '排序、limit 与 include 仍按源实现解析，不视作实网已验证。',
   },
@@ -107,6 +119,38 @@ export const ZHIHU_OPERATIONS = [
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/ArticleViewModel.kt`, note: '参考实现存在回答/文章赞同写操作。' }], note: '非幂等写；未经授权实网读回验证，UI 不启用。',
   },
   {
+    operation: 'follow.person.set', zIds: ['Z09', 'Z15'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/members/:token/followers',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: '用户关注 POST endpoint。' }], note: '目标态写入；仅服务端成功后更新 UI。',
+  },
+  {
+    operation: 'follow.person.clear', zIds: ['Z09', 'Z15'], status: 'source-only', method: 'DELETE', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/members/:token/followers',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: '用户取消关注 DELETE endpoint。' }], note: '断线不重试。',
+  },
+  {
+    operation: 'block.person.set', zIds: ['Z07', 'Z09'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/members/:token/actions/block',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: 'PersonViewModel.toggleBlock 使用 POST actions/block。' }], note: '屏蔽是明确目标态写入，网络结果未知时不自动重试。',
+  },
+  {
+    operation: 'block.person.clear', zIds: ['Z07', 'Z09'], status: 'source-only', method: 'DELETE', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/members/:token/actions/block',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: 'PersonViewModel.toggleBlock 使用 DELETE actions/block 取消屏蔽。' }], note: '断线不重试。',
+  },
+  {
+    operation: 'follow.question.set', zIds: ['Z05', 'Z07'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/questions/:id/followers',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/feed/QuestionFeedViewModel.kt`, note: '问题关注 POST endpoint。' }], note: '目标态写入。',
+  },
+  {
+    operation: 'follow.question.clear', zIds: ['Z05', 'Z07'], status: 'source-only', method: 'DELETE', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/questions/:id/followers',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/feed/QuestionFeedViewModel.kt`, note: '问题取消关注 DELETE endpoint。' }], note: '断线不重试。',
+  },
+  {
+    operation: 'follow.topic.set', zIds: ['Z04', 'Z09'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/topics/:id/followers',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/TopicScreen.kt`, note: '话题关注 POST endpoint。' }], note: '目标态写入。',
+  },
+  {
+    operation: 'follow.topic.clear', zIds: ['Z04', 'Z09'], status: 'source-only', method: 'DELETE', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/topics/:id/followers',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/TopicScreen.kt`, note: '话题取消关注 DELETE endpoint。' }], note: '断线不重试。',
+  },
+  {
     operation: 'comment.list-root', zIds: ['Z08'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/comment_v5/:type/:id/root_comment',
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/comment/RootCommentViewModel.kt`, note: '根评论分页入口。' }], note: '只读候选。',
   },
@@ -116,19 +160,59 @@ export const ZHIHU_OPERATIONS = [
   },
   {
     operation: 'comment.create', zIds: ['Z08'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/comment_v5/:type/:id/comment',
-    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/comment/BaseCommentViewModel.kt`, note: '参考实现存在评论发送。' }], note: '未经授权写入/读回，不启用。',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/comment/RootCommentViewModel.kt`, note: '评论 body 为 content HTML + optional reply_comment_id。' }], note: '非幂等写；仅在真实账号会话中执行一次，并以响应实体确认成功。',
+  },
+  {
+    operation: 'comment.like.set', zIds: ['Z08'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/comments/:id/like',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/comment/BaseCommentViewModel.kt`, note: 'POST 点赞评论。' }], note: '只在服务端成功后更新本地状态。',
+  },
+  {
+    operation: 'comment.like.clear', zIds: ['Z08'], status: 'source-only', method: 'DELETE', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/comments/:id/like',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/comment/BaseCommentViewModel.kt`, note: 'DELETE 取消评论点赞。' }], note: '目标状态操作；断线不重试。',
+  },
+  {
+    operation: 'comment.delete', zIds: ['Z08'], status: 'source-only', method: 'DELETE', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/comment_v5/comment/:id',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/comment/BaseCommentViewModel.kt`, note: '仅 can_delete 评论显示删除。' }], note: '服务端成功后才从列表移除。',
   },
   {
     operation: 'comment.update', zIds: ['Z08'], status: 'blocked', method: 'PATCH', auth: 'required', retry: 'never', endpoint: null,
     evidence: [], note: '未定位到可靠编辑协议；不能用删后重发冒充编辑。',
   },
   {
-    operation: 'people.read', zIds: ['Z09', 'Z15'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/members/:token',
-    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: '参考用户页与内容分类请求。' }], note: '公开资料只读候选。',
+    operation: 'people.read', zIds: ['Z09', 'Z15'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://api.zhihu.com/people/:token',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: 'PersonViewModel.load 使用 api.zhihu.com/people/:token，并读取 follower/following/is_following/is_blocking 等资料。' }], note: '公开资料只读候选；登录会话存在时可同时获得当前账号关系状态。',
   },
   {
     operation: 'people.content', zIds: ['Z09'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/members/:token/:contentKind',
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: '回答/文章/问题/想法等用户内容分页入口。' }], note: '仅开放公开内容分类；收藏/关注关系另走私有能力。',
+  },
+  {
+    operation: 'people.activities', zIds: ['Z09'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v3/moments/:token/activities',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: 'PeopleActivitiesViewModel 初始 URL。' }], note: '公开动态候选；未知卡片按现有异构 feed 解码规则跳过。',
+  },
+  {
+    operation: 'people.followers', zIds: ['Z09'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://api.zhihu.com/people/:id/followers',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: 'PeopleFollowersViewModel 使用 people/:id/followers。' }], note: '用户粉丝分页。',
+  },
+  {
+    operation: 'people.following', zIds: ['Z09'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/members/:token/followees',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: 'PeopleFollowingViewModel 使用 members/:token/followees。' }], note: '用户关注的人分页。',
+  },
+  {
+    operation: 'people.following-questions', zIds: ['Z09'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/members/:token/following-questions',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: 'PeopleFollowingQuestionsViewModel。' }], note: '关注的问题分页。',
+  },
+  {
+    operation: 'people.following-topics', zIds: ['Z09'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/members/:token/following-topic-contributions',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: 'PeopleFollowingTopicsViewModel。' }], note: '关注的话题分页。',
+  },
+  {
+    operation: 'people.collections', zIds: ['Z09', 'Z10'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/members/:token/favlists',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: 'PeopleCollectionsViewModel 使用 members/:token/favlists，并在列表项进入 CollectionContent。' }], note: '公开用户收藏夹分页；私密条目仍由上游权限决定。',
+  },
+  {
+    operation: 'people.following-collections', zIds: ['Z09', 'Z10'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/members/:token/following-favlists',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: 'PeopleFollowingCollectionsViewModel 使用 members/:token/following-favlists。' }], note: '用户关注的公开收藏夹分页。',
   },
   {
     operation: 'topic.read', zIds: ['Z04', 'Z09'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v5.1/topics/:id',
@@ -139,12 +223,40 @@ export const ZHIHU_OPERATIONS = [
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/TopicScreen.kt`, note: '精华/热门/时间线/想法/待回答分页入口。' }], note: '默认只读热门讨论；其他筛选按源码证据逐步开放。',
   },
   {
-    operation: 'collection.list', zIds: ['Z10', 'Z15'], status: 'source-only', method: 'GET', auth: 'required', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/collections',
-    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/CollectionsViewModel.kt`, note: '收藏夹列表参考实现。' }], note: '私有数据，登录前不请求。',
+    operation: 'collection.list', zIds: ['Z10', 'Z15'], status: 'source-only', method: 'GET', auth: 'required', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/people/:urlToken/collections',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/CollectionsViewModel.kt`, note: '当前账号/用户收藏夹分页入口。' }], note: '私有数据，登录前不请求。',
+  },
+  {
+    operation: 'collection.content-list', zIds: ['Z10'], status: 'source-only', method: 'GET', auth: 'required', retry: 'safe-read', endpoint: 'https://api.zhihu.com/collections/contents/:contentType/:id',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/ArticleViewModel.kt`, note: '列出内容可加入的收藏夹及 is_favorited 状态。' }], note: '仅当前账号作用域。',
+  },
+  {
+    operation: 'collection.read', zIds: ['Z10'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/collections/:id',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/CollectionContentViewModel.kt`, note: 'fetchCollection() 从 collection 字段读取收藏夹元数据。' }], note: '公开收藏夹允许匿名读取；私密收藏夹由知乎权限返回决定。',
+  },
+  {
+    operation: 'collection.items', zIds: ['Z10'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/collections/:id/items',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/CollectionContentViewModel.kt`, note: 'CollectionContentViewModel 使用 /items 与 paging.next 分页。' }], note: '收藏内容按上游 paging.next 翻页。',
+  },
+  {
+    operation: 'collection.create', zIds: ['Z10'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/collections',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/CollectionsViewModel.kt`, note: '创建收藏夹 JSON body 与 status/collection.id 成功条件。' }], note: '非幂等；断线不自动重试。',
+  },
+  {
+    operation: 'collection.delete', zIds: ['Z10'], status: 'source-only', method: 'DELETE', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/collections/:id',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/CollectionsViewModel.kt`, note: '删除非默认收藏夹，响应 success=true。' }], note: '服务端确认后移除。',
+  },
+  {
+    operation: 'collection.membership', zIds: ['Z10'], status: 'source-only', method: 'PUT', auth: 'required', retry: 'never', endpoint: 'https://api.zhihu.com/collections/contents/:contentType/:id',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/ArticleViewModel.kt`, note: 'application/x-www-form-urlencoded add_collections/remove_collections。' }], note: '目标态写入；body 必须参与 ZSE96 签名。',
   },
   {
     operation: 'draft.answer.save', zIds: ['Z11', 'Z12'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/questions/:id/draft',
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/editor/ZhihuAnswerPublisher.kt`, note: '参考回答草稿写入。' }], note: '没有远端列表/详情/删除闭环，禁止假造草稿箱。',
+  },
+  {
+    operation: 'answer.relationship', zIds: ['Z12'], status: 'source-only', method: 'GET', auth: 'required', retry: 'safe-read', endpoint: 'https://api.zhihu.com/questions/:id',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/WriteAnswerScreen.kt`, note: '发布前读取 relationship.my_answer，避免误建重复回答。' }], note: '只读取本人已有回答关系。',
   },
   {
     operation: 'draft.remote.list', zIds: ['Z11'], status: 'blocked', method: 'GET', auth: 'required', retry: 'safe-read', endpoint: null,
@@ -159,8 +271,12 @@ export const ZHIHU_OPERATIONS = [
     evidence: [], note: '没有完整删除闭环证据。',
   },
   {
-    operation: 'pin.publish', zIds: ['Z13'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://api.zhihu.com/content/drafts',
-    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/editor/ZhihuPinPublisher.kt`, note: '参考想法草稿/发布链路。' }], note: '字段和提交状态仍需实网读回。',
+    operation: 'draft.pin.save', zIds: ['Z11', 'Z13'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://api.zhihu.com/content/drafts',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/WritePinScreen.kt`, note: '想法草稿保存使用 action=pin。' }], note: '非幂等；本地先保存后再尝试远端。',
+  },
+  {
+    operation: 'pin.publish', zIds: ['Z13'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/content/publish',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/WritePinScreen.kt`, note: '想法发布使用 content/publish + action=pin。' }], note: '发布超时进入 unknown，不自动重试。',
   },
   {
     operation: 'article.publish', zIds: ['Z13'], status: 'blocked', method: 'POST', auth: 'required', retry: 'never', endpoint: null,
@@ -172,7 +288,19 @@ export const ZHIHU_OPERATIONS = [
   },
   {
     operation: 'image.upload', zIds: ['Z14'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://api.zhihu.com/images',
-    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/editor/ZhihuImageUpload.kt`, note: '参考三段式图片上传链路。' }], note: '上传域 Cookie 隔离与失败恢复需真机验证。',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/editor/ZhihuImageUpload.kt`, note: '申请 image_id + 临时 OSS upload token。' }], note: '请求只含 image_hash/source；临时 OSS 凭据不持久化。',
+  },
+  {
+    operation: 'image.oss.put', zIds: ['Z14'], status: 'source-only', method: 'PUT', auth: 'required', retry: 'never', endpoint: 'https://zhihu-pics-upload.zhimg.com/v2-:md5',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/editor/ZhihuImageUpload.kt`, note: '非 GIF 使用 OSS 临时 token + HMAC-SHA1 单 PUT；GIF 使用 multipart。' }], note: '二进制传输由原生 HTTP base64 channel 解码成原始字节，不携带知乎 Cookie。',
+  },
+  {
+    operation: 'image.status.set', zIds: ['Z14'], status: 'source-only', method: 'PUT', auth: 'required', retry: 'never', endpoint: 'https://api.zhihu.com/images/:id/uploading_status',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/editor/ZhihuImageUpload.kt`, note: 'OSS 完成后提交 upload_result=success。' }], note: '只在 OSS 2xx 后调用。',
+  },
+  {
+    operation: 'image.status.get', zIds: ['Z14'], status: 'source-only', method: 'GET', auth: 'required', retry: 'safe-read', endpoint: 'https://api.zhihu.com/images/:id',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/editor/ZhihuImageUpload.kt`, note: '轮询直到 status=success，读取 src/original_src/watermark_src。' }], note: '只读轮询允许安全重试。',
   },
   {
     operation: 'video.upload', zIds: ['Z14'], status: 'blocked', method: 'POST', auth: 'required', retry: 'never', endpoint: null,
@@ -183,12 +311,24 @@ export const ZHIHU_OPERATIONS = [
     evidence: [], note: '资料修改缺少完整证据。',
   },
   {
-    operation: 'notification.list', zIds: ['Z16'], status: 'source-only', method: 'GET', auth: 'required', retry: 'safe-read', endpoint: 'https://api.zhihu.com/notifications/v3/timeline/entry',
-    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/NotificationViewModel.kt`, note: '通知时间线参考实现。' }], note: '账号私有，不进入公共缓存。',
+    operation: 'notification.list', zIds: ['Z16'], status: 'source-only', method: 'GET', auth: 'required', retry: 'safe-read', endpoint: 'https://api.zhihu.com/notifications/v3/message/v3',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/NotificationViewModel.kt`, note: 'NotificationViewModel overview 使用 message/v3，返回 head/unread/data/paging。' }], note: '通知总览及各分类未读数；账号私有，不进入公共缓存。',
+  },
+  {
+    operation: 'notification.timeline', zIds: ['Z16'], status: 'source-only', method: 'GET', auth: 'required', retry: 'safe-read', endpoint: 'https://api.zhihu.com/notifications/v3/timeline/entry/:entry',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/NotificationViewModel.kt`, note: 'NotificationTimelineViewModel 按 comment/like/favlist_me/follow entry 分页。' }], note: '分类通知时间线；paging.next 必须经过知乎域白名单。',
+  },
+  {
+    operation: 'notification.readall', zIds: ['Z16'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://api.zhihu.com/notifications/v3/timeline/entry/:entry/actions/readall',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/NotificationViewModel.kt`, note: 'comment/like/favlist_me/follow 分类 readall。' }], note: '显式用户操作；成功后才清本地未读。',
   },
   {
     operation: 'message.list', zIds: ['Z16'], status: 'source-only', method: 'GET', auth: 'required', retry: 'safe-read', endpoint: 'https://api.zhihu.com/messages',
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PrivateMessageScreen.kt`, note: '私信列表/会话参考实现。' }], note: '账号私有，不进入 Cloud Sync。',
+  },
+  {
+    operation: 'message.peer', zIds: ['Z16'], status: 'source-only', method: 'GET', auth: 'required', retry: 'safe-read', endpoint: 'https://api.zhihu.com/messages/user/:peerId',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/NotificationViewModel.kt`, note: '会话页并行读取 peer 资料。' }], note: '账号私有，不缓存到公共域。',
   },
   {
     operation: 'message.send', zIds: ['Z16'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://api.zhihu.com/messages',
@@ -212,13 +352,24 @@ export function zhihuOperation(operation: string): ZhihuOperationContract | unde
   return ZHIHU_OPERATION_BY_NAME.get(operation)
 }
 
-/** 只有 verified 远端操作和已经完成 local-test 的本地操作才允许 mutation UI 调用。 */
+/** 证据层：只有带 live 证据的能力才叫 verified；用于协议审计与发布清单。 */
 export function isZhihuOperationEnabled(operation: string): boolean {
   const contract = zhihuOperation(operation)
   return contract?.status === 'verified'
 }
 
-/** source-only GET 可以作为显式“实验性只读”尝试；写操作绝不因源码证据自动放行。 */
+/**
+ * 执行层：Android 允许尝试已经有明确 endpoint 与完整本地实现的 source-only 操作。
+ * 这不会把它们伪装成 verified；真实上游拒绝/变更必须原样作为失败返回。blocked、
+ * upstream-unsupported 以及只有“存在某功能”但没有 endpoint 的操作仍不可执行。
+ */
+export function canExecuteZhihuOperation(operation: string): boolean {
+  const contract = zhihuOperation(operation)
+  if (!contract || !contract.endpoint) return false
+  return contract.status === 'verified' || contract.status === 'source-only'
+}
+
+/** source-only GET 可以作为显式只读尝试。 */
 export function canAttemptZhihuRead(operation: string): boolean {
   const contract = zhihuOperation(operation)
   if (!contract || contract.method !== 'GET') return false

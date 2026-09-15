@@ -1,4 +1,4 @@
-import type { Page, ZhihuContentSummary, ZhihuFeedMode } from '../types'
+import type { Page, ZhihuContentSummary, ZhihuFeedMode, ZhihuRecommendationMode } from '../types'
 
 const CACHE_VERSION = 1
 const CACHE_PREFIX = 'newsnook:zhihu:public-feed:v1:'
@@ -26,9 +26,14 @@ function browserStorage(): ZhihuPublicCacheStorage | null {
   }
 }
 
-function keyFor(mode: ZhihuFeedMode): string | null {
+function keyFor(mode: ZhihuFeedMode, recommendationMode: ZhihuRecommendationMode): string | null {
   // 关注流属于账号作用域，绝不能进入公共 localStorage 缓存。
-  return mode === 'following' ? null : `${CACHE_PREFIX}${mode}`
+  if (mode === 'following') return null
+  // 本地模式包含用户行为画像衍生排序，不能作为“公共 feed cache”保存。
+  if (mode === 'recommended' && recommendationMode === 'local') return null
+  return mode === 'recommended'
+    ? `${CACHE_PREFIX}${mode}:${recommendationMode}`
+    : `${CACHE_PREFIX}${mode}`
 }
 
 function looksLikeSummary(value: unknown): value is ZhihuContentSummary {
@@ -40,10 +45,11 @@ function looksLikeSummary(value: unknown): value is ZhihuContentSummary {
 
 export function loadZhihuPublicFeedCache(
   mode: ZhihuFeedMode,
-  storage: ZhihuPublicCacheStorage | null = browserStorage(),
+  storage: ZhihuPublicCacheStorage | null | undefined = browserStorage(),
   now = Date.now(),
+  recommendationMode: ZhihuRecommendationMode = 'android',
 ): Page<ZhihuContentSummary> | null {
-  const key = keyFor(mode)
+  const key = keyFor(mode, recommendationMode)
   if (!key || !storage) return null
   try {
     const raw = storage.getItem(key)
@@ -71,10 +77,11 @@ export function loadZhihuPublicFeedCache(
 export function saveZhihuPublicFeedCache(
   mode: ZhihuFeedMode,
   page: Page<ZhihuContentSummary>,
-  storage: ZhihuPublicCacheStorage | null = browserStorage(),
+  storage: ZhihuPublicCacheStorage | null | undefined = browserStorage(),
   now = Date.now(),
+  recommendationMode: ZhihuRecommendationMode = 'android',
 ): void {
-  const key = keyFor(mode)
+  const key = keyFor(mode, recommendationMode)
   if (!key || !storage) return
   try {
     const envelope: CacheEnvelope = {

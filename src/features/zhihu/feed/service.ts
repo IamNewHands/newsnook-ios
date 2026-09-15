@@ -6,12 +6,90 @@ import {
   zhihuRecommendedUrl,
   zhihuSearchUrl,
 } from '../api/endpoints'
+import type { ZhihuQuestionAnswerOrder, ZhihuSearchOptions } from '../api/endpoints'
 import { decodeZhihuPage } from '../api/decode'
 import { ZhihuApiError } from '../api/errors'
-import type { Page, ZhihuContentSummary, ZhihuFeedMode } from '../types'
+import type {
+  Page,
+  ZhihuContentSummary,
+  ZhihuFeedMode,
+  ZhihuRecommendationMode,
+} from '../types'
+import { rankZhihuLocalRecommendations } from './recommendation'
 
 export interface ZhihuReadApi {
   getJson(operation: string, url: string, signal?: AbortSignal): Promise<unknown>
+  getJsonWithHeaders?(
+    operation: string,
+    url: string,
+    headers: Record<string, string>,
+    signal?: AbortSignal,
+    options?: { signing?: 'web-zse96' | 'none' },
+  ): Promise<unknown>
+}
+
+const ANDROID_RECOMMEND_HEADERS: Record<string, string> = {
+  'User-Agent': 'com.zhihu.android/Futureve/10.61.0 Mozilla/5.0 (Linux; Android 12; sdk_gphone64_arm64 Build/SE1A.220630.001.A1; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/57.0.1000.10 Mobile Safari/537.36',
+  'x-api-version': '3.1.8',
+  'x-app-version': '10.61.0',
+  'x-app-za': 'OS=Android&Release=12&Model=sdk_gphone64_arm64&VersionName=10.61.0&VersionCode=26107&Product=com.zhihu.android&Width=1440&Height=2952&Installer=%E7%81%B0%E5%BA%A6&DeviceType=AndroidPhone&Brand=google',
+}
+
+const WEB_RECOMMEND_URL = 'https://www.zhihu.com/api/v3/feed/topstory/recommend?desktop=true&limit=50'
+const ANDROID_RECOMMEND_URL = 'https://api.zhihu.com/topstory/recommend'
+
+interface MixedCursor {
+  web?: string
+  android?: string
+}
+
+function encodeMixedCursor(cursor: MixedCursor): string | undefined {
+  if (!cursor.web && !cursor.android) return undefined
+  return `mixed:${encodeURIComponent(JSON.stringify(cursor))}`
+}
+
+function decodeMixedCursor(value: string): MixedCursor {
+  if (!value.startsWith('mixed:')) throw new ZhihuApiError('invalid-response', '混合推荐游标格式无效')
+  try {
+    const parsed = JSON.parse(decodeURIComponent(value.slice(6))) as MixedCursor
+    return {
+      web: parsed.web ? validateZhihuCursor(parsed.web) : undefined,
+      android: parsed.android ? validateZhihuCursor(parsed.android) : undefined,
+    }
+  } catch (error) {
+    if (error instanceof ZhihuApiError) throw error
+    throw new ZhihuApiError('invalid-response', '混合推荐游标无法解析')
+  }
+}
+
+function localOffset(cursor?: string): number {
+  if (!cursor) return 0
+  const match = /^local:(\d+)$/.exec(cursor)
+  if (!match) throw new ZhihuApiError('invalid-response', '本地推荐游标格式无效')
+  return Math.max(0, Number(match[1]))
+}
+
+function markSource(items: ZhihuContentSummary[], source: 'web' | 'android'): ZhihuContentSummary[] {
+  return items.map((item) => ({ ...item, recommendationSource: source }))
+}
+
+function interleaveRecommendationSources(
+  android: ZhihuContentSummary[],
+  web: ZhihuContentSummary[],
+): ZhihuContentSummary[] {
+  const result: ZhihuContentSummary[] = []
+  const seen = new Set<string>()
+  const max = Math.max(android.length, web.length)
+  for (let index = 0; index < max; index += 1) {
+    for (const item of [android[index], web[index]]) {
+      if (!item) continue
+      const key = `${item.ref.kind}:${item.ref.id}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      result.push(item)
+    }
+  }
+  return result
 }
 
 function mergeUnique(items: ZhihuContentSummary[]): ZhihuContentSummary[] {
@@ -43,16 +121,109 @@ export class ZhihuFeedService {
     this.api = api
   }
 
+  private async readAndroidRecommendation(url: string, signal?: AbortSignal): Promise<Page<ZhihuContentSummary>> {
+    const raw = this.api.getJsonWithHeaders
+      ? await this.api.getJsonWithHeaders(
+          'feed.recommended',
+          url,
+          ANDROID_RECOMMEND_HEADERS,
+          signal,
+          { signing: 'none' },
+        )
+      : await this.api.getJson('feed.recommended', url, signal)
+    const decoded = decodeZhihuPage(raw)
+    return {
+      items: markSource(decoded.items, 'android'),
+      nextCursor: decoded.nextCursor,
+      hasMore: decoded.hasMore,
+    }
+  }
+
+  private async readWebRecommendation(url: string, signal?: AbortSignal): Promise<Page<ZhihuContentSummary>> {
+    const raw = await this.api.getJson('feed.recommended-web', url, signal)
+    const decoded = decodeZhihuPage(raw)
+    return {
+      items: markSource(decoded.items, 'web'),
+      nextCursor: decoded.nextCursor,
+      hasMore: decoded.hasMore,
+    }
+  }
+
+  private async listRecommended(
+    recommendationMode: ZhihuRecommendationMode,
+    cursor: string | undefined,
+    signal: AbortSignal | undefined,
+    accountId: string | null | undefined,
+  ): Promise<Page<ZhihuContentSummary>> {
+    if (recommendationMode === 'android') {
+      return this.readAndroidRecommendation(cursor ? validateZhihuCursor(cursor) : ANDROID_RECOMMEND_URL, signal)
+    }
+    if (recommendationMode === 'web') {
+      return this.readWebRecommendation(cursor ? validateZhihuCursor(cursor) : WEB_RECOMMEND_URL, signal)
+    }
+    if (recommendationMode === 'mixed') {
+      const state = cursor ? decodeMixedCursor(cursor) : { web: WEB_RECOMMEND_URL, android: ANDROID_RECOMMEND_URL }
+      const [androidPage, webPage] = await Promise.all([
+        state.android
+          ? this.readAndroidRecommendation(state.android, signal)
+          : Promise.resolve<Page<ZhihuContentSummary>>({ items: [], hasMore: false }),
+        state.web
+          ? this.readWebRecommendation(state.web, signal)
+          : Promise.resolve<Page<ZhihuContentSummary>>({ items: [], hasMore: false }),
+      ])
+      const nextCursor = encodeMixedCursor({
+        android: androidPage.hasMore ? androidPage.nextCursor : undefined,
+        web: webPage.hasMore ? webPage.nextCursor : undefined,
+      })
+      return {
+        items: interleaveRecommendationSources(androidPage.items, webPage.items),
+        nextCursor,
+        hasMore: Boolean(nextCursor),
+      }
+    }
+
+    // 本地模式抓取公开候选，但排名、画像和解释均只在本机完成。单路失败时仍可用另一路，
+    // 两路都失败才上抛；这样不会因为某个上游推荐协议暂时变化而把本地模式整体打空。
+    const offset = localOffset(cursor)
+    const settled = await Promise.allSettled([
+      this.readAndroidRecommendation(ANDROID_RECOMMEND_URL, signal),
+      this.readWebRecommendation(WEB_RECOMMEND_URL, signal),
+    ])
+    if (settled.every((result) => result.status === 'rejected')) {
+      throw settled[0].status === 'rejected' ? settled[0].reason : new ZhihuApiError('network', '本地推荐候选读取失败')
+    }
+    const androidItems = settled[0].status === 'fulfilled' ? settled[0].value.items : []
+    const webItems = settled[1].status === 'fulfilled' ? settled[1].value.items : []
+    const ranked = rankZhihuLocalRecommendations(
+      interleaveRecommendationSources(androidItems, webItems),
+      accountId,
+    )
+    const pageSize = 20
+    const items = ranked.slice(offset, offset + pageSize)
+    const nextOffset = offset + items.length
+    const hasMore = nextOffset < ranked.length
+    return {
+      items,
+      nextCursor: hasMore ? `local:${nextOffset}` : undefined,
+      hasMore,
+    }
+  }
+
   async listFeed(
     mode: ZhihuFeedMode,
     cursor?: string,
     signal?: AbortSignal,
+    recommendationMode: ZhihuRecommendationMode = 'android',
+    accountId?: string | null,
   ): Promise<Page<ZhihuContentSummary>> {
+    if (mode === 'recommended') {
+      return this.listRecommended(recommendationMode, cursor, signal, accountId)
+    }
     let operation: string
     let url: string
     if (cursor) {
       url = validateZhihuCursor(cursor)
-      operation = mode === 'hot' ? 'feed.hot' : mode === 'following' ? 'feed.following' : 'feed.recommended'
+      operation = mode === 'hot' ? 'feed.hot' : 'feed.following'
     } else if (mode === 'hot') {
       operation = 'feed.hot'
       url = `${zhihuHotUrl()}?limit=50&mobile=true`
@@ -71,33 +242,35 @@ export class ZhihuFeedService {
 
   async search(
     query: string,
-    offset = 0,
+    cursor?: string,
     signal?: AbortSignal,
+    options: ZhihuSearchOptions = {},
   ): Promise<Page<ZhihuContentSummary>> {
     const normalized = query.trim()
     if (!normalized) return { items: [], hasMore: false }
-    const raw = await this.api.getJson('search.query', zhihuSearchUrl(normalized, offset), signal)
+    const url = cursor
+      ? validateZhihuCursor(cursor)
+      : zhihuSearchUrl(normalized, 0, 20, options)
+    const raw = await this.api.getJson('search.query', url, signal)
     const decoded = decodeZhihuPage(raw)
     return {
       items: decoded.items,
-      nextCursor: decoded.hasMore ? String(offset + 20) : undefined,
+      nextCursor: decoded.nextCursor,
       hasMore: decoded.hasMore,
     }
   }
 
   async questionAnswers(
     questionId: string,
-    offset = 0,
+    order: ZhihuQuestionAnswerOrder = 'default',
+    cursor?: string,
     signal?: AbortSignal,
   ): Promise<Page<ZhihuContentSummary>> {
     if (!questionId) throw new ZhihuApiError('invalid-response', '问题 id 为空')
-    const raw = await this.api.getJson('question.answers', zhihuQuestionAnswersUrl(questionId, offset), signal)
+    const url = cursor ? validateZhihuCursor(cursor) : zhihuQuestionAnswersUrl(questionId, order)
+    const raw = await this.api.getJson('question.answers', url, signal)
     const decoded = decodeZhihuPage(raw)
-    return {
-      items: decoded.items,
-      nextCursor: decoded.hasMore ? String(offset + 20) : undefined,
-      hasMore: decoded.hasMore,
-    }
+    return { items: decoded.items, nextCursor: decoded.nextCursor, hasMore: decoded.hasMore }
   }
 }
 

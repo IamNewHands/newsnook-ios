@@ -8,6 +8,17 @@ export type ZhihuAuthState =
 export interface ZhihuAccountRef {
   id: string
   name?: string
+  urlToken?: string
+  avatarUrl?: string
+  headline?: string
+}
+
+export interface ZhihuStoredAccount {
+  account: ZhihuAccountRef
+  wwwCookie: string
+  apiCookie: string
+  profileJson?: string
+  updatedAt: number
 }
 
 export interface ZhihuSessionSnapshot {

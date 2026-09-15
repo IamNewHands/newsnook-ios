@@ -3,6 +3,9 @@ export interface ZhihuRequest {
   url: string
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: string
+  bodyBase64?: string
+  headers?: Record<string, string>
+  signing?: 'web-zse96' | 'none'
   accountId?: string
   generation: number
   retry: 'safe-read' | 'never'

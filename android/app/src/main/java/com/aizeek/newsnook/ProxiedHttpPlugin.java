@@ -45,6 +45,8 @@ public class ProxiedHttpPlugin extends Plugin {
 
         JSObject headersObj = call.getObject("headers");
         String body = call.getString("data");
+        String bodyBase64 = call.getString("dataBase64");
+        boolean omitContentType = Boolean.TRUE.equals(call.getBoolean("omitContentType", false));
         JSObject proxyObj = call.getObject("proxy");
 
         int connectTimeout = call.getInt("connectTimeout", 15000);
@@ -111,8 +113,18 @@ public class ProxiedHttpPlugin extends Plugin {
 
         if ("POST".equals(method) || "PUT".equals(method) || "PATCH".equals(method)) {
             String contentType = headersObj != null ? headersObj.getString("Content-Type") : null;
-            MediaType mediaType = contentType != null ? MediaType.parse(contentType) : FORM;
-            RequestBody requestBody = RequestBody.create(body != null ? body : "", mediaType);
+            MediaType mediaType = omitContentType ? null : (contentType != null ? MediaType.parse(contentType) : FORM);
+            RequestBody requestBody;
+            if (bodyBase64 != null) {
+                try {
+                    requestBody = RequestBody.create(Base64.decode(bodyBase64, Base64.DEFAULT), mediaType);
+                } catch (IllegalArgumentException error) {
+                    call.reject("请求体 dataBase64 不是有效 base64");
+                    return;
+                }
+            } else {
+                requestBody = RequestBody.create(body != null ? body : "", mediaType);
+            }
             requestBuilder.method(method, requestBody);
         } else if ("HEAD".equals(method) || "DELETE".equals(method)) {
             requestBuilder.method(method, null);

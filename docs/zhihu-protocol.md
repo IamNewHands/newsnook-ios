@@ -18,18 +18,18 @@
 
 ## 操作矩阵
 
-运行时权威定义位于 `src/features/zhihu/protocol.ts`；这里给人工审查摘要。
+运行时权威定义位于 `src/features/zhihu/protocol.ts`；当前 contract 共 70 个 operation，`npm run test:zhihu-protocol` 会检查 Z01–Z18 覆盖、证据路径、fixture 元数据以及“未 verified 的 mutation 必须关闭”。下表是人工审查的关键摘要，不替代运行时完整矩阵。
 
 | 操作 | Z | 方法 | 认证 | 状态 | Endpoint / 结论 |
 |---|---|---:|---|---|---|
 | `session.login` | Z01 | POST | guest | source-only | 登录/挑战参数仍需授权实网核对 |
-| `session.switch-account` | Z01 | LOCAL | local | blocked | 先完成 generation 隔离，不能用 mock 账号冒充 |
+| `session.switch-account` | Z01 | LOCAL | local | source-only | 纯本地账号切换已实现，generation 栅栏有行为测试；不等同远端 live verified |
 | `feed.recommended` | Z02/Z03 | GET | optional | source-only | `https://api.zhihu.com/topstory/recommend` |
 | `feed.hot` | Z02 | GET | optional | source-only | `/api/v3/feed/topstory/hot-lists/total` |
 | `feed.following` | Z02 | GET | required | source-only | `api.zhihu.com/moments_v3`，精确关注语义待证 |
 | `search.query` | Z04 | GET | optional | source-only | `/api/v4/search_v3` |
 | `question.read` | Z05/Z06 | GET | optional | source-only | `/api/v4/questions/:id` |
-| `question.answers` | Z05 | GET | optional | source-only | `/api/v4/questions/:id/answers` |
+| `question.answers` | Z05 | GET | optional | source-only | `/api/v4/questions/:id/feeds`，排序与翻页只跟随校验后的服务端 next URL |
 | `answer.read` | Z05/Z06/Z17 | GET | optional | source-only | `/api/v4/answers/:id` |
 | `article.read` | Z06/Z17 | GET | optional | source-only | `/api/v4/articles/:id` |
 | `pin.read` | Z06/Z17 | GET | optional | source-only | `/api/v4/pins/:id` |
@@ -38,11 +38,16 @@
 | `comment.list-child` | Z08 | GET | optional | source-only | `/api/v4/comment_v5/comment/:id/child_comment` |
 | `comment.create` | Z08 | POST | required | source-only | 评论发送；未验证写回，禁用 |
 | `comment.update` | Z08 | PATCH | required | blocked | 未定位可靠编辑协议；禁止删后重发冒充编辑 |
-| `people.read` | Z09/Z15 | GET | optional | source-only | `/api/v4/members/:token` |
+| `people.read` | Z09/Z15 | GET | optional | source-only | `https://api.zhihu.com/people/:token` |
 | `people.content` | Z09 | GET | optional | source-only | `/api/v4/members/:token/:contentKind` |
+| `people.followers` / `people.following` | Z09 | GET | optional | source-only | 粉丝、关注用户分页；next URL 必须通过知乎域白名单 |
+| `people.following-questions` / `people.following-topics` | Z09 | GET | optional | source-only | 用户关注问题/话题分页 |
+| `people.collections` / `people.following-collections` | Z09/Z10 | GET | optional | source-only | 用户创建/关注的公开收藏夹分页 |
 | `topic.read` | Z04/Z09 | GET | optional | source-only | `/api/v5.1/topics/:id` |
 | `topic.feed` | Z04/Z09 | GET | optional | source-only | `/api/v5.1/topics/:id/feeds/:mode` |
-| `collection.list` | Z10/Z15 | GET | required | source-only | `/api/v4/collections`，账号私有 |
+| `collection.list` | Z10/Z15 | GET | required | source-only | `/api/v4/people/:urlToken/collections`，当前账号收藏夹 |
+| `collection.read` / `collection.items` | Z10 | GET | optional | source-only | `/api/v4/collections/:id` 与 `/items`；公开收藏夹可匿名尝试读取 |
+| `collection.create` / `collection.delete` / `collection.membership` | Z10 | POST/DELETE/PUT | required | source-only | 有源码证据但未授权实网写回，运行时 mutation gate 关闭 |
 | `draft.answer.save` | Z11/Z12 | POST | required | source-only | `/api/v4/questions/:id/draft`；没有草稿箱完整 CRUD |
 | `draft.remote.list` | Z11 | GET | required | blocked | 缺可靠远端草稿箱列表/详情/删除闭环 |
 | `answer.publish` | Z12 | POST | required | source-only | `/api/v4/content/publish`；超时禁止自动重试 |
@@ -53,9 +58,12 @@
 | `image.upload` | Z14 | POST | required | source-only | `api.zhihu.com/images`；上传域隔离待设备验证 |
 | `video.upload` | Z14 | POST | required | blocked | 只找到播放取源，未找到可靠视频上传协议 |
 | `profile.update` | Z15 | PATCH | required | blocked | 资料修改缺完整证据 |
-| `notification.list` | Z16 | GET | required | source-only | `api.zhihu.com/notifications/v3/timeline/entry` |
+| `notification.list` | Z16 | GET | required | source-only | `api.zhihu.com/notifications/v3/message/v3`，总览与分类未读数 |
+| `notification.timeline` | Z16 | GET | required | source-only | `api.zhihu.com/notifications/v3/timeline/entry/:entry` |
+| `notification.readall` | Z16 | POST | required | source-only | 分类全部已读；未授权验证前 UI/API 双层禁用 |
 | `message.list` | Z16 | GET | required | source-only | `api.zhihu.com/messages`；账号私有 |
-| `message.send` | Z16 | POST | required | source-only | 未授权写入/读回，禁用 |
+| `message.peer` | Z16 | GET | required | source-only | `api.zhihu.com/messages/user/:peerId`；账号私有 |
+| `message.send` | Z16 | POST | required | source-only | 未授权写入/读回，禁用；生产树不携带从 AGPL 参考实现抽取的白盒私信协议表 |
 | `bridge.article` | Z17 | LOCAL | local | blocked | 由 NewsNook Article/分享桥接行为测试提升 |
 | `workspace.behavior` | Z18 | LOCAL | local | blocked | 由主题/返回栈/双变体集成验收提升 |
 

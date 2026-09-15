@@ -31,6 +31,16 @@ saveZhihuPublicFeedCache('following', page, storage, 1_000)
 assert.equal([...storage.values.keys()].some((key) => key.endsWith(':following')), false, '账号关注流不得进入公共 localStorage 缓存')
 assert.equal(loadZhihuPublicFeedCache('following', storage, 2_000), null)
 
+const beforeLocal = storage.values.size
+saveZhihuPublicFeedCache('recommended', page, storage, 1_000, 'local')
+assert.equal(storage.values.size, beforeLocal, '本地画像衍生排序不得进入公共 feed cache')
+assert.equal(loadZhihuPublicFeedCache('recommended', storage, 2_000, 'local'), null)
+
+saveZhihuPublicFeedCache('recommended', page, storage, 1_000, 'web')
+saveZhihuPublicFeedCache('recommended', page, storage, 1_000, 'mixed')
+assert.ok([...storage.values.keys()].some((key) => key.endsWith(':recommended:web')))
+assert.ok([...storage.values.keys()].some((key) => key.endsWith(':recommended:mixed')))
+
 assert.equal(loadZhihuPublicFeedCache('recommended', storage, 9 * 24 * 60 * 60 * 1000), null, '过期公开缓存必须丢弃')
 
 console.log('zhihu public cache boundary ok')

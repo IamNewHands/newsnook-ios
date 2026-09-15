@@ -1,21 +1,27 @@
 import { useEffect, useState } from 'react'
 
 import type { ZhihuTopicDetail, ZhihuTopicService } from '../topic/service'
+import type { ZhihuInteractionService } from '../interaction/service'
+import { canExecuteZhihuOperation } from '../protocol'
 import type { ZhihuContentSummary, ZhihuEntityRef } from '../types'
 
 interface Props {
   topicId: string
   service: ZhihuTopicService
   onOpen: (ref: ZhihuEntityRef) => void
+  interaction: ZhihuInteractionService
+  authenticated: boolean
 }
 
-export function ZhihuTopicScreen({ topicId, service, onOpen }: Props) {
+export function ZhihuTopicScreen({ topicId, service, onOpen, interaction, authenticated }: Props) {
   const [detail, setDetail] = useState<ZhihuTopicDetail | null>(null)
   const [items, setItems] = useState<ZhihuContentSummary[]>([])
-  const [nextOffset, setNextOffset] = useState<number | null>(null)
+  const [nextCursor, setNextCursor] = useState<string | undefined>()
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [followBusy, setFollowBusy] = useState(false)
+  const followWritable = canExecuteZhihuOperation(detail?.isFollowing ? 'follow.topic.clear' : 'follow.topic.set')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -23,13 +29,13 @@ export function ZhihuTopicScreen({ topicId, service, onOpen }: Props) {
     setError(null)
     void Promise.all([
       service.read(topicId, controller.signal),
-      service.listHot(topicId, 0, controller.signal),
+      service.listHot(topicId, undefined, controller.signal),
     ]).then(
       ([nextDetail, page]) => {
         if (controller.signal.aborted) return
         setDetail(nextDetail)
         setItems(page.items)
-        setNextOffset(page.hasMore ? 20 : null)
+        setNextCursor(page.nextCursor)
         setLoading(false)
       },
       (reason) => {
@@ -42,16 +48,16 @@ export function ZhihuTopicScreen({ topicId, service, onOpen }: Props) {
   }, [service, topicId])
 
   const loadMore = () => {
-    if (nextOffset == null || loadingMore) return
-    const offset = nextOffset
+    if (!nextCursor || loadingMore) return
+    const cursor = nextCursor
     setLoadingMore(true)
-    void service.listHot(topicId, offset).then(
+    void service.listHot(topicId, cursor).then(
       (page) => {
         setItems((prev) => {
           const seen = new Set(prev.map((item) => `${item.ref.kind}:${item.ref.id}`))
           return [...prev, ...page.items.filter((item) => !seen.has(`${item.ref.kind}:${item.ref.id}`))]
         })
-        setNextOffset(page.hasMore ? offset + 20 : null)
+        setNextCursor(page.nextCursor)
         setLoadingMore(false)
       },
       (reason) => {
@@ -59,6 +65,27 @@ export function ZhihuTopicScreen({ topicId, service, onOpen }: Props) {
         setLoadingMore(false)
       },
     )
+  }
+
+  const toggleFollow = async () => {
+    if (!detail || !authenticated || followBusy) return
+    const target = !detail.isFollowing
+    setFollowBusy(true)
+    setError(null)
+    try {
+      await interaction.setFollowing('topic', detail.id, target)
+      setDetail((prev) => prev ? {
+        ...prev,
+        isFollowing: target,
+        followersCount: typeof prev.followersCount === 'number'
+          ? Math.max(0, prev.followersCount + (target ? 1 : -1))
+          : prev.followersCount,
+      } : prev)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '关注话题失败')
+    } finally {
+      setFollowBusy(false)
+    }
   }
 
   return (
@@ -71,6 +98,11 @@ export function ZhihuTopicScreen({ topicId, service, onOpen }: Props) {
               <div className="font-mono text-[9.5px] tracking-[0.14em] text-cinnabar">TOPIC</div>
               <h1 className="mt-1 font-display text-[22px] font-semibold text-paper">{detail.name}</h1>
             </div>
+            {authenticated && (
+              <button type="button" disabled={followBusy || !followWritable} onClick={() => void toggleFollow()} title={followWritable ? undefined : '当前版本暂不可关注话题'} className={`min-h-9 shrink-0 rounded-xl px-3 font-mono text-[10.5px] ${detail.isFollowing ? 'border border-haze text-paper-muted' : 'bg-cinnabar text-white'} disabled:opacity-45`}>
+                {followBusy ? '处理中…' : detail.isFollowing ? '已关注' : '关注话题'}
+              </button>
+            )}
           </div>
           {detail.excerpt && <p className="mt-3 text-[12.5px] leading-6 text-paper-muted">{detail.excerpt}</p>}
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10.5px] text-paper-faint">
@@ -91,7 +123,7 @@ export function ZhihuTopicScreen({ topicId, service, onOpen }: Props) {
           </button>
         ))}
       </div>
-      {nextOffset != null && <button type="button" onClick={loadMore} disabled={loadingMore} className="mt-4 min-h-11 w-full rounded-xl border border-haze/70 bg-ink-raised font-mono text-[11px] text-paper-muted disabled:opacity-50">{loadingMore ? '正在加载…' : '加载更多'}</button>}
+      {nextCursor && <button type="button" onClick={loadMore} disabled={loadingMore} className="mt-4 min-h-11 w-full rounded-xl border border-haze/70 bg-ink-raised font-mono text-[11px] text-paper-muted disabled:opacity-50">{loadingMore ? '正在加载…' : '加载更多'}</button>}
     </div>
   )
 }
