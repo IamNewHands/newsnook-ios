@@ -2,14 +2,19 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Bold,
   Check,
+  ChevronRight,
   Code2,
   Copy,
+  Eye,
   Heading2,
   Italic,
   Link2,
   List,
   Loader2,
   ImagePlus,
+  Lightbulb,
+  MessageSquareQuote,
+  Pencil,
   Quote,
   RotateCcw,
   Save,
@@ -17,6 +22,7 @@ import {
   Trash2,
 } from 'lucide-react'
 
+import { ConfirmDialog, PromptDialog } from '../../../components/ConfirmDialog'
 import { sanitizeArticleHtml } from '../../../lib/sanitize'
 import type { ZhihuDraftStore } from '../editor/draftStore'
 import type { ZhihuEditorService, ZhihuPublishResult } from '../editor/service'
@@ -24,6 +30,7 @@ import { createZhihuLocalId, type ZhihuDraftSnapshot } from '../editor/schema'
 import type { ZhihuImageUploadService } from '../editor/upload'
 import { canExecuteZhihuOperation } from '../protocol'
 import type { ZhihuEntityRef } from '../types'
+import { ZhihuEmptyState, ZhihuErrorBanner, ZhihuSurface } from './ZhihuUi'
 
 interface Props {
   accountId: string
@@ -64,7 +71,10 @@ function DraftManager({ accountId, store, onOpenDraft }: Pick<Props, 'accountId'
 
   useEffect(() => {
     let alive = true
-    void store.list(accountId).then((value) => alive && setItems(value), (reason) => alive && setError(reason instanceof Error ? reason.message : '读取本机草稿失败'))
+    void store.list(accountId).then(
+      (value) => alive && setItems(value),
+      (reason) => alive && setError(reason instanceof Error ? reason.message : '读取本机草稿失败'),
+    )
     return () => { alive = false }
   }, [accountId, store])
 
@@ -89,37 +99,68 @@ function DraftManager({ accountId, store, onOpenDraft }: Pick<Props, 'accountId'
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-28 pt-5 sm:px-6">
-      <div className="rounded-2xl border border-haze/70 bg-ink-raised/60 p-4">
-        <h1 className="font-display text-[20px] font-semibold text-paper">创作与草稿</h1>
-        <p className="mt-1 text-[11px] leading-5 text-paper-faint">继续已有草稿，或新建回答和想法。</p>
-        {error && <div role="alert" className="mt-3 rounded-xl border border-cinnabar/30 bg-cinnabar/8 p-3 text-[11px] text-paper-muted">{error}</div>}
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button type="button" disabled={creating} onClick={() => void create('pin')} className="min-h-10 rounded-xl bg-cinnabar px-4 text-[12px] font-medium text-white disabled:opacity-45">新建想法</button>
-          <div className="flex min-w-[240px] flex-1 gap-2">
-            <input value={questionId} onChange={(event) => setQuestionId(event.target.value.replace(/[^0-9]/g, ''))} inputMode="numeric" placeholder="问题 ID" className="min-w-0 flex-1 rounded-xl border border-haze/70 bg-ink px-3 text-[12px] text-paper outline-none focus:border-cinnabar/50" />
-            <button type="button" disabled={creating || !questionId.trim()} onClick={() => void create('answer')} className="min-h-10 rounded-xl border border-haze/80 px-4 text-[12px] text-paper-muted disabled:opacity-40">写回答</button>
+      <header className="mb-5 border-b border-haze/55 pb-5">
+        <div className="flex items-center gap-2">
+          <Pencil size={17} strokeWidth={1.6} className="text-cinnabar-soft" />
+          <h1 className="font-display text-[22px] font-medium text-paper">创作与草稿</h1>
+        </div>
+        <p className="mt-1.5 text-[11.5px] leading-relaxed text-paper-faint">继续已有草稿，或新建回答和想法。</p>
+        {error && <div className="mt-3"><ZhihuErrorBanner>{error}</ZhihuErrorBanner></div>}
+
+        <div className="mt-4 flex items-center gap-2">
+          <button
+            type="button"
+            disabled={creating}
+            onClick={() => void create('pin')}
+            aria-label="新建想法"
+            title="新建想法"
+            className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-cinnabar/50 bg-cinnabar/12 text-cinnabar-soft transition-colors hover:bg-cinnabar/20 disabled:opacity-35"
+          >
+            {creating ? <Loader2 size={15} className="animate-spin" /> : <Lightbulb size={17} strokeWidth={1.65} />}
+          </button>
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-haze/70 bg-ink-raised/40 p-2 focus-within:border-cinnabar/35">
+            <MessageSquareQuote size={15} strokeWidth={1.6} className="shrink-0 text-paper-faint" />
+            <input
+              value={questionId}
+              onChange={(event) => setQuestionId(event.target.value.replace(/[^0-9]/g, ''))}
+              inputMode="numeric"
+              placeholder="问题 ID"
+              className="min-h-9 min-w-0 flex-1 bg-transparent text-[12.5px] text-paper outline-none placeholder:text-paper-faint/65"
+            />
+            <button
+              type="button"
+              disabled={creating || !questionId.trim()}
+              onClick={() => void create('answer')}
+              aria-label="新建回答草稿"
+              title="新建回答草稿"
+              className="flex size-9 shrink-0 items-center justify-center rounded-lg text-paper-faint transition-colors hover:bg-paper/5 hover:text-cinnabar-soft disabled:opacity-30"
+            >
+              <ChevronRight size={16} strokeWidth={1.6} />
+            </button>
           </div>
         </div>
-      </div>
+      </header>
 
-      <section className="mt-4">
-        <h2 className="mb-2 font-display text-[15px] font-semibold text-paper">本机草稿</h2>
-        {items.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-haze/70 px-4 py-12 text-center text-[11px] text-paper-faint">还没有本机草稿</div>
-        ) : (
-          <div className="space-y-2">
-            {items.map((draft) => (
-              <button key={draft.localDraftId} type="button" onClick={() => onOpenDraft(draft.localDraftId)} className="flex w-full items-center gap-3 rounded-xl border border-haze/70 bg-ink-raised/45 p-3.5 text-left hover:border-cinnabar/35">
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[12.5px] font-medium text-paper">{draftLabel(draft)}</span>
-                  <span className="mt-1 block truncate text-[10.5px] text-paper-faint">{draft.document.text.slice(0, 100) || '空草稿'}</span>
-                </span>
-                <span className="shrink-0 text-right font-mono text-[9px] text-paper-faint"><span className="block">{stateLabel(draft)}</span><span className="mt-1 block">{formatTime(draft.updatedAt)}</span></span>
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
+      <div className="mb-2 px-1 font-display text-[15px] font-medium text-paper">本机草稿</div>
+      {items.length === 0 ? (
+        <ZhihuEmptyState icon={<Pencil size={28} />} title="还没有草稿" description="新建想法，或输入问题 ID 开始写回答。" />
+      ) : (
+        <ZhihuSurface className="divide-y divide-haze/55">
+          {items.map((draft) => (
+            <button key={draft.localDraftId} type="button" onClick={() => onOpenDraft(draft.localDraftId)} className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-paper/5">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-paper/5 text-paper-muted">
+                {draft.kind === 'answer' ? <MessageSquareQuote size={15} /> : <Lightbulb size={15} />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12.5px] font-medium text-paper">{draftLabel(draft)}</span>
+                <span className="mt-1 line-clamp-2 block text-[10.5px] leading-[1.55] text-paper-faint">{draft.document.text.slice(0, 140) || '空草稿'}</span>
+              </span>
+              <span className="shrink-0 text-right font-mono text-[9px] text-paper-faint"><span className="block">{stateLabel(draft)}</span><span className="mt-1 block">{formatTime(draft.updatedAt)}</span></span>
+              <ChevronRight size={14} strokeWidth={1.5} className="shrink-0 text-paper-faint/65" />
+            </button>
+          ))}
+        </ZhihuSurface>
+      )}
     </div>
   )
 }
@@ -136,6 +177,8 @@ export function ZhihuEditorScreen(props: Props) {
   const [preview, setPreview] = useState(false)
   const [editVersion, setEditVersion] = useState(0)
   const [uploadingImage, setUploadingImage] = useState(false)
+  const [linkPromptOpen, setLinkPromptOpen] = useState(false)
+  const [deletePromptOpen, setDeletePromptOpen] = useState(false)
   const editorRef = useRef<HTMLDivElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const loadedIdRef = useRef<string | null>(null)
@@ -294,13 +337,14 @@ export function ZhihuEditorScreen(props: Props) {
     setEditVersion((version) => version + 1)
   }
 
-  const addLink = () => {
-    const value = window.prompt('链接地址（https://…）')?.trim()
-    if (!value) return
+  const addLink = (value: string) => {
+    const normalized = value.trim()
+    if (!normalized) return
     try {
-      const url = new URL(value)
+      const url = new URL(normalized)
       if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('bad scheme')
       command('createLink', url.href)
+      setLinkPromptOpen(false)
     } catch {
       setError('只允许 http/https 链接')
     }
@@ -362,8 +406,8 @@ export function ZhihuEditorScreen(props: Props) {
   }
 
   const remove = async () => {
-    if (!window.confirm('删除这个本机草稿及其本地媒体？此操作不会删除已经发布的知乎内容。')) return
     await store.delete(accountId, draft.localDraftId)
+    setDeletePromptOpen(false)
     onDeleted()
   }
 
@@ -377,9 +421,9 @@ export function ZhihuEditorScreen(props: Props) {
             <div className="font-display text-[16px] font-semibold text-paper">{draft.kind === 'answer' ? `回答问题 ${draft.targetId}` : '发布想法'}</div>
             <div className="mt-0.5 font-mono text-[9px] text-paper-faint">revision {draft.localRevision} · {stateLabel(draft)}</div>
           </div>
-          <button type="button" disabled={saving} onClick={() => void saveLocal(false)} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-haze/70 px-3 font-mono text-[10px] text-paper-muted"><Save size={13} />{saving ? '保存中' : '本机保存'}</button>
-          <button type="button" disabled={remoteBusy || !remoteDraftWritable} onClick={() => void saveRemote()} title={remoteDraftWritable ? undefined : '当前版本暂不可保存远端草稿'} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-haze/70 px-3 font-mono text-[10px] text-paper-muted disabled:opacity-40"><RotateCcw size={13} />远端草稿</button>
-          <button type="button" disabled={remoteBusy || !publishWritable} onClick={() => void publish()} title={publishWritable ? undefined : '当前版本暂不可发布'} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl bg-cinnabar px-3 font-mono text-[10px] text-white disabled:opacity-45">{remoteBusy ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}发布</button>
+          <button type="button" disabled={saving} onClick={() => void saveLocal(false)} aria-label="保存到本机" title="保存到本机" className="flex size-9 items-center justify-center rounded-xl border border-haze/70 text-paper-muted transition-colors hover:bg-paper/5 disabled:opacity-35">{saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}</button>
+          <button type="button" disabled={remoteBusy || !remoteDraftWritable} onClick={() => void saveRemote()} aria-label="保存远端草稿" title={remoteDraftWritable ? '保存远端草稿' : '当前版本暂不可保存远端草稿'} className="flex size-9 items-center justify-center rounded-xl border border-haze/70 text-paper-muted transition-colors hover:bg-paper/5 disabled:opacity-35"><RotateCcw size={14} /></button>
+          <button type="button" disabled={remoteBusy || !publishWritable} onClick={() => void publish()} aria-label="发布" title={publishWritable ? '发布' : '当前版本暂不可发布'} className="flex size-9 items-center justify-center rounded-xl border border-cinnabar/50 bg-cinnabar/14 text-cinnabar-soft transition-colors hover:bg-cinnabar/20 disabled:opacity-35">{remoteBusy ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}</button>
         </div>
         {notice && <div className="mt-3 flex items-center gap-2 rounded-xl border border-haze/60 bg-ink px-3 py-2 text-[10.5px] text-paper-muted"><Check size={13} className="text-cinnabar" />{notice}</div>}
         {error && <div role="alert" className="mt-3 rounded-xl border border-cinnabar/35 bg-cinnabar/8 px-3 py-2 text-[11px] leading-5 text-paper-muted">{error}</div>}
@@ -394,17 +438,17 @@ export function ZhihuEditorScreen(props: Props) {
         <button type="button" onClick={() => command('formatBlock', 'blockquote')} className="flex size-9 items-center justify-center rounded-lg text-paper-muted hover:bg-ink" title="引用"><Quote size={14} /></button>
         <button type="button" onClick={() => command('insertUnorderedList')} className="flex size-9 items-center justify-center rounded-lg text-paper-muted hover:bg-ink" title="列表"><List size={14} /></button>
         <button type="button" onClick={() => command('formatBlock', 'pre')} className="flex size-9 items-center justify-center rounded-lg text-paper-muted hover:bg-ink" title="代码块"><Code2 size={14} /></button>
-        <button type="button" onClick={addLink} className="flex size-9 items-center justify-center rounded-lg text-paper-muted hover:bg-ink" title="链接"><Link2 size={14} /></button>
+        <button type="button" onClick={() => setLinkPromptOpen(true)} className="flex size-9 items-center justify-center rounded-lg text-paper-muted hover:bg-ink" title="链接"><Link2 size={14} /></button>
         <button type="button" disabled={uploadingImage || !imageWritable} onClick={() => imageInputRef.current?.click()} className="flex size-9 items-center justify-center rounded-lg text-paper-muted hover:bg-ink disabled:opacity-40" title={imageWritable ? '上传图片' : '当前版本暂不可上传图片'}>{uploadingImage ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} />}</button>
         <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadImage(file) }} />
         <span className="mx-1 w-px bg-haze" />
-        <button type="button" onClick={() => setPreview((value) => !value)} className="min-h-9 rounded-lg px-3 font-mono text-[10px] text-paper-muted hover:bg-ink">{preview ? '继续编辑' : '预览'}</button>
+        <button type="button" onClick={() => setPreview((value) => !value)} aria-label={preview ? '继续编辑' : '预览'} title={preview ? '继续编辑' : '预览'} className="flex size-9 items-center justify-center rounded-lg text-paper-muted hover:bg-ink">{preview ? <Pencil size={14} /> : <Eye size={14} />}</button>
         <button type="button" onClick={() => void copy()} className="ml-auto flex size-9 items-center justify-center rounded-lg text-paper-muted hover:bg-ink" title="复制草稿"><Copy size={14} /></button>
-        <button type="button" onClick={() => void remove()} className="flex size-9 items-center justify-center rounded-lg text-paper-faint hover:bg-ink hover:text-cinnabar" title="删除本机草稿"><Trash2 size={14} /></button>
+        <button type="button" onClick={() => setDeletePromptOpen(true)} className="flex size-9 items-center justify-center rounded-lg text-paper-faint hover:bg-ink hover:text-cinnabar" title="删除本机草稿"><Trash2 size={14} /></button>
       </div>
 
       {preview ? (
-        <article className="article-content mt-3 min-h-[320px] rounded-2xl border border-haze/70 bg-ink-raised/35 px-4 py-5 text-paper" dangerouslySetInnerHTML={{ __html: sanitizedPreview }} />
+        <article className="reader-prose zhihu-prose mt-3 min-h-[320px] rounded-2xl border border-haze/70 bg-ink-raised/35 px-4 py-5 text-paper" data-article-lang="zh" dangerouslySetInnerHTML={{ __html: sanitizedPreview }} />
       ) : (
         <div
           ref={editorRef}
@@ -418,6 +462,27 @@ export function ZhihuEditorScreen(props: Props) {
           className="article-content mt-3 min-h-[45vh] rounded-2xl border border-haze/70 bg-ink-raised/35 px-4 py-5 text-[14px] leading-7 text-paper outline-none focus:border-cinnabar/45 [&:empty:before]:content-[attr(data-placeholder)] [&:empty:before]:text-paper-faint"
         />
       )}
+
+      <PromptDialog
+        open={linkPromptOpen}
+        title="插入链接"
+        message="支持 http / https 链接。"
+        label="链接地址"
+        confirmLabel="插入"
+        cancelLabel="取消"
+        onCancel={() => setLinkPromptOpen(false)}
+        onConfirm={addLink}
+      />
+      <ConfirmDialog
+        open={deletePromptOpen}
+        title="删除本机草稿"
+        message="将删除这个本机草稿及其本地媒体，不会删除已经发布到知乎的内容。"
+        confirmLabel="删除"
+        cancelLabel="取消"
+        danger
+        onCancel={() => setDeletePromptOpen(false)}
+        onConfirm={() => void remove()}
+      />
     </div>
   )
 }

@@ -331,8 +331,11 @@ export const ZHIHU_OPERATIONS = [
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/NotificationViewModel.kt`, note: '会话页并行读取 peer 资料。' }], note: '账号私有，不缓存到公共域。',
   },
   {
-    operation: 'message.send', zIds: ['Z16'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://api.zhihu.com/messages',
-    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PrivateMessageScreen.kt`, note: '参考项目存在私信发送路径。' }], note: '未经授权写入/读回，UI 禁用。',
+    operation: 'message.send', zIds: ['Z16'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/messages',
+    evidence: [
+      { kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PrivateMessageScreen.kt`, note: '参考项目证明私信会话与发送仍为现行产品能力。' },
+      { kind: 'local-test', path: 'scripts/zhihu-message.test.ts', note: 'NewsNook Web v4 JSON 发送只执行一次，并用会话读回确认；无法确认时返回 unknown/conflict，绝不自动重发。' },
+    ], note: '使用 Web v4 messages 的 JSON body；非幂等发送只调用一次，响应无实体时必须读回确认。',
   },
   {
     operation: 'bridge.article', zIds: ['Z17'], status: 'blocked', method: 'LOCAL', auth: 'local-only', retry: 'never', endpoint: null,

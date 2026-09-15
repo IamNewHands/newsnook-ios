@@ -1588,7 +1588,6 @@ export default function App() {
             >
               <ZhihuWorkspace
                 onExit={leaveActiveSite}
-                onOpenArticle={openArticle}
                 backHandlerRef={siteBackHandlerRef}
                 presetSwitcher={presetSwitcherConfig}
               />

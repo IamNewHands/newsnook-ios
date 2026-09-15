@@ -89,9 +89,56 @@ await credentialStore.setActiveAccountId('u-b')
 assert.deepEqual(await credentialStore.listAccountIds(), ['u-a', 'u-b'])
 assert.equal((await credentialStore.loadAccount('u-b'))?.account.name, 'B')
 assert.equal(await credentialStore.getActiveAccountId(), 'u-b')
+
+class OfflineTransport implements ZhihuTransport {
+  async request(): Promise<ZhihuResponse> {
+    throw new Error('connection closed')
+  }
+}
+const resumeSession = new ZhihuSessionService()
+const resumeClient = new ZhihuApiClient(new OfflineTransport(), resumeSession)
+const resumeService = new ZhihuAccountService(resumeSession, credentialStore, resumeClient)
+const resumed = await resumeService.hydrate()
+assert.equal(resumed?.account.id, 'u-b')
+assert.equal(resumeSession.getSnapshot().auth, 'authenticated', '冷启动网络抖动不能把已持久化知乎账号误判成退出登录')
+assert.equal(resumeSession.getSnapshot().account?.name, 'B', '网络失败时仍应展示本机已保存的账号资料')
+
 await credentialStore.removeAccount('u-b')
 assert.equal(await credentialStore.getActiveAccountId(), null)
 assert.deepEqual(await credentialStore.listAccountIds(), ['u-a'])
+
+class IdentityOkTransport implements ZhihuTransport {
+  async request(): Promise<ZhihuResponse> {
+    return { status: 200, headers: {}, body: '{"id":"u-a","name":"A"}' }
+  }
+}
+const repairedSession = new ZhihuSessionService()
+const repairedService = new ZhihuAccountService(
+  repairedSession,
+  credentialStore,
+  new ZhihuApiClient(new IdentityOkTransport(), repairedSession),
+)
+assert.equal((await repairedService.hydrate())?.account.id, 'u-a', 'active 键缺失时应从已持久化账号自修复')
+assert.equal(await credentialStore.getActiveAccountId(), 'u-a')
+
+class NeedLoginTransport implements ZhihuTransport {
+  async request(): Promise<ZhihuResponse> {
+    return {
+      status: 403,
+      headers: {},
+      body: '{"error":{"need_login":true,"code":40353,"message":"请您登录后查看更多专业优质内容。"}}',
+    }
+  }
+}
+const needLoginSession = new ZhihuSessionService()
+needLoginSession.switchAccount({ id: 'u-a', name: 'A' }, 'authenticated')
+const needLoginClient = new ZhihuApiClient(new NeedLoginTransport(), needLoginSession)
+await assert.rejects(
+  needLoginClient.getJson('answer.read', 'https://www.zhihu.com/api/v4/answers/1'),
+  (error: unknown) => error instanceof ZhihuApiError && error.code === 'auth-expired',
+  '知乎 403 need_login 必须识别为会话过期，不能伪装成普通 forbidden',
+)
+assert.equal(needLoginSession.getSnapshot().auth, 'expired')
 
 class SourceBackedWriteTransport implements ZhihuTransport {
   calls = 0
@@ -109,6 +156,7 @@ assert.equal(writeTransport.calls, 1, '已有明确 endpoint 的 source-backed �
 
 const mainActivity = readFileSync('android/app/src/main/java/com/aizeek/newsnook/MainActivity.java', 'utf8')
 const nativeSession = readFileSync('android/app/src/main/java/com/aizeek/newsnook/ZhihuSessionPlugin.java', 'utf8')
+const secureStorePlugin = readFileSync('android/app/src/main/java/com/aizeek/newsnook/SecureStorePlugin.java', 'utf8')
 assert.match(mainActivity, /registerPlugin\(ZhihuSessionPlugin\.class\)/)
 assert.match(nativeSession, /https:\/\/www\.zhihu\.com\/api\/v4\/me/)
 assert.match(nativeSession, /endsWith\("\.zhihu\.com"\)/, '认证 WebView 必须限制第一方知乎域名')
@@ -123,5 +171,7 @@ assert.match(nativeSession, /webView\.canGoBack\(\)/, '系统返回应优先回�
 assert.match(nativeSession, /Domain=\.zhihu\.com/, '账号切换前应覆盖清理共享知乎域 Cookie')
 assert.doesNotMatch(nativeSession, /\.\s*removeAllCookies\s*\(/, '禁止清除整个应用 WebView Cookie，避免破坏其它站点登录态')
 assert.doesNotMatch(nativeSession, /getSharedPreferences\s*\(|localStorage\s*\./, '知乎会话插件不能绕过 SecureStore 落明文')
+assert.match(secureStorePlugin, /putString\(key, stored\)\.commit\(\)/, '原生会话保存必须同步刷盘后才能返回成功')
+assert.match(secureStorePlugin, /remove\(key\)\.commit\(\)/, '原生会话删除也必须完成刷盘再返回')
 
 console.log('zhihu session/transport contract ok')

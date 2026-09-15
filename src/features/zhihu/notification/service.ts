@@ -133,13 +133,15 @@ function decodeNotification(value: unknown): ZhihuNotificationItem | null {
 function decodeMessage(value: unknown): ZhihuPrivateMessage | null {
   const root = asRecord(value)
   if (!root) return null
-  const id = firstText(root.id) || `${numberValue(root.created_time) ?? 0}`
+  const createdAt = numberValue(root.created_time)
+  const explicitId = firstText(root.id)
   const content = firstText(root.content)
-  if (!id) return null
+  // ACK（例如 {msg:"success"}）不是消息实体，不能伪造 id=0 后让 UI 当成已发送。
+  if ((!explicitId && createdAt === undefined) || !content) return null
   return {
-    id,
+    id: explicitId || String(createdAt),
     content,
-    createdAt: numberValue(root.created_time),
+    createdAt,
     sender: decodePeer(root.sender),
     receiver: decodePeer(root.receiver),
   }
@@ -242,13 +244,54 @@ export class ZhihuNotificationService {
     }
   }
 
-  async sendMessage(peerId: string, content: string, _signal?: AbortSignal): Promise<ZhihuPrivateMessage> {
+  async sendMessage(peerId: string, content: string, signal?: AbortSignal): Promise<ZhihuPrivateMessage> {
     const normalizedPeer = peerId.trim()
     const normalizedContent = content.trim()
     if (!normalizedPeer) throw new ZhihuApiError('invalid-response', '私信接收者不能为空')
     if (!normalizedContent) throw new ZhihuApiError('invalid-response', '私信内容不能为空')
-    // 参考实现只能证明“曾存在私信发送协议”，当前没有 NewsNook 授权实网写入→读回证据。
-    // 不在 Apache-2.0 生产树中携带从 AGPL 参考实现抽取的白盒协议表，也不发送猜测 payload。
-    throw new ZhihuApiError('unsupported', '知乎私信发送尚未完成授权实网验证，当前仅支持读取会话和保存本机输入草稿')
+
+    const startedAt = Math.floor(Date.now() / 1000) - 10
+    // 非幂等：POST 永远只执行一次。Web v4 端点在部分版本只返回 {msg:"success"}，
+    // 因此响应没有消息实体时只做 GET 读回确认，绝不因为网络/确认失败自动重发。
+    const raw = await this.api.postJson(
+      'message.send',
+      'https://www.zhihu.com/api/v4/messages',
+      { type: 'common', content: normalizedContent, receiver_hash: normalizedPeer },
+      signal,
+    )
+    const root = asRecord(raw)
+    const direct = decodeMessage(raw) ?? decodeMessage(root?.data) ?? decodeMessage(root?.message)
+    if (direct) return direct
+
+    const error = asRecord(root?.error)
+    const errorMessage = firstText(error?.message, root?.message)
+    if (error) throw new ZhihuApiError('forbidden', errorMessage || '知乎拒绝发送私信')
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, 350)
+          signal?.addEventListener('abort', () => {
+            clearTimeout(timer)
+            reject(new DOMException('Aborted', 'AbortError'))
+          }, { once: true })
+        })
+      }
+      const page = await this.conversation(normalizedPeer, undefined, signal)
+      const confirmed = page.items.find((message) => {
+        if (message.content !== normalizedContent) return false
+        if (message.createdAt && message.createdAt < startedAt) return false
+        const receiverMatches = !message.receiver
+          || message.receiver.id === normalizedPeer
+          || message.receiver.token === normalizedPeer
+        return receiverMatches
+      })
+      if (confirmed) return confirmed
+    }
+
+    throw new ZhihuApiError(
+      'conflict',
+      '私信请求已经提交，但暂时没有从会话中读回确认结果。请先刷新会话确认，不要立即重复发送。',
+    )
   }
 }

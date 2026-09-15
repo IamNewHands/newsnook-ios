@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 
 import { decodeZhihuContentDetail, decodeZhihuPage } from '../src/features/zhihu/api/decode'
 import { zhihuSearchUrl } from '../src/features/zhihu/api/endpoints'
+import { parseZhihuJson } from '../src/features/zhihu/api/json'
 import { mergeZhihuPages, ZhihuFeedService } from '../src/features/zhihu/feed/service'
 
 const recommended = JSON.parse(readFileSync('scripts/fixtures/zhihu/feed.recommended.source.json', 'utf8')) as unknown
@@ -12,6 +13,71 @@ assert.equal(decoded.items[0]?.ref.kind, 'answer')
 assert.equal(decoded.items[0]?.ref.id, 'answer-fixture-1')
 assert.equal(decoded.items[0]?.title, '用于回归测试的推荐问题')
 assert.equal(decoded.hasMore, true)
+
+const unsafeIdPayload = parseZhihuJson('{"data":[{"target":{"type":"answer","id":2082853501567243734,"excerpt":"摘要","question":{"id":2048070738075301109,"title":"大整数问题"}}}],"paging":{"is_end":true}}')
+const unsafeIdPage = decodeZhihuPage(unsafeIdPayload)
+assert.equal(unsafeIdPage.items[0]?.ref.id, '2082853501567243734', '19 位知乎 ID 不能被 JSON.parse 四舍五入')
+assert.equal(unsafeIdPage.items[0]?.title, '大整数问题')
+
+const htmlMarkedSearch = decodeZhihuPage({
+  data: [{ target: { type: 'answer', id: 'html-title-1', title: '<em>DeepSeek</em> 崩了吗？', excerpt: '讨论 <em>DeepSeek</em> 的近况' } }],
+  paging: { is_end: true },
+})
+assert.equal(htmlMarkedSearch.items[0]?.title, 'DeepSeek 崩了吗？', '搜索/列表标题不能把 <em> 等服务端高亮标签直接显示给用户')
+assert.equal(htmlMarkedSearch.items[0]?.excerpt, '讨论 DeepSeek 的近况')
+
+const componentCard = {
+  data: [{
+    id: 'card-1',
+    type: 'ComponentCard',
+    action: {
+      type: 'Route',
+      parameter: 'route_url=https%3A%2F%2Fzhihu.com%2Fquestion%2F423780782%2Fanswer%2F2027676063409484209%3Fnative%3D0',
+    },
+    extra: {
+      content_id: '2027676063409484209',
+      content_type: 'answer',
+      business_ext_map: {
+        userInfo: {
+          memberHashId: 'member-1',
+          userName: '示例作者',
+          avatarUrl: 'https://pic.example/avatar.jpg',
+        },
+      },
+    },
+    children: [
+      { type: 'Text', test_id: 'answer.2027676063409484209.title', text: '现阶段的时代红利是什么？' },
+      { type: 'Text', test_id: 'answer.2027676063409484209.description', text: '这是新版 ComponentCard 摘要' },
+    ],
+  }],
+  paging: { is_end: true },
+}
+const componentPage = decodeZhihuPage(componentCard)
+assert.equal(componentPage.items.length, 1, '新版 Android ComponentCard 信息流必须可见')
+assert.equal(componentPage.items[0]?.ref.id, '2027676063409484209')
+assert.equal(componentPage.items[0]?.title, '现阶段的时代红利是什么？')
+assert.equal(componentPage.items[0]?.author?.name, '示例作者')
+assert.match(componentPage.items[0]?.url ?? '', /question\/423780782\/answer\/2027676063409484209/)
+
+const hotListPayload = {
+  data: [{
+    type: 'hot_list_feed',
+    card_id: 'Q_2083123101873844765',
+    target: {
+      title_area: { text: '如何看待这条知乎热榜？' },
+      excerpt_area: { text: '这是热榜摘要' },
+      metrics_area: { text: '3590 万热度' },
+      text_tag_area: { text: '热议' },
+      link: { url: 'https://www.zhihu.com/question/2083123101873844765' },
+    },
+  }],
+}
+const hotListPage = decodeZhihuPage(hotListPayload)
+assert.equal(hotListPage.items.length, 1, 'hot_list_feed 必须解码成可点击的问题卡片')
+assert.deepEqual(hotListPage.items[0]?.ref, { kind: 'question', id: '2083123101873844765' })
+assert.equal(hotListPage.items[0]?.title, '如何看待这条知乎热榜？')
+assert.equal(hotListPage.items[0]?.excerpt, '这是热榜摘要')
+assert.match(hotListPage.items[0]?.recommendationReason ?? '', /3590 万热度/)
 
 const merged = mergeZhihuPages(
   { items: decoded.items, nextCursor: 'cursor-a', hasMore: true },
@@ -37,6 +103,24 @@ const page = await service.listFeed('recommended')
 assert.equal(page.items.length, 1)
 assert.equal(calls[0]?.operation, 'feed.recommended')
 assert.equal(calls[0]?.url, 'https://api.zhihu.com/topstory/recommend')
+
+const hotCalls: Array<{ operation: string; url: string; headers?: Record<string, string>; signing?: string }> = []
+const hotService = new ZhihuFeedService({
+  async getJson(operation, url) {
+    hotCalls.push({ operation, url })
+    return recommended
+  },
+  async getJsonWithHeaders(operation, url, headers, _signal, options) {
+    hotCalls.push({ operation, url, headers, signing: options?.signing })
+    return recommended
+  },
+})
+await hotService.listFeed('hot')
+assert.equal(hotCalls[0]?.operation, 'feed.hot')
+assert.match(hotCalls[0]?.url ?? '', /hot-lists\/total/)
+assert.match(hotCalls[0]?.headers?.['User-Agent'] ?? '', /^com\.zhihu\.android\//, '游客热榜必须带知乎 Android 公共读取头，否则上游直接 401')
+assert.equal(hotCalls[0]?.headers?.['x-api-version'], '3.1.8')
+assert.equal(hotCalls[0]?.signing, 'none', '游客热榜没有 d_c0，不应伪造 ZSE 签名')
 
 const filteredSearchUrl = new URL(zhihuSearchUrl('储能 系统', 40, 20, {
   tab: 'general',

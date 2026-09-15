@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, Heart, MessageCircle, Reply, Send, Trash2 } from 'lucide-react'
+import { ChevronDown, Clock3, Flame, Heart, Loader2, MessageCircle, RefreshCw, Reply, Send, Trash2 } from 'lucide-react'
 
 import { normalizeZhihuContentHtml } from '../content/normalize'
 import type { ZhihuCommentSort, ZhihuCommentsService } from '../comments/service'
@@ -7,6 +7,8 @@ import type { ZhihuCommentDraftStore } from '../comments/draftStore'
 import type { ZhihuCommentNode } from '../comments/types'
 import type { ZhihuEntityRef } from '../types'
 import { canExecuteZhihuOperation } from '../protocol'
+import { ZhihuEmptyState, ZhihuErrorBanner, ZhihuSectionHeader } from './ZhihuUi'
+import { formatZhihuCount } from './ZhihuUiUtils'
 
 interface Props {
   refValue: ZhihuEntityRef
@@ -181,83 +183,133 @@ function CommentItem({
   }
 
   return (
-    <article id={`zhihu-comment-${comment.id}`} className="scroll-mt-20 border-b border-haze/50 py-3 last:border-b-0">
-      <div className="flex items-center justify-between gap-3">
+    <article id={`zhihu-comment-${comment.id}`} className="scroll-mt-20 border-b border-haze/50 py-4 first:pt-1 last:border-b-0">
+      <div className="flex items-start gap-3">
         <button
           type="button"
           onClick={() => onNavigate(
             { kind: 'people', id: comment.author.token ?? comment.author.id },
             `zhihu-comment-${comment.id}`,
           )}
-          className="min-w-0 truncate text-left text-[12px] font-medium text-paper hover:text-cinnabar"
+          className="flex size-8 shrink-0 items-center justify-center rounded-full border border-haze/70 bg-ink-raised/55 font-display text-[12px] text-paper-muted transition-colors hover:border-cinnabar/35 hover:text-cinnabar-soft"
+          aria-label={`查看 ${comment.author.name} 的主页`}
         >
-          {comment.author.name}
+          {comment.author.name.slice(0, 1)}
         </button>
-        <span className="shrink-0 font-mono text-[10px] text-paper-faint">{likeCount} 赞</span>
-      </div>
-      {comment.replyToAuthor && (
-        <div className="mt-1 text-[10.5px] text-paper-faint">回复 {comment.replyToAuthor.name}</div>
-      )}
-      <div
-        className="article-body mt-1.5 text-[13px] leading-6 text-paper-muted"
-        dangerouslySetInnerHTML={{ __html: normalizeZhihuContentHtml(comment.contentHtml) }}
-      />
-
-      {authenticated && (
-        <div className="mt-1.5 flex flex-wrap items-center gap-1">
-          <button type="button" disabled={mutationBusy || !likeWritable} onClick={() => void toggleLike()} title={likeWritable ? undefined : '当前版本暂不可点赞评论'} className={`inline-flex min-h-8 items-center gap-1 rounded-lg px-2 font-mono text-[10px] disabled:opacity-40 ${liked ? 'text-cinnabar' : 'text-paper-faint hover:text-cinnabar'}`}>
-            <Heart size={13} fill={liked ? 'currentColor' : 'none'} />{liked ? '已赞' : '赞'}
-          </button>
-          <button type="button" disabled={mutationBusy || !replyWritable} onClick={() => setReplying((value) => !value)} title={replyWritable ? undefined : '当前版本暂不可回复'} className="inline-flex min-h-8 items-center gap-1 rounded-lg px-2 font-mono text-[10px] text-paper-faint hover:text-cinnabar disabled:opacity-40">
-            <Reply size={13} />回复
-          </button>
-          {comment.canDelete && (
-            <button type="button" disabled={mutationBusy || !deleteWritable} onClick={() => void remove()} title={deleteWritable ? undefined : '当前版本暂不可删除评论'} className="inline-flex min-h-8 items-center gap-1 rounded-lg px-2 font-mono text-[10px] text-paper-faint hover:text-cinnabar disabled:opacity-40">
-              <Trash2 size={13} />删除
-            </button>
-          )}
-        </div>
-      )}
-      {replying && (
-        <div className="mt-2 flex gap-2">
-          <textarea value={replyDraft.value} onChange={(event) => replyDraft.setValue(event.target.value)} rows={2} maxLength={5000} placeholder={`回复 ${comment.author.name}`} className="min-h-16 flex-1 resize-y rounded-xl border border-haze/70 bg-ink px-3 py-2 text-[12px] text-paper outline-none focus:border-cinnabar/50" />
-          <button type="button" disabled={mutationBusy || !replyDraft.ready || !replyDraft.value.trim()} onClick={() => void submitReply()} className="flex w-10 items-center justify-center rounded-xl bg-cinnabar text-white disabled:opacity-40" aria-label="发送回复"><Send size={15} /></button>
-        </div>
-      )}
-
-      {comment.childCount > 0 && (
-        <div className="mt-2">
-          {!expanded || children.length < comment.childCount || nextCursor ? (
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
             <button
               type="button"
-              onClick={loadChildren}
-              disabled={loading}
-              className="inline-flex min-h-8 items-center gap-1 rounded-lg px-2 font-mono text-[10px] text-cinnabar hover:bg-cinnabar/8 disabled:opacity-50"
+              onClick={() => onNavigate(
+                { kind: 'people', id: comment.author.token ?? comment.author.id },
+                `zhihu-comment-${comment.id}`,
+              )}
+              className="min-w-0 truncate text-left text-[12.5px] font-medium text-paper transition-colors hover:text-cinnabar-soft"
             >
-              <ChevronDown size={13} />
-              {loading ? '正在读取…' : expanded ? '加载更多回复' : `展开 ${comment.childCount} 条回复`}
+              {comment.author.name}
             </button>
-          ) : null}
-          {error && <div className="mt-1 text-[10.5px] text-cinnabar">{error}</div>}
-          {expanded && children.length > 0 && (
-            <div className="ml-3 mt-1 border-l border-haze/70 pl-3">
-              {children.map((child) => (
-                <CommentItem
-                  key={child.id}
-                  comment={child}
-                  service={service}
-                  onNavigate={onNavigate}
-                  authenticated={authenticated}
-                  accountId={accountId}
-                  draftStore={draftStore}
-                  rootRef={rootRef}
-                  onDeleted={(id) => setChildren((prev) => prev.filter((item) => item.id !== id))}
-                />
-              ))}
+            {comment.replyToAuthor && (
+              <span className="truncate text-[10.5px] text-paper-faint">回复 {comment.replyToAuthor.name}</span>
+            )}
+          </div>
+          <div
+            className="zhihu-comment-body mt-1.5 text-[13px] leading-[1.7] text-paper-muted"
+            dangerouslySetInnerHTML={{ __html: normalizeZhihuContentHtml(comment.contentHtml) }}
+          />
+
+          <div className="mt-2 flex min-h-8 items-center gap-0.5">
+            <button
+              type="button"
+              disabled={!authenticated || mutationBusy || !likeWritable}
+              onClick={() => void toggleLike()}
+              title={!authenticated ? '登录后可点赞' : liked ? '取消点赞' : '点赞'}
+              aria-label={liked ? '取消点赞' : '点赞'}
+              className={`inline-flex min-h-8 items-center gap-1 rounded-lg px-2 font-mono text-[10px] transition-colors disabled:opacity-35 ${liked ? 'text-cinnabar-soft' : 'text-paper-faint hover:bg-paper/5 hover:text-paper-muted'}`}
+            >
+              <Heart size={13} strokeWidth={1.6} fill={liked ? 'currentColor' : 'none'} />
+              {likeCount > 0 && <span>{formatZhihuCount(likeCount)}</span>}
+            </button>
+            <button
+              type="button"
+              disabled={!authenticated || mutationBusy || !replyWritable}
+              onClick={() => setReplying((value) => !value)}
+              title={!authenticated ? '登录后可回复' : '回复'}
+              aria-label="回复"
+              className="flex size-8 items-center justify-center rounded-lg text-paper-faint transition-colors hover:bg-paper/5 hover:text-paper-muted disabled:opacity-35"
+            >
+              <Reply size={13} strokeWidth={1.6} />
+            </button>
+            {comment.canDelete && (
+              <button
+                type="button"
+                disabled={!authenticated || mutationBusy || !deleteWritable}
+                onClick={() => void remove()}
+                title="删除评论"
+                aria-label="删除评论"
+                className="flex size-8 items-center justify-center rounded-lg text-paper-faint transition-colors hover:bg-cinnabar/8 hover:text-cinnabar-soft disabled:opacity-35"
+              >
+                <Trash2 size={13} strokeWidth={1.6} />
+              </button>
+            )}
+          </div>
+
+          {replying && (
+            <div className="mt-2 flex items-end gap-2 rounded-xl border border-haze/70 bg-ink-raised/35 p-2.5 focus-within:border-cinnabar/35">
+              <textarea
+                value={replyDraft.value}
+                onChange={(event) => replyDraft.setValue(event.target.value)}
+                rows={2}
+                maxLength={5000}
+                placeholder={`回复 ${comment.author.name}`}
+                className="min-h-14 min-w-0 flex-1 resize-y bg-transparent text-[12.5px] leading-relaxed text-paper outline-none placeholder:text-paper-faint/65"
+              />
+              <button
+                type="button"
+                disabled={mutationBusy || !replyDraft.ready || !replyDraft.value.trim()}
+                onClick={() => void submitReply()}
+                className="flex size-9 shrink-0 items-center justify-center rounded-full border border-cinnabar/45 bg-cinnabar/12 text-cinnabar-soft disabled:opacity-35"
+                aria-label="发送回复"
+              >
+                {mutationBusy ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+              </button>
+            </div>
+          )}
+
+          {comment.childCount > 0 && (
+            <div className="mt-1.5">
+              {!expanded || children.length < comment.childCount || nextCursor ? (
+                <button
+                  type="button"
+                  onClick={loadChildren}
+                  disabled={loading}
+                  className="inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2 text-[11px] text-cinnabar-soft transition-colors hover:bg-cinnabar/8 disabled:opacity-45"
+                >
+                  {loading ? <Loader2 size={13} className="animate-spin" /> : <ChevronDown size={13} strokeWidth={1.6} />}
+                  <span>{loading ? '正在读取' : expanded ? '更多回复' : `${comment.childCount} 条回复`}</span>
+                </button>
+              ) : null}
+              {error && <div className="mt-1"><ZhihuErrorBanner>{error}</ZhihuErrorBanner></div>}
+              {expanded && children.length > 0 && (
+                <div className="ml-2 mt-1 border-l border-haze/65 pl-3">
+                  {children.map((child) => (
+                    <CommentItem
+                      key={child.id}
+                      comment={child}
+                      service={service}
+                      onNavigate={onNavigate}
+                      authenticated={authenticated}
+                      accountId={accountId}
+                      draftStore={draftStore}
+                      rootRef={rootRef}
+                      onDeleted={(id) => setChildren((prev) => prev.filter((item) => item.id !== id))}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
-      )}
+      </div>
     </article>
   )
 }
@@ -265,10 +317,10 @@ function CommentItem({
 export function ZhihuCommentsSection({ refValue, service, onNavigate, restoreAnchor, authenticated, accountId, draftStore }: Props) {
   const [sort, setSort] = useState<ZhihuCommentSort>('score')
   const initialCache = service.cachedRoot(refValue, 'score')
-  const [opened, setOpened] = useState(Boolean(initialCache?.items.length || restoreAnchor))
   const [items, setItems] = useState<ZhihuCommentNode[]>(initialCache?.items ?? [])
   const [nextCursor, setNextCursor] = useState<string | undefined>(initialCache?.nextCursor)
   const [loading, setLoading] = useState(false)
+  const [loadedOnce, setLoadedOnce] = useState(Boolean(initialCache))
   const [error, setError] = useState<string | null>(null)
   const rootDraft = useCommentDraft(draftStore, accountId, refValue)
   const [sending, setSending] = useState(false)
@@ -276,56 +328,73 @@ export function ZhihuCommentsSection({ refValue, service, onNavigate, restoreAnc
 
   useEffect(() => {
     const cached = service.cachedRoot(refValue, sort)
-    setOpened(Boolean(cached?.items.length || restoreAnchor))
     setItems(cached?.items ?? [])
     setNextCursor(cached?.nextCursor)
+    setLoadedOnce(Boolean(cached))
     setLoading(false)
     setError(null)
-  }, [refValue, restoreAnchor, service, sort])
+  }, [refValue, service, sort])
 
   useEffect(() => {
-    if (!restoreAnchor || !opened) return
+    if (loadedOnce || loading) return
+    let disposed = false
+    setLoading(true)
+    setError(null)
+    void service.listRoot(refValue, undefined, undefined, sort).then(
+      (page) => {
+        if (disposed) return
+        setItems(page.items)
+        setNextCursor(page.hasMore ? page.nextCursor : undefined)
+        setLoadedOnce(true)
+        setLoading(false)
+      },
+      (reason) => {
+        if (disposed) return
+        setError(reason instanceof Error ? reason.message : '评论读取失败')
+        setLoadedOnce(true)
+        setLoading(false)
+      },
+    )
+    return () => { disposed = true }
+  }, [loadedOnce, loading, refValue, service, sort])
+
+  useEffect(() => {
+    if (!restoreAnchor || items.length === 0) return
     const frame = window.requestAnimationFrame(() => {
       document.getElementById(restoreAnchor)?.scrollIntoView({ block: 'center' })
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [items, opened, restoreAnchor])
+  }, [items, restoreAnchor])
 
-  useEffect(() => {
-    if (!restoreAnchor || items.length > 0 || loading || error) return
-    // 没有缓存时至少重拉首屏；如果锚点不在首屏，用户仍可继续“加载更多评论”，
-    // 但不会把一个不存在的 DOM 锚点当作已恢复成功。
-    setOpened(true)
-    setLoading(true)
-    void service.listRoot(refValue, undefined, undefined, sort).then(
-      (page) => {
-        setItems(page.items)
-        setNextCursor(page.hasMore ? page.nextCursor : undefined)
-        setLoading(false)
-      },
-      (reason) => {
-        setError(reason instanceof Error ? reason.message : '评论读取失败')
-        setLoading(false)
-      },
-    )
-  }, [error, items.length, loading, refValue, restoreAnchor, service, sort])
-
-  const load = () => {
+  const refresh = async () => {
     if (loading) return
-    setOpened(true)
     setLoading(true)
     setError(null)
-    void service.listRoot(refValue, nextCursor, undefined, sort).then(
-      (page) => {
-        setItems((prev) => mergeComments(prev, page.items))
-        setNextCursor(page.hasMore ? page.nextCursor : undefined)
-        setLoading(false)
-      },
-      (reason) => {
-        setError(reason instanceof Error ? reason.message : '评论读取失败')
-        setLoading(false)
-      },
-    )
+    try {
+      const page = await service.listRoot(refValue, undefined, undefined, sort)
+      setItems(page.items)
+      setNextCursor(page.hasMore ? page.nextCursor : undefined)
+      setLoadedOnce(true)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '评论读取失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadMore = async () => {
+    if (loading || !nextCursor) return
+    setLoading(true)
+    setError(null)
+    try {
+      const page = await service.listRoot(refValue, nextCursor, undefined, sort)
+      setItems((prev) => mergeComments(prev, page.items))
+      setNextCursor(page.hasMore ? page.nextCursor : undefined)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '评论读取失败')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const submitRoot = async () => {
@@ -335,7 +404,7 @@ export function ZhihuCommentsSection({ refValue, service, onNavigate, restoreAnc
     try {
       const created = await service.create(refValue, rootDraft.value)
       setItems((prev) => [created, ...prev.filter((item) => item.id !== created.id)])
-      setOpened(true)
+      setLoadedOnce(true)
       await rootDraft.clear()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '评论发送失败')
@@ -344,52 +413,94 @@ export function ZhihuCommentsSection({ refValue, service, onNavigate, restoreAnc
     }
   }
 
+  const sortControl = (
+    <div className="flex items-center gap-0.5 rounded-lg border border-haze/70 bg-ink-raised/45 p-0.5" aria-label="评论排序">
+      <button
+        type="button"
+        disabled={loading}
+        onClick={() => setSort('score')}
+        aria-label="按热度排序"
+        title="按热度排序"
+        className={`flex size-8 items-center justify-center rounded-md transition-colors disabled:opacity-40 ${sort === 'score' ? 'bg-cinnabar/18 text-cinnabar-soft' : 'text-paper-faint hover:bg-paper/5 hover:text-paper-muted'}`}
+      >
+        <Flame size={14} strokeWidth={1.65} />
+      </button>
+      <button
+        type="button"
+        disabled={loading}
+        onClick={() => setSort('time')}
+        aria-label="按时间排序"
+        title="按时间排序"
+        className={`flex size-8 items-center justify-center rounded-md transition-colors disabled:opacity-40 ${sort === 'time' ? 'bg-cinnabar/18 text-cinnabar-soft' : 'text-paper-faint hover:bg-paper/5 hover:text-paper-muted'}`}
+      >
+        <Clock3 size={14} strokeWidth={1.65} />
+      </button>
+    </div>
+  )
+
   return (
-    <section className="mt-8 border-t border-haze/60 pt-5" aria-label="知乎评论">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="flex items-center gap-2 font-display text-[18px] font-semibold text-paper">
-          <MessageCircle size={17} /> 评论
-        </h2>
-        <div className="flex items-center gap-2">
-          {opened && (
-            <div className="flex rounded-lg border border-haze/70 bg-ink-raised p-0.5" aria-label="评论排序">
-              {([['score', '热度'], ['time', '时间']] as const).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  disabled={loading}
-                  onClick={() => setSort(value)}
-                  className={`min-h-8 rounded-md px-2.5 font-mono text-[10px] disabled:opacity-45 ${sort === value ? 'bg-cinnabar text-white' : 'text-paper-faint'}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-          {!opened && (
-            <button type="button" onClick={load} className="min-h-9 rounded-lg border border-haze/70 px-3 font-mono text-[10.5px] text-paper-muted hover:border-cinnabar/40 hover:text-cinnabar">
-              读取评论
+    <section className="mt-9 border-t border-haze/55 pt-5" aria-label="知乎评论">
+      <ZhihuSectionHeader
+        icon={<MessageCircle size={17} />}
+        title="评论"
+        detail={items.length > 0 ? `${items.length} 条已载入` : undefined}
+        action={(
+          <div className="flex items-center gap-1.5">
+            {sortControl}
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              disabled={loading}
+              aria-label="刷新评论"
+              title="刷新评论"
+              className="flex size-9 items-center justify-center rounded-lg border border-haze/70 bg-ink-raised/45 text-paper-faint transition-colors hover:bg-ink-raised hover:text-paper-muted disabled:opacity-35"
+            >
+              <RefreshCw size={14} strokeWidth={1.65} className={loading ? 'animate-spin text-cinnabar-soft' : ''} />
             </button>
-          )}
-        </div>
-      </div>
+          </div>
+        )}
+      />
 
       {authenticated && commentWritable ? (
-        <div className="mt-3 flex gap-2">
-          <textarea value={rootDraft.value} onChange={(event) => rootDraft.setValue(event.target.value)} rows={2} maxLength={5000} placeholder="写下你的评论…" className="min-h-16 flex-1 resize-y rounded-xl border border-haze/70 bg-ink-raised/50 px-3 py-2 text-[12px] text-paper outline-none focus:border-cinnabar/50" />
-          <button type="button" disabled={sending || !rootDraft.ready || !rootDraft.value.trim()} onClick={() => void submitRoot()} className="flex w-11 items-center justify-center rounded-xl bg-cinnabar text-white disabled:opacity-40" aria-label="发送评论"><Send size={16} /></button>
+        <div className="flex items-end gap-2 rounded-2xl border border-haze/70 bg-ink-raised/35 p-3 shadow-[var(--shadow-lift)] transition-colors focus-within:border-cinnabar/35">
+          <textarea
+            value={rootDraft.value}
+            onChange={(event) => rootDraft.setValue(event.target.value)}
+            rows={2}
+            maxLength={5000}
+            placeholder="写下你的评论…"
+            className="min-h-16 min-w-0 flex-1 resize-y bg-transparent text-[13px] leading-[1.65] text-paper outline-none placeholder:text-paper-faint/65"
+          />
+          <button
+            type="button"
+            disabled={sending || !rootDraft.ready || !rootDraft.value.trim()}
+            onClick={() => void submitRoot()}
+            className="flex size-10 shrink-0 items-center justify-center rounded-full border border-cinnabar/50 bg-cinnabar/12 text-cinnabar-soft transition-colors hover:bg-cinnabar/20 disabled:opacity-35"
+            aria-label="发送评论"
+            title="发送评论"
+          >
+            {sending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} strokeWidth={1.7} />}
+          </button>
         </div>
       ) : (
-        <div className="mt-3 rounded-xl border border-haze/60 bg-ink-raised/40 px-3 py-2 text-[10.5px] leading-5 text-paper-faint">
-          {!authenticated ? '登录知乎后即可发表评论、回复和点赞。' : '当前版本暂不可发表评论。'}
+        <div className="rounded-xl border border-haze/60 bg-ink-raised/35 px-3.5 py-2.5 text-[11px] leading-relaxed text-paper-faint">
+          {!authenticated ? '登录知乎后可发表评论、回复和点赞。' : '当前会话暂不可发表评论。'}
         </div>
       )}
 
-      {opened && loading && items.length === 0 && <div className="py-8 text-center font-mono text-[10.5px] text-paper-faint">正在读取评论…</div>}
-      {error && <div role="alert" className="mt-3 rounded-lg border border-cinnabar/30 bg-cinnabar/8 p-2.5 text-[11px] text-paper-muted">{error}</div>}
-      {opened && !loading && !error && items.length === 0 && <div className="py-8 text-center text-[11px] text-paper-faint">暂无可解析评论</div>}
+      {error && <div className="mt-3"><ZhihuErrorBanner>{error}</ZhihuErrorBanner></div>}
+      {loading && items.length === 0 && (
+        <div className="flex min-h-28 items-center justify-center gap-2 font-mono text-[10.5px] text-paper-faint">
+          <Loader2 size={14} className="animate-spin text-cinnabar-soft" />
+          <span>正在读取评论…</span>
+        </div>
+      )}
+      {!loading && loadedOnce && !error && items.length === 0 && (
+        <ZhihuEmptyState icon={<MessageCircle size={26} />} title="还没有评论" description="这里会显示这条内容下的讨论。" />
+      )}
+
       {items.length > 0 && (
-        <div className="mt-2">
+        <div className="mt-3 rounded-2xl border border-haze/70 bg-ink-raised/25 px-3.5 sm:px-4">
           {items.map((comment) => (
             <CommentItem
               key={comment.id}
@@ -405,9 +516,17 @@ export function ZhihuCommentsSection({ refValue, service, onNavigate, restoreAnc
           ))}
         </div>
       )}
-      {opened && nextCursor && (
-        <button type="button" onClick={load} disabled={loading} className="mt-3 min-h-10 w-full rounded-xl border border-haze/70 bg-ink-raised font-mono text-[10.5px] text-paper-muted disabled:opacity-50">
-          {loading ? '正在加载…' : '加载更多评论'}
+
+      {nextCursor && (
+        <button
+          type="button"
+          onClick={() => void loadMore()}
+          disabled={loading}
+          aria-label="加载更多评论"
+          title="加载更多评论"
+          className="mx-auto mt-3 flex size-10 items-center justify-center rounded-xl border border-haze/70 bg-ink-raised/40 text-paper-faint transition-colors hover:border-cinnabar/30 hover:bg-paper/5 hover:text-cinnabar-soft disabled:opacity-45"
+        >
+          {loading ? <Loader2 size={14} className="animate-spin" /> : <ChevronDown size={15} strokeWidth={1.6} />}
         </button>
       )}
     </section>

@@ -83,7 +83,12 @@ public class SecureStorePlugin extends Plugin {
                 Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP) +
                 SEPARATOR +
                 Base64.encodeToString(ciphertext, Base64.NO_WRAP);
-            prefs().edit().putString(key, stored).apply();
+            // 登录会话写入属于认证事务。apply() 会先返回、再异步刷盘，用户刚登录就
+            // 杀进程时可能出现“本次已登录、下次启动丢失”。小体量凭据必须等刷盘完成。
+            if (!prefs().edit().putString(key, stored).commit()) {
+                call.reject("secure store write failed: commit");
+                return;
+            }
             call.resolve();
         } catch (Exception error) {
             // 只报类型，不带 value
@@ -109,7 +114,7 @@ public class SecureStorePlugin extends Plugin {
 
         int separator = stored.indexOf(SEPARATOR);
         if (separator <= 0) {
-            prefs().edit().remove(key).apply();
+            prefs().edit().remove(key).commit();
             result.put("value", null);
             call.resolve(result);
             return;
@@ -128,7 +133,7 @@ public class SecureStorePlugin extends Plugin {
         } catch (Exception error) {
             // Keystore 密钥失效（恢复出厂、换锁屏方式等）后旧密文永远解不开：清掉并当作没有值，
             // 上层会退回未登录 / 重新填 Secret，不会卡在解密失败的死循环里。
-            prefs().edit().remove(key).apply();
+            prefs().edit().remove(key).commit();
             result.put("value", null);
             call.resolve(result);
         }
@@ -141,7 +146,10 @@ public class SecureStorePlugin extends Plugin {
             call.reject("key is required");
             return;
         }
-        prefs().edit().remove(key).apply();
+        if (!prefs().edit().remove(key).commit()) {
+            call.reject("secure store remove failed: commit");
+            return;
+        }
         call.resolve();
     }
 }

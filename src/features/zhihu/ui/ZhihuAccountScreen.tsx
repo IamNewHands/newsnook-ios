@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { LogIn, RefreshCw, ShieldCheck, UserRound, UserRoundPlus } from 'lucide-react'
+import { Bookmark, ChevronRight, FilePenLine, LogIn, RefreshCw, ShieldCheck, Trash2, UserRound, UserRoundPlus } from 'lucide-react'
+
+import { ConfirmDialog } from '../../../components/ConfirmDialog'
 
 import type { ZhihuRuntime } from '../runtime'
 import type { ZhihuSessionSnapshot, ZhihuStoredAccount } from '../session/types'
@@ -16,6 +18,7 @@ export function ZhihuAccountScreen({ runtime, onOpenEditor, onOpenProfile, onOpe
   const [accounts, setAccounts] = useState<ZhihuStoredAccount[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmRemove, setConfirmRemove] = useState(false)
 
   const reloadAccounts = useCallback(async () => {
     setAccounts(await runtime.account.listAccounts())
@@ -23,14 +26,14 @@ export function ZhihuAccountScreen({ runtime, onOpenEditor, onOpenProfile, onOpe
 
   useEffect(() => runtime.session.subscribe(setSnapshot), [runtime])
   useEffect(() => {
+    // ZhihuWorkspace 负责整个站点生命周期内唯一一次 hydrate；账号页只读取已落盘账号。
+    // 这里再次校验会和首页请求并发，网络抖动时曾把已恢复的账号误标成失效。
     let alive = true
-    void runtime.account.hydrate()
-      .then(async () => {
-        if (alive) await reloadAccounts()
-      })
-      .catch((cause) => alive && setError(cause instanceof Error ? cause.message : '知乎会话恢复失败'))
+    void reloadAccounts().catch((cause) => {
+      if (alive) setError(cause instanceof Error ? cause.message : '读取知乎账号失败')
+    })
     return () => { alive = false }
-  }, [reloadAccounts, runtime])
+  }, [reloadAccounts])
 
   const authenticate = async () => {
     setBusy(true)
@@ -86,97 +89,150 @@ export function ZhihuAccountScreen({ runtime, onOpenEditor, onOpenProfile, onOpe
 
   const active = accounts.find((item) => item.account.id === snapshot.account?.id)
   const authenticated = snapshot.auth === 'authenticated' && Boolean(snapshot.account)
+  const hasStoredAccount = Boolean(active || snapshot.account)
   const activeToken = active?.account.urlToken || snapshot.account?.urlToken || snapshot.account?.id
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 pb-28 pt-5 sm:px-6">
-      <section className="rounded-2xl border border-haze/70 bg-ink-raised/70 p-4 sm:p-5">
-        <div className="flex items-start gap-3">
-          {active?.account.avatarUrl ? (
-            <img src={active.account.avatarUrl} alt="" className="size-14 rounded-xl object-cover" referrerPolicy="no-referrer" />
+      <section className="overflow-hidden rounded-2xl border border-haze/70 bg-ink-raised/45 shadow-[var(--shadow-lift)]">
+        <div className="flex items-start gap-3.5 p-4 sm:p-5">
+          {active?.account.avatarUrl || snapshot.account?.avatarUrl ? (
+            <img src={active?.account.avatarUrl || snapshot.account?.avatarUrl} alt="" className="size-14 rounded-2xl object-cover" referrerPolicy="no-referrer" />
           ) : (
-            <div className="flex size-14 items-center justify-center rounded-xl bg-ink text-paper-muted"><UserRound size={24} /></div>
+            <div className="flex size-14 items-center justify-center rounded-2xl border border-haze/70 bg-ink text-paper-muted"><UserRound size={23} strokeWidth={1.5} /></div>
           )}
           <div className="min-w-0 flex-1">
-            <div className="font-display text-[19px] font-semibold text-paper">
-              {authenticated ? active?.account.name || snapshot.account?.name || '知乎账号' : '知乎账号'}
+            <div className="flex min-w-0 items-center gap-2">
+              <h1 className="truncate font-display text-[20px] font-medium text-paper">
+                {active?.account.name || snapshot.account?.name || '知乎账号'}
+              </h1>
+              {authenticated && <ShieldCheck size={16} strokeWidth={1.65} className="shrink-0 text-cinnabar-soft" />}
             </div>
-            <p className="mt-1 text-[12px] leading-5 text-paper-muted">
-              {authenticated
-                ? active?.account.headline || '已登录知乎'
-                : snapshot.auth === 'verification-required'
-                  ? '知乎要求完成安全验证，点击下方按钮回到第一方页面继续。'
-                  : snapshot.auth === 'expired'
-                    ? '当前会话已失效，请重新认证。'
-                    : '登录或注册均在知乎第一方页面完成，NewsNook 不读取密码。'}
+            <p className="mt-1 text-[12px] leading-[1.65] text-paper-muted">
+              {snapshot.auth === 'verification-required'
+                ? `${active?.account.headline || '账号资料已保存在本机'} · 需要完成知乎安全验证`
+                : snapshot.auth === 'expired'
+                  ? `${active?.account.headline || '账号资料已保存在本机'} · 登录会话已过期，请重新认证`
+                  : authenticated
+                    ? active?.account.headline || '已登录知乎'
+                    : '登录与注册在知乎第一方页面完成，NewsNook 不读取密码。'}
             </p>
           </div>
-          {authenticated && <ShieldCheck size={20} className="shrink-0 text-cinnabar" />}
         </div>
 
-        {error && <div role="alert" className="mt-3 rounded-lg border border-cinnabar/35 bg-cinnabar/5 px-3 py-2 text-[12px] text-paper">{error}</div>}
+        {error && <div role="alert" className="mx-4 mb-3 rounded-xl border border-cinnabar/30 bg-cinnabar/8 px-3 py-2.5 text-[11.5px] leading-relaxed text-paper-muted">{error}</div>}
 
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="border-t border-haze/55 px-3 py-3">
           <button
             type="button"
             disabled={busy || !runtime.account.isNativeAuthAvailable()}
             onClick={() => void authenticate()}
-            className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-cinnabar px-4 text-[12px] font-medium text-white disabled:opacity-45"
+            className="flex min-h-11 w-full items-center gap-3 rounded-xl px-2.5 text-left transition-colors hover:bg-paper/5 disabled:opacity-45"
           >
-            {authenticated ? <RefreshCw size={15} /> : <LogIn size={15} />}
-            {busy ? '处理中…' : authenticated ? '重新验证' : '登录 / 注册'}
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-cinnabar/12 text-cinnabar-soft">
+              {busy ? <RefreshCw size={15} className="animate-spin" /> : hasStoredAccount ? <RefreshCw size={15} /> : <LogIn size={15} />}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-medium text-paper">{hasStoredAccount ? '重新验证知乎账号' : '登录 / 注册知乎'}</span>
+              <span className="mt-0.5 block text-[10.5px] text-paper-faint">{hasStoredAccount ? '刷新当前会话并确认账号状态' : '使用知乎第一方登录页'}</span>
+            </span>
+            <ChevronRight size={15} strokeWidth={1.5} className="text-paper-faint" />
           </button>
-          {authenticated && (
-            <>
-              <button type="button" disabled={busy || !runtime.account.isNativeAuthAvailable()} onClick={() => void addAccount()} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-haze px-4 text-[12px] text-paper hover:border-paper-faint/40 disabled:opacity-45">
-                <UserRoundPlus size={15} />添加账号
-              </button>
-              <button type="button" disabled={busy} onClick={onOpenEditor} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-haze px-4 text-[12px] text-paper hover:border-paper-faint/40">
-                <UserRoundPlus size={15} />创作与草稿
-              </button>
-              <button type="button" disabled={busy || !activeToken} onClick={() => activeToken && onOpenProfile(activeToken)} className="min-h-10 rounded-xl border border-haze px-4 text-[12px] text-paper hover:border-paper-faint/40 disabled:opacity-45">
-                我的主页
-              </button>
-              <button type="button" disabled={busy || !activeToken} onClick={() => activeToken && onOpenCollections(activeToken)} className="min-h-10 rounded-xl border border-haze px-4 text-[12px] text-paper hover:border-paper-faint/40 disabled:opacity-45">
-                我的收藏夹
-              </button>
-            </>
-          )}
-          {snapshot.account && (
-            <button type="button" disabled={busy} onClick={() => void remove()} className="min-h-10 rounded-xl border border-haze px-4 text-[12px] text-paper-muted hover:text-paper">
-              从本机移除
-            </button>
-          )}
         </div>
-
-        {!runtime.account.isNativeAuthAvailable() && (
-          <p className="mt-3 font-mono text-[10px] leading-5 text-paper-faint">知乎账号登录请在 NewsNook Android 应用中使用。</p>
-        )}
       </section>
 
+      {authenticated && (
+        <section className="mt-4 overflow-hidden rounded-2xl border border-haze/70 bg-ink-raised/40 shadow-[var(--shadow-lift)]">
+          {[
+            { label: '创作与草稿', hint: '继续草稿、写回答与发布想法', icon: <FilePenLine size={16} />, action: onOpenEditor },
+            { label: '我的主页', hint: '回答、文章、动态与关注关系', icon: <UserRound size={16} />, action: () => activeToken && onOpenProfile(activeToken), disabled: !activeToken },
+            { label: '我的收藏夹', hint: '查看与管理知乎收藏夹', icon: <Bookmark size={16} />, action: () => activeToken && onOpenCollections(activeToken), disabled: !activeToken },
+          ].map((item, index) => (
+            <button
+              key={item.label}
+              type="button"
+              disabled={busy || item.disabled}
+              onClick={item.action}
+              className={`flex min-h-14 w-full items-center gap-3 px-4 text-left transition-colors hover:bg-paper/5 disabled:opacity-45 ${index > 0 ? 'border-t border-haze/55' : ''}`}
+            >
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-paper/5 text-paper-muted">{item.icon}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-medium text-paper">{item.label}</span>
+                <span className="mt-0.5 block text-[10.5px] text-paper-faint">{item.hint}</span>
+              </span>
+              <ChevronRight size={15} strokeWidth={1.5} className="text-paper-faint" />
+            </button>
+          ))}
+        </section>
+      )}
+
       {accounts.length > 0 && (
-        <section className="mt-4 rounded-2xl border border-haze/70 bg-ink-raised/50 p-4">
-          <h3 className="font-display text-[15px] font-semibold text-paper">账号</h3>
-          <div className="mt-3 space-y-2">
-            {accounts.map((item) => (
+        <section className="mt-4">
+          <div className="mb-2 flex items-center justify-between px-1">
+            <h2 className="font-display text-[15px] font-medium text-paper">账号</h2>
+            {authenticated && (
               <button
-                key={item.account.id}
                 type="button"
-                disabled={busy}
-                onClick={() => void switchAccount(item.account.id)}
-                className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left ${item.account.id === snapshot.account?.id ? 'border-cinnabar/45 bg-cinnabar/5' : 'border-haze/70 bg-ink/35'}`}
+                disabled={busy || !runtime.account.isNativeAuthAvailable()}
+                onClick={() => void addAccount()}
+                aria-label="添加知乎账号"
+                title="添加知乎账号"
+                className="flex size-9 items-center justify-center rounded-lg text-paper-faint transition-colors hover:bg-paper/5 hover:text-cinnabar-soft disabled:opacity-40"
               >
-                {item.account.avatarUrl ? <img src={item.account.avatarUrl} alt="" className="size-9 rounded-lg object-cover" /> : <UserRound size={18} className="text-paper-muted" />}
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] text-paper">{item.account.name || item.account.urlToken || item.account.id}</span>
-                  <span className="block truncate font-mono text-[9.5px] text-paper-faint">{item.account.id}</span>
-                </span>
-                {item.account.id === snapshot.account?.id && <span className="font-mono text-[9px] text-cinnabar">当前</span>}
+                <UserRoundPlus size={16} strokeWidth={1.6} />
               </button>
-            ))}
+            )}
+          </div>
+          <div className="overflow-hidden rounded-2xl border border-haze/70 bg-ink-raised/35">
+            {accounts.map((item, index) => {
+              const currentAccount = item.account.id === snapshot.account?.id
+              return (
+                <button
+                  key={item.account.id}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void switchAccount(item.account.id)}
+                  className={`flex min-h-14 w-full items-center gap-3 px-4 text-left transition-colors hover:bg-paper/5 ${index > 0 ? 'border-t border-haze/55' : ''}`}
+                >
+                  {item.account.avatarUrl ? <img src={item.account.avatarUrl} alt="" className="size-9 rounded-xl object-cover" /> : <span className="flex size-9 items-center justify-center rounded-xl bg-paper/5"><UserRound size={16} className="text-paper-muted" /></span>}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[12.5px] font-medium text-paper">{item.account.name || item.account.urlToken || item.account.id}</span>
+                    <span className="mt-0.5 block truncate text-[10px] text-paper-faint">{item.account.headline || item.account.urlToken || item.account.id}</span>
+                  </span>
+                  {currentAccount ? <span className="font-mono text-[9.5px] tracking-[0.08em] text-cinnabar-soft">当前</span> : <ChevronRight size={14} className="text-paper-faint" />}
+                </button>
+              )
+            })}
           </div>
         </section>
       )}
+
+      {snapshot.account && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => setConfirmRemove(true)}
+          className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-haze/70 text-[11.5px] text-paper-faint transition-colors hover:border-cinnabar/30 hover:bg-cinnabar/5 hover:text-cinnabar-soft disabled:opacity-40"
+        >
+          <Trash2 size={14} strokeWidth={1.6} />
+          <span>从本机移除当前账号</span>
+        </button>
+      )}
+
+      {!runtime.account.isNativeAuthAvailable() && (
+        <p className="mt-4 text-center font-mono text-[10px] leading-relaxed text-paper-faint">知乎账号登录仅在 NewsNook Android 应用中提供。</p>
+      )}
+
+      <ConfirmDialog
+        open={confirmRemove}
+        title="移除知乎账号"
+        message="只会删除 NewsNook 本机保存的知乎会话，不会注销或删除知乎账号。"
+        confirmLabel="移除"
+        cancelLabel="取消"
+        danger
+        onCancel={() => setConfirmRemove(false)}
+        onConfirm={() => { setConfirmRemove(false); void remove() }}
+      />
     </div>
   )
 }

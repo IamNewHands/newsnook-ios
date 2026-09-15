@@ -2,23 +2,36 @@ import { canExecuteZhihuOperation, zhihuOperation } from '../protocol'
 import { StaleZhihuGenerationError, ZhihuSessionService } from '../session/service'
 import type { ZhihuTransport } from '../transport/types'
 import { ZhihuApiError } from './errors'
+import { parseZhihuJson } from './json'
 
 function looksLikeVerificationPage(body: string): boolean {
   const prefix = body.slice(0, 1200).toLowerCase()
   return prefix.includes('<!doctype html') || prefix.includes('<html') || prefix.includes('captcha') || prefix.includes('验证')
 }
 
-function responseErrorMessage(body: string): string | undefined {
-  if (!body.trim()) return undefined
+interface ZhihuErrorPayload {
+  message?: string
+  code?: string
+  name?: string
+  needLogin: boolean
+}
+
+function responseErrorPayload(body: string): ZhihuErrorPayload {
+  if (!body.trim()) return { needLogin: false }
   try {
-    const parsed = JSON.parse(body) as Record<string, unknown>
+    const parsed = parseZhihuJson(body) as Record<string, unknown>
     const error = parsed.error && typeof parsed.error === 'object' && !Array.isArray(parsed.error)
       ? parsed.error as Record<string, unknown>
       : undefined
     const candidates = [error?.message, parsed.message, parsed.error_description]
-    return candidates.find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim()
+    return {
+      message: candidates.find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim(),
+      code: typeof error?.code === 'string' || typeof error?.code === 'number' ? String(error.code) : undefined,
+      name: typeof error?.name === 'string' ? error.name : undefined,
+      needLogin: error?.need_login === true || error?.needLogin === true || error?.name === 'AuthenticationError',
+    }
   } catch {
-    return undefined
+    return { needLogin: false }
   }
 }
 
@@ -117,21 +130,25 @@ export class ZhihuApiClient {
         }, signal)
         this.session.assertGeneration(snapshot.generation)
 
-        const upstreamMessage = responseErrorMessage(response.body)
-        if (response.status === 401) {
+        const upstreamError = responseErrorPayload(response.body)
+        if (response.status === 401 || upstreamError.needLogin) {
           if (snapshot.account) this.session.setAuthState('expired')
-          throw new ZhihuApiError('auth-expired', upstreamMessage ?? '知乎登录已过期', 401)
+          throw new ZhihuApiError('auth-expired', upstreamError.message ?? '知乎登录已过期', response.status)
         }
-        if (response.status === 403) throw new ZhihuApiError('forbidden', upstreamMessage ?? '知乎拒绝了此请求', 403)
-        if (response.status === 429) throw new ZhihuApiError('rate-limited', upstreamMessage ?? '知乎请求过于频繁', 429)
-        if (response.status >= 400) throw new ZhihuApiError('network', upstreamMessage ?? `知乎请求失败（${response.status}）`, response.status)
+        if (response.status === 403 && upstreamError.code === '40362') {
+          this.session.setAuthState('verification-required')
+          throw new ZhihuApiError('verification-required', upstreamError.message ?? '知乎要求完成安全验证', 403)
+        }
+        if (response.status === 403) throw new ZhihuApiError('forbidden', upstreamError.message ?? '知乎拒绝了此请求', 403)
+        if (response.status === 429) throw new ZhihuApiError('rate-limited', upstreamError.message ?? '知乎请求过于频繁', 429)
+        if (response.status >= 400) throw new ZhihuApiError('network', upstreamError.message ?? `知乎请求失败（${response.status}）`, response.status)
         if (looksLikeVerificationPage(response.body)) {
           this.session.setAuthState('verification-required')
           throw new ZhihuApiError('verification-required', '知乎要求在官方页面完成验证')
         }
         if (response.status === 204 || !response.body.trim()) return null
         try {
-          return JSON.parse(response.body) as unknown
+          return parseZhihuJson(response.body)
         } catch {
           throw new ZhihuApiError('invalid-response', '知乎返回了无法解析的数据')
         }

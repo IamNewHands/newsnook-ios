@@ -1,6 +1,8 @@
 import type { Page, ZhihuContentSummary, ZhihuFeedMode, ZhihuRecommendationMode } from '../types'
 
-const CACHE_VERSION = 1
+// v2：v1 可能已经把 19 位知乎 numeric id 经 JSON.parse 四舍五入后缓存成错误字符串。
+// 升级时必须主动淘汰，否则网络抖动时仍会从旧缓存打开“内容不存在”的回答。
+const CACHE_VERSION = 2
 const CACHE_PREFIX = 'newsnook:zhihu:public-feed:v1:'
 const MAX_ITEMS = 120
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000

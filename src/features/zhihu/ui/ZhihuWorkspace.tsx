@@ -3,11 +3,11 @@ import type { MutableRefObject } from 'react'
 import { ArrowLeft, Bell, Home, Search, UserRound } from 'lucide-react'
 
 import { PresetSwitcher, type PresetSwitcherProps } from '../../../components/PresetSwitcher'
-import type { Article } from '../../../lib/types'
 import { ZhihuCollectionService } from '../collection/service'
 import { ZhihuCommentDraftStore } from '../comments/draftStore'
 import { ZhihuCommentsService } from '../comments/service'
 import { ZhihuContentService } from '../content/service'
+import { parseExistingAnswerId } from '../editor/codec'
 import { ZhihuDraftStore } from '../editor/draftStore'
 import { ZhihuEditorService } from '../editor/service'
 import { ZhihuImageUploadService } from '../editor/upload'
@@ -41,7 +41,6 @@ import { ZhihuNotificationScreen } from './ZhihuNotificationScreen'
 
 interface Props {
   onExit: () => void
-  onOpenArticle: (article: Article) => void
   backHandlerRef: MutableRefObject<(() => boolean) | null>
   presetSwitcher: PresetSwitcherProps
 }
@@ -52,9 +51,9 @@ interface FeedRouteProps {
   mode: ZhihuFeedMode
   service: ZhihuFeedService
   onModeChange: (mode: ZhihuFeedMode) => void
-  onOpen: (ref: ZhihuEntityRef) => void
-  onSearch: () => void
+  onOpen: (item: ZhihuContentSummary) => void
   authenticated: boolean
+  scrollContainerRef: MutableRefObject<HTMLDivElement | null>
   accountId?: string | null
 }
 
@@ -64,15 +63,15 @@ function ZhihuFeedRoute({
   service,
   onModeChange,
   onOpen,
-  onSearch,
   authenticated,
+  scrollContainerRef,
   accountId,
 }: FeedRouteProps) {
   // 推荐协议来源是传输层细节，不属于用户信息架构。工作区固定使用移动端推荐，
   // 用户只看到知乎语义上的「推荐 / 热榜 / 关注」。
   const feed = useZhihuFeed(service, mode, 'android', accountId)
   const openItem = useCallback((item: ZhihuContentSummary) => {
-    onOpen(item.ref)
+    onOpen(item)
   }, [onOpen])
   return (
     <ZhihuFeedScreen
@@ -83,11 +82,11 @@ function ZhihuFeedRoute({
       hasMore={feed.hasMore}
       error={feed.error}
       authenticated={authenticated}
+      scrollContainerRef={scrollContainerRef}
       onModeChange={onModeChange}
       onRefresh={feed.refresh}
       onLoadMore={feed.loadMore}
       onOpen={openItem}
-      onSearch={onSearch}
     />
   )
 }
@@ -101,7 +100,7 @@ function capabilityPlaceholder(title: string, description: string) {
   )
 }
 
-export function ZhihuWorkspace({ onExit, onOpenArticle, backHandlerRef, presetSwitcher }: Props) {
+export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher }: Props) {
   const runtime = useMemo(() => createZhihuRuntime(), [])
   const feedService = useMemo(() => createZhihuFeedService(runtime.api), [runtime])
   const collectionService = useMemo(() => new ZhihuCollectionService(runtime.api), [runtime])
@@ -117,14 +116,28 @@ export function ZhihuWorkspace({ onExit, onOpenArticle, backHandlerRef, presetSw
   const editorService = useMemo(() => new ZhihuEditorService(runtime.api, draftStore), [draftStore, runtime])
   const imageUploadService = useMemo(() => new ZhihuImageUploadService(runtime.api, runtime.session), [runtime])
   const [sessionSnapshot, setSessionSnapshot] = useState<ZhihuSessionSnapshot>(() => runtime.session.getSnapshot())
+  const [sessionHydrated, setSessionHydrated] = useState(false)
+  const [sessionRestoreError, setSessionRestoreError] = useState<string | null>(null)
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null)
   const [frames, setFrames] = useState<RouteFrame[]>(() => retainedFrames?.map((frame) => ({ ...frame })) ?? [createZhihuRootFrame()])
   const current = frames.at(-1) ?? createZhihuRootFrame()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const feedPreviewRef = useRef(new Map<string, ZhihuContentSummary>())
   const feedMode: ZhihuFeedMode = current.route.screen === 'feed' ? current.route.mode : 'recommended'
 
   useEffect(() => runtime.session.subscribe(setSessionSnapshot), [runtime])
   useEffect(() => {
-    void runtime.account.hydrate().catch(() => undefined)
+    let alive = true
+    setSessionHydrated(false)
+    setSessionRestoreError(null)
+    void runtime.account.hydrate()
+      .catch((cause) => {
+        if (alive) setSessionRestoreError(cause instanceof Error ? cause.message : '知乎账号恢复失败')
+      })
+      .finally(() => {
+        if (alive) setSessionHydrated(true)
+      })
+    return () => { alive = false }
   }, [runtime])
 
   useEffect(() => {
@@ -155,6 +168,11 @@ export function ZhihuWorkspace({ onExit, onOpenArticle, backHandlerRef, presetSw
       return reduceRoutes(saved, { type: 'push', frame: { route: { screen: 'entity', ref }, scrollTop: 0 } })
     })
   }, [saveScroll])
+
+  const openFeedItem = useCallback((item: ZhihuContentSummary) => {
+    feedPreviewRef.current.set(`${item.ref.kind}:${item.ref.id}`, item)
+    pushEntity(item.ref)
+  }, [pushEntity])
 
   const pushSearch = useCallback((query = '') => {
     setFrames((prev) => reduceRoutes(saveScroll(prev), { type: 'push', frame: { route: { screen: 'search', query }, scrollTop: 0 } }))
@@ -187,16 +205,57 @@ export function ZhihuWorkspace({ onExit, onOpenArticle, backHandlerRef, presetSw
       navTo({ route: { screen: 'profile' }, scrollTop: 0 })
       return
     }
-    const draft = await draftStore.create(accountId, 'answer', questionId)
-    navTo({ route: { screen: 'editor', localDraftId: draft.localDraftId }, scrollTop: 0 })
-  }, [draftStore, navTo, runtime])
+    setWorkspaceError(null)
+    try {
+      // 同一个问题优先恢复本机草稿，不能每点一次“写回答”就制造一个空副本。
+      const existingLocal = (await draftStore.list(accountId)).find((item) => item.kind === 'answer' && item.targetId === questionId)
+      if (existingLocal) {
+        navTo({ route: { screen: 'editor', localDraftId: existingLocal.localDraftId }, scrollTop: 0 })
+        return
+      }
+
+      const relationship = await runtime.api.getJson(
+        'answer.relationship',
+        `https://api.zhihu.com/questions/${encodeURIComponent(questionId)}?include=relationship,relationship.my_answer`,
+      )
+      const existingAnswerId = parseExistingAnswerId(relationship)
+      let draft = await draftStore.create(accountId, 'answer', questionId)
+      if (existingAnswerId) {
+        // 已回答过的问题必须先把线上可编辑正文完整拉回本机再进入编辑器；禁止用空白草稿
+        // 覆盖现有回答。editable_content 缺失时才退回 content。
+        const existing = await contentService.read({ kind: 'answer', id: existingAnswerId })
+        const html = existing.editableContentHtml ?? existing.contentHtml
+        const text = typeof DOMParser !== 'undefined'
+          ? new DOMParser().parseFromString(html, 'text/html').body.textContent ?? ''
+          : html.replace(/<[^>]+>/g, ' ')
+        draft = await draftStore.save({
+          ...draft,
+          document: { version: 1, html, text },
+          publishedContentId: existingAnswerId,
+          publishState: 'published',
+        })
+      }
+      navTo({ route: { screen: 'editor', localDraftId: draft.localDraftId }, scrollTop: 0 })
+    } catch (cause) {
+      setWorkspaceError(cause instanceof Error ? cause.message : '无法打开回答编辑器')
+    }
+  }, [contentService, draftStore, navTo, runtime])
 
   const currentTitle = current.route.screen === 'feed'
     ? '知乎'
     : current.route.screen === 'search'
       ? '搜索'
       : current.route.screen === 'entity'
-        ? '知乎内容'
+        ? ({
+            question: '问题',
+            answer: '回答',
+            article: '文章',
+            pin: '想法',
+            people: '个人主页',
+            topic: '话题',
+            collection: '收藏夹',
+            comment: '评论',
+          } as const)[current.route.ref.kind] ?? '知乎'
         : current.route.screen === 'notifications'
           ? '消息'
           : current.route.screen === 'profile'
@@ -207,7 +266,9 @@ export function ZhihuWorkspace({ onExit, onOpenArticle, backHandlerRef, presetSw
               ? '创作'
             : '知乎'
 
-  const body = (() => {
+  const body = !sessionHydrated ? (
+    <div role="status" className="flex min-h-48 items-center justify-center font-mono text-[11px] text-paper-faint">正在恢复知乎会话…</div>
+  ) : (() => {
     switch (current.route.screen) {
       case 'feed':
         return (
@@ -215,9 +276,9 @@ export function ZhihuWorkspace({ onExit, onOpenArticle, backHandlerRef, presetSw
             mode={current.route.mode}
             service={feedService}
             onModeChange={setFeedMode}
-            onOpen={pushEntity}
-            onSearch={() => pushSearch('')}
+            onOpen={openFeedItem}
             authenticated={sessionSnapshot.auth === 'authenticated'}
+            scrollContainerRef={scrollRef}
             accountId={sessionSnapshot.account?.id}
           />
         )
@@ -230,6 +291,7 @@ export function ZhihuWorkspace({ onExit, onOpenArticle, backHandlerRef, presetSw
               type: 'replace', frame: { route: { screen: 'search', query }, scrollTop: 0 },
             }))}
             onOpen={pushEntity}
+            scrollContainerRef={scrollRef}
           />
         )
       case 'entity':
@@ -268,11 +330,11 @@ export function ZhihuWorkspace({ onExit, onOpenArticle, backHandlerRef, presetSw
         return (
           <ZhihuContentScreen
             refValue={current.route.ref}
+            preview={feedPreviewRef.current.get(`${current.route.ref.kind}:${current.route.ref.id}`)}
             contentService={contentService}
             feedService={feedService}
             commentsService={commentsService}
             onNavigate={pushEntity}
-            onOpenArticle={onOpenArticle}
             restoreAnchor={current.anchor}
             authenticated={sessionSnapshot.auth === 'authenticated'}
             accountId={sessionSnapshot.account?.id}
@@ -334,55 +396,62 @@ export function ZhihuWorkspace({ onExit, onOpenArticle, backHandlerRef, presetSw
   return (
     <section className="relative flex h-full min-h-0 flex-1 flex-col bg-ink" aria-label="知乎工作区">
       {/* AppShell 已经统一吃掉顶部 safe-area；工作区再次加 --sat 会在打孔/刘海机型上形成双倍顶部留白。 */}
-      <header className="z-10 flex min-h-[58px] shrink-0 items-center gap-2 border-b border-haze/70 bg-ink-raised/95 px-3 sm:px-5">
+      <header className="relative z-20 flex min-h-[56px] shrink-0 items-center gap-2 border-b border-haze/50 bg-ink/92 px-3 backdrop-blur-xl sm:px-5">
         <button
           type="button"
           onClick={() => (goBack() ? undefined : onExit())}
           aria-label={frames.length > 1 ? '返回' : '返回 NewsNook'}
-          className="flex size-10 shrink-0 items-center justify-center rounded-xl text-paper-muted hover:bg-ink hover:text-cinnabar"
+          className="flex size-9 shrink-0 items-center justify-center rounded-lg text-paper-muted/80 transition-colors hover:bg-paper/5 hover:text-cinnabar"
         >
-          <ArrowLeft size={19} />
+          <ArrowLeft size={18} strokeWidth={1.6} />
         </button>
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-display text-[17px] font-semibold text-paper">{currentTitle}</div>
-          <div className="truncate font-mono text-[9.5px] tracking-[0.12em] text-paper-faint">NEWSNOOK · ZHIHU WORKSPACE</div>
-        </div>
+        <div className="min-w-0 flex-1 truncate font-display text-[18px] font-medium tracking-[0.01em] text-paper">{currentTitle}</div>
         <button
           type="button"
           onClick={() => pushSearch('')}
           aria-label="搜索知乎"
-          className="flex size-10 shrink-0 items-center justify-center rounded-xl text-paper-muted hover:bg-ink hover:text-cinnabar sm:hidden"
+          className="flex size-9 shrink-0 items-center justify-center rounded-lg text-paper-muted/80 transition-colors hover:bg-paper/5 hover:text-cinnabar sm:hidden"
         >
-          <Search size={17} />
+          <Search size={17} strokeWidth={1.6} />
         </button>
         <PresetSwitcher {...presetSwitcher} />
       </header>
 
       <div ref={scrollRef} className="scroll-hidden min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {sessionRestoreError && (
+          <div role="alert" className="mx-4 mt-3 rounded-xl border border-cinnabar/35 bg-cinnabar/5 px-3 py-2.5 text-[12px] leading-5 text-paper-muted sm:mx-6">
+            账号恢复失败：{sessionRestoreError}。已保留本机数据，请到“我的”重试验证。
+          </div>
+        )}
+        {workspaceError && (
+          <div role="alert" className="mx-4 mt-3 rounded-xl border border-cinnabar/35 bg-cinnabar/5 px-3 py-2.5 text-[12px] leading-5 text-paper-muted sm:mx-6">
+            {workspaceError}
+          </div>
+        )}
         {body}
       </div>
 
-      <nav className="absolute inset-x-0 bottom-0 z-10 grid grid-cols-3 border-t border-haze/80 bg-ink-raised/95" style={{ paddingBottom: 'var(--sab)' }} aria-label="知乎主导航">
+      <nav className="absolute inset-x-0 bottom-0 z-20 grid grid-cols-3 border-t border-haze/50 bg-ink/92 backdrop-blur-xl" style={{ paddingBottom: 'var(--sab)' }} aria-label="知乎主导航">
         <button
           type="button"
           onClick={() => setFrames([createZhihuRootFrame(feedMode)])}
-          className={`flex min-h-14 flex-col items-center justify-center gap-1 font-mono text-[9.5px] ${current.route.screen === 'feed' ? 'text-cinnabar' : 'text-paper-faint'}`}
+          className={`group flex min-h-13 flex-col items-center justify-center gap-0.5 font-mono text-[10.5px] tracking-[0.12em] transition-colors ${current.route.screen === 'feed' ? 'font-medium text-cinnabar' : 'text-paper-muted/75 hover:text-paper'}`}
         >
-          <Home size={17} /><span>首页</span>
+          <Home size={20} strokeWidth={current.route.screen === 'feed' ? 2 : 1.5} className={current.route.screen === 'feed' ? 'scale-105' : ''} /><span>首页</span>
         </button>
         <button
           type="button"
           onClick={() => navTo({ route: { screen: 'notifications' }, scrollTop: 0 })}
-          className={`flex min-h-14 flex-col items-center justify-center gap-1 font-mono text-[9.5px] ${current.route.screen === 'notifications' ? 'text-cinnabar' : 'text-paper-faint'}`}
+          className={`group flex min-h-13 flex-col items-center justify-center gap-0.5 font-mono text-[10.5px] tracking-[0.12em] transition-colors ${current.route.screen === 'notifications' ? 'font-medium text-cinnabar' : 'text-paper-muted/75 hover:text-paper'}`}
         >
-          <Bell size={17} /><span>消息</span>
+          <Bell size={20} strokeWidth={current.route.screen === 'notifications' ? 2 : 1.5} className={current.route.screen === 'notifications' ? 'scale-105' : ''} /><span>消息</span>
         </button>
         <button
           type="button"
           onClick={() => navTo({ route: { screen: 'profile' }, scrollTop: 0 })}
-          className={`flex min-h-14 flex-col items-center justify-center gap-1 font-mono text-[9.5px] ${current.route.screen === 'profile' ? 'text-cinnabar' : 'text-paper-faint'}`}
+          className={`group flex min-h-13 flex-col items-center justify-center gap-0.5 font-mono text-[10.5px] tracking-[0.12em] transition-colors ${current.route.screen === 'profile' ? 'font-medium text-cinnabar' : 'text-paper-muted/75 hover:text-paper'}`}
         >
-          <UserRound size={17} /><span>我的</span>
+          <UserRound size={20} strokeWidth={current.route.screen === 'profile' ? 2 : 1.5} className={current.route.screen === 'profile' ? 'scale-105' : ''} /><span>我的</span>
         </button>
       </nav>
     </section>

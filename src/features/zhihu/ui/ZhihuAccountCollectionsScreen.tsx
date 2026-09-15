@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Bookmark, Loader2, Plus, Trash2 } from 'lucide-react'
+import { Bookmark, ChevronRight, Loader2, Plus, Trash2 } from 'lucide-react'
+
+import { ConfirmDialog } from '../../../components/ConfirmDialog'
 
 import type { ZhihuCollectionSummary, ZhihuInteractionService } from '../interaction/service'
 import { canExecuteZhihuOperation } from '../protocol'
+import { ZhihuEmptyState, ZhihuErrorBanner, ZhihuLoadingState, ZhihuSurface } from './ZhihuUi'
+import { formatZhihuCount } from './ZhihuUiUtils'
 
 interface Props {
   urlToken: string
@@ -23,6 +27,7 @@ export function ZhihuAccountCollectionsScreen({ urlToken, service, onOpenCollect
   const [busyId, setBusyId] = useState<string | null>(null)
   const [newTitle, setNewTitle] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<ZhihuCollectionSummary | null>(null)
 
   const createWritable = canExecuteZhihuOperation('collection.create')
   const deleteWritable = canExecuteZhihuOperation('collection.delete')
@@ -81,7 +86,7 @@ export function ZhihuAccountCollectionsScreen({ urlToken, service, onOpenCollect
 
   const remove = async (collection: ZhihuCollectionSummary) => {
     if (!deleteWritable || collection.isDefault || busyId) return
-    if (!window.confirm(`删除收藏夹“${collection.title}”？此操作不会删除其中的知乎内容。`)) return
+    setPendingDelete(null)
     setBusyId(collection.id)
     setError(null)
     try {
@@ -96,69 +101,88 @@ export function ZhihuAccountCollectionsScreen({ urlToken, service, onOpenCollect
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-28 pt-5 sm:px-6">
-      <header className="rounded-2xl border border-haze/70 bg-ink-raised/55 p-4">
+      <header className="mb-4 border-b border-haze/55 pb-5">
         <div className="flex items-center gap-2">
-          <Bookmark size={18} className="text-cinnabar" />
-          <h1 className="font-display text-[20px] font-semibold text-paper">我的收藏夹</h1>
+          <Bookmark size={17} strokeWidth={1.6} className="text-cinnabar-soft" />
+          <h1 className="font-display text-[22px] font-medium text-paper">我的收藏夹</h1>
         </div>
-        <p className="mt-2 text-[11px] leading-5 text-paper-faint">创建、查看和管理你的知乎收藏夹。</p>
-        <div className="mt-3 flex gap-2">
+        <p className="mt-1.5 text-[11.5px] leading-relaxed text-paper-faint">创建、查看和管理知乎收藏夹。</p>
+        <div className="mt-4 flex items-center gap-2 rounded-xl border border-haze/70 bg-ink-raised/40 p-2.5 focus-within:border-cinnabar/35">
           <input
             value={newTitle}
             onChange={(event) => setNewTitle(event.target.value)}
             disabled={!createWritable}
             maxLength={80}
-            placeholder={createWritable ? '新收藏夹名称' : '当前版本暂不可创建'}
-            className="min-h-10 min-w-0 flex-1 rounded-xl border border-haze/70 bg-ink px-3 text-[12px] text-paper outline-none focus:border-cinnabar/50 disabled:opacity-45"
+            placeholder={createWritable ? '新收藏夹名称' : '当前会话暂不可创建'}
+            className="min-h-9 min-w-0 flex-1 bg-transparent px-1 text-[12.5px] text-paper outline-none placeholder:text-paper-faint/65 disabled:opacity-45"
           />
           <button
             type="button"
             disabled={!createWritable || !newTitle.trim() || Boolean(busyId)}
             onClick={() => void create()}
-            title={createWritable ? undefined : '当前版本暂不可创建收藏夹'}
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-cinnabar px-3 text-[11px] text-white disabled:opacity-40"
+            aria-label="新建收藏夹"
+            title="新建收藏夹"
+            className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-cinnabar/50 bg-cinnabar/12 text-cinnabar-soft disabled:opacity-35"
           >
-            {busyId === '__create__' ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}新建
+            {busyId === '__create__' ? <Loader2 size={14} className="animate-spin" /> : <Plus size={15} strokeWidth={1.7} />}
           </button>
         </div>
       </header>
 
-      {error && <div role="alert" className="mt-3 rounded-xl border border-cinnabar/35 bg-cinnabar/8 p-3 text-[11px] text-paper-muted">{error}</div>}
-      {loading && <div className="py-14 text-center font-mono text-[10.5px] text-paper-faint">正在读取收藏夹…</div>}
-      {!loading && items.length === 0 && !error && <div className="py-14 text-center text-[11px] text-paper-faint">没有可读取的收藏夹</div>}
+      {error && <div className="mb-3"><ZhihuErrorBanner>{error}</ZhihuErrorBanner></div>}
+      {loading && <ZhihuLoadingState label="正在读取收藏夹…" />}
+      {!loading && items.length === 0 && !error && <ZhihuEmptyState icon={<Bookmark size={28} />} title="还没有收藏夹" />}
 
-      <div className="mt-3 space-y-2">
-        {items.map((collection) => (
-          <div key={collection.id} className="flex items-center gap-2 rounded-xl border border-haze/70 bg-ink-raised/50 p-3">
-            <button type="button" onClick={() => onOpenCollection(collection.id)} className="min-w-0 flex-1 text-left">
-              <div className="truncate text-[13px] font-medium text-paper">{collection.title}</div>
-              <div className="mt-1 flex flex-wrap gap-2 font-mono text-[9px] text-paper-faint">
-                {collection.isDefault && <span>默认</span>}
-                <span>{collection.isPublic ? '公开' : '私密'}</span>
-                {typeof collection.itemCount === 'number' && <span>{collection.itemCount} 项</span>}
-              </div>
-              {collection.description && <p className="mt-1 line-clamp-2 text-[10.5px] leading-5 text-paper-muted">{collection.description}</p>}
-            </button>
-            {!collection.isDefault && (
-              <button
-                type="button"
-                disabled={!deleteWritable || Boolean(busyId)}
-                onClick={() => void remove(collection)}
-                title={deleteWritable ? '删除收藏夹' : '当前版本暂不可删除收藏夹'}
-                className="flex size-9 shrink-0 items-center justify-center rounded-lg text-paper-faint hover:bg-ink hover:text-cinnabar disabled:opacity-30"
-                aria-label={`删除收藏夹 ${collection.title}`}
-              >
-                {busyId === collection.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={14} />}
+      {items.length > 0 && (
+        <ZhihuSurface className="divide-y divide-haze/55">
+          {items.map((collection) => (
+            <div key={collection.id} className="flex items-center gap-2 px-4 py-3.5 transition-colors hover:bg-paper/5">
+              <button type="button" onClick={() => onOpenCollection(collection.id)} className="min-w-0 flex-1 text-left">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate font-display text-[15px] font-medium text-paper">{collection.title}</span>
+                  {collection.isDefault && <span className="shrink-0 font-mono text-[9px] tracking-[0.06em] text-cinnabar-soft">默认</span>}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 font-mono text-[9.5px] text-paper-faint">
+                  <span>{collection.isPublic ? '公开' : '私密'}</span>
+                  {typeof collection.itemCount === 'number' && <span>{formatZhihuCount(collection.itemCount)} 项</span>}
+                </div>
+                {collection.description && <p className="mt-1.5 line-clamp-2 text-[11.5px] leading-[1.6] text-paper-muted">{collection.description}</p>}
               </button>
-            )}
-          </div>
-        ))}
-      </div>
+              {!collection.isDefault && (
+                <button
+                  type="button"
+                  disabled={!deleteWritable || Boolean(busyId)}
+                  onClick={() => setPendingDelete(collection)}
+                  title="删除收藏夹"
+                  aria-label={`删除收藏夹 ${collection.title}`}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-lg text-paper-faint transition-colors hover:bg-cinnabar/8 hover:text-cinnabar-soft disabled:opacity-30"
+                >
+                  {busyId === collection.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={14} strokeWidth={1.6} />}
+                </button>
+              )}
+              <ChevronRight size={14} strokeWidth={1.5} className="shrink-0 text-paper-faint/65" />
+            </div>
+          ))}
+        </ZhihuSurface>
+      )}
+
       {nextCursor && (
-        <button type="button" disabled={loadingMore} onClick={() => void loadMore()} className="mt-4 min-h-11 w-full rounded-xl border border-haze/70 bg-ink-raised font-mono text-[10.5px] text-paper-muted disabled:opacity-50">
-          {loadingMore ? '正在加载…' : '加载更多收藏夹'}
+        <button type="button" disabled={loadingMore} onClick={() => void loadMore()} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-haze/70 bg-ink-raised/40 font-mono text-[10.5px] text-paper-muted disabled:opacity-45">
+          {loadingMore && <Loader2 size={13} className="animate-spin text-cinnabar-soft" />}
+          <span>{loadingMore ? '正在加载…' : '加载更多'}</span>
         </button>
       )}
+
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title="删除收藏夹"
+        message={pendingDelete ? `删除“${pendingDelete.title}”？其中的知乎内容不会被删除。` : ''}
+        confirmLabel="删除"
+        cancelLabel="取消"
+        danger
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => { if (pendingDelete) void remove(pendingDelete) }}
+      />
     </div>
   )
 }

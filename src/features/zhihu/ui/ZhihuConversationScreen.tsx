@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Loader2, MessageCircle, Send } from 'lucide-react'
+import { Loader2, MessageCircle, Send, UserRound } from 'lucide-react'
 
 import type {
   ZhihuMessagePeer,
@@ -7,7 +7,8 @@ import type {
   ZhihuPrivateMessage,
 } from '../notification/service'
 import type { ZhihuMessageDraftStore } from '../notification/draftStore'
-import { isZhihuOperationEnabled } from '../protocol'
+import { canExecuteZhihuOperation } from '../protocol'
+import { ZhihuErrorBanner, ZhihuLoadingState } from './ZhihuUi'
 
 interface Props {
   peerId: string
@@ -23,7 +24,7 @@ function messageTime(value?: number): string {
 }
 
 export function ZhihuConversationScreen({ peerId, accountId, service, draftStore }: Props) {
-  const sendWritable = isZhihuOperationEnabled('message.send')
+  const sendWritable = canExecuteZhihuOperation('message.send')
   const [peer, setPeer] = useState<ZhihuMessagePeer | null>(null)
   const [items, setItems] = useState<ZhihuPrivateMessage[]>([])
   const [nextCursor, setNextCursor] = useState<string | undefined>()
@@ -127,49 +128,68 @@ export function ZhihuConversationScreen({ peerId, accountId, service, draftStore
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col px-4 pb-28 pt-5 sm:px-6">
-      <header className="mb-4 flex items-center gap-3 rounded-2xl border border-haze/70 bg-ink-raised/55 p-3.5">
-        {peer?.avatarUrl ? <img src={peer.avatarUrl} alt="" className="size-11 rounded-xl object-cover" /> : <div className="flex size-11 items-center justify-center rounded-xl bg-ink"><MessageCircle size={18} className="text-paper-faint" /></div>}
-        <div className="min-w-0 flex-1"><h1 className="truncate font-display text-[18px] font-semibold text-paper">{peer?.name || '私信'}</h1>{peer?.headline && <p className="mt-0.5 truncate text-[11px] text-paper-faint">{peer.headline}</p>}</div>
+    <div className="mx-auto flex w-full max-w-3xl flex-col px-4 pb-28 pt-4 sm:px-6">
+      <header className="mb-4 flex items-center gap-3 border-b border-haze/55 pb-4">
+        {peer?.avatarUrl ? (
+          <img src={peer.avatarUrl} alt="" className="size-11 rounded-2xl object-cover" />
+        ) : (
+          <span className="flex size-11 items-center justify-center rounded-2xl border border-haze/70 bg-ink-raised/45"><UserRound size={18} className="text-paper-faint" /></span>
+        )}
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate font-display text-[19px] font-medium text-paper">{peer?.name || '私信'}</h1>
+          {peer?.headline && <p className="mt-0.5 truncate text-[11px] text-paper-faint">{peer.headline}</p>}
+        </div>
+        <MessageCircle size={17} strokeWidth={1.5} className="text-paper-faint" />
       </header>
-      {error && <div role="alert" className="mb-3 rounded-xl border border-cinnabar/35 bg-cinnabar/8 p-3 text-[12px] text-paper-muted">{error}</div>}
-      {loading && <div className="py-16 text-center font-mono text-[11px] text-paper-faint">正在读取私信…</div>}
+
+      {error && <div className="mb-3"><ZhihuErrorBanner>{error}</ZhihuErrorBanner></div>}
+      {loading && items.length === 0 && <ZhihuLoadingState label="正在读取私信…" />}
+
+      {hasMore && (
+        <button type="button" disabled={loadingMore} onClick={() => void loadMore()} className="mb-4 flex min-h-9 items-center justify-center gap-1.5 rounded-lg font-mono text-[10px] text-paper-faint transition-colors hover:bg-paper/5 hover:text-paper-muted disabled:opacity-40">
+          {loadingMore && <Loader2 size={12} className="animate-spin text-cinnabar-soft" />}
+          <span>{loadingMore ? '加载中…' : '更早的消息'}</span>
+        </button>
+      )}
+
       <div className="space-y-2.5">
-        {items.map((message) => {
+        {[...items].reverse().map((message) => {
           const mine = Boolean(accountId && message.sender?.id === accountId)
           return (
             <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[82%] rounded-2xl px-3.5 py-2.5 ${mine ? 'bg-cinnabar text-white' : 'border border-haze/70 bg-ink-raised text-paper'}`}>
-                <div className="whitespace-pre-wrap break-words text-[12.5px] leading-6">{message.content}</div>
-                <div className={`mt-1 font-mono text-[8.5px] ${mine ? 'text-white/65' : 'text-paper-faint'}`}>{messageTime(message.createdAt)}</div>
+              <div className={`max-w-[82%] rounded-2xl px-3.5 py-2.5 shadow-[var(--shadow-lift)] ${mine ? 'bg-cinnabar/18 text-paper' : 'border border-haze/65 bg-ink-raised/50 text-paper'}`}>
+                <div className="whitespace-pre-wrap break-words text-[13px] leading-[1.65]">{message.content}</div>
+                <div className={`mt-1 font-mono text-[8.5px] ${mine ? 'text-cinnabar-soft/75' : 'text-paper-faint'}`}>{messageTime(message.createdAt)}</div>
               </div>
             </div>
           )
         })}
       </div>
-      {hasMore && <button type="button" disabled={loadingMore} onClick={() => void loadMore()} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-haze/70 font-mono text-[11px] text-paper-muted disabled:opacity-50">{loadingMore && <Loader2 size={13} className="animate-spin" />}{loadingMore ? '加载中…' : '加载更早消息'}</button>}
-      <div className="sticky bottom-14 mt-4 flex items-end gap-2 border-t border-haze/70 bg-ink/95 py-3" style={{ paddingBottom: 'calc(var(--sab) + 0.5rem)' }}>
-        <textarea
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          disabled={sending}
-          rows={1}
-          maxLength={10_000}
-          placeholder="发私信"
-          className="min-h-11 max-h-32 min-w-0 flex-1 resize-y rounded-xl border border-haze/70 bg-ink-raised px-3 py-2.5 text-[12.5px] leading-5 text-paper outline-none focus:border-cinnabar/50 disabled:opacity-60"
-        />
-        <button
-          type="button"
-          disabled={!sendWritable || sending || !draft.trim()}
-          onClick={() => void send()}
-          aria-label="发送私信"
-          title={sendWritable ? undefined : '当前版本暂不可发送私信'}
-          className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-cinnabar text-white disabled:opacity-40"
-        >
-          {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-        </button>
+
+      <div className="sticky bottom-13 z-10 -mx-1 mt-4 border-t border-haze/55 bg-ink/92 px-1 pb-2 pt-3 backdrop-blur-xl" style={{ paddingBottom: 'calc(var(--sab) + 0.5rem)' }}>
+        <div className="flex items-end gap-2 rounded-2xl border border-haze/70 bg-ink-raised/45 p-2.5 focus-within:border-cinnabar/35">
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            disabled={sending}
+            rows={1}
+            maxLength={10_000}
+            placeholder="发私信…"
+            className="min-h-9 max-h-32 min-w-0 flex-1 resize-y bg-transparent px-1 py-2 text-[13px] leading-[1.6] text-paper outline-none placeholder:text-paper-faint/65 disabled:opacity-60"
+          />
+          <button
+            type="button"
+            disabled={!sendWritable || sending || !draft.trim()}
+            onClick={() => void send()}
+            aria-label="发送私信"
+            title="发送私信"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full border border-cinnabar/50 bg-cinnabar/12 text-cinnabar-soft transition-colors hover:bg-cinnabar/20 disabled:opacity-35"
+          >
+            {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} strokeWidth={1.7} />}
+          </button>
+        </div>
+        {!sendWritable && <p className="mt-1.5 px-2 font-mono text-[9.5px] text-paper-faint">当前会话仅保留本机草稿，暂不可发送。</p>}
       </div>
-      {!sendWritable && <p className="-mt-2 pb-2 font-mono text-[9.5px] text-paper-faint">当前版本暂不可发送私信；输入会自动保存在本机草稿中。</p>}
     </div>
   )
 }

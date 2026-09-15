@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Browser } from '@capacitor/browser'
-import { Bell, CheckCheck, Loader2, MessageCircle } from 'lucide-react'
+import { AtSign, Bell, Bookmark, CheckCheck, Heart, Loader2, MessageCircle, UserPlus } from 'lucide-react'
 
 import { parseZhihuLink, parseZhihuMessagePeerId } from '../content/links'
 import type {
@@ -11,6 +11,8 @@ import type {
 import { mergeZhihuNotificationItems } from '../notification/service'
 import type { ZhihuEntityRef } from '../types'
 import { canExecuteZhihuOperation } from '../protocol'
+import { ZhihuEmptyState, ZhihuErrorBanner, ZhihuLoadingState, ZhihuSurface } from './ZhihuUi'
+import { formatZhihuCount } from './ZhihuUiUtils'
 
 interface Props {
   service: ZhihuNotificationService
@@ -144,69 +146,102 @@ export function ZhihuNotificationScreen({ service, onOpen, onMessage }: Props) {
     if (item.targetUrl) void Browser.open({ url: item.targetUrl }).catch(() => undefined)
   }
 
+  const categoryIcon = (category: ZhihuNotificationCategory) => {
+    switch (category) {
+      case 'comment': return <AtSign size={13} />
+      case 'like': return <Heart size={13} />
+      case 'favlist_me': return <Bookmark size={13} />
+      case 'follow': return <UserPlus size={13} />
+    }
+  }
+  const totalUnread = Object.values(unread).reduce((sum, value) => sum + value, 0)
+
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-28 pt-5 sm:px-6">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <h1 className="font-display text-[22px] font-semibold text-paper">通知</h1>
-          <p className="mt-1 font-mono text-[10px] text-paper-faint">评论、赞同、关注与私信</p>
+      <div className="mb-3 flex items-center gap-2">
+        <div className="scroll-hidden -mx-1 flex min-w-0 flex-1 gap-1.5 overflow-x-auto px-1 pb-1">
+          <button
+            type="button"
+            onClick={() => setActiveCategory(null)}
+            className={`flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[11px] transition-colors ${activeCategory == null ? 'border-cinnabar/40 bg-cinnabar/12 text-cinnabar-soft' : 'border-haze/70 bg-ink-raised/35 text-paper-faint hover:bg-paper/5 hover:text-paper-muted'}`}
+          >
+            <Bell size={13} /><span>全部</span>{totalUnread > 0 && <span className="font-mono text-[9.5px]">{formatZhihuCount(totalUnread)}</span>}
+          </button>
+          {CATEGORIES.map((category) => (
+            <button
+              key={category.id}
+              type="button"
+              onClick={() => setActiveCategory(category.id)}
+              className={`flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[11px] transition-colors ${activeCategory === category.id ? 'border-cinnabar/40 bg-cinnabar/12 text-cinnabar-soft' : 'border-haze/70 bg-ink-raised/35 text-paper-faint hover:bg-paper/5 hover:text-paper-muted'}`}
+            >
+              {categoryIcon(category.id)}<span>{category.label}</span>{unread[category.id] > 0 && <span className="font-mono text-[9.5px]">{formatZhihuCount(unread[category.id])}</span>}
+            </button>
+          ))}
         </div>
-        <button type="button" disabled={!readAllWritable || Boolean(marking)} onClick={() => void markAll()} title={readAllWritable ? undefined : '当前版本暂不可标记已读'} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-haze/70 px-3 font-mono text-[10px] text-paper-muted disabled:opacity-40">
-          {marking === 'all' ? <Loader2 size={13} className="animate-spin" /> : <CheckCheck size={13} />}全部已读
-        </button>
-      </div>
-
-      <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
         <button
           type="button"
-          onClick={() => setActiveCategory(null)}
-          className={`min-w-[76px] rounded-xl border p-3 text-left ${activeCategory == null ? 'border-cinnabar/50 bg-cinnabar/8' : 'border-haze/70 bg-ink-raised/55'}`}
+          disabled={!readAllWritable || Boolean(marking) || totalUnread === 0}
+          onClick={() => void markAll()}
+          aria-label="全部标记已读"
+          title="全部标记已读"
+          className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-haze/70 bg-ink-raised/40 text-paper-faint transition-colors hover:bg-paper/5 hover:text-paper-muted disabled:opacity-30"
         >
-          <span className="block text-[11px] text-paper-muted">全部</span>
-          <span className="mt-1 block font-mono text-[15px] text-paper">{Object.values(unread).reduce((sum, value) => sum + value, 0)}</span>
+          {marking === 'all' ? <Loader2 size={14} className="animate-spin" /> : <CheckCheck size={15} strokeWidth={1.6} />}
         </button>
-        {CATEGORIES.map((category) => (
-          <button key={category.id} type="button" onClick={() => setActiveCategory(category.id)} className={`min-w-[102px] rounded-xl border p-3 text-left ${activeCategory === category.id ? 'border-cinnabar/50 bg-cinnabar/8' : 'border-haze/70 bg-ink-raised/55'}`}>
-            <span className="block text-[11px] text-paper-muted">{category.label}</span>
-            <span className="mt-1 block font-mono text-[15px] text-paper">{unread[category.id]}</span>
-          </button>
-        ))}
       </div>
 
       {activeCategory && unread[activeCategory] > 0 && (
         <div className="mb-3 flex justify-end">
-          <button type="button" disabled={!readAllWritable || Boolean(marking)} onClick={() => void markCategory(activeCategory)} title={readAllWritable ? undefined : '当前版本暂不可标记已读'} className="min-h-9 rounded-xl border border-haze/70 px-3 font-mono text-[10px] text-paper-muted disabled:opacity-40">
-            {marking === activeCategory ? '正在标记…' : '标记当前分类已读'}
+          <button
+            type="button"
+            disabled={!readAllWritable || Boolean(marking)}
+            onClick={() => void markCategory(activeCategory)}
+            className="inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2.5 font-mono text-[10px] text-paper-faint transition-colors hover:bg-paper/5 hover:text-paper-muted disabled:opacity-35"
+          >
+            {marking === activeCategory ? <Loader2 size={12} className="animate-spin" /> : <CheckCheck size={13} />}
+            <span>当前分类已读</span>
           </button>
         </div>
       )}
 
       {messageUnread > 0 && (
-        <div className="mb-3 flex items-center gap-2 rounded-xl border border-cinnabar/25 bg-cinnabar/5 px-3 py-2 text-[11px] text-paper-muted">
-          <MessageCircle size={14} className="text-cinnabar" />有 {messageUnread} 条私信未读，点击下方私信条目即可进入会话。
+        <div className="mb-3 flex items-center gap-2 rounded-xl border border-cinnabar/25 bg-cinnabar/7 px-3 py-2.5 text-[11px] text-paper-muted">
+          <MessageCircle size={14} strokeWidth={1.6} className="text-cinnabar-soft" />
+          <span>{messageUnread} 条私信未读</span>
         </div>
       )}
-      {error && <div role="alert" className="mb-3 rounded-xl border border-cinnabar/35 bg-cinnabar/8 p-3 text-[12px] text-paper-muted">{error}</div>}
-      {loading && <div className="py-16 text-center font-mono text-[11px] text-paper-faint">正在读取知乎通知…</div>}
-      {!loading && items.length === 0 && (
-        <div className="py-16 text-center text-paper-faint"><Bell size={24} className="mx-auto mb-2 opacity-60" /><p className="text-[12px]">暂无通知</p></div>
-      )}
-      <div className="space-y-2.5">
-        {items.map((item) => (
-          <button key={item.id} type="button" onClick={() => openItem(item)} className="flex w-full gap-3 rounded-xl border border-haze/70 bg-ink-raised/55 p-3.5 text-left hover:border-cinnabar/35">
-            {item.author?.avatarUrl ? <img src={item.author.avatarUrl} alt="" className="size-10 shrink-0 rounded-lg object-cover" loading="lazy" /> : <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-ink"><Bell size={15} className="text-paper-faint" /></div>}
-            <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-2">
-                <span className="truncate text-[12.5px] font-medium text-paper">{item.title}</span>
-                {item.unread && <span className="size-1.5 shrink-0 rounded-full bg-cinnabar" />}
-                <span className="ml-auto shrink-0 font-mono text-[9px] text-paper-faint">{notificationTime(item.createdAt)}</span>
+      {error && <div className="mb-3"><ZhihuErrorBanner>{error}</ZhihuErrorBanner></div>}
+      {loading && items.length === 0 && <ZhihuLoadingState label="正在读取知乎消息…" />}
+      {!loading && items.length === 0 && !error && <ZhihuEmptyState icon={<Bell size={28} />} title="暂无消息" />}
+
+      {items.length > 0 && (
+        <ZhihuSurface className="divide-y divide-haze/55">
+          {items.map((item) => (
+            <button key={item.id} type="button" onClick={() => openItem(item)} className="flex w-full gap-3 px-4 py-3.5 text-left transition-colors hover:bg-paper/5">
+              {item.author?.avatarUrl ? (
+                <img src={item.author.avatarUrl} alt="" className="size-10 shrink-0 rounded-xl object-cover" loading="lazy" />
+              ) : (
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-paper/5"><Bell size={15} className="text-paper-faint" /></span>
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-[12.5px] font-medium text-paper">{item.title}</span>
+                  {item.unread && <span className="size-1.5 shrink-0 rounded-full bg-cinnabar" />}
+                  <span className="ml-auto shrink-0 font-mono text-[9px] text-paper-faint">{notificationTime(item.createdAt)}</span>
+                </span>
+                {item.text && <span className="mt-1 line-clamp-3 block text-[11.5px] leading-[1.65] text-paper-muted">{item.text}</span>}
               </span>
-              {item.text && <span className="mt-1 block line-clamp-3 text-[11.5px] leading-5 text-paper-muted">{item.text}</span>}
-            </span>
-          </button>
-        ))}
-      </div>
-      {hasMore && <button type="button" disabled={loadingMore} onClick={() => void loadMore()} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-haze/70 font-mono text-[11px] text-paper-muted disabled:opacity-50">{loadingMore && <Loader2 size={13} className="animate-spin" />}{loadingMore ? '加载中…' : '加载更多'}</button>}
+            </button>
+          ))}
+        </ZhihuSurface>
+      )}
+
+      {hasMore && (
+        <button type="button" disabled={loadingMore} onClick={() => void loadMore()} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-haze/70 bg-ink-raised/40 font-mono text-[10.5px] text-paper-muted disabled:opacity-45">
+          {loadingMore && <Loader2 size={13} className="animate-spin text-cinnabar-soft" />}
+          <span>{loadingMore ? '加载中…' : '加载更多'}</span>
+        </button>
+      )}
     </div>
   )
 }

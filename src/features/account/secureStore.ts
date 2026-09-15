@@ -10,8 +10,10 @@
  * 也不把凭证写进 `localStorage`。
  */
 
+import { Capacitor } from '@capacitor/core'
+
 import { log } from '../../lib/logger'
-import { SecureStoreNative, isSecureStoreAvailable } from './native'
+import { SecureStoreNative } from './native'
 
 export interface SecureStore {
   /** 是否落盘：内存实现为 false，调用方据此决定要不要做迁移/回填 */
@@ -74,7 +76,12 @@ function createNativeSecureStore(): SecureStore {
 let shared: SecureStore | null = null
 
 export function getSecureStore(): SecureStore {
-  if (!shared) shared = isSecureStoreAvailable() ? createNativeSecureStore() : createMemorySecureStore()
+  if (!shared) {
+    // 原生包绝不能因为插件注册时序/能力探测瞬态失败而静默退成内存存储；那会让
+    // 登录在当前进程看起来成功、杀进程后却全部消失。原生端缺插件应直接在调用时
+    // 报错，Web 才允许使用明确的进程内实现。
+    shared = Capacitor.isNativePlatform() ? createNativeSecureStore() : createMemorySecureStore()
+  }
   return shared
 }
 

@@ -97,13 +97,28 @@ export function zhihuQuestionAnswersUrl(
   return url.href
 }
 
+const ENTITY_INCLUDE: Partial<Record<ZhihuEntityRef['kind'], string>> = {
+  answer: '.settings,content,editable_content,paid_info,can_comment,excerpt,thanks_count,voteup_count,comment_count,visited_count,attachment,reaction,ip_info,pagination_info,endorsements,question.topics,question.author,reaction.relation.voting,author.badge_v2,settings.table_of_contents.enabled',
+  article: 'content,topics,paid_info,can_comment,excerpt,thanks_count,voteup_count,comment_count,visited_count,relationship,ip_info,relationship.vote,author.badge_v2',
+  question: 'read_count,visit_count,answer_count,voteup_count,comment_count,follower_count,detail,excerpt,author,relationship.is_following,topics',
+  pin: 'topics',
+}
+
+function withEntityInclude(raw: string, kind: ZhihuEntityRef['kind']): string {
+  const include = ENTITY_INCLUDE[kind]
+  if (!include) return raw
+  const url = new URL(raw)
+  url.searchParams.set('include', include)
+  return url.href
+}
+
 export function zhihuEntityUrl(ref: ZhihuEntityRef): string | null {
   const id = encodeURIComponent(ref.id)
   switch (ref.kind) {
-    case 'answer': return `${WWW}/api/v4/answers/${id}`
-    case 'article': return `${WWW}/api/v4/articles/${id}`
-    case 'question': return `${WWW}/api/v4/questions/${id}`
-    case 'pin': return `${WWW}/api/v4/pins/${id}`
+    case 'answer': return withEntityInclude(`${WWW}/api/v4/answers/${id}`, ref.kind)
+    case 'article': return withEntityInclude(`${WWW}/api/v4/articles/${id}`, ref.kind)
+    case 'question': return withEntityInclude(`${WWW}/api/v4/questions/${id}`, ref.kind)
+    case 'pin': return withEntityInclude(`${WWW}/api/v4/pins/${id}`, ref.kind)
     case 'people': return `${WWW}/api/v4/members/${id}`
     default: return null
   }

@@ -27,6 +27,15 @@ const page = {
 saveZhihuPublicFeedCache('recommended', page, storage, 1_000)
 assert.deepEqual(loadZhihuPublicFeedCache('recommended', storage, 2_000), page)
 
+const androidCacheKey = [...storage.values.keys()].find((key) => key.endsWith(':recommended:android'))
+assert.ok(androidCacheKey)
+const legacyEnvelope = JSON.parse(storage.values.get(androidCacheKey!)!) as { version: number }
+legacyEnvelope.version = 1
+storage.values.set(androidCacheKey!, JSON.stringify(legacyEnvelope))
+assert.equal(loadZhihuPublicFeedCache('recommended', storage, 2_000), null, '旧版可能含已四舍五入 19 位 ID 的缓存必须淘汰')
+assert.equal(storage.values.has(androidCacheKey!), false)
+saveZhihuPublicFeedCache('recommended', page, storage, 1_000)
+
 saveZhihuPublicFeedCache('following', page, storage, 1_000)
 assert.equal([...storage.values.keys()].some((key) => key.endsWith(':following')), false, '账号关注流不得进入公共 localStorage 缓存')
 assert.equal(loadZhihuPublicFeedCache('following', storage, 2_000), null)

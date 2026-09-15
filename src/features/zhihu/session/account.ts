@@ -54,17 +54,23 @@ export class ZhihuAccountService {
   }
 
   async hydrate(): Promise<ZhihuStoredAccount | null> {
-    const activeId = await this.credentials.getActiveAccountId()
     const current = this.session.getSnapshot()
-    if (!activeId) {
+    const activeId = await this.credentials.getActiveAccountId()
+    let stored = activeId ? await this.credentials.loadAccount(activeId) : null
+
+    // active 是独立安全键；老版本使用异步 apply() 时，极端情况下可能 session 已经写入而
+    // active 尚未来得及刷盘。不能因此把完整账号当成“丢失”。从账号索引中选最近一次
+    // 更新的有效会话并自修复 active，兼容已有半事务状态。
+    if (!stored) {
+      const accounts = await this.credentials.listAccounts()
+      stored = accounts.sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null
+      if (stored) await this.credentials.setActiveAccountId(stored.account.id)
+    }
+
+    if (!stored) {
       // 冷启动本来就是 guest 时不能再次 switchAccount(null)：那会无意义地 bump
       // generation，把同时启动的匿名推荐流请求判成“账号已切换”的过期响应。
-      if (current.account || current.auth !== 'guest') this.session.switchAccount(null)
-      return null
-    }
-    const stored = await this.credentials.loadAccount(activeId)
-    if (!stored) {
-      await this.credentials.setActiveAccountId(null)
+      if (activeId) await this.credentials.setActiveAccountId(null)
       if (current.account || current.auth !== 'guest') this.session.switchAccount(null)
       return null
     }
@@ -78,7 +84,14 @@ export class ZhihuAccountService {
         this.session.setAuthState('verification-required')
         return stored
       }
-      this.session.setAuthState('expired')
+      if (error instanceof ZhihuApiError && error.code === 'auth-expired') {
+        this.session.setAuthState('expired')
+        return stored
+      }
+      // 冷启动校验可能遇到断网、connection closed、429 或上游短暂异常。这些都不能
+      // 被解释成“登录失效”，更不能让已持久化的账号资料从 UI 消失。保留账号会话，
+      // 后续真实 401 再进入 expired。
+      this.session.setAuthState('authenticated')
       return stored
     }
   }
@@ -100,7 +113,9 @@ export class ZhihuAccountService {
       if (message.includes('ZH_AUTH_CANCELLED')) {
         this.session.setAuthState(current ? (previousAuth === 'guest' ? 'authenticated' : previousAuth) : 'guest')
       } else {
-        this.session.setAuthState(current ? 'expired' : 'guest')
+        // 重新验证窗口自身加载失败不能反向注销一个已经持久化的有效账号。真正的
+        // 会话过期只由业务 API 明确返回 401/need_login 后判定。
+        this.session.setAuthState(current ? (previousAuth === 'guest' ? 'authenticated' : previousAuth) : 'guest')
       }
       throw error
     }
@@ -117,10 +132,15 @@ export class ZhihuAccountService {
     } catch (error) {
       if (error instanceof ZhihuApiError && error.code === 'verification-required') {
         this.session.setAuthState('verification-required')
-      } else {
-        this.session.setAuthState('expired')
+        throw error
       }
-      throw error
+      if (error instanceof ZhihuApiError && error.code === 'auth-expired') {
+        this.session.setAuthState('expired')
+        throw error
+      }
+      // 切号后的网络抖动不等于凭据失效；目标账号已经安全落盘并成为当前账号。
+      this.session.setAuthState('authenticated')
+      return stored
     }
   }
 

@@ -96,5 +96,13 @@ assert.match(zhihuWorkspaceSource, /useZhihuFeed\(service, mode, 'android', acco
 assert.match(zhihuWorkspaceSource, /<span>首页<\/span>/)
 assert.match(zhihuWorkspaceSource, /<span>消息<\/span>/)
 assert.match(zhihuWorkspaceSource, /<span>我的<\/span>/)
+assert.doesNotMatch(zhihuWorkspaceSource, /ZHIHU WORKSPACE/, '生产 UI 不应暴露 workspace/debug 文案')
+assert.doesNotMatch(zhihuFeedScreenSource, />\s*\{item\.ref\.kind\}\s*</, '信息流卡片不应把 answer/question 等协议类型显示给用户')
+assert.doesNotMatch(zhihuFeedScreenSource, /recommendationSource/, '信息流卡片不应把 android/web 等传输来源显示给用户')
+
+const zhihuContentSource = readFileSync(new URL('../src/features/zhihu/ui/ZhihuContentScreen.tsx', import.meta.url), 'utf8')
+assert.doesNotMatch(zhihuContentSource, /NewsNook 阅读|BookOpen/, '知乎正文必须直接在站点工作区渲染，不能要求二次进入 NewsNook Reader')
+assert.match(zhihuContentSource, /previousAnswerIds/, '回答页应优先消费 pagination_info 的上一回答')
+assert.match(zhihuContentSource, /nextAnswerIds/, '回答页应优先消费 pagination_info 的下一回答')
 
 console.log('zhihu navigation/layout contract ok')

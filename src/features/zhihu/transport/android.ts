@@ -35,6 +35,27 @@ function mergedCookie(...headers: Array<string | undefined>): string {
   return [...cookieMap(...headers)].map(([key, value]) => `${key}=${value}`).join('; ')
 }
 
+function responseHeader(headers: Record<string, string>, name: string): string | undefined {
+  const target = name.toLowerCase()
+  const entry = Object.entries(headers).find(([key]) => key.toLowerCase() === target)
+  return entry?.[1]
+}
+
+function applySetCookie(header: string, setCookie: string | undefined): string {
+  if (!setCookie) return header
+  const first = setCookie.split(';', 1)[0]?.trim()
+  if (!first) return header
+  const separator = first.indexOf('=')
+  if (separator <= 0) return header
+  const name = first.slice(0, separator).trim()
+  const value = first.slice(separator + 1).trim()
+  if (!name) return header
+  const map = cookieMap(header)
+  if (value) map.set(name, value)
+  else map.delete(name)
+  return [...map].map(([key, item]) => `${key}=${item}`).join('; ')
+}
+
 function decodeUtf8(base64: string): string {
   return new TextDecoder().decode(decodeBase64ToArrayBuffer(base64))
 }
@@ -94,6 +115,26 @@ export function createZhihuAndroidTransport(credentials: ZhihuCredentialStore): 
         readTimeout: 30_000,
       })
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+
+      // 知乎会滚动更新 _xsrf/BEC 等 Cookie。登录时只保存一次快照会让“刚登录能用，
+      // 重启/用一阵后偶发失效”越来越明显；响应里如果确实下发了新 Cookie，就把它
+      // 合并回 Keystore 会话。共享 Domain=zhihu.com 的 Cookie 同步到 www/api 两份。
+      if (stored && target.hostname !== 'zhihu-pics-upload.zhimg.com') {
+        const setCookie = responseHeader(response.headers, 'set-cookie')
+        if (setCookie) {
+          const domainShared = /(?:^|;)\s*domain=\.?zhihu\.com(?:;|$)/i.test(setCookie)
+          const nextWww = domainShared || target.hostname === 'www.zhihu.com'
+            ? applySetCookie(stored.wwwCookie, setCookie)
+            : stored.wwwCookie
+          const nextApi = domainShared || target.hostname === 'api.zhihu.com'
+            ? applySetCookie(stored.apiCookie, setCookie)
+            : stored.apiCookie
+          if (nextWww !== stored.wwwCookie || nextApi !== stored.apiCookie) {
+            await credentials.saveAccount({ ...stored, wwwCookie: nextWww, apiCookie: nextApi, updatedAt: Date.now() })
+          }
+        }
+      }
+
       return {
         status: response.status,
         headers: response.headers,

@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
+import { Hash, Loader2, UserPlus } from 'lucide-react'
 
 import type { ZhihuTopicDetail, ZhihuTopicService } from '../topic/service'
 import type { ZhihuInteractionService } from '../interaction/service'
 import { canExecuteZhihuOperation } from '../protocol'
 import type { ZhihuContentSummary, ZhihuEntityRef } from '../types'
+import { ZhihuContentRow, ZhihuErrorBanner, ZhihuLoadingState, ZhihuSectionHeader, ZhihuSurface } from './ZhihuUi'
+import { formatZhihuCount } from './ZhihuUiUtils'
 
 interface Props {
   topicId: string
@@ -91,39 +94,53 @@ export function ZhihuTopicScreen({ topicId, service, onOpen, interaction, authen
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-28 pt-5 sm:px-6">
       {detail && (
-        <header className="mb-5 rounded-2xl border border-haze/70 bg-ink-raised/55 p-4">
-          <div className="flex items-start gap-3">
-            {detail.avatarUrl ? <img src={detail.avatarUrl} alt="" className="size-14 rounded-xl object-cover" loading="lazy" /> : null}
+        <header className="mb-5 border-b border-haze/55 pb-5">
+          <div className="flex items-start gap-3.5">
+            {detail.avatarUrl ? (
+              <img src={detail.avatarUrl} alt="" className="size-14 rounded-2xl object-cover" loading="lazy" />
+            ) : (
+              <div className="flex size-14 shrink-0 items-center justify-center rounded-2xl border border-haze/70 bg-ink-raised/45 text-cinnabar-soft"><Hash size={22} strokeWidth={1.5} /></div>
+            )}
             <div className="min-w-0 flex-1">
-              <div className="font-mono text-[9.5px] tracking-[0.14em] text-cinnabar">TOPIC</div>
-              <h1 className="mt-1 font-display text-[22px] font-semibold text-paper">{detail.name}</h1>
+              <div className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.12em] text-cinnabar-soft"><Hash size={12} /><span>话题</span></div>
+              <h1 className="mt-1.5 font-display text-[25px] font-medium leading-tight text-paper">{detail.name}</h1>
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-paper-faint">
+                {typeof detail.followersCount === 'number' && <span>{formatZhihuCount(detail.followersCount)} 关注者</span>}
+                {typeof detail.questionsCount === 'number' && <span>{formatZhihuCount(detail.questionsCount)} 问题</span>}
+                {typeof detail.discussCount === 'number' && <span>{formatZhihuCount(detail.discussCount)} 讨论</span>}
+              </div>
             </div>
             {authenticated && (
-              <button type="button" disabled={followBusy || !followWritable} onClick={() => void toggleFollow()} title={followWritable ? undefined : '当前版本暂不可关注话题'} className={`min-h-9 shrink-0 rounded-xl px-3 font-mono text-[10.5px] ${detail.isFollowing ? 'border border-haze text-paper-muted' : 'bg-cinnabar text-white'} disabled:opacity-45`}>
-                {followBusy ? '处理中…' : detail.isFollowing ? '已关注' : '关注话题'}
+              <button
+                type="button"
+                disabled={followBusy || !followWritable}
+                onClick={() => void toggleFollow()}
+                aria-label={detail.isFollowing ? '取消关注话题' : '关注话题'}
+                title={detail.isFollowing ? '取消关注话题' : '关注话题'}
+                className={`flex size-10 shrink-0 items-center justify-center rounded-xl border transition-colors disabled:opacity-35 ${detail.isFollowing ? 'border-cinnabar/40 bg-cinnabar/12 text-cinnabar-soft' : 'border-haze/70 bg-ink-raised/45 text-paper-muted hover:border-cinnabar/35 hover:text-cinnabar-soft'}`}
+              >
+                {followBusy ? <Loader2 size={15} className="animate-spin" /> : <UserPlus size={16} strokeWidth={1.6} />}
               </button>
             )}
           </div>
-          {detail.excerpt && <p className="mt-3 text-[12.5px] leading-6 text-paper-muted">{detail.excerpt}</p>}
-          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10.5px] text-paper-faint">
-            {typeof detail.followersCount === 'number' && <span>{detail.followersCount} 关注者</span>}
-            {typeof detail.questionsCount === 'number' && <span>{detail.questionsCount} 问题</span>}
-            {typeof detail.discussCount === 'number' && <span>{detail.discussCount} 讨论</span>}
-          </div>
+          {detail.excerpt && <p className="mt-4 text-[13px] leading-[1.75] text-paper-muted">{detail.excerpt}</p>}
         </header>
       )}
-      <h2 className="mb-3 font-display text-[17px] font-semibold text-paper">热门讨论</h2>
-      {loading && <div className="py-14 text-center font-mono text-[11px] text-paper-faint">正在读取话题…</div>}
-      {error && <div role="alert" className="mb-3 rounded-xl border border-cinnabar/35 bg-cinnabar/8 p-3 text-[12px] text-paper-muted">{error}</div>}
-      <div className="space-y-2.5">
-        {items.map((item) => (
-          <button key={`${item.ref.kind}:${item.ref.id}`} type="button" onClick={() => onOpen(item.ref)} className="block w-full rounded-xl border border-haze/70 bg-ink-raised/55 p-3.5 text-left hover:border-cinnabar/35">
-            <div className="font-display text-[16px] font-semibold leading-7 text-paper">{item.title}</div>
-            {item.excerpt && <p className="mt-1 line-clamp-3 text-[12.5px] leading-6 text-paper-muted">{item.excerpt}</p>}
-          </button>
-        ))}
-      </div>
-      {nextCursor && <button type="button" onClick={loadMore} disabled={loadingMore} className="mt-4 min-h-11 w-full rounded-xl border border-haze/70 bg-ink-raised font-mono text-[11px] text-paper-muted disabled:opacity-50">{loadingMore ? '正在加载…' : '加载更多'}</button>}
+
+      <ZhihuSectionHeader icon={<Hash size={17} />} title="热门讨论" detail={items.length > 0 ? `${items.length} 条已载入` : undefined} />
+      {loading && items.length === 0 && <ZhihuLoadingState label="正在读取话题…" />}
+      {error && <div className="mb-3"><ZhihuErrorBanner>{error}</ZhihuErrorBanner></div>}
+      {items.length > 0 && (
+        <ZhihuSurface className="divide-y divide-haze/55">
+          {items.map((item) => <ZhihuContentRow key={`${item.ref.kind}:${item.ref.id}`} item={item} onOpen={(value) => onOpen(value.ref)} showReason={false} />)}
+        </ZhihuSurface>
+      )}
+      {nextCursor && (
+        <button type="button" onClick={loadMore} disabled={loadingMore} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-haze/70 bg-ink-raised/40 font-mono text-[10.5px] text-paper-muted transition-colors hover:bg-ink-raised disabled:opacity-45">
+          {loadingMore && <Loader2 size={13} className="animate-spin text-cinnabar-soft" />}
+          <span>{loadingMore ? '正在加载…' : '加载更多'}</span>
+        </button>
+      )}
     </div>
   )
 }

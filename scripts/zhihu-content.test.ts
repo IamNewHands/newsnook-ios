@@ -2,6 +2,9 @@ import assert from 'node:assert/strict'
 
 import { feedArticleId } from '../src/lib/articleId'
 import { articleFromSharePayload, buildShareUrl, parseShareUrl, sharePayloadFromArticle } from '../src/lib/shareLink'
+import { decodeZhihuContentDetail } from '../src/features/zhihu/api/decode'
+import { zhihuEntityUrl } from '../src/features/zhihu/api/endpoints'
+import { parseZhihuJson } from '../src/features/zhihu/api/json'
 import { toNewsArticle } from '../src/features/zhihu/content/bridge'
 import { normalizeZhihuContentHtml } from '../src/features/zhihu/content/normalize'
 import { parseZhihuLink } from '../src/features/zhihu/content/links'
@@ -15,11 +18,37 @@ assert.deepEqual(parseZhihuLink('https://zhuanlan.zhihu.com/p/789'), { kind: 'ar
 assert.deepEqual(parseZhihuLink('https://www.zhihu.com/people/example-user'), { kind: 'people', id: 'example-user' })
 assert.equal(parseZhihuLink('https://example.com/question/123'), null)
 
+const answerUrl = zhihuEntityUrl({ kind: 'answer', id: '2027676063409484209' })
+assert.match(answerUrl ?? '', /include=/)
+assert.match(decodeURIComponent(answerUrl ?? ''), /pagination_info/, '回答详情必须请求 pagination_info 才能直接得到上下回答')
+const pagedDetail = decodeZhihuContentDetail(parseZhihuJson(`{
+  "id": 2027676063409484209,
+  "type": "answer",
+  "content": "<p>正文</p>",
+  "editable_content": "<p data-pid='editable'>可编辑正文</p>",
+  "question": { "id": 423780782, "title": "问题" },
+  "pagination_info": {
+    "index": 12,
+    "prev_answer_ids": [2027000000000000001],
+    "next_answer_ids": [2028000000000000002, 2028000000000000003]
+  }
+}`))
+assert.equal(pagedDetail?.ref.id, '2027676063409484209')
+assert.equal(pagedDetail?.editableContentHtml, "<p data-pid='editable'>可编辑正文</p>", '编辑已有回答必须保留 editable_content，而不是把阅读 HTML 回写')
+assert.deepEqual(pagedDetail?.previousAnswerIds, ['2027000000000000001'])
+assert.deepEqual(pagedDetail?.nextAnswerIds, ['2028000000000000002', '2028000000000000003'])
+
 const dirty = '<p>正文<img src="https://pic.example/a.jpg" onerror="alert(1)"></p><script>alert(1)</script>'
 const sanitized = normalizeZhihuContentHtml(dirty)
 assert.ok(sanitized.includes('正文'))
 assert.ok(!sanitized.includes('<script'))
 assert.ok(!sanitized.includes('onerror'))
+
+const videoCard = normalizeZhihuContentHtml('<p><a class="video-box" href="https://link.zhihu.com/?target=https%3A%2F%2Fwww.bilibili.com%2Fvideo%2FBV1test"><img src="https://pic.example/video.jpg">DeepSeek 唱歌测试</a></p>')
+assert.ok(videoCard.includes('data-reader-role="zhihu-link-card"'), '知乎视频/站外卡片不能退化成一行裸链接')
+assert.ok(videoCard.includes('bilibili.com/video/BV1test'), '知乎 link.zhihu.com 跳转必须恢复真实站外目标')
+assert.ok(videoCard.includes('data-reader-role="zhihu-link-image"'), '有封面的知乎视频卡片应保留安全缩略图')
+assert.ok(videoCard.includes('DeepSeek 唱歌测试'))
 
 const article = toNewsArticle({
   ref: { kind: 'answer', id: '456' },

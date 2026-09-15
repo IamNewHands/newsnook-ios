@@ -4,6 +4,7 @@ import { Bookmark, Check, Loader2, Plus, X } from 'lucide-react'
 import type { ZhihuCollectionSummary, ZhihuInteractionService } from '../interaction/service'
 import { canExecuteZhihuOperation } from '../protocol'
 import type { ZhihuEntityRef } from '../types'
+import { ZhihuErrorBanner } from './ZhihuUi'
 
 interface Props {
   refValue: ZhihuEntityRef
@@ -75,45 +76,75 @@ export function ZhihuCollectionPicker({ refValue, service, authenticated }: Prop
   }
 
   return (
-    <div className="relative">
+    <>
       <button
         type="button"
         disabled={!authenticated || !membershipWritable}
-        onClick={() => setOpen((value) => !value)}
-        title={!authenticated ? '登录后可收藏' : !membershipWritable ? '当前版本暂不可收藏' : '收藏到知乎收藏夹'}
-        className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-haze/80 bg-ink-raised px-3.5 font-mono text-[11px] text-paper-muted disabled:opacity-40"
+        onClick={() => setOpen(true)}
+        title={!authenticated ? '登录后可收藏' : !membershipWritable ? '当前版本暂不可收藏' : '收藏'}
+        aria-label="收藏"
+        className="inline-flex min-h-9 items-center justify-center rounded-full border border-haze bg-ink-raised/55 px-3 text-paper-muted transition-colors hover:border-paper-faint/45 hover:bg-ink-raised hover:text-paper disabled:opacity-35"
       >
-        <Bookmark size={14} />收藏
+        <Bookmark size={14} strokeWidth={1.65} />
       </button>
+
       {open && authenticated && (
-        <div className="absolute left-0 top-12 z-30 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-haze/80 bg-ink-raised p-3 shadow-2xl">
-          <div className="flex items-center justify-between gap-3">
-            <div className="font-display text-[15px] font-semibold text-paper">收藏到</div>
-            <button type="button" onClick={() => setOpen(false)} className="flex size-8 items-center justify-center rounded-lg text-paper-faint hover:bg-ink"><X size={14} /></button>
-          </div>
-          {error && <div className="mt-2 rounded-lg border border-cinnabar/30 bg-cinnabar/8 px-2.5 py-2 text-[10.5px] text-paper-muted">{error}</div>}
-          <div className="mt-2 max-h-64 space-y-1 overflow-y-auto">
-            {loading && <div className="py-6 text-center font-mono text-[10px] text-paper-faint">正在读取收藏夹…</div>}
-            {!loading && items.map((item) => (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 backdrop-blur-sm md:items-center md:p-4" role="presentation" onClick={() => setOpen(false)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="收藏到知乎收藏夹"
+            className="flex max-h-[78vh] w-full max-w-sm flex-col overflow-hidden rounded-t-3xl border border-haze bg-ink-raised shadow-2xl md:rounded-2xl"
+            style={{ paddingBottom: 'calc(var(--sab, 0px) + 12px)' }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex justify-center pb-1 pt-2.5 md:hidden" aria-hidden><span className="h-1 w-10 rounded-full bg-haze" /></div>
+            <div className="flex items-center gap-3 border-b border-haze/55 px-4 py-3">
+              <Bookmark size={16} strokeWidth={1.6} className="text-cinnabar-soft" />
+              <h2 className="min-w-0 flex-1 font-display text-[17px] font-medium text-paper">收藏到</h2>
+              <button type="button" onClick={() => setOpen(false)} aria-label="关闭" title="关闭" className="flex size-8 items-center justify-center rounded-lg text-paper-faint hover:bg-paper/5 hover:text-paper"><X size={16} /></button>
+            </div>
+
+            {error && <div className="mx-4 mt-3"><ZhihuErrorBanner>{error}</ZhihuErrorBanner></div>}
+            <div className="scroll-hidden min-h-0 flex-1 overflow-y-auto px-3 py-2">
+              {loading && <div className="flex min-h-28 items-center justify-center gap-2 font-mono text-[10.5px] text-paper-faint"><Loader2 size={14} className="animate-spin text-cinnabar-soft" />正在读取收藏夹…</div>}
+              {!loading && items.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  disabled={Boolean(busyId)}
+                  onClick={() => void toggle(item)}
+                  className="flex min-h-11 w-full items-center gap-3 rounded-xl px-2.5 text-left transition-colors hover:bg-paper/5 disabled:opacity-50"
+                >
+                  <span className={`flex size-5 shrink-0 items-center justify-center rounded-md border ${item.isFavorited ? 'border-cinnabar/55 bg-cinnabar/15 text-cinnabar-soft' : 'border-haze text-transparent'}`}><Check size={12} /></span>
+                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-paper">{item.title}</span>
+                  {busyId === item.id && <Loader2 size={13} className="animate-spin text-paper-faint" />}
+                </button>
+              ))}
+            </div>
+
+            <div className="mx-4 flex items-center gap-2 border-t border-haze/55 pt-3">
+              <input
+                value={newTitle}
+                onChange={(event) => setNewTitle(event.target.value)}
+                maxLength={80}
+                placeholder="新收藏夹名称"
+                className="min-h-10 min-w-0 flex-1 rounded-xl border border-haze/70 bg-ink px-3 text-[12px] text-paper outline-none focus:border-cinnabar/40"
+              />
               <button
-                key={item.id}
                 type="button"
-                disabled={Boolean(busyId)}
-                onClick={() => void toggle(item)}
-                className="flex min-h-10 w-full items-center gap-2 rounded-xl px-2.5 text-left hover:bg-ink disabled:opacity-50"
+                disabled={!createWritable || !membershipWritable || !newTitle.trim() || Boolean(busyId)}
+                onClick={() => void createAndAdd()}
+                aria-label="新建并收藏"
+                title="新建并收藏"
+                className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-cinnabar/50 bg-cinnabar/12 text-cinnabar-soft disabled:opacity-35"
               >
-                <span className={`flex size-5 items-center justify-center rounded border ${item.isFavorited ? 'border-cinnabar bg-cinnabar text-white' : 'border-haze text-transparent'}`}><Check size={12} /></span>
-                <span className="min-w-0 flex-1 truncate text-[12px] text-paper">{item.title}</span>
-                {busyId === item.id && <Loader2 size={13} className="animate-spin text-paper-faint" />}
+                {busyId === '__new__' ? <Loader2 size={14} className="animate-spin" /> : <Plus size={15} strokeWidth={1.7} />}
               </button>
-            ))}
-          </div>
-          <div className="mt-2 flex gap-2 border-t border-haze/60 pt-2">
-            <input value={newTitle} onChange={(event) => setNewTitle(event.target.value)} maxLength={80} placeholder="新建收藏夹" className="min-w-0 flex-1 rounded-lg border border-haze/70 bg-ink px-2.5 text-[11px] text-paper outline-none focus:border-cinnabar/50" />
-            <button type="button" disabled={!createWritable || !membershipWritable || !newTitle.trim() || Boolean(busyId)} onClick={() => void createAndAdd()} title={createWritable && membershipWritable ? undefined : '当前版本暂不可创建收藏夹'} className="flex size-9 items-center justify-center rounded-lg bg-cinnabar text-white disabled:opacity-40" aria-label="新建并收藏">{busyId === '__new__' ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}</button>
+            </div>
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }

@@ -28,7 +28,7 @@ export interface ZhihuReadApi {
   ): Promise<unknown>
 }
 
-const ANDROID_RECOMMEND_HEADERS: Record<string, string> = {
+export const ANDROID_PUBLIC_HEADERS: Record<string, string> = {
   'User-Agent': 'com.zhihu.android/Futureve/10.61.0 Mozilla/5.0 (Linux; Android 12; sdk_gphone64_arm64 Build/SE1A.220630.001.A1; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/57.0.1000.10 Mobile Safari/537.36',
   'x-api-version': '3.1.8',
   'x-app-version': '10.61.0',
@@ -126,7 +126,7 @@ export class ZhihuFeedService {
       ? await this.api.getJsonWithHeaders(
           'feed.recommended',
           url,
-          ANDROID_RECOMMEND_HEADERS,
+          ANDROID_PUBLIC_HEADERS,
           signal,
           { signing: 'none' },
         )
@@ -235,7 +235,15 @@ export class ZhihuFeedService {
       url = zhihuRecommendedUrl()
     }
 
-    const raw = await this.api.getJson(operation, url, signal)
+    const raw = mode === 'hot' && this.api.getJsonWithHeaders
+      ? await this.api.getJsonWithHeaders(
+          operation,
+          url,
+          ANDROID_PUBLIC_HEADERS,
+          signal,
+          { signing: 'none' },
+        )
+      : await this.api.getJson(operation, url, signal)
     const decoded = decodeZhihuPage(raw)
     return { items: decoded.items, nextCursor: decoded.nextCursor, hasMore: decoded.hasMore }
   }

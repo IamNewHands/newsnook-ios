@@ -81,11 +81,16 @@ export class ZhihuCredentialStore {
   }
 
   async saveAccount(value: ZhihuStoredAccount): Promise<void> {
+    // 先落真正的会话，再发布账号索引。反过来会在进程被杀/磁盘写失败时留下一个
+    // “账号存在但 session 不存在”的半事务状态，下一次 hydrate 就像资料凭空消失。
+    await this.set(value.account.id, 'session', JSON.stringify(value))
+    const persisted = await this.loadAccount(value.account.id)
+    if (!persisted) throw new Error('知乎会话未能持久化到安全存储')
+
     const ids = await this.listAccountIds()
     if (!ids.includes(value.account.id)) {
       await this.secureStore.set(this.meta('accounts'), JSON.stringify([...ids, value.account.id]))
     }
-    await this.set(value.account.id, 'session', JSON.stringify(value))
   }
 
   async removeAccount(accountId: string): Promise<void> {
