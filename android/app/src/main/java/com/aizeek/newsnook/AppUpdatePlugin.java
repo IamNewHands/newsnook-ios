@@ -20,13 +20,15 @@ import java.io.File;
 import java.net.URI;
 
 /**
- * 从 GitHub Release 下载 APK（系统 DownloadManager + 通知栏进度），完成后调起安装。
+ * 从受信任更新源下载 APK（系统 DownloadManager + 通知栏进度），校验后调起安装。
  */
 @CapacitorPlugin(name = "AppUpdate")
 public class AppUpdatePlugin extends Plugin {
 
     private Long activeDownloadId = null;
     private String activeFileName = null;
+    private String activeExpectedSha256 = null;
+    private Long activeExpectedSize = null;
     private BroadcastReceiver downloadReceiver = null;
 
     @PluginMethod
@@ -61,6 +63,9 @@ public class AppUpdatePlugin extends Plugin {
     public void startDownload(PluginCall call) {
         String url = call.getString("url");
         String fileName = call.getString("fileName");
+        String rawSha256 = call.getString("sha256");
+        Long expectedSize = call.getLong("size");
+        String expectedSha256 = rawSha256 == null ? null : AppUpdateIntegrity.normalizeSha256(rawSha256);
         if (url == null || url.isEmpty() || fileName == null || fileName.isEmpty()) {
             call.reject("缺少 url 或 fileName");
             return;
@@ -71,6 +76,14 @@ public class AppUpdatePlugin extends Plugin {
         }
         if (fileName.contains("..") || fileName.contains("/") || fileName.contains("\\")) {
             call.reject("非法 fileName");
+            return;
+        }
+        if (rawSha256 != null && expectedSha256 == null) {
+            call.reject("非法 sha256");
+            return;
+        }
+        if (expectedSize != null && expectedSize <= 0) {
+            call.reject("非法 size");
             return;
         }
 
@@ -108,6 +121,8 @@ public class AppUpdatePlugin extends Plugin {
         long downloadId = manager.enqueue(request);
         activeDownloadId = downloadId;
         activeFileName = fileName;
+        activeExpectedSha256 = expectedSha256;
+        activeExpectedSize = expectedSize;
 
         JSObject result = new JSObject();
         result.put("downloadId", downloadId);
@@ -163,7 +178,20 @@ public class AppUpdatePlugin extends Plugin {
                 call.reject("安装包不存在");
                 return;
             }
+            AppUpdateIntegrity.VerificationResult verification = AppUpdateIntegrity.verify(
+                apk,
+                activeExpectedSha256,
+                activeExpectedSize
+            );
+            if (!verification.valid) {
+                //noinspection ResultOfMethodCallIgnored
+                apk.delete();
+                clearActiveIfMatch(downloadId);
+                call.reject(verification.message);
+                return;
+            }
             installApk(apk);
+            clearActiveIfMatch(downloadId);
             call.resolve();
         } catch (Exception error) {
             call.reject("安装失败: " + error.getMessage());
@@ -215,7 +243,8 @@ public class AppUpdatePlugin extends Plugin {
             String host = uri.getHost();
             if (host == null) return false;
             String lower = host.toLowerCase();
-            return lower.equals("github.com")
+            return lower.equals("news-update.aizeek.com")
+                || lower.equals("github.com")
                 || lower.endsWith(".github.com")
                 || lower.equals("objects.githubusercontent.com")
                 || lower.endsWith(".githubusercontent.com");
@@ -273,6 +302,18 @@ public class AppUpdatePlugin extends Plugin {
             return;
         }
 
+        AppUpdateIntegrity.VerificationResult verification = AppUpdateIntegrity.verify(
+            apk,
+            activeExpectedSha256,
+            activeExpectedSize
+        );
+        if (!verification.valid) {
+            //noinspection ResultOfMethodCallIgnored
+            apk.delete();
+            emitFailed(downloadId, "download", verification.message);
+            return;
+        }
+
         try {
             installApk(apk);
             JSObject payload = new JSObject();
@@ -302,6 +343,8 @@ public class AppUpdatePlugin extends Plugin {
         if (activeDownloadId != null && activeDownloadId == downloadId) {
             activeDownloadId = null;
             activeFileName = null;
+            activeExpectedSha256 = null;
+            activeExpectedSize = null;
         }
     }
 

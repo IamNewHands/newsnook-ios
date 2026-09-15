@@ -12,6 +12,12 @@ import {
   releaseTagUrl,
   truncateReleaseNotes,
 } from '../src/features/appUpdate/github'
+import {
+  parseUpdateManifest,
+  releaseFromUpdateManifest,
+  UPDATE_MANIFEST_URL,
+  updateCheckFromManifest,
+} from '../src/features/appUpdate/cdn'
 import { resolveOppositeChannel } from '../src/features/appUpdate/service'
 import {
   shouldAutoPrompt,
@@ -53,6 +59,28 @@ assert.deepEqual(pickReleaseAsset(assets, '1.3.9', 'local'), {
 })
 assert.equal(pickReleaseAsset(assets, '1.3.9', 'cloud')?.fileName, 'newsnook-1.3.9-cloud-release.apk')
 assert.equal(pickReleaseAsset([], '1.3.9', 'cloud'), null)
+
+const githubHash = 'a'.repeat(64)
+assert.deepEqual(
+  pickReleaseAsset(
+    [
+      {
+        name: 'newsnook-1.3.9-cloud-release.apk',
+        browser_download_url: 'https://github.com/x/cloud.apk',
+        digest: `sha256:${githubHash}`,
+        size: 1234,
+      },
+    ],
+    '1.3.9',
+    'cloud',
+  ),
+  {
+    url: 'https://github.com/x/cloud.apk',
+    fileName: 'newsnook-1.3.9-cloud-release.apk',
+    sha256: githubHash,
+    size: 1234,
+  },
+)
 
 assert.equal(releaseTagUrl('1.3.9'), 'https://github.com/t59688/newsnook/releases/tag/v1.3.9')
 assert.equal(releaseTagUrl('v1.3.9'), 'https://github.com/t59688/newsnook/releases/tag/v1.3.9')
@@ -145,6 +173,66 @@ assert.equal(
 )
 
 console.log('✓ asset / gate ok')
+
+console.log('--- app-update R2 manifest ---')
+
+assert.equal(UPDATE_MANIFEST_URL, 'https://news-update.aizeek.com/newsnook/latest.json')
+const cdnHash = 'b'.repeat(64)
+const manifest = parseUpdateManifest({
+  schemaVersion: 1,
+  version: '1.4.0',
+  tagName: 'v1.4.0',
+  publishedAt: '2026-09-15T00:00:00Z',
+  notes: 'release notes',
+  channels: {
+    cloud: {
+      fileName: 'newsnook-1.4.0-cloud-release.apk',
+      url: 'https://news-update.aizeek.com/newsnook/newsnook-1.4.0-cloud-release.apk',
+      sha256: cdnHash,
+      size: 123,
+    },
+    local: {
+      fileName: 'newsnook-1.4.0-local-release.apk',
+      url: 'https://news-update.aizeek.com/newsnook/newsnook-1.4.0-local-release.apk',
+      sha256: cdnHash,
+      size: 456,
+    },
+  },
+})
+assert.ok(manifest)
+if (manifest) {
+  const release = releaseFromUpdateManifest(manifest, 'local')
+  assert.equal(release.apkFileName, 'newsnook-1.4.0-local-release.apk')
+  assert.equal(release.sha256, cdnHash)
+  assert.equal(release.size, 456)
+  assert.equal(updateCheckFromManifest(manifest, '1.3.9', 'cloud').status, 'available')
+  assert.equal(updateCheckFromManifest(manifest, '1.4.0', 'cloud').status, 'up-to-date')
+}
+assert.equal(
+  parseUpdateManifest({
+    schemaVersion: 1,
+    version: '1.4.0',
+    tagName: 'v1.4.0',
+    notes: '',
+    channels: {
+      cloud: {
+        fileName: 'newsnook-1.4.0-cloud-release.apk',
+        url: 'https://evil.example/newsnook/newsnook-1.4.0-cloud-release.apk',
+        sha256: cdnHash,
+        size: 123,
+      },
+      local: {
+        fileName: 'newsnook-1.4.0-local-release.apk',
+        url: 'https://news-update.aizeek.com/newsnook/newsnook-1.4.0-local-release.apk',
+        sha256: cdnHash,
+        size: 456,
+      },
+    },
+  }),
+  null,
+)
+
+console.log('✓ R2 manifest ok')
 
 console.log('--- app-update flavor switch ---')
 

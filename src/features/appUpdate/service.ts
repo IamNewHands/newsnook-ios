@@ -143,6 +143,8 @@ export async function beginUpdate(release: LatestReleaseInfo): Promise<BeginUpda
     const { downloadId } = await AppUpdateNative.startDownload({
       url: release.apkUrl,
       fileName: release.apkFileName,
+      sha256: release.sha256,
+      size: release.size,
     })
     activeDownloadId = downloadId
     setUi({ downloading: true, lastManualMessage: undefined })

@@ -12,7 +12,12 @@ export type AppUpdateFailureKind = 'download' | 'install'
 type AppUpdatePlugin = {
   canInstallPackages(): Promise<{ value: boolean }>
   openInstallSettings(): Promise<void>
-  startDownload(options: { url: string; fileName: string }): Promise<{ downloadId: number }>
+  startDownload(options: {
+    url: string
+    fileName: string
+    sha256?: string
+    size?: number
+  }): Promise<{ downloadId: number }>
   getDownloadStatus(options: {
     downloadId: number
   }): Promise<{ status: AppUpdateDownloadStatus; localUri?: string }>
