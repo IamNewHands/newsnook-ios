@@ -53,6 +53,10 @@ function parseWebCatalog(source: NewsSource, payload: string, fetchedAt: number)
   return catalogHtmlToArticles(source, payload, fetchedAt)
 }
 
+function rejectWorkspaceOnlySource(): Article[] {
+  throw new Error('workspaceOnly source must be loaded by its dedicated site adapter')
+}
+
 type SourceParser = (source: NewsSource, payload: string, fetchedAt: number) => Article[]
 
 /**
@@ -64,6 +68,7 @@ const PARSERS: Record<SourceKind, SourceParser> = {
   'google-news': parseXmlFeed,
   netease: parseNetease,
   zhihu: parseZhihuDaily,
+  'zhihu-community': rejectWorkspaceOnlySource,
   arena: parseArenaBlog,
   anthropic: parseAnthropicNews,
   jandan: parseJandan,

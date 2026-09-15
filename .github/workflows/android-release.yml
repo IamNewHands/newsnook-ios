@@ -21,8 +21,19 @@ jobs:
       NEWSNOOK_KEYSTORE_PASSWORD: ${{ secrets.NEWSNOOK_KEYSTORE_PASSWORD }}
       NEWSNOOK_KEY_ALIAS: ${{ secrets.NEWSNOOK_KEY_ALIAS }}
       NEWSNOOK_KEY_PASSWORD: ${{ secrets.NEWSNOOK_KEY_PASSWORD }}
-      # Optional; unset → client falls back to DEFAULT_CLOUD_BASE_URL placeholder
+
       VITE_CLOUD_BASE_URL: ${{ vars.VITE_CLOUD_BASE_URL }}
+
+      # Cloudflare R2
+      R2_BUCKET: newsnook-update
+      R2_ENDPOINT: https://${{ vars.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      UPDATE_BASE_URL: https://news-update.aizeek.com
+
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      AWS_REGION: auto
+      AWS_EC2_METADATA_DISABLED: 'true'
 
     steps:
       - name: Checkout
@@ -48,9 +59,13 @@ jobs:
 
       - name: Verify tag matches package.json version
         run: |
+          set -euo pipefail
+
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           PKG_VERSION="$(node -p "require('./package.json').version")"
+
           echo "tag=${GITHUB_REF_NAME} package.json=${PKG_VERSION}"
+
           if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
             echo "::error::Tag ${GITHUB_REF_NAME} must match package.json version ${PKG_VERSION} (got ${TAG_VERSION})."
             exit 1
@@ -60,20 +75,27 @@ jobs:
         env:
           NEWSNOOK_KEYSTORE_BASE64: ${{ secrets.NEWSNOOK_KEYSTORE_BASE64 }}
         run: |
+          set -euo pipefail
+
           if [ -z "$NEWSNOOK_KEYSTORE_BASE64" ]; then
             echo "::error::Secret NEWSNOOK_KEYSTORE_BASE64 is missing."
             exit 1
           fi
+
           for name in NEWSNOOK_KEYSTORE_PASSWORD NEWSNOOK_KEY_ALIAS NEWSNOOK_KEY_PASSWORD; do
             if [ -z "${!name}" ]; then
               echo "::error::Secret ${name} is missing."
               exit 1
             fi
           done
+
           KEYSTORE_PATH="${RUNNER_TEMP}/newsnook-release.jks"
-          printf '%s' "$NEWSNOOK_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
+
+          printf '%s' "$NEWSNOOK_KEYSTORE_BASE64" \
+            | base64 -d \
+            > "$KEYSTORE_PATH"
+
           echo "NEWSNOOK_KEYSTORE_FILE=${KEYSTORE_PATH}" >> "$GITHUB_ENV"
-          echo "Restored keystore to ${KEYSTORE_PATH}"
 
       - name: Install npm dependencies
         run: npm ci
@@ -81,14 +103,18 @@ jobs:
       - name: Initialize Bergamot native engine
         run: npm run bergamot:init
 
-      - name: Build signed APKs (cloud + local)
+      - name: Build signed APKs
         run: npm run android:apk
 
-      - name: Build signed AABs (cloud + local)
+      - name: Build signed AABs
         run: npm run android:aab
 
       - name: List artifacts
         run: ls -lh artifacts/android/
+
+      # ---------------------------------------------------------
+      # GitHub Release
+      # ---------------------------------------------------------
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -104,3 +130,289 @@ jobs:
             artifacts/android/newsnook-*-local-release.apk
             artifacts/android/newsnook-*-cloud-release.aab
             artifacts/android/newsnook-*-local-release.aab
+
+      # ---------------------------------------------------------
+      # R2 prerequisites
+      # ---------------------------------------------------------
+
+      - name: Verify R2 configuration
+        run: |
+          set -euo pipefail
+
+          test -n "${AWS_ACCESS_KEY_ID}"
+          test -n "${AWS_SECRET_ACCESS_KEY}"
+          test -n "${R2_ENDPOINT}"
+          test -n "${R2_BUCKET}"
+
+          aws --version
+          jq --version
+          curl --version
+
+      # ---------------------------------------------------------
+      # Generate latest.json + release notes
+      # ---------------------------------------------------------
+
+      - name: Prepare R2 release payload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          CLOUD_NAME="newsnook-${VERSION}-cloud-release.apk"
+          LOCAL_NAME="newsnook-${VERSION}-local-release.apk"
+
+          CLOUD_APK="artifacts/android/${CLOUD_NAME}"
+          LOCAL_APK="artifacts/android/${LOCAL_NAME}"
+
+          test -f "$CLOUD_APK"
+          test -f "$LOCAL_APK"
+
+          RELEASE_DIR="${RUNNER_TEMP}/newsnook-r2"
+          mkdir -p "$RELEASE_DIR"
+
+          RELEASE_JSON="${RELEASE_DIR}/github-release.json"
+          NOTES_FILE="${RELEASE_DIR}/release-notes.md"
+          MANIFEST_FILE="${RELEASE_DIR}/latest.json"
+
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" \
+            > "$RELEASE_JSON"
+
+          jq -r '.body // ""' \
+            "$RELEASE_JSON" \
+            > "$NOTES_FILE"
+
+          PUBLISHED_AT="$(jq -r '.published_at // empty' "$RELEASE_JSON")"
+          RELEASE_URL="$(jq -r '.html_url // empty' "$RELEASE_JSON")"
+
+          if [ -z "$PUBLISHED_AT" ]; then
+            PUBLISHED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          fi
+
+          CLOUD_SHA256="$(sha256sum "$CLOUD_APK" | awk '{print $1}')"
+          LOCAL_SHA256="$(sha256sum "$LOCAL_APK" | awk '{print $1}')"
+
+          CLOUD_SIZE="$(stat -c%s "$CLOUD_APK")"
+          LOCAL_SIZE="$(stat -c%s "$LOCAL_APK")"
+
+          BASE_URL="${UPDATE_BASE_URL%/}"
+
+          jq -n \
+            --arg version "$VERSION" \
+            --arg tagName "$GITHUB_REF_NAME" \
+            --arg publishedAt "$PUBLISHED_AT" \
+            --arg githubReleaseUrl "$RELEASE_URL" \
+            --arg releaseNotesUrl "${BASE_URL}/newsnook/release-notes.md" \
+            --rawfile notes "$NOTES_FILE" \
+            --arg cloudFileName "$CLOUD_NAME" \
+            --arg cloudUrl "${BASE_URL}/newsnook/${CLOUD_NAME}" \
+            --arg cloudSha256 "$CLOUD_SHA256" \
+            --argjson cloudSize "$CLOUD_SIZE" \
+            --arg localFileName "$LOCAL_NAME" \
+            --arg localUrl "${BASE_URL}/newsnook/${LOCAL_NAME}" \
+            --arg localSha256 "$LOCAL_SHA256" \
+            --argjson localSize "$LOCAL_SIZE" \
+            '{
+              schemaVersion: 1,
+              version: $version,
+              tagName: $tagName,
+              publishedAt: $publishedAt,
+              githubReleaseUrl: $githubReleaseUrl,
+              releaseNotesUrl: $releaseNotesUrl,
+              notes: $notes,
+              channels: {
+                cloud: {
+                  fileName: $cloudFileName,
+                  url: $cloudUrl,
+                  sha256: $cloudSha256,
+                  size: $cloudSize
+                },
+                local: {
+                  fileName: $localFileName,
+                  url: $localUrl,
+                  sha256: $localSha256,
+                  size: $localSize
+                }
+              }
+            }' > "$MANIFEST_FILE"
+
+          jq . "$MANIFEST_FILE"
+
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "CLOUD_NAME=$CLOUD_NAME" >> "$GITHUB_ENV"
+          echo "LOCAL_NAME=$LOCAL_NAME" >> "$GITHUB_ENV"
+          echo "CLOUD_APK=$CLOUD_APK" >> "$GITHUB_ENV"
+          echo "LOCAL_APK=$LOCAL_APK" >> "$GITHUB_ENV"
+          echo "R2_RELEASE_DIR=$RELEASE_DIR" >> "$GITHUB_ENV"
+
+      # ---------------------------------------------------------
+      # Upload new APKs BEFORE switching latest.json
+      # ---------------------------------------------------------
+
+      - name: Upload new APKs to R2
+        run: |
+          set -euo pipefail
+
+          aws s3 cp \
+            "$CLOUD_APK" \
+            "s3://${R2_BUCKET}/newsnook/${CLOUD_NAME}" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --content-type "application/vnd.android.package-archive" \
+            --cache-control "public,max-age=604800,immutable" \
+            --no-progress
+
+          aws s3 cp \
+            "$LOCAL_APK" \
+            "s3://${R2_BUCKET}/newsnook/${LOCAL_NAME}" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --content-type "application/vnd.android.package-archive" \
+            --cache-control "public,max-age=604800,immutable" \
+            --no-progress
+
+      - name: Upload latest release notes to R2
+        run: |
+          set -euo pipefail
+
+          aws s3 cp \
+            "${R2_RELEASE_DIR}/release-notes.md" \
+            "s3://${R2_BUCKET}/newsnook/release-notes.md" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --content-type "text/markdown; charset=utf-8" \
+            --cache-control "no-cache,max-age=0,must-revalidate" \
+            --no-progress
+
+      # ---------------------------------------------------------
+      # Verify APKs publicly BEFORE publishing latest.json
+      # ---------------------------------------------------------
+
+      - name: Verify new APKs through public domain
+        run: |
+          set -euo pipefail
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --retry 5 \
+            --retry-delay 3 \
+            --head \
+            "${UPDATE_BASE_URL}/newsnook/${CLOUD_NAME}"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --retry 5 \
+            --retry-delay 3 \
+            --head \
+            "${UPDATE_BASE_URL}/newsnook/${LOCAL_NAME}"
+
+      # ---------------------------------------------------------
+      # Atomic pointer switch
+      # ---------------------------------------------------------
+
+      - name: Publish latest.json
+        run: |
+          set -euo pipefail
+
+          aws s3 cp \
+            "${R2_RELEASE_DIR}/latest.json" \
+            "s3://${R2_BUCKET}/newsnook/latest.json" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --content-type "application/json; charset=utf-8" \
+            --cache-control "no-store,max-age=0" \
+            --no-progress
+
+      - name: Verify latest.json
+        run: |
+          set -euo pipefail
+
+          CACHE_BUSTER="$(date +%s)"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --retry 5 \
+            --retry-delay 3 \
+            "${UPDATE_BASE_URL}/newsnook/latest.json?t=${CACHE_BUSTER}" \
+            > "${RUNNER_TEMP}/published-latest.json"
+
+          jq -e \
+            --arg version "$VERSION" \
+            --arg cloud "$CLOUD_NAME" \
+            --arg local "$LOCAL_NAME" \
+            '
+              .schemaVersion == 1
+              and .version == $version
+              and .channels.cloud.fileName == $cloud
+              and .channels.local.fileName == $local
+            ' \
+            "${RUNNER_TEMP}/published-latest.json"
+
+      # ---------------------------------------------------------
+      # Delete previous R2 release
+      # R2 will end with exactly four objects.
+      # ---------------------------------------------------------
+
+      - name: Remove previous R2 release
+        run: |
+          set -euo pipefail
+
+          aws s3api list-objects-v2 \
+            --bucket "$R2_BUCKET" \
+            --prefix "newsnook/" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --output json \
+            > "${RUNNER_TEMP}/r2-objects.json"
+
+          jq -r '.Contents[]?.Key' \
+            "${RUNNER_TEMP}/r2-objects.json" |
+          while IFS= read -r key; do
+            case "$key" in
+              "newsnook/latest.json")
+                ;;
+              "newsnook/release-notes.md")
+                ;;
+              "newsnook/${CLOUD_NAME}")
+                ;;
+              "newsnook/${LOCAL_NAME}")
+                ;;
+              *)
+                echo "Deleting old R2 object: $key"
+
+                aws s3 rm \
+                  "s3://${R2_BUCKET}/${key}" \
+                  --endpoint-url "$R2_ENDPOINT" \
+                  --no-progress
+                ;;
+            esac
+          done
+
+      - name: Verify R2 contains only current release
+        run: |
+          set -euo pipefail
+
+          aws s3api list-objects-v2 \
+            --bucket "$R2_BUCKET" \
+            --prefix "newsnook/" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --output json \
+            > "${RUNNER_TEMP}/r2-final.json"
+
+          jq -r '.Contents[]?.Key' "${RUNNER_TEMP}/r2-final.json"
+
+          COUNT="$(
+            jq '[.Contents[]?] | length' \
+              "${RUNNER_TEMP}/r2-final.json"
+          )"
+
+          if [ "$COUNT" -ne 4 ]; then
+            echo "::error::Expected exactly 4 NewsNook R2 objects, got ${COUNT}."
+            exit 1
+          fi

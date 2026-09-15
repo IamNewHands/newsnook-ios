@@ -1,0 +1,22 @@
+{
+  "_meta": {
+    "evidenceStatus": "source-only",
+    "syntheticValues": true,
+    "operation": "answer.read"
+  },
+  "id": "answer-fixture-1",
+  "content": "<p>脱敏结构样本正文</p>",
+  "excerpt": "脱敏结构样本",
+  "created_time": 1700000000,
+  "voteup_count": 12,
+  "comment_count": 3,
+  "author": {
+    "id": "person-fixture-1",
+    "url_token": "person-fixture-token",
+    "name": "示例用户"
+  },
+  "question": {
+    "id": "question-fixture-1",
+    "title": "用于回归测试的示例问题"
+  }
+}

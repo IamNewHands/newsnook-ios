@@ -66,6 +66,7 @@ newsnook/
 │  features/translation/   TranslationService + Provider 接口    │
 │  features/proxy/         智能分流 / 隧道 / 原生 HTTP 封装       │
 │  features/comments/      跟贴 Provider（网易/知乎/煎蛋等）      │
+│  features/zhihu/         独立知乎工作区 / 协议能力矩阵 / adapter │
 │  features/mediaSniffer/  媒体候选 / HLS·DASH 清单 / DRM 状态  │
 │  features/appUpdate/     GitHub Release 检测与应用内更新        │
 ├──────────────────────────────────────────────────────────────┤
@@ -105,6 +106,28 @@ UI 不直接拼上游 URL；源 URL 与 kind 只来自 `sources/registry.ts`（�
 
 Android 物理返回键由 `@capacitor/app` 在 `App.tsx` 统一处理：阅读器 → 设置栈 → 单源焦点 → 退出确认。
 
+### 6.1 独立站点工作区
+
+`features/sites/*` 与 `sources/registry/sites.ts` 提供独立站点描述符；它和新闻 `preset/source/category` 是两条状态轴。当前第一个独立站点是知乎：
+
+```text
+PresetSwitcher / 切换布局
+  ├─ 场景预设 → presets.applyPreset(...)
+  └─ 第三方站点 / 知乎 → activeSiteId = 'zhihu'
+                              ↓
+                         ZhihuWorkspace (lazy)
+                              ↓
+                 feature-local RouteFrame[] 返回栈
+```
+
+- 选择知乎**不得**调用 `presets.applyPreset`，也不改变启用源、分类和 `activePresetId`；`activeSiteId` 仅用独立 `newsnook:layout:active-site:v1` 保存。
+- 知乎工作区挂载自己的顶栏、底部导航和 route reducer；普通 `DesktopSidebar` / `TabBar` 不叠加。Android 返回键先弹知乎局部栈，到根页再退出工作区。
+- `zhihu-community` 是 `workspaceOnly` 公共 Article 桥接源：`findSource`/分享能识别它，但 `allRegisteredSources` 排除它；即使误走 `parseSourcePayload` 也会显式抛错，因此不会混进普通综合刷新。
+- `zhihu-daily` 继续保持原 `kind: 'zhihu'` 和日期游标解析，社区适配绝不复用日报语义。
+- `features/zhihu/protocol.ts` 是远端能力的唯一闸门。`source-only` 只表示源码/脱敏语料证明“曾存在这种协议”；只有附带授权实网证据的 `verified` 才能开放写操作。详见 [知乎协议矩阵](./zhihu-protocol.md)。
+- 当前远端 transport 只开放白名单域 (`www.zhihu.com` / `api.zhihu.com`) 的安全 GET；会话 generation 在请求前后校验，账号切换后旧响应不得提交。知乎凭据使用 `site.zhihu.*` SecureStore 命名空间，不进入 Preferences、配置备份或 Cloud Sync。
+- 公共推荐/热榜可进入 `newsnook:zhihu:public-feed:v1:*` 的本机公开缓存；账号关注流明确禁止进入该缓存。正文桥接使用 `feedArticleId('zhihu-community', canonicalUrl)`，分享发出/接收必须保持同一 Article.id。
+
 ## 7. 源模型
 
 ### 7.1 SourceKind
@@ -116,6 +139,7 @@ Android 物理返回键由 `@capacitor/app` 在 `App.tsx` 统一处理：阅读�
 | 通用 Feed | `feed` | RSS 2.0 / Atom / RDF / JSON Feed |
 | 搜索聚合 | `google-news` | Google News RSS，需解码真实 URL |
 | 门户 JSON | `netease`、`zhihu` | 网易移动端列表、知乎日报 |
+| 独立站点桥接 | `zhihu-community` | 仅用于知乎专属工作区公共 Article/分享识别；`workspaceOnly`，不进普通 Feed 刷新 |
 | 站点定制 | `latepost`、`jandan`、`jiqizhixin`、`cls`、`eastmoney-*`、`wscn-live`、`guokr`、`jazzyear`、`arena`、`anthropic`、`claude-webflow`、`claude-academy`、`openai-cookbook`、`paulgraham`、`wordpress` 等 | 各站列表/详情协议与 UA 在 registry 中声明 |
 | 用户自建 | `feed`（`isCustom: true`） | OPML 导入或手动添加，走通用解析 |
 

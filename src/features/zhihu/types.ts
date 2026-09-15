@@ -1,0 +1,62 @@
+export type ZhihuEntityKind =
+  | 'question'
+  | 'answer'
+  | 'article'
+  | 'pin'
+  | 'people'
+  | 'collection'
+  | 'comment'
+  | 'topic'
+
+export interface ZhihuEntityRef {
+  kind: ZhihuEntityKind
+  id: string
+}
+
+export interface Page<T> {
+  items: T[]
+  nextCursor?: string
+  hasMore: boolean
+}
+
+export type ZhihuFeedMode = 'following' | 'recommended' | 'hot'
+
+export type ZhihuRoute =
+  | { screen: 'feed'; mode: ZhihuFeedMode }
+  | { screen: 'entity'; ref: ZhihuEntityRef }
+  | { screen: 'search'; query: string }
+  | { screen: 'editor'; localDraftId: string }
+  | { screen: 'notifications' }
+  | { screen: 'conversation'; peerId: string }
+  | { screen: 'profile' }
+
+export interface RouteFrame {
+  route: ZhihuRoute
+  /** 评论/段落等稳定锚点；返回时交由页面恢复。 */
+  anchor?: string
+  scrollTop: number
+}
+
+export type RouteAction =
+  | { type: 'push'; frame: RouteFrame }
+  | { type: 'replace'; frame: RouteFrame }
+  | { type: 'back' }
+  | { type: 'reset'; frame: RouteFrame }
+
+export interface ZhihuAuthor {
+  id: string
+  token?: string
+  name: string
+  avatarUrl?: string
+  headline?: string
+}
+
+export interface ZhihuContentSummary {
+  ref: ZhihuEntityRef
+  title: string
+  excerpt: string
+  url: string
+  author?: ZhihuAuthor
+  voteupCount?: number
+  commentCount?: number
+}

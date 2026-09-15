@@ -1,0 +1,30 @@
+{
+  "_meta": {
+    "evidenceStatus": "source-only",
+    "syntheticValues": true,
+    "operation": "feed.recommended"
+  },
+  "data": [
+    {
+      "id": "feed-fixture-1",
+      "target": {
+        "type": "answer",
+        "id": "answer-fixture-1",
+        "excerpt": "脱敏推荐摘要",
+        "question": {
+          "id": "question-fixture-1",
+          "title": "用于回归测试的推荐问题"
+        },
+        "author": {
+          "id": "person-fixture-1",
+          "url_token": "person-fixture-token",
+          "name": "示例用户"
+        }
+      }
+    }
+  ],
+  "paging": {
+    "is_end": false,
+    "next": "https://api.zhihu.com/topstory/recommend?after_id=fixture-next"
+  }
+}

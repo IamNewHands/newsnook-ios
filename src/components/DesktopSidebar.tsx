@@ -9,7 +9,11 @@ import {
   Sun,
 } from 'lucide-react'
 
-import { PresetSwitcher, type PresetSwitcherItem } from './PresetSwitcher'
+import {
+  PresetSwitcher,
+  type PresetSwitcherItem,
+  type SiteSwitcherItem,
+} from './PresetSwitcher'
 import { BrandLogo } from './BrandLogo'
 import { chineseDate } from '../lib/time'
 import type { CategoryId, NewsCategory } from '../sources/categories'
@@ -33,6 +37,8 @@ interface Props {
     items: PresetSwitcherItem[]
     onSelect: (id: string) => void
     onManage: () => void
+    siteItems?: SiteSwitcherItem[]
+    onSelectSite?: (id: string) => void
     onSites?: () => void
     siteCount?: number
   }
@@ -126,6 +132,8 @@ export const DesktopSidebar = memo(function DesktopSidebar({
               items={presetSwitcher.items}
               onSelect={presetSwitcher.onSelect}
               onManage={presetSwitcher.onManage}
+              siteItems={presetSwitcher.siteItems}
+              onSelectSite={presetSwitcher.onSelectSite}
               onSites={presetSwitcher.onSites}
               siteCount={presetSwitcher.siteCount}
             />

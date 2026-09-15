@@ -11,11 +11,21 @@ export interface PresetSwitcherItem {
   active: boolean
 }
 
-interface Props {
+export interface SiteSwitcherItem {
+  id: string
+  name: string
+  description?: string
+  active: boolean
+}
+
+export interface PresetSwitcherProps {
   activeName: string
   items: PresetSwitcherItem[]
   onSelect: (id: string) => void
   onManage: () => void
+  /** 独立站点工作区；与 preset 完全分离，选择时不得调用 onSelect。 */
+  siteItems?: SiteSwitcherItem[]
+  onSelectSite?: (id: string) => void
   /** 有已适配站点时传入，点击后进入站点浏览 */
   onSites?: () => void
   /** 已适配站点数量 */
@@ -34,10 +44,12 @@ export function PresetSwitcher({
   items,
   onSelect,
   onManage,
+  siteItems = [],
+  onSelectSite,
   onSites,
   siteCount = 0,
   variant = 'pill',
-}: Props) {
+}: PresetSwitcherProps) {
   const [open, setOpen] = useState(false)
   const titleId = useId()
 
@@ -91,10 +103,10 @@ export function PresetSwitcher({
               </div>
               <div className="min-w-0">
                 <h2 id={titleId} className="font-display text-[18px] font-semibold leading-none text-paper">
-                  切换场景预设
+                  切换布局
                 </h2>
                 <p className="mt-1 font-mono text-[10.5px] tracking-wide text-paper-faint truncate">
-                  当前场景：<span className="text-cinnabar font-medium">{activeName}</span>
+                  当前布局：<span className="text-cinnabar font-medium">{activeName}</span>
                 </p>
               </div>
             </div>
@@ -158,37 +170,74 @@ export function PresetSwitcher({
               </section>
             )}
 
-            {onSites && siteCount > 0 && (
+            {(siteItems.length > 0 || (onSites && siteCount > 0)) && (
               <section>
                 <div className="mb-2 flex items-center gap-2">
                   <span className="font-mono text-[10px] tracking-[0.2em] uppercase text-paper-faint">
-                    站点浏览
+                    第三方站点
                   </span>
                   <span className="h-px flex-1 bg-haze/60" />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(false)
-                    onSites()
-                  }}
-                  className="group flex w-full items-center gap-3.5 rounded-xl border border-haze/80 bg-ink/50 p-3 text-left transition-colors hover:border-cinnabar/40 hover:bg-ink-raised"
-                >
-                  <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-ink-raised border border-haze text-paper-muted group-hover:border-cinnabar/40 group-hover:text-cinnabar transition-colors">
-                    <Globe size={15} strokeWidth={1.6} />
-                  </div>
-                  <span className="min-w-0 flex-1">
-                    <span className="truncate font-display text-[15px] font-semibold text-paper group-hover:text-paper">
-                      已适配站点
-                    </span>
-                    <span className="mt-0.5 block text-[12px] text-paper-faint group-hover:text-paper-muted transition-colors">
-                      {siteCount} 个站点可浏览
-                    </span>
-                  </span>
-                  <span className="shrink-0 rounded-full border border-haze/80 bg-ink px-2.5 py-1 font-mono text-[10.5px] font-medium text-paper-faint group-hover:border-cinnabar/40 group-hover:text-cinnabar transition-colors">
-                    进入
-                  </span>
-                </button>
+                <div className="space-y-2">
+                  {siteItems.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        if (!item.active) onSelectSite?.(item.id)
+                        setOpen(false)
+                      }}
+                      className={`group flex w-full items-center gap-3.5 rounded-xl border p-3 text-left transition-colors ${
+                        item.active
+                          ? 'border-cinnabar/60 bg-cinnabar/12'
+                          : 'border-haze/80 bg-ink/50 hover:border-cinnabar/40 hover:bg-ink-raised'
+                      }`}
+                    >
+                      <div
+                        className={`flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                          item.active
+                            ? 'bg-cinnabar text-white'
+                            : 'bg-ink-raised border border-haze text-paper-muted group-hover:border-cinnabar/40 group-hover:text-cinnabar'
+                        }`}
+                      >
+                        {item.active ? <Check size={16} strokeWidth={2.2} /> : <Globe size={15} strokeWidth={1.6} />}
+                      </div>
+                      <span className="min-w-0 flex-1">
+                        <span className={`truncate font-display text-[15px] font-semibold ${item.active ? 'text-cinnabar' : 'text-paper'}`}>
+                          {item.name}
+                        </span>
+                        {item.description && (
+                          <span className="mt-0.5 block truncate text-[12px] text-paper-faint">
+                            {item.description}
+                          </span>
+                        )}
+                      </span>
+                      <span className="shrink-0 rounded-full border border-haze/80 bg-ink px-2.5 py-1 font-mono text-[10.5px] font-medium text-paper-faint">
+                        {item.active ? '当前' : '进入'}
+                      </span>
+                    </button>
+                  ))}
+
+                  {onSites && siteCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpen(false)
+                        onSites()
+                      }}
+                      className="group flex w-full items-center gap-3.5 rounded-xl border border-haze/80 bg-ink/50 p-3 text-left transition-colors hover:border-cinnabar/40 hover:bg-ink-raised"
+                    >
+                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-ink-raised border border-haze text-paper-muted group-hover:border-cinnabar/40 group-hover:text-cinnabar transition-colors">
+                        <Globe size={15} strokeWidth={1.6} />
+                      </div>
+                      <span className="min-w-0 flex-1">
+                        <span className="truncate font-display text-[15px] font-semibold text-paper">其他已适配站点</span>
+                        <span className="mt-0.5 block text-[12px] text-paper-faint">{siteCount} 个 CMS 站点可浏览</span>
+                      </span>
+                      <span className="shrink-0 rounded-full border border-haze/80 bg-ink px-2.5 py-1 font-mono text-[10.5px] font-medium text-paper-faint">浏览</span>
+                    </button>
+                  )}
+                </div>
               </section>
             )}
           </div>
@@ -205,13 +254,13 @@ export function PresetSwitcher({
           onClick={() => setOpen(true)}
           aria-haspopup="dialog"
           aria-expanded={open}
-          aria-label={`场景预设：${activeName}，点击切换`}
+          aria-label={`当前布局：${activeName}，点击切换`}
           className="group relative w-full rounded-xl border border-haze/90 bg-ink-raised/90 p-2.5 text-left transition-all duration-200 hover:border-cinnabar/60 hover:bg-ink-raised hover:shadow-sm active:scale-[0.99] focus-visible:outline-hidden"
         >
           <div className="flex items-center justify-between mb-1.5">
             <span className="flex items-center gap-1 font-mono text-[10px] tracking-[0.16em] text-paper-faint">
               <span className="size-1.5 rounded-full bg-cinnabar" />
-              场景预设
+              布局与场景
             </span>
             <span className="font-mono text-[9.5px] font-medium text-cinnabar group-hover:translate-x-0.5 transition-transform duration-200">
               切换 →
@@ -247,7 +296,7 @@ export function PresetSwitcher({
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={`场景预设：${activeName}，点击切换`}
+        aria-label={`当前布局：${activeName}，点击切换`}
         className="group flex max-w-[8.5rem] sm:max-w-[10.5rem] items-center gap-1.5 rounded-full border border-haze/90 bg-ink-raised/80 px-2.5 py-1 text-paper shadow-2xs transition-all duration-200 hover:border-cinnabar/40 hover:bg-ink-raised active:scale-95"
       >
         <LayoutTemplate

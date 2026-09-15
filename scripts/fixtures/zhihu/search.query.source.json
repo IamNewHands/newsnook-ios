@@ -1,0 +1,25 @@
+{
+  "_meta": {
+    "evidenceStatus": "source-only",
+    "syntheticValues": true,
+    "operation": "search.query"
+  },
+  "data": [
+    {
+      "type": "search_result",
+      "object": {
+        "type": "answer",
+        "id": "answer-fixture-1",
+        "excerpt": "脱敏搜索摘要",
+        "question": {
+          "id": "question-fixture-1",
+          "title": "用于回归测试的搜索结果"
+        }
+      }
+    }
+  ],
+  "paging": {
+    "is_end": true,
+    "next": ""
+  }
+}

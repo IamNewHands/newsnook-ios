@@ -564,6 +564,17 @@ export const SOURCES: NewsSource[] = [
     url: 'https://news-at.zhihu.com/api/4/news/latest',
     enabled: false,
   },
+  {
+    id: 'zhihu-community',
+    name: '知乎',
+    label: '知乎',
+    group: 'special',
+    kind: 'zhihu-community',
+    url: 'https://www.zhihu.com',
+    siteUrl: 'https://www.zhihu.com',
+    enabled: false,
+    workspaceOnly: true,
+  },
   // 煎蛋：官方 /feed 对爬虫 403；用 i.jandan.net 旧版 JSON API（一次目录）
   {
     id: 'jandan',

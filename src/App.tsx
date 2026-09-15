@@ -97,6 +97,8 @@ import {
   useEasterEggTrigger,
 } from './features/easterEgg'
 import { proxyModeLabel } from './features/proxy/config'
+import { loadActiveSiteId, saveActiveSiteId } from './features/sites/layoutState'
+import type { SiteId } from './features/sites/types'
 import { useProductTour } from './features/productTour/useProductTour'
 import { UpdateDialog } from './features/appUpdate/UpdateDialog'
 import { useAppUpdate } from './features/appUpdate/useAppUpdate'
@@ -142,11 +144,17 @@ import {
   withRecommendCategory,
   type TypographyPrefs,
 } from './sources/preferences'
-import { SOURCES, findSource } from './sources/registry'
+import { SITES, SOURCES, findSite, findSource } from './sources/registry'
 
 const ReaderScreen = lazy(() =>
   import('./screens/ReaderScreen').then((module) => ({
     default: module.ReaderScreen,
+  })),
+)
+
+const ZhihuWorkspace = lazy(() =>
+  import('./features/zhihu/ui/ZhihuWorkspace').then((module) => ({
+    default: module.ZhihuWorkspace,
   })),
 )
 
@@ -251,6 +259,12 @@ function prefetchBody(task: BodyPrefetchTask): void {
 export default function App() {
   const { prefs, resolvedTheme, update, replaceFromSync: replacePreferences } = usePreferences()
   const [tab, setTab] = useState<TabKey>('today')
+  const [activeSiteId, setActiveSiteId] = useState<SiteId | null>(() => loadActiveSiteId())
+  const siteBackHandlerRef = useRef<(() => boolean) | null>(null)
+  const leaveActiveSite = useCallback(() => {
+    saveActiveSiteId(null)
+    setActiveSiteId(null)
+  }, [])
   const [todayPullRefreshSeq, setTodayPullRefreshSeq] = useState(0)
   const [categoryId, setCategoryId] = useState<CategoryId>(
     () => defaultFeedCategoryId(visibleCategories(prefs)),
@@ -339,6 +353,7 @@ export default function App() {
   }, [sharedEntry])
   /** 墨水屏中区进设置时暂存文章，从「我的」返回时恢复阅读 */
   const [readerReturnArticle, setReaderReturnArticle] = useState<Article | null>(null)
+  const [readerReturnSiteId, setReaderReturnSiteId] = useState<SiteId | null>(null)
   const readerOverlayCloserRef = useRef<(() => boolean) | null>(null)
   const [eggOpen, setEggOpen] = useState(false)
   const openEgg = useCallback(() => setEggOpen(true), [])
@@ -354,6 +369,7 @@ export default function App() {
   const { start: startProductTourNow, stopIfActive: stopProductTourIfActive } = useProductTour({
     ready:
       tab === 'today' &&
+      !activeSiteId &&
       !reading &&
       !settingsRoute &&
       !focusSourceId &&
@@ -525,9 +541,14 @@ export default function App() {
   const restoreReaderFromSettings = useCallback(() => {
     if (!readerReturnArticle) return
     setSettingsRoute(null)
+    if (readerReturnSiteId) {
+      saveActiveSiteId(readerReturnSiteId)
+      setActiveSiteId(readerReturnSiteId)
+    }
     setReading(readerReturnArticle)
     setReaderReturnArticle(null)
-  }, [readerReturnArticle])
+    setReaderReturnSiteId(null)
+  }, [readerReturnArticle, readerReturnSiteId])
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return
@@ -551,6 +572,11 @@ export default function App() {
       }
       if (reading) {
         closeReader()
+        return
+      }
+      if (activeSiteId) {
+        if (siteBackHandlerRef.current?.()) return
+        leaveActiveSite()
         return
       }
       if (settingsRoute?.name === 'category-sources' || settingsRoute?.name === 'category-edit') {
@@ -602,7 +628,7 @@ export default function App() {
       disposed = true
       if (removeListener) void removeListener()
     }
-  }, [closeReader, closeSourceFeed, eggOpen, focusSourceId, readerReturnArticle, reading, restoreReaderFromSettings, settingsRoute, stopProductTourIfActive, tab])
+  }, [activeSiteId, closeReader, closeSourceFeed, eggOpen, focusSourceId, leaveActiveSite, readerReturnArticle, reading, restoreReaderFromSettings, settingsRoute, stopProductTourIfActive, tab])
 
   const {
     articles: fetchedArticles,
@@ -921,31 +947,60 @@ export default function App() {
         name: preset.name,
         description: preset.description,
         builtin: true,
-        active: preset.id === activeId,
+        active: !activeSiteId && preset.id === activeId,
       })),
       ...presets.state.userPresets.map((preset) => ({
         id: preset.id,
         name: preset.name,
         description: preset.description,
         builtin: false,
-        active: preset.id === activeId,
+        active: !activeSiteId && preset.id === activeId,
       })),
     ]
-  }, [presets.builtins, presets.state])
+  }, [activeSiteId, presets.builtins, presets.state])
 
   const frameworkSiteCount = useMemo(
     () => (prefs.customSources ?? []).filter((s) => s.frameworkHint && s.kind === 'web-catalog').length,
     [prefs.customSources],
   )
 
+  const siteSwitcherItems = useMemo(
+    () => SITES.map((site) => ({
+      id: site.id,
+      name: site.name,
+      description: site.description,
+      active: site.id === activeSiteId,
+    })),
+    [activeSiteId],
+  )
+
   const presetSwitcherConfig = useMemo(() => ({
-    activeName: presets.activePreset?.name ?? '场景预设',
+    activeName: findSite(activeSiteId)?.name ?? presets.activePreset?.name ?? '场景预设',
     items: presetSwitcherItems,
-    onSelect: (id: string) => presets.applyPreset(id),
-    onManage: () => setSettingsRoute({ name: 'presets' }),
-    onSites: frameworkSiteCount > 0 ? () => setTab('sites') : undefined,
+    onSelect: (id: string) => {
+      if (activeSiteId) leaveActiveSite()
+      if (id !== presets.state.activePresetId) presets.applyPreset(id)
+    },
+    onManage: () => {
+      if (activeSiteId) leaveActiveSite()
+      setSettingsRoute({ name: 'presets' })
+    },
+    siteItems: siteSwitcherItems,
+    onSelectSite: (id: string) => {
+      const site = findSite(id)
+      if (!site) return
+      setSettingsRoute(null)
+      setFocusSourceId(null)
+      setFocusReturnRoute(null)
+      saveActiveSiteId(site.id)
+      setActiveSiteId(site.id)
+    },
+    onSites: frameworkSiteCount > 0 ? () => {
+      if (activeSiteId) leaveActiveSite()
+      setTab('sites')
+    } : undefined,
     siteCount: frameworkSiteCount,
-  }), [presets, presetSwitcherItems, frameworkSiteCount])
+  }), [activeSiteId, frameworkSiteCount, leaveActiveSite, presetSwitcherItems, presets, siteSwitcherItems])
 
   const cachedHistory = useMemo(
     () =>
@@ -1477,7 +1532,7 @@ export default function App() {
   return (
     <AppShell>
       <div className="flex h-full w-full flex-row overflow-hidden">
-        <DesktopSidebar
+        {!activeSiteId && <DesktopSidebar
           categories={categories}
           activeCategoryId={categoryId}
           onCategoryChange={(newId) => {
@@ -1497,14 +1552,7 @@ export default function App() {
           onToggleTheme={() => {
             update((prev) => setThemeMode(prev, resolvedTheme === 'dark' ? 'light' : 'dark'))
           }}
-          presetSwitcher={{
-            activeName: presets.activePreset?.name ?? '场景预设',
-            items: presetSwitcherItems,
-            onSelect: (id) => presets.applyPreset(id),
-            onManage: () => setSettingsRoute({ name: 'presets' }),
-            onSites: frameworkSiteCount > 0 ? () => setTab('sites') : undefined,
-            siteCount: frameworkSiteCount,
-          }}
+          presetSwitcher={presetSwitcherConfig}
           onNavigateHome={() => {
             setTab('today')
             setSettingsRoute(null)
@@ -1518,7 +1566,7 @@ export default function App() {
           }}
           onNavigateAbout={() => setSettingsRoute({ name: 'about' })}
           onBrandTap={onBrandTap}
-        />
+        />}
 
         {/*
           风格引导期间把内容区搁起：Chrome 69–84 用 display:none 兼容回退，Chrome 85+
@@ -1530,24 +1578,43 @@ export default function App() {
             showSchemeOnboarding ? ' content-parked' : ''
           }`}
         >
-          {renderTab()}
+          {activeSiteId === 'zhihu' ? (
+            <Suspense
+              fallback={
+                <div role="status" className="flex h-full items-center justify-center font-mono text-[12px] text-paper-faint">
+                  正在打开知乎工作区…
+                </div>
+              }
+            >
+              <ZhihuWorkspace
+                onExit={leaveActiveSite}
+                onOpenArticle={openArticle}
+                backHandlerRef={siteBackHandlerRef}
+                presetSwitcher={presetSwitcherConfig}
+              />
+            </Suspense>
+          ) : (
+            <>
+              {renderTab()}
 
-          {!focusSource && (
-            <TabBar
-              active={tab}
-              laterCount={later.length}
-              hasUpdate={appUpdate.hasUpdate}
-              onChange={(key) => {
-                setFocusSourceId(null)
-                setFocusReturnRoute(null)
-                if (key !== 'me') setReaderReturnArticle(null)
-                setTab(key)
-              }}
-              onTodayDoubleTap={() => setTodayPullRefreshSeq((seq) => seq + 1)}
-            />
+              {!focusSource && (
+                <TabBar
+                  active={tab}
+                  laterCount={later.length}
+                  hasUpdate={appUpdate.hasUpdate}
+                  onChange={(key) => {
+                    setFocusSourceId(null)
+                    setFocusReturnRoute(null)
+                    if (key !== 'me') setReaderReturnArticle(null)
+                    setTab(key)
+                  }}
+                  onTodayDoubleTap={() => setTodayPullRefreshSeq((seq) => seq + 1)}
+                />
+              )}
+
+              {renderSettings()}
+            </>
           )}
-
-          {renderSettings()}
         </main>
       </div>
 
@@ -1590,6 +1657,8 @@ export default function App() {
             onTypographyChange={(patch) => update((prev) => updateTypography(prev, patch))}
             onOpenSettings={() => {
               setReaderReturnArticle(reading)
+              setReaderReturnSiteId(activeSiteId)
+              if (activeSiteId) leaveActiveSite()
               setReading(null)
               setSettingsRoute(null)
               setTab('me')

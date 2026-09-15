@@ -10,6 +10,7 @@ export type SourceKind =
   | 'google-news'
   | 'netease'
   | 'zhihu'
+  | 'zhihu-community'
   | 'arena'
   | 'anthropic'
   | 'jandan'
@@ -58,6 +59,10 @@ export interface NewsSource {
   requestHeaders?: Record<string, string>
   /** 默认是否出现在「综合」启用列表 */
   enabled: boolean
+  /**
+   * 独立工作区桥接源。仍可被 findSource/分享/Article 缓存识别，但不能出现在普通频道选择和综合刷新中。
+   */
+  workspaceOnly?: boolean
   /** 是否为用户自建自定义源 */
   isCustom?: boolean
   /** 自建时间戳 */

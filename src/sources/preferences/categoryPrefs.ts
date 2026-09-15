@@ -25,7 +25,7 @@ import {
 
 /** 获取全部可用信源（内置 + 用户自建） */
 export function allRegisteredSources(prefs?: Preferences): NewsSource[] {
-  return [...SOURCES, ...(prefs?.customSources ?? [])]
+  return [...SOURCES.filter((source) => !source.workspaceOnly), ...(prefs?.customSources ?? [])]
 }
 
 /** 获取全部可用分类（内置 + 用户自建） */
