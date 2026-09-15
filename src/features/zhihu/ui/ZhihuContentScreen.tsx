@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
-import type { MouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { MouseEvent, MutableRefObject } from 'react'
 import { Browser } from '@capacitor/browser'
-import { ChevronLeft, ChevronRight, ExternalLink, Info, Loader2, LockKeyhole, MessageSquareQuote, SquarePen, ThumbsDown, ThumbsUp, UserPlus } from 'lucide-react'
+import { ChevronDown, ChevronUp, ExternalLink, Info, Loader2, LockKeyhole, MessageSquareQuote, SquarePen, ThumbsDown, ThumbsUp, UserPlus, X } from 'lucide-react'
 import type { ZhihuCommentDraftStore } from '../comments/draftStore'
 import type { ZhihuCommentsService } from '../comments/service'
 import type { ZhihuContentDetail } from '../api/decode'
@@ -15,6 +15,11 @@ import { canExecuteZhihuOperation } from '../protocol'
 import type { ZhihuContentSummary, ZhihuEntityRef } from '../types'
 import type { ZhihuQuestionAnswerOrder } from '../api/endpoints'
 import { SegmentedControl } from '../../../components/SegmentedControl'
+import { ImageLightbox } from '../../../components/ImageLightbox'
+import { InlineArticleVideos } from '../../../components/InlineArticleVideos'
+import { InlineYoutubeEmbeds } from '../../../components/InlineYoutubeEmbeds'
+import { OriginPlayerSurface, type OriginPlayerCloseHandle } from '../../../components/OriginPlayerSurface'
+import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
 import { ZhihuCollectionPicker } from './ZhihuCollectionPicker'
 import { ZhihuCommentsSection } from './ZhihuCommentsSection'
 import {
@@ -34,6 +39,8 @@ interface Props {
   feedService: ZhihuFeedService
   commentsService: ZhihuCommentsService
   onNavigate: (ref: ZhihuEntityRef, sourceAnchor?: string) => void
+  onReplaceNavigate: (ref: ZhihuEntityRef) => void
+  overlayCloserRef?: MutableRefObject<(() => boolean) | null>
   restoreAnchor?: string
   authenticated: boolean
   accountId?: string
@@ -59,7 +66,7 @@ async function openExternal(url: string): Promise<void> {
   }
 }
 
-export function ZhihuContentScreen({ refValue, preview, contentService, feedService, commentsService, onNavigate, restoreAnchor, authenticated, accountId, commentDraftStore, interaction, onWriteAnswer }: Props) {
+export function ZhihuContentScreen({ refValue, preview, contentService, feedService, commentsService, onNavigate, onReplaceNavigate, overlayCloserRef, restoreAnchor, authenticated, accountId, commentDraftStore, interaction, onWriteAnswer }: Props) {
   const [detail, setDetail] = useState<ZhihuContentDetail | null>(null)
   const [answers, setAnswers] = useState<ZhihuContentSummary[]>([])
   const [answerOrder, setAnswerOrder] = useState<ZhihuQuestionAnswerOrder>('default')
@@ -75,6 +82,47 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
   const [actionBusy, setActionBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [guestLimited, setGuestLimited] = useState(false)
+  const proseRef = useRef<HTMLDivElement | null>(null)
+  const originPlayerCloseRef = useRef<OriginPlayerCloseHandle | null>(null)
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
+  const [videoPage, setVideoPage] = useState<{ url: string; title: string; poster?: string } | null>(null)
+  const normalizedHtml = useMemo(
+    () => normalizeZhihuContentHtml(detail?.contentHtml ?? ''),
+    [detail?.contentHtml],
+  )
+
+  // 与 NewsNook Reader 共用同一套图片代理、占位、渐显和失败处理。
+  useProgressiveImages(proseRef, normalizedHtml, Boolean(normalizedHtml))
+
+  useEffect(() => {
+    setLightbox(null)
+    setVideoPage(null)
+  }, [refValue.id, refValue.kind])
+
+  useEffect(() => {
+    if (!overlayCloserRef) return
+    if (!lightbox && !videoPage) {
+      overlayCloserRef.current = null
+      return
+    }
+    overlayCloserRef.current = () => {
+      if (lightbox) {
+        setLightbox(null)
+        return true
+      }
+      if (videoPage) {
+        // InkVideoPlayer 全屏/自定义层先按 Reader 的既有语义逐层退出，
+        // 再由下一次返回关闭视频浮层。
+        if (originPlayerCloseRef.current?.closeCustom()) return true
+        setVideoPage(null)
+        return true
+      }
+      return false
+    }
+    return () => {
+      overlayCloserRef.current = null
+    }
+  }, [lightbox, overlayCloserRef, videoPage])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -238,10 +286,35 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
   }
 
   const handleBodyClick = (event: MouseEvent<HTMLElement>) => {
-    const target = event.target as HTMLElement | null
-    const anchor = target?.closest('a[href]') as HTMLAnchorElement | null
+    const target = event.target instanceof Element ? event.target : null
+    if (!target) return
+
+    const image = target.closest('img') as HTMLImageElement | null
+    const imageCard = image?.closest('a[data-reader-role="zhihu-link-card"]')
+    if (image && !imageCard && !image.classList.contains('async-img-failed')) {
+      const src = image.currentSrc || image.src
+      if (src) {
+        event.preventDefault()
+        event.stopPropagation()
+        setLightbox({ src, alt: image.alt || detail?.title || '' })
+        return
+      }
+    }
+
+    const anchor = target.closest('a[href]') as HTMLAnchorElement | null
     if (!anchor?.href) return
     event.preventDefault()
+
+    if (anchor.getAttribute('data-media-format') === 'video-page') {
+      const posterImage = anchor.querySelector('img')
+      setVideoPage({
+        url: anchor.getAttribute('data-source-page') || anchor.href,
+        title: anchor.getAttribute('data-related-title') || detail?.title || '视频',
+        poster: posterImage?.currentSrc || posterImage?.getAttribute('src') || undefined,
+      })
+      return
+    }
+
     const ref = parseZhihuLink(anchor.href)
     if (ref) onNavigate(ref)
     else void openExternal(anchor.href)
@@ -285,7 +358,16 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
           <span>{zhihuEntityLabel(refValue.kind)}</span>
         </div>
         <h1 className="mt-2 font-display text-[27px] font-medium leading-[1.34] tracking-[0.003em] text-paper sm:text-[31px]">
-          {detail.title}
+          {refValue.kind === 'answer' && detail.questionId ? (
+            <button
+              type="button"
+              onClick={() => onNavigate({ kind: 'question', id: detail.questionId! })}
+              title="查看问题详情"
+              className="text-left transition-colors hover:text-cinnabar-soft"
+            >
+              {detail.title}
+            </button>
+          ) : detail.title}
         </h1>
 
         <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[12px] text-paper-faint">
@@ -371,12 +453,29 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
 
       <div className="mt-6">
         {detail.contentHtml ? (
-          <div
-            className="reader-prose zhihu-prose text-paper"
-            data-article-lang="zh"
-            onClick={handleBodyClick}
-            dangerouslySetInnerHTML={{ __html: normalizeZhihuContentHtml(detail.contentHtml) }}
-          />
+          <>
+            <div
+              ref={proseRef}
+              className="reader-prose zhihu-prose text-paper"
+              data-article-lang="zh"
+              onClick={handleBodyClick}
+              dangerouslySetInnerHTML={{ __html: normalizedHtml }}
+            />
+            <InlineArticleVideos
+              rootRef={proseRef}
+              html={normalizedHtml}
+              enabled={Boolean(normalizedHtml)}
+              fallbackTitle={detail.title}
+              sourcePage={detail.url}
+            />
+            <InlineYoutubeEmbeds
+              rootRef={proseRef}
+              html={normalizedHtml}
+              enabled={Boolean(normalizedHtml)}
+              fallbackTitle={detail.title}
+              sourcePage={detail.url}
+            />
+          </>
         ) : detail.excerpt ? (
           <div className="reader-prose zhihu-prose" data-article-lang="zh">
             <p data-cjk="true">{detail.excerpt}</p>
@@ -390,24 +489,30 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
       </div>
 
       {refValue.kind === 'answer' && detail.questionId && (previousAnswerRef || nextAnswerRef) && (
-        <nav className="mt-8 grid grid-cols-2 gap-2 border-y border-haze/55 py-3" aria-label="此问题的回答导航">
+        <nav
+          className="pointer-events-none fixed right-3 z-30 flex flex-col gap-2 sm:right-5"
+          style={{ bottom: 'calc(var(--sab) + 4.5rem)' }}
+          aria-label="此问题的回答导航"
+        >
           <button
             type="button"
             disabled={!previousAnswerRef}
-            onClick={() => previousAnswerRef && onNavigate(previousAnswerRef)}
-            className="group flex min-h-11 items-center gap-2 rounded-xl px-2.5 text-left text-[12px] text-paper-muted transition-colors hover:bg-paper/5 hover:text-paper disabled:opacity-30"
+            onClick={() => previousAnswerRef && onReplaceNavigate(previousAnswerRef)}
+            aria-label="上一个回答"
+            title="上一个回答"
+            className="pointer-events-auto flex size-11 items-center justify-center rounded-full border border-haze/80 bg-ink/95 text-paper-muted shadow-xl backdrop-blur-xl transition hover:border-cinnabar/45 hover:text-cinnabar-soft disabled:opacity-30"
           >
-            <ChevronLeft size={16} strokeWidth={1.55} className="text-paper-faint group-hover:text-cinnabar-soft" />
-            <span>上个回答</span>
+            <ChevronUp size={18} strokeWidth={1.7} />
           </button>
           <button
             type="button"
             disabled={!nextAnswerRef}
-            onClick={() => nextAnswerRef && onNavigate(nextAnswerRef)}
-            className="group flex min-h-11 items-center justify-end gap-2 rounded-xl px-2.5 text-right text-[12px] text-paper-muted transition-colors hover:bg-paper/5 hover:text-paper disabled:opacity-30"
+            onClick={() => nextAnswerRef && onReplaceNavigate(nextAnswerRef)}
+            aria-label="下一个回答"
+            title="下一个回答"
+            className="pointer-events-auto flex size-11 items-center justify-center rounded-full border border-haze/80 bg-ink/95 text-paper-muted shadow-xl backdrop-blur-xl transition hover:border-cinnabar/45 hover:text-cinnabar-soft disabled:opacity-30"
           >
-            <span>下个回答</span>
-            <ChevronRight size={16} strokeWidth={1.55} className="text-paper-faint group-hover:text-cinnabar-soft" />
+            <ChevronDown size={18} strokeWidth={1.7} />
           </button>
         </nav>
       )}
@@ -465,6 +570,41 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
           authenticated={authenticated}
           accountId={accountId}
           draftStore={commentDraftStore}
+        />
+      )}
+
+      {videoPage && (
+        <div className="fixed inset-0 z-[75] flex min-h-0 flex-col bg-ink/98" role="dialog" aria-modal="true" aria-label={`播放视频：${videoPage.title}`}>
+          <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-haze/60 px-3">
+            <div className="min-w-0 flex-1 truncate font-display text-[16px] text-paper">{videoPage.title}</div>
+            <button
+              type="button"
+              onClick={() => setVideoPage(null)}
+              aria-label="关闭视频"
+              className="flex size-10 items-center justify-center rounded-xl text-paper-muted hover:bg-paper/5 hover:text-paper"
+            >
+              <X size={18} />
+            </button>
+          </header>
+          <div className="scroll-hidden min-h-0 flex-1 overflow-y-auto pb-6">
+            <OriginPlayerSurface
+              pageUrl={videoPage.url}
+              referrer={detail.url}
+              title={videoPage.title}
+              poster={videoPage.poster}
+              autoUseReader
+              closeHandleRef={originPlayerCloseRef}
+              openOriginal={() => void openExternal(videoPage.url)}
+            />
+          </div>
+        </div>
+      )}
+
+      {lightbox && (
+        <ImageLightbox
+          src={lightbox.src}
+          alt={lightbox.alt}
+          onClose={() => setLightbox(null)}
         />
       )}
     </article>

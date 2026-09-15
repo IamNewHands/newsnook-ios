@@ -1996,3 +1996,92 @@ html[data-eink='1'] .lead-cover-veil {
   border-radius: 0.65rem;
   object-fit: cover;
 }
+
+/* 知乎正文图片：慢网下先显示稳定占位，完成后由 Reader 渐显；失败也不留下空洞。 */
+.reader-prose.zhihu-prose [data-reader-role='zhihu-image-host'] {
+  position: relative;
+  display: block;
+  min-height: 140px;
+  width: 100%;
+  margin: 0.6em 0 1.2em;
+  overflow: hidden;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-paper) 7%, transparent);
+}
+
+.reader-prose.zhihu-prose [data-reader-role='zhihu-image-host'] > img {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  margin: 0;
+  border-radius: 10px;
+}
+
+.reader-prose.zhihu-prose [data-reader-role='zhihu-image-host'] > img.async-img:not(.async-img-done) {
+  opacity: 0;
+}
+
+.reader-prose.zhihu-prose [data-reader-role='zhihu-image-loading'],
+.reader-prose.zhihu-prose [data-reader-role='zhihu-image-failed'] {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--color-paper-faint);
+  text-align: center;
+}
+
+.reader-prose.zhihu-prose [data-reader-role='zhihu-image-failed'] {
+  display: none;
+  color: var(--color-cinnabar-soft);
+}
+
+.reader-prose.zhihu-prose img.async-img-done ~ [data-reader-role='zhihu-image-loading'],
+.reader-prose.zhihu-prose img.async-img-done ~ [data-reader-role='zhihu-image-failed'] {
+  display: none;
+}
+
+.reader-prose.zhihu-prose img.async-img-failed ~ [data-reader-role='zhihu-image-loading'] {
+  display: none;
+}
+
+.reader-prose.zhihu-prose img.async-img-failed ~ [data-reader-role='zhihu-image-failed'] {
+  display: flex;
+}
+
+.reader-prose.zhihu-prose [data-reader-role='zhihu-image-host'].is-badge {
+  display: inline-block;
+  min-height: 0;
+  width: auto;
+  margin: 0 0.2em;
+  overflow: visible;
+  background: none;
+  vertical-align: -0.15em;
+}
+
+.reader-prose.zhihu-prose [data-reader-role='zhihu-image-host'].is-badge > img {
+  position: static;
+  display: inline-block;
+  width: auto;
+  max-width: 1.75em;
+  max-height: 1.75em;
+  border-radius: 4px;
+}
+
+.reader-prose.zhihu-prose [data-reader-role='zhihu-image-host'].is-badge > [data-reader-role^='zhihu-image-'] {
+  display: none;
+}
+
+.reader-prose.zhihu-prose [data-reader-role='zhihu-link-image'] {
+  min-height: 0 !important;
+  background: color-mix(in srgb, var(--color-paper) 7%, transparent);
+}

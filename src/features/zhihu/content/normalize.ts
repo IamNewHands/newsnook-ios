@@ -57,12 +57,19 @@ function bestLinkTitle(anchor: Element, url: URL): string {
 }
 
 function createExternalCard(document: Document, source: Element, url: URL): Element {
-  const label = VIDEO_HOST_PATTERN.test(url.hostname) || /video/i.test(source.getAttribute('class') || '') ? '视频' : '外链'
+  const isVideo = VIDEO_HOST_PATTERN.test(url.hostname) || /video/i.test(source.getAttribute('class') || '')
+  const label = isVideo ? '视频' : '外链'
   const title = bestLinkTitle(source, url)
   const card = document.createElement('a')
   card.setAttribute('href', url.href)
   card.setAttribute('data-reader-role', 'zhihu-link-card')
   card.setAttribute('data-related-title', title)
+  if (isVideo) {
+    // 阅读层据此把站外视频页交给 NewsNook 的媒体嗅探 + InkVideoPlayer，
+    // 而不是把它当普通浏览器链接直接跳走。
+    card.setAttribute('data-media-format', 'video-page')
+    card.setAttribute('data-source-page', url.href)
+  }
 
   const image = source.querySelector('img[src]')
   if (image) {
@@ -90,6 +97,42 @@ function createExternalCard(document: Document, source: Element, url: URL): Elem
   body.append(titleNode, host)
   card.append(kind, body)
   return card
+}
+
+/**
+ * 正文图片不能在网络较慢时留下一个“空白洞”。
+ * 这里给普通正文图补一个稳定占位层；真正的加载/成功/失败状态仍由
+ * useProgressiveImages 接管，因此复用 Reader 的图片代理、渐显和失败判定。
+ */
+function wrapContentImages(rawHtml: string): string {
+  if (!/<img\b/i.test(rawHtml)) return rawHtml
+  try {
+    const { document } = parseHTML(`<!doctype html><html><body>${rawHtml}</body></html>`)
+    const images = [...document.body.querySelectorAll('img')]
+    for (const image of images) {
+      if (image.closest('[data-reader-role="zhihu-image-host"]')) continue
+      if (image.getAttribute('data-reader-role') === 'zhihu-link-image') continue
+      if (image.getAttribute('data-reader-role') === 'badge') continue
+      if (image.closest('a[data-reader-role="zhihu-link-card"]')) continue
+
+      const host = document.createElement('span')
+      host.setAttribute('data-reader-role', 'zhihu-image-host')
+
+      const loading = document.createElement('span')
+      loading.setAttribute('data-reader-role', 'zhihu-image-loading')
+      loading.textContent = '图片加载中…'
+
+      const failed = document.createElement('span')
+      failed.setAttribute('data-reader-role', 'zhihu-image-failed')
+      failed.textContent = '图片加载失败'
+
+      image.replaceWith(host)
+      host.append(image, loading, failed)
+    }
+    return document.body.innerHTML
+  } catch {
+    return rawHtml
+  }
 }
 
 /**
@@ -125,5 +168,5 @@ function promoteStandaloneExternalLinks(rawHtml: string): string {
 /** 展示层清洗；编辑原始正文不得调用此函数覆盖源数据。 */
 export function normalizeZhihuContentHtml(rawHtml: string): string {
   if (!rawHtml.trim()) return ''
-  return sanitizeArticleHtml(promoteStandaloneExternalLinks(rawHtml))
+  return sanitizeArticleHtml(wrapContentImages(promoteStandaloneExternalLinks(rawHtml)))
 }

@@ -43,11 +43,16 @@ const sanitized = normalizeZhihuContentHtml(dirty)
 assert.ok(sanitized.includes('正文'))
 assert.ok(!sanitized.includes('<script'))
 assert.ok(!sanitized.includes('onerror'))
+assert.ok(sanitized.includes('data-reader-role="zhihu-image-host"'), '知乎正文图片必须有稳定加载占位容器')
+assert.ok(sanitized.includes('图片加载中'), '知乎正文图片加载完成前必须显示加载中占位')
+assert.ok(sanitized.includes('图片加载失败'), '知乎正文图片失败时必须有明确占位而不是空白洞')
 
 const videoCard = normalizeZhihuContentHtml('<p><a class="video-box" href="https://link.zhihu.com/?target=https%3A%2F%2Fwww.bilibili.com%2Fvideo%2FBV1test"><img src="https://pic.example/video.jpg">DeepSeek 唱歌测试</a></p>')
 assert.ok(videoCard.includes('data-reader-role="zhihu-link-card"'), '知乎视频/站外卡片不能退化成一行裸链接')
 assert.ok(videoCard.includes('bilibili.com/video/BV1test'), '知乎 link.zhihu.com 跳转必须恢复真实站外目标')
 assert.ok(videoCard.includes('data-reader-role="zhihu-link-image"'), '有封面的知乎视频卡片应保留安全缩略图')
+assert.ok(videoCard.includes('data-media-format="video-page"'), '站外视频卡片必须标记为可交给 NewsNook 媒体嗅探/InkVideoPlayer 的视频页')
+assert.ok(videoCard.includes('data-source-page='), '站外视频卡片必须保留真实视频页面供媒体嗅探')
 assert.ok(videoCard.includes('DeepSeek 唱歌测试'))
 
 const article = toNewsArticle({

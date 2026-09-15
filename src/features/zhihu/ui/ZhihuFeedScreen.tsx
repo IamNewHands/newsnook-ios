@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import { RefreshCw } from 'lucide-react'
 
+import { PULL_THRESHOLD_PX, resistedPullDistance } from '../../../lib/pullToRefresh'
 import type { ZhihuApiError } from '../api/errors'
 import type { ZhihuContentSummary, ZhihuFeedMode } from '../types'
 import {
@@ -53,59 +54,138 @@ export function ZhihuFeedScreen({
 }: Props) {
   const [pullDistance, setPullDistance] = useState(0)
   const pullDistanceRef = useRef(0)
-  const pullStartYRef = useRef<number | null>(null)
+  const pullGestureRef = useRef<{
+    startX: number
+    startY: number
+    lock: 'none' | 'vertical'
+  } | null>(null)
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null)
+  const loadMoreArmedRef = useRef(false)
+  const loadRequestKeyRef = useRef('')
+  const loadMoreUserIntentAtRef = useRef(0)
 
+  useEffect(() => {
+    loadMoreArmedRef.current = false
+    loadRequestKeyRef.current = ''
+  }, [mode])
+
+  // 只有用户确实向下滚动到列表尾部后才允许 IntersectionObserver 续载。
+  // 避免首屏布局变化/图片解码把 sentinel 推入 rootMargin 后连续自动翻页。
   useEffect(() => {
     const root = scrollContainerRef.current
     const target = loadMoreSentinelRef.current
-    if (!root || !target || !hasMore || loading || loadingMore) return
+    if (!root || !target || !hasMore || loading) return
+
+    let lastTop = root.scrollTop
+    const markUserIntent = () => { loadMoreUserIntentAtRef.current = performance.now() }
+    const onScroll = () => {
+      const nextTop = root.scrollTop
+      const recentUserGesture = performance.now() - loadMoreUserIntentAtRef.current < 1400
+      if (recentUserGesture && nextTop > lastTop + 1) loadMoreArmedRef.current = true
+      lastTop = nextTop
+    }
+    root.addEventListener('touchstart', markUserIntent, { passive: true })
+    root.addEventListener('pointerdown', markUserIntent, { passive: true })
+    root.addEventListener('wheel', markUserIntent, { passive: true })
+    root.addEventListener('scroll', onScroll, { passive: true })
+
     const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) onLoadMore()
-    }, { root, rootMargin: '0px 0px 360px 0px', threshold: 0.01 })
+      if (!entries.some((entry) => entry.isIntersecting)) return
+      if (!loadMoreArmedRef.current || loadingMore) return
+      const last = items.at(-1)
+      const requestKey = `${mode}:${last?.ref.kind ?? 'none'}:${last?.ref.id ?? 'none'}`
+      if (loadRequestKeyRef.current === requestKey) return
+      loadRequestKeyRef.current = requestKey
+      loadMoreArmedRef.current = false
+      onLoadMore()
+    }, { root, rootMargin: '0px 0px 240px 0px', threshold: 0.01 })
+
     observer.observe(target)
-    return () => observer.disconnect()
-  }, [hasMore, loading, loadingMore, onLoadMore, scrollContainerRef])
+    return () => {
+      observer.disconnect()
+      root.removeEventListener('touchstart', markUserIntent)
+      root.removeEventListener('pointerdown', markUserIntent)
+      root.removeEventListener('wheel', markUserIntent)
+      root.removeEventListener('scroll', onScroll)
+    }
+  }, [hasMore, items, loading, loadingMore, mode, onLoadMore, scrollContainerRef])
 
   useEffect(() => {
     const root = scrollContainerRef.current
     if (!root) return
+
     const updatePullDistance = (value: number) => {
       pullDistanceRef.current = value
       setPullDistance(value)
     }
-    const onTouchStart = (event: globalThis.TouchEvent) => {
-      if (loading || root.scrollTop > 1) return
-      pullStartYRef.current = event.touches[0]?.clientY ?? null
+    const cancelPull = () => {
+      pullGestureRef.current = null
       updatePullDistance(0)
     }
-    const onTouchMove = (event: globalThis.TouchEvent) => {
-      const startY = pullStartYRef.current
-      const currentY = event.touches[0]?.clientY
-      if (startY === null || currentY === undefined) return
-      if (root.scrollTop > 1) {
-        pullStartYRef.current = null
-        updatePullDistance(0)
+
+    const onTouchStart = (event: globalThis.TouchEvent) => {
+      if (loading || event.touches.length !== 1 || root.scrollTop > 0) {
+        cancelPull()
         return
       }
-      const delta = currentY - startY
-      updatePullDistance(delta > 0 ? Math.min(92, delta * 0.46) : 0)
+      const touch = event.touches[0]
+      if (!touch) return
+      pullGestureRef.current = { startX: touch.clientX, startY: touch.clientY, lock: 'none' }
+      updatePullDistance(0)
     }
+
+    const onTouchMove = (event: globalThis.TouchEvent) => {
+      const gesture = pullGestureRef.current
+      const touch = event.touches[0]
+      if (!gesture || !touch || event.touches.length !== 1) {
+        cancelPull()
+        return
+      }
+      if (root.scrollTop > 0) {
+        cancelPull()
+        return
+      }
+
+      const dx = touch.clientX - gesture.startX
+      const dy = touch.clientY - gesture.startY
+      if (gesture.lock === 'none') {
+        const absX = Math.abs(dx)
+        const absY = Math.abs(dy)
+        if (absX < 8 && absY < 8) return
+        // 横滑、上滑、斜向手势都不允许误触发刷新。
+        if (dy <= 0 || absX >= absY * 0.92) {
+          cancelPull()
+          return
+        }
+        gesture.lock = 'vertical'
+      }
+
+      if (event.cancelable) event.preventDefault()
+      updatePullDistance(resistedPullDistance(Math.max(0, dy)))
+    }
+
     const onTouchEnd = () => {
-      const shouldRefresh = pullDistanceRef.current >= 56 && !loading
-      pullStartYRef.current = null
+      const gesture = pullGestureRef.current
+      const shouldRefresh = Boolean(
+        gesture?.lock === 'vertical'
+        && pullDistanceRef.current >= PULL_THRESHOLD_PX
+        && !loading,
+      )
+      pullGestureRef.current = null
       updatePullDistance(0)
       if (shouldRefresh) onRefresh()
     }
+
+    const onTouchCancel = () => cancelPull()
     root.addEventListener('touchstart', onTouchStart, { passive: true })
-    root.addEventListener('touchmove', onTouchMove, { passive: true })
+    root.addEventListener('touchmove', onTouchMove, { passive: false })
     root.addEventListener('touchend', onTouchEnd, { passive: true })
-    root.addEventListener('touchcancel', onTouchEnd, { passive: true })
+    root.addEventListener('touchcancel', onTouchCancel, { passive: true })
     return () => {
       root.removeEventListener('touchstart', onTouchStart)
       root.removeEventListener('touchmove', onTouchMove)
       root.removeEventListener('touchend', onTouchEnd)
-      root.removeEventListener('touchcancel', onTouchEnd)
+      root.removeEventListener('touchcancel', onTouchCancel)
     }
   }, [loading, onRefresh, scrollContainerRef])
 
@@ -133,7 +213,7 @@ export function ZhihuFeedScreen({
               style={{ transform: `scale(${0.55 + Math.min(1, pullDistance / 72) * 0.45})` }}
             />
           </span>
-          <span>{pullDistance >= 56 ? '松开刷新' : '下拉刷新'}</span>
+          <span>{pullDistance >= PULL_THRESHOLD_PX ? '松开刷新' : '下拉刷新'}</span>
         </div>
       </div>
 

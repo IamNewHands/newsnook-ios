@@ -122,8 +122,12 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher }: Props
   const [frames, setFrames] = useState<RouteFrame[]>(() => retainedFrames?.map((frame) => ({ ...frame })) ?? [createZhihuRootFrame()])
   const current = frames.at(-1) ?? createZhihuRootFrame()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const contentOverlayCloserRef = useRef<(() => boolean) | null>(null)
   const feedPreviewRef = useRef(new Map<string, ZhihuContentSummary>())
-  const feedMode: ZhihuFeedMode = current.route.screen === 'feed' ? current.route.mode : 'recommended'
+  const rootFeedFrame = frames.find((frame) => frame.route.screen === 'feed')
+  const homeFeedMode: ZhihuFeedMode = rootFeedFrame?.route.screen === 'feed'
+    ? rootFeedFrame.route.mode
+    : 'recommended'
 
   useEffect(() => runtime.session.subscribe(setSessionSnapshot), [runtime])
   useEffect(() => {
@@ -169,6 +173,14 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher }: Props
     })
   }, [saveScroll])
 
+  // 上/下一个回答属于同一阅读上下文：替换当前实体而不是继续叠 route。
+  const replaceEntity = useCallback((ref: ZhihuEntityRef) => {
+    setFrames((prev) => reduceRoutes(saveScroll(prev), {
+      type: 'replace',
+      frame: { route: { screen: 'entity', ref }, scrollTop: 0 },
+    }))
+  }, [saveScroll])
+
   const openFeedItem = useCallback((item: ZhihuContentSummary) => {
     feedPreviewRef.current.set(`${item.ref.kind}:${item.ref.id}`, item)
     pushEntity(item.ref)
@@ -184,12 +196,25 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher }: Props
     return true
   }, [frames.length])
 
+  const goHome = useCallback(() => {
+    setFrames([createZhihuRootFrame(homeFeedMode)])
+    return true
+  }, [homeFeedMode])
+
+  const answerRoute = current.route.screen === 'entity' && current.route.ref.kind === 'answer'
+  const handleWorkspaceBack = useCallback(() => {
+    if (contentOverlayCloserRef.current?.()) return true
+    // 回答页的左上角/系统返回都回知乎首页；上下回答已经采用 replace，不再制造回答历史栈。
+    if (answerRoute) return goHome()
+    return goBack()
+  }, [answerRoute, goBack, goHome])
+
   useEffect(() => {
-    backHandlerRef.current = goBack
+    backHandlerRef.current = handleWorkspaceBack
     return () => {
-      if (backHandlerRef.current === goBack) backHandlerRef.current = null
+      if (backHandlerRef.current === handleWorkspaceBack) backHandlerRef.current = null
     }
-  }, [backHandlerRef, goBack])
+  }, [backHandlerRef, handleWorkspaceBack])
 
   const setFeedMode = useCallback((mode: ZhihuFeedMode) => {
     setFrames((prev) => reduceRoutes(saveScroll(prev), { type: 'reset', frame: createZhihuRootFrame(mode) }))
@@ -335,6 +360,8 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher }: Props
             feedService={feedService}
             commentsService={commentsService}
             onNavigate={pushEntity}
+            onReplaceNavigate={replaceEntity}
+            overlayCloserRef={contentOverlayCloserRef}
             restoreAnchor={current.anchor}
             authenticated={sessionSnapshot.auth === 'authenticated'}
             accountId={sessionSnapshot.account?.id}
@@ -399,8 +426,8 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher }: Props
       <header className="relative z-20 flex min-h-[56px] shrink-0 items-center gap-2 border-b border-haze/50 bg-ink/92 px-3 backdrop-blur-xl sm:px-5">
         <button
           type="button"
-          onClick={() => (goBack() ? undefined : onExit())}
-          aria-label={frames.length > 1 ? '返回' : '返回 NewsNook'}
+          onClick={() => (handleWorkspaceBack() ? undefined : onExit())}
+          aria-label={answerRoute ? '返回知乎首页' : frames.length > 1 ? '返回' : '返回 NewsNook'}
           className="flex size-9 shrink-0 items-center justify-center rounded-lg text-paper-muted/80 transition-colors hover:bg-paper/5 hover:text-cinnabar"
         >
           <ArrowLeft size={18} strokeWidth={1.6} />
@@ -434,7 +461,7 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher }: Props
       <nav className="absolute inset-x-0 bottom-0 z-20 grid grid-cols-3 border-t border-haze/50 bg-ink/92 backdrop-blur-xl" style={{ paddingBottom: 'var(--sab)' }} aria-label="知乎主导航">
         <button
           type="button"
-          onClick={() => setFrames([createZhihuRootFrame(feedMode)])}
+          onClick={goHome}
           className={`group flex min-h-13 flex-col items-center justify-center gap-0.5 font-mono text-[10.5px] tracking-[0.12em] transition-colors ${current.route.screen === 'feed' ? 'font-medium text-cinnabar' : 'text-paper-muted/75 hover:text-paper'}`}
         >
           <Home size={20} strokeWidth={current.route.screen === 'feed' ? 2 : 1.5} className={current.route.screen === 'feed' ? 'scale-105' : ''} /><span>首页</span>

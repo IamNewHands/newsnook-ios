@@ -30,6 +30,8 @@ interface Props {
   closeHandleRef?: MutableRefObject<OriginPlayerCloseHandle | null>
   /** 阅读器浮层打开时隐藏嗅探 FAB */
   suppressResourceFab?: boolean
+  /** 首次识别到可播放资源后自动切到 InkVideoPlayer。播放失败不会循环自动重试。 */
+  autoUseReader?: boolean
 }
 
 /** Reader scrolls an overflow div; window capture alone can miss those events on WebView. */
@@ -91,6 +93,7 @@ export function OriginPlayerSurface({
   openOriginal,
   closeHandleRef,
   suppressResourceFab = false,
+  autoUseReader = false,
 }: Props) {
   const [mode, setMode] = useState<Mode>('origin')
   const [candidate, setCandidate] = useState<MediaDescriptor | null>(null)
@@ -100,6 +103,7 @@ export function OriginPlayerSurface({
   const lastBoundsKeyRef = useRef('')
   const sessionReadyRef = useRef(false)
   const playerFullscreenRef = useRef<InkVideoPlayerFullscreenHandle | null>(null)
+  const autoSwitchedRef = useRef(false)
 
   useEffect(() => {
     if (!closeHandleRef) return
@@ -131,6 +135,7 @@ export function OriginPlayerSurface({
     let stopSession: (() => Promise<void>) | undefined
     const lateTimers: number[] = []
     observationsRef.current = []
+    autoSwitchedRef.current = false
     setCandidate(null)
     setSessionError(null)
     setMode('origin')
@@ -228,6 +233,14 @@ export function OriginPlayerSurface({
     await setNativeLiveSessionVisible(false)
     setMode('custom')
   }
+
+  useEffect(() => {
+    if (!autoUseReader || !candidate || mode !== 'origin' || autoSwitchedRef.current) return
+    autoSwitchedRef.current = true
+    void openCustom()
+  // openCustom intentionally captures the current candidate; candidate/mode changes retrigger this effect.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoUseReader, candidate, mode])
 
   const backToOrigin = () => {
     setMode('origin')

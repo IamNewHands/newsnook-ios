@@ -34,6 +34,17 @@ assert.deepEqual(reduceRoutes([], { type: 'back' }), [])
 const root = [createZhihuRootFrame()]
 assert.deepEqual(reduceRoutes(root, { type: 'back' }), root, '根栈退出由 App 宿主负责，reducer 不删除根 frame')
 
+const answerStack: RouteFrame[] = [
+  createZhihuRootFrame('hot'),
+  { route: { screen: 'entity', ref: { kind: 'answer', id: 'answer-1' } }, scrollTop: 123 },
+]
+const replacedAnswer = reduceRoutes(answerStack, {
+  type: 'replace',
+  frame: { route: { screen: 'entity', ref: { kind: 'answer', id: 'answer-2' } }, scrollTop: 0 },
+})
+assert.equal(replacedAnswer.length, 2, '上下回答切换必须 replace 当前回答，不能继续堆叠回答历史')
+assert.deepEqual(replacedAnswer.at(-1)?.route, { screen: 'entity', ref: { kind: 'answer', id: 'answer-2' } })
+
 function memoryStorage(): LayoutStorage {
   const values = new Map<string, string>()
   return {
@@ -104,5 +115,17 @@ const zhihuContentSource = readFileSync(new URL('../src/features/zhihu/ui/ZhihuC
 assert.doesNotMatch(zhihuContentSource, /NewsNook 阅读|BookOpen/, '知乎正文必须直接在站点工作区渲染，不能要求二次进入 NewsNook Reader')
 assert.match(zhihuContentSource, /previousAnswerIds/, '回答页应优先消费 pagination_info 的上一回答')
 assert.match(zhihuContentSource, /nextAnswerIds/, '回答页应优先消费 pagination_info 的下一回答')
+assert.match(zhihuWorkspaceSource, /返回知乎首页/, '回答页左上角/系统返回必须直接返回知乎首页')
+assert.match(zhihuWorkspaceSource, /onReplaceNavigate=\{replaceEntity\}/, '上下回答切换必须使用 replace 导航，避免回答栈无限增长')
+assert.match(zhihuContentSource, /aria-label="上一个回答"/, '回答页必须提供浮动的上一个回答按钮')
+assert.match(zhihuContentSource, /aria-label="下一个回答"/, '回答页必须提供浮动的下一个回答按钮')
+assert.match(zhihuContentSource, /查看问题详情/, '回答标题必须可进入所属问题详情')
+assert.match(zhihuContentSource, /ImageLightbox/, '知乎正文图片必须复用 NewsNook ImageLightbox')
+assert.match(zhihuContentSource, /InlineArticleVideos/, '知乎正文原生 video 必须复用 NewsNook InkVideoPlayer 管线')
+assert.match(zhihuContentSource, /InlineYoutubeEmbeds/, '知乎正文 YouTube embed 必须复用 NewsNook 媒体播放管线')
+assert.match(zhihuContentSource, /OriginPlayerSurface/, '知乎站外视频页必须复用 NewsNook 媒体嗅探/InkVideoPlayer 能力')
+assert.match(zhihuFeedScreenSource, /PULL_THRESHOLD_PX/, '知乎信息流下拉刷新必须复用统一刷新阈值')
+assert.match(zhihuFeedScreenSource, /resistedPullDistance/, '知乎信息流下拉刷新必须使用统一阻尼函数')
+assert.match(zhihuFeedScreenSource, /touchcancel', onTouchCancel/, '手势取消只能取消刷新，不能误当 touchend 触发刷新')
 
 console.log('zhihu navigation/layout contract ok')
