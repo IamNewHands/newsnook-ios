@@ -9,7 +9,6 @@ import { isNewerVersion, normalizeTagVersion } from './semver'
 import type {
   AppUpdateChannel,
   FetchReleaseApkResult,
-  LatestReleaseInfo,
   ReleaseNotesResult,
   UpdateCheckResult,
 } from './types'
