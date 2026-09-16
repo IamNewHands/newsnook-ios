@@ -107,6 +107,11 @@ export function offsetPageRequest(source: NewsSource, page: number): OffsetPageR
     return { url: `${source.url.replace(/\/+$/, '')}/page/${safePage + 1}` }
   }
 
+  if (source.kind === 'jandan') {
+    if (safePage === 0) return { url: source.url }
+    return { url: `https://jandan.net/page/${safePage + 1}` }
+  }
+
   if (source.kind === 'web-catalog') {
     if (source.frameworkHint) {
       return { url: frameworkPageUrl(source.url, safePage, source.frameworkHint.paginationPattern) }
@@ -135,6 +140,7 @@ export function pagingStrategyOf(source: NewsSource): PagingStrategy {
   if (source.kind === 'eastmoney-news') return 'upstream-offset'
   if (source.kind === 'eastmoney-kx') return 'upstream-offset'
   if (source.kind === 'uisdc') return 'upstream-offset'
+  if (source.kind === 'jandan') return 'upstream-offset'
   if (source.kind === 'zhihu') return 'upstream-cursor'
   if (source.kind === 'web-catalog') {
     if (source.frameworkHint) return 'upstream-offset'

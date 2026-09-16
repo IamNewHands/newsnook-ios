@@ -112,4 +112,5 @@ export const OFFSET_MAX_PAGES: Partial<Record<SourceKind, number>> = {
   'eastmoney-news': 40,
   'eastmoney-kx': 40,
   uisdc: 20,
+  jandan: 10,
 }

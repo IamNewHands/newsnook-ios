@@ -131,7 +131,8 @@ assert.match(zhihuContentSource, /onNavigate\(\{ kind: 'people', id: detail\.aut
 assert.match(zhihuContentSource, /ImageLightbox/, '知乎正文图片必须复用 NewsNook ImageLightbox')
 assert.match(zhihuContentSource, /InlineArticleVideos/, '知乎正文原生 video 必须复用 NewsNook InkVideoPlayer 管线')
 assert.match(zhihuContentSource, /InlineYoutubeEmbeds/, '知乎正文 YouTube embed 必须复用 NewsNook 媒体播放管线')
-assert.match(zhihuContentSource, /OriginPlayerSurface/, '知乎站外视频页必须复用 NewsNook 媒体嗅探/InkVideoPlayer 能力')
+assert.match(zhihuContentSource, /InlineVideoPages/, '知乎站内/站外视频必须在回答正文原地挂载 NewsNook 播放器')
+assert.doesNotMatch(zhihuContentSource, /videoPage &&|aria-label=\{`播放视频：/, '知乎视频不得再打开二级全屏视频页')
 
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 const contentUi = await import('../src/features/zhihu/ui/ZhihuContentScreen') as Record<string, unknown>

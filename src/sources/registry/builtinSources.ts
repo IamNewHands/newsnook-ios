@@ -13,6 +13,9 @@ import { NETEASE_PAGE_SIZE, type NewsSource, type SourceGroup } from './model'
  */
 export const WECHAT2RSS_BASE = 'https://wechat2rss.xlab.app'
 
+export const DESKTOP_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+
 function wechatAccount(
   id: string,
   name: string,
@@ -241,8 +244,9 @@ export const SOURCES: NewsSource[] = [
     label: '财联社',
     group: 'cn',
     kind: 'cls',
-    // 实际请求由 offsetPageRequest → clsSignedListUrl 生成带 sign 的 URL
+    // 实际请求由 offsetPageRequest → clsSignedListUrl 生成带 sign 的 URL；必须用桌面 UA 避免被服务端劫持为移动 H5
     url: 'https://www.cls.cn/v1/roll/get_roll_list',
+    userAgent: DESKTOP_UA,
     requestHeaders: { Referer: 'https://www.cls.cn/telegraph' },
     enabled: true,
   },
@@ -575,14 +579,14 @@ export const SOURCES: NewsSource[] = [
     enabled: false,
     workspaceOnly: true,
   },
-  // 煎蛋：官方 /feed 对爬虫 403；用 i.jandan.net 旧版 JSON API（一次目录）
+  // 煎蛋：旧版 i.jandan.net JSON API 与 /feed/ 均已 403；抓取官方主页与分页 HTML，正文走 Readability
   {
     id: 'jandan',
     name: '煎蛋新鲜事',
     label: '煎蛋',
     group: 'special',
     kind: 'jandan',
-    url: 'https://i.jandan.net/?oxwlxojflwblxbsapi=get_category_posts&slug=news&count=60',
+    url: 'https://jandan.net/',
     enabled: false,
   },
 

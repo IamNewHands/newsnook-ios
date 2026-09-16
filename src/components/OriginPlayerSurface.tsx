@@ -32,6 +32,8 @@ interface Props {
   suppressResourceFab?: boolean
   /** 首次识别到可播放资源后自动切到 InkVideoPlayer。播放失败不会循环自动重试。 */
   autoUseReader?: boolean
+  /** 嵌入正文时去掉页面级外边距/二级操作条，播放器就地占据正文视频位。 */
+  embedded?: boolean
 }
 
 /** Reader scrolls an overflow div; window capture alone can miss those events on WebView. */
@@ -94,6 +96,7 @@ export function OriginPlayerSurface({
   closeHandleRef,
   suppressResourceFab = false,
   autoUseReader = false,
+  embedded = false,
 }: Props) {
   const [mode, setMode] = useState<Mode>('origin')
   const [candidate, setCandidate] = useState<MediaDescriptor | null>(null)
@@ -253,7 +256,7 @@ export function OriginPlayerSurface({
   }
 
   return (
-    <div className="mt-5 page-x lg:px-8">
+    <div className={embedded ? 'w-full' : 'mt-5 page-x lg:px-8'}>
       <div className="overflow-hidden rounded-xl border border-haze bg-ink-raised/80">
         <div ref={slotRef} className="relative aspect-video w-full bg-[#0c0d10]">
           {mode === 'custom' && candidate ? (
@@ -274,7 +277,7 @@ export function OriginPlayerSurface({
           ) : null}
         </div>
 
-        {mode === 'origin' && (
+        {mode === 'origin' && (!embedded || sessionError) && (
           <div className="flex items-center gap-2 px-2.5 py-2.5">
             {sessionError ? (
               <>
@@ -325,7 +328,7 @@ export function OriginPlayerSurface({
         )}
       </div>
 
-      {mode === 'custom' && (
+      {mode === 'custom' && !embedded && (
         <button
           type="button"
           onClick={backToOrigin}

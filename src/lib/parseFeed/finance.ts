@@ -45,6 +45,9 @@ export function parseClsTelegraph(source: NewsSource, payload: string, fetchedAt
   try {
     data = JSON.parse(payload) as Unknown
   } catch {
+    if (payload.trim().startsWith('<')) {
+      throw new Error('财联社返回了 HTML 页面，可能被上游劫持或 UA 不匹配')
+    }
     return []
   }
   const roll = toArray(asRecord(data.data)?.roll_data).map(asRecord).filter(Boolean) as Unknown[]

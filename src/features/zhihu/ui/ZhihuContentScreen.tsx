@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent, MutableRefObject, ReactNode } from 'react'
 import { Browser } from '@capacitor/browser'
 import { ChevronDown, ChevronUp, Copy, ExternalLink, Heart, Info, Loader2, LockKeyhole, MessageCircle, MessageSquareQuote, SquarePen, ThumbsDown, ThumbsUp, UserPlus, X } from 'lucide-react'
@@ -19,7 +19,8 @@ import { SegmentedControl } from '../../../components/SegmentedControl'
 import { ImageLightbox } from '../../../components/ImageLightbox'
 import { InlineArticleVideos } from '../../../components/InlineArticleVideos'
 import { InlineYoutubeEmbeds } from '../../../components/InlineYoutubeEmbeds'
-import { OriginPlayerSurface, type OriginPlayerCloseHandle } from '../../../components/OriginPlayerSurface'
+import { InlineVideoPages } from '../../../components/InlineVideoPages'
+import type { MediaDescriptor } from '../../mediaSniffer/types'
 import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
 import { ZhihuCollectionPicker } from './ZhihuCollectionPicker'
 import { ZhihuCommentsSection } from './ZhihuCommentsSection'
@@ -221,9 +222,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
   const [guestLimited, setGuestLimited] = useState(false)
   const proseRef = useRef<HTMLDivElement | null>(null)
   const questionDetailRef = useRef<HTMLDivElement | null>(null)
-  const originPlayerCloseRef = useRef<OriginPlayerCloseHandle | null>(null)
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
-  const [videoPage, setVideoPage] = useState<{ url: string; title: string; poster?: string } | null>(null)
   const [commentsOpen, setCommentsOpen] = useState(Boolean(restoreAnchor))
   const [questionDetailExpanded, setQuestionDetailExpanded] = useState(false)
   const [questionDetailCanCollapse, setQuestionDetailCanCollapse] = useState(false)
@@ -239,6 +238,27 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
     ),
     [detail?.contentHtml, detail?.segmentInfos, refValue],
   )
+  const contentId = refValue.id
+  const contentKind = refValue.kind
+  const resolveInlineVideo = useCallback(async (pageUrl: string, signal: AbortSignal): Promise<MediaDescriptor | null> => {
+    const videoId = parseZhihuVideoId(pageUrl)
+    if (!videoId) return null
+    const playback = await contentService.readVideo(videoId, { kind: contentKind, id: contentId }, signal)
+    if (!playback) return null
+    return {
+      type: 'progressive',
+      url: playback.url,
+      pageUrl,
+      score: 100,
+      videoTracks: [],
+      audioTracks: [],
+      subtitles: [],
+      drm: false,
+      drmKeySystems: [],
+      requestHeaders: { Referer: 'https://www.zhihu.com/' },
+      relatedUrls: playback.urls,
+    }
+  }, [contentId, contentKind, contentService])
 
   // 与 NewsNook Reader 共用同一套图片代理、占位、渐显和失败处理。
   // 知乎图片直连失败时允许走原生字节通道 + Referer 自动补救，并保留点按重试。
@@ -250,7 +270,6 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
 
   useEffect(() => {
     setLightbox(null)
-    setVideoPage(null)
     setCommentsOpen(Boolean(restoreAnchor))
     setQuestionDetailExpanded(false)
     setQuestionDetailCanCollapse(false)
@@ -278,20 +297,13 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
 
   useEffect(() => {
     if (!overlayCloserRef) return
-    if (!lightbox && !videoPage && !commentsOpen && !selectedSegment) {
+    if (!lightbox && !commentsOpen && !selectedSegment) {
       overlayCloserRef.current = null
       return
     }
     overlayCloserRef.current = () => {
       if (lightbox) {
         setLightbox(null)
-        return true
-      }
-      if (videoPage) {
-        // InkVideoPlayer 全屏/自定义层先按 Reader 的既有语义逐层退出，
-        // 再由下一次返回关闭视频浮层。
-        if (originPlayerCloseRef.current?.closeCustom()) return true
-        setVideoPage(null)
         return true
       }
       if (commentsOpen) {
@@ -312,7 +324,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
     return () => {
       overlayCloserRef.current = null
     }
-  }, [commentsOpen, lightbox, overlayCloserRef, segmentCommentsOpen, selectedSegment, videoPage])
+  }, [commentsOpen, lightbox, overlayCloserRef, segmentCommentsOpen, selectedSegment])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -529,17 +541,10 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
     }
 
     const anchor = target.closest('a') as HTMLAnchorElement | null
-    const anchorUrl = anchor?.getAttribute('data-source-page') || anchor?.href || ''
-    const zhihuVideoId = anchorUrl ? parseZhihuVideoId(anchorUrl) : null
-    if (anchor && (anchor.getAttribute('data-media-format') === 'video-page' || zhihuVideoId)) {
+    if (anchor?.getAttribute('data-media-format') === 'video-page') {
+      // 正文视频由 InlineVideoPages 原地替换为播放器；这里不再打开二级视频页。
       event.preventDefault()
       event.stopPropagation()
-      const posterImage = anchor.querySelector('img')
-      setVideoPage({
-        url: anchorUrl || (zhihuVideoId ? `https://www.zhihu.com/video/${zhihuVideoId}` : anchor.href),
-        title: anchor.getAttribute('data-related-title') || detail?.title || '视频',
-        poster: posterImage?.currentSrc || posterImage?.getAttribute('src') || undefined,
-      })
       return
     }
 
@@ -720,6 +725,14 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
                 enabled={Boolean(normalizedHtml)}
                 fallbackTitle={detail.title}
                 sourcePage={detail.url}
+              />
+              <InlineVideoPages
+                rootRef={proseRef}
+                html={normalizedHtml}
+                enabled={Boolean(normalizedHtml)}
+                fallbackTitle={detail.title}
+                sourcePage={detail.url}
+                resolveDirect={resolveInlineVideo}
               />
             </>
           ) : detail.excerpt ? (
@@ -961,33 +974,6 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
                 draftStore={commentDraftStore}
               />
             </div>
-          </div>
-        </div>
-      )}
-
-      {videoPage && (
-        <div className="fixed inset-0 z-[75] flex min-h-0 flex-col bg-ink/98" role="dialog" aria-modal="true" aria-label={`播放视频：${videoPage.title}`}>
-          <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-haze/60 px-3">
-            <div className="min-w-0 flex-1 truncate font-display text-[16px] text-paper">{videoPage.title}</div>
-            <button
-              type="button"
-              onClick={() => setVideoPage(null)}
-              aria-label="关闭视频"
-              className="flex size-10 items-center justify-center rounded-xl text-paper-muted hover:bg-paper/5 hover:text-paper"
-            >
-              <X size={18} />
-            </button>
-          </header>
-          <div className="scroll-hidden min-h-0 flex-1 overflow-y-auto pb-6">
-            <OriginPlayerSurface
-              pageUrl={videoPage.url}
-              referrer={detail.url}
-              title={videoPage.title}
-              poster={videoPage.poster}
-              autoUseReader
-              closeHandleRef={originPlayerCloseRef}
-              openOriginal={() => void openExternal(videoPage.url)}
-            />
           </div>
         </div>
       )}

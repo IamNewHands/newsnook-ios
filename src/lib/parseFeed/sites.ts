@@ -5,6 +5,7 @@
 
 import type { NewsSource } from '../../sources/registry'
 import type { Article } from '../types'
+import { parseGenericFeed } from './generic'
 import { isBogusLatepostListDate } from './dateEnrichment'
 import {
   asRecord,
@@ -17,59 +18,145 @@ import {
   type Unknown,
 } from './shared'
 
-/**
- * 煎蛋 i.jandan.net JSON API（get_category_posts / get_tag_posts / get_recent_posts）。
- * 列表已含全文 HTML，详情可直接复用 contentHtml。
- */
-export function parseJandan(source: NewsSource, payload: string, fetchedAt: number): Article[] {
-  let data: Unknown
-  try {
-    data = JSON.parse(payload) as Unknown
-  } catch {
-    return []
+function parseJandanDate(dateStr: string, fetchedAt: number): string {
+  const m = dateStr.match(/(\d{4})[年.-](\d{1,2})[月.-](\d{1,2})/)
+  if (m) {
+    return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
   }
+  const mShort = dateStr.match(/(\d{1,2})[月.-](\d{1,2})/)
+  if (mShort) {
+    const now = new Date(fetchedAt)
+    const currentYear = now.getFullYear()
+    const month = Number(mShort[1])
+    const day = Number(mShort[2])
+    let year = currentYear
+    if (now.getMonth() === 0 && month === 12) {
+      year -= 1
+    }
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  }
+  return ''
+}
 
-  if (text(data.status) && text(data.status) !== 'ok') return []
+function parseJandanHtml(source: NewsSource, html: string, fetchedAt: number): Article[] {
+  const blockRegex =
+    /<div class="row date-row">[\s\S]*?<div class="col-12">\s*([^<]+?)\s*<\/div>|<div class="post-item row">([\s\S]*?)(?=<div class="post-item row">|<div class="row date-row">|<div class="comments-list"|<div class="posts-nav"|<div class="footer"|$)/gi
 
-  const posts = toArray(data.posts).map(asRecord).filter(Boolean) as Unknown[]
+  let currentDate = ''
   const articles: Article[] = []
 
-  for (const post of posts) {
-    const title = text(post.title_plain) || text(post.title)
-    const id = text(post.id)
-    const apiUrl = text(post.url)
-    const link =
-      (id ? `https://jandan.net/p/${id}` : '') ||
-      (apiUrl.startsWith('http') ? apiUrl.replace('://i.jandan.net/', '://jandan.net/') : '')
-    if (!title || !link) continue
+  let m: RegExpExecArray | null
+  while ((m = blockRegex.exec(html)) !== null) {
+    if (m[1]) {
+      currentDate = m[1].trim()
+    } else if (m[2]) {
+      const postHtml = m[2]
+      const titleMatch = postHtml.match(
+        /<h2 class="post-title"><a href="([^"]+)"[^>]*>([\s\S]*?)<\/a><\/h2>/i,
+      )
+      if (!titleMatch) continue
+      const rawHref = titleMatch[1].trim()
+      const rawTitle = stripTags(titleMatch[2]).trim()
+      if (!rawTitle || !rawHref) continue
 
-    const html = typeof post.content === 'string' ? post.content : text(post.content)
-    const excerpt = stripTags(typeof post.excerpt === 'string' ? post.excerpt : text(post.excerpt))
-    const imageRaw =
-      text(post.thumbnail) ||
-      text(asRecord(post.thumbnail_images)?.full) ||
-      text(asRecord(post.thumbnail_images)?.large) ||
-      firstImageIn(html)
-    const image = imageRaw
-      ? preferHttpsAsset(imageRaw.startsWith('//') ? `https:${imageRaw}` : imageRaw)
-      : undefined
+      const link = rawHref.startsWith('http')
+        ? rawHref
+        : `https://jandan.net${rawHref.startsWith('/') ? '' : '/'}${rawHref}`
 
-    const article = buildArticle(
-      source,
-      {
-        title,
-        link,
-        html,
-        summaryText: excerpt || stripTags(html),
-        dateRaw: text(post.date) || text(post.modified),
-        image,
-      },
-      fetchedAt,
-    )
-    if (article) articles.push(article)
+      const excerptMatch = postHtml.match(/<div class="post-excerpt">([\s\S]*?)<\/div>/i)
+      const summaryText = excerptMatch ? stripTags(excerptMatch[1]).trim() : ''
+
+      const thumbMatch = postHtml.match(
+        /<div class="post-thumb[^"]*"[^>]*>[\s\S]*?<img [^>]*src="([^"]+)"/i,
+      )
+      const imageRaw = thumbMatch?.[1]
+      const image = imageRaw
+        ? preferHttpsAsset(imageRaw.startsWith('//') ? `https:${imageRaw}` : imageRaw)
+        : undefined
+
+      const dateRaw = parseJandanDate(currentDate, fetchedAt)
+
+      const article = buildArticle(
+        source,
+        {
+          title: rawTitle,
+          link,
+          html: '',
+          summaryText,
+          image,
+          dateRaw,
+        },
+        fetchedAt,
+      )
+      if (article) articles.push(article)
+    }
   }
 
   return articles
+}
+
+/**
+ * 煎蛋解析器：
+ * 1. 官网主页及分页 HTML（`https://jandan.net/` / `https://jandan.net/page/2`）；
+ * 2. 官方 RSS XML（`https://jandan.net/rss`）；
+ * 3. 旧版 JSON API 兼容回退。
+ */
+export function parseJandan(source: NewsSource, payload: string, fetchedAt: number): Article[] {
+  const trimmed = payload.trim()
+  if (trimmed.includes('<rss') || trimmed.includes('<feed') || trimmed.includes('<channel')) {
+    return parseGenericFeed(source, payload, fetchedAt)
+  }
+
+  if (trimmed.startsWith('{')) {
+    try {
+      const data = JSON.parse(payload) as Unknown
+      if (!text(data.status) || text(data.status) === 'ok') {
+        const posts = toArray(data.posts).map(asRecord).filter(Boolean) as Unknown[]
+        if (posts.length > 0) {
+          const articles: Article[] = []
+          for (const post of posts) {
+            const title = text(post.title_plain) || text(post.title)
+            const id = text(post.id)
+            const apiUrl = text(post.url)
+            const link =
+              (id ? `https://jandan.net/p/${id}` : '') ||
+              (apiUrl.startsWith('http') ? apiUrl.replace('://i.jandan.net/', '://jandan.net/') : '')
+            if (!title || !link) continue
+
+            const html = typeof post.content === 'string' ? post.content : text(post.content)
+            const excerpt = stripTags(typeof post.excerpt === 'string' ? post.excerpt : text(post.excerpt))
+            const imageRaw =
+              text(post.thumbnail) ||
+              text(asRecord(post.thumbnail_images)?.full) ||
+              text(asRecord(post.thumbnail_images)?.large) ||
+              firstImageIn(html)
+            const image = imageRaw
+              ? preferHttpsAsset(imageRaw.startsWith('//') ? `https:${imageRaw}` : imageRaw)
+              : undefined
+
+            const article = buildArticle(
+              source,
+              {
+                title,
+                link,
+                html,
+                summaryText: excerpt || stripTags(html),
+                dateRaw: text(post.date) || text(post.modified),
+                image,
+              },
+              fetchedAt,
+            )
+            if (article) articles.push(article)
+          }
+          return articles
+        }
+      }
+    } catch {
+      // 忽略 JSON 解析异常，继续尝试 HTML 解析
+    }
+  }
+
+  return parseJandanHtml(source, payload, fetchedAt)
 }
 
 /**

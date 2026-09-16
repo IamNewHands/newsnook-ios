@@ -44,6 +44,7 @@ assert.match(signed, new RegExp(`sign=${expectedSign}`))
 const cls = findSource('cls-telegraph')!
 assert.ok(cls)
 assert.equal(cls.kind, 'cls')
+assert.ok(cls.userAgent?.includes('Windows NT') || cls.userAgent?.includes('Chrome/'))
 const clsReq = offsetPageRequest(cls, 0)
 assert.match(clsReq.url, /sign=/)
 assert.match(clsReq.url, /rn=20/)
@@ -69,6 +70,12 @@ assert.ok(clsArticles[0].originUrl.includes('cls.cn'))
 assert.equal(clsArticles[0].hasRealDate, true)
 assert.equal(isInlineFlashBody(clsArticles[0].contentHtml, cls.id), true)
 assert.equal(isSubstantialHtml(clsArticles[0].contentHtml), false)
+
+// 收到移动 H5 劫持 HTML 时明确抛错
+assert.throws(
+  () => parseSourcePayload(cls, '<!DOCTYPE html><html><title>财联社</title></html>'),
+  /财联社返回了 HTML 页面/,
+)
 
 // —— 解析：东方财富快讯 ——
 const emKx = findSource('eastmoney-kx')!

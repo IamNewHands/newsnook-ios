@@ -115,6 +115,11 @@ export const ZHIHU_OPERATIONS = [
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/data/ContentDetailCache.kt`, note: '想法详情 URL。' }], note: '公开只读候选。',
   },
   {
+    operation: 'video.play-info', zIds: ['Z06', 'Z17'], status: 'source-only', method: 'POST', auth: 'optional', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/video/play_info',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/data/ZhihuDataTypes.kt`, note: '参考实现 POST /api/v4/video/play_info?r=:videoId，并从 video_play.playlist.mp4 选择最高 bitrate URL。' }],
+    note: '只用于读取视频播放信息；若匿名/签名请求被上游拒绝，正文播放器回退到通用媒体嗅探，不伪造播放成功。',
+  },
+  {
     operation: 'vote.set', zIds: ['Z07'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/:contentType/:id/voters',
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/ArticleViewModel.kt`, note: '参考实现存在回答/文章赞同写操作。' }], note: '非幂等写；未经授权实网读回验证，UI 不启用。',
   },

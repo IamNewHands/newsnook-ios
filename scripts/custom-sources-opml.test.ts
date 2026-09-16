@@ -31,7 +31,7 @@ console.log('Testing Custom Sources & OPML Import/Export Lifecycle...')
 
 // 1. Initial State
 assert.equal(DEFAULT_PREFERENCES.customSources?.length ?? 0, 0)
-const initialSourceCount = SOURCES.length
+const initialSourceCount = SOURCES.filter((source) => !source.workspaceOnly).length
 assert.equal(allRegisteredSources(DEFAULT_PREFERENCES).length, initialSourceCount)
 
 // 2. Add Custom Source

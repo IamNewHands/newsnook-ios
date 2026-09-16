@@ -436,5 +436,7 @@ export function uncoveredSourceIds(): string[] {
   CATEGORIES.forEach((category) => {
     category.sourceIds?.forEach((id) => covered.add(id))
   })
-  return SOURCES.map((source) => source.id).filter((id) => !covered.has(id))
+  return SOURCES.filter((source) => !source.workspaceOnly)
+    .map((source) => source.id)
+    .filter((id) => !covered.has(id))
 }

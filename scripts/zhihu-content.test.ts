@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import { feedArticleId } from '../src/lib/articleId'
 import { articleFromSharePayload, buildShareUrl, parseShareUrl, sharePayloadFromArticle } from '../src/lib/shareLink'
@@ -8,6 +9,7 @@ import { parseZhihuJson } from '../src/features/zhihu/api/json'
 import { toNewsArticle } from '../src/features/zhihu/content/bridge'
 import { normalizeZhihuContentHtml } from '../src/features/zhihu/content/normalize'
 import { parseZhihuLink, parseZhihuVideoId } from '../src/features/zhihu/content/links'
+import { ZhihuContentService } from '../src/features/zhihu/content/service'
 
 assert.deepEqual(
   parseZhihuLink('https://www.zhihu.com/question/123/answer/456'),
@@ -70,6 +72,45 @@ assert.ok(nativeZhihuVideoCard.includes('data-reader-role="zhihu-link-image"'), 
 
 const lensOnlyZhihuVideoCard = normalizeZhihuContentHtml('<p><a class="video-box" data-lens-id="2081068623192224666"><img src="https://pic.example/zhihu-video.jpg"></a></p>')
 assert.ok(lensOnlyZhihuVideoCard.includes('href="https://www.zhihu.com/video/2081068623192224666"'), '只有 data-lens-id 的知乎视频也必须恢复成可播放视频页')
+
+const videoCalls: Array<{ operation: string; url: string; body: unknown }> = []
+const videoService = new ZhihuContentService({
+  async getJson() {
+    throw new Error('not used')
+  },
+  async postJsonWithHeaders(operation, url, _headers, body) {
+    videoCalls.push({ operation, url, body })
+    return {
+      video_play: {
+        playlist: {
+          mp4: [
+            { bitrate: 480, url: ['https://video.example/480.mp4'] },
+            { bitrate: 1080, url: ['https://video.example/1080.mp4'] },
+            { bitrate: 720, url: ['https://video.example/720.mp4'] },
+          ],
+        },
+      },
+    }
+  },
+})
+const playback = await videoService.readVideo('2080667445237319967', { kind: 'answer', id: 'answer-1' })
+assert.equal(playback?.url, 'https://video.example/1080.mp4', '知乎视频应优先使用 play_info 返回的最高 bitrate MP4')
+assert.equal(videoCalls[0]?.operation, 'video.play-info')
+assert.match(videoCalls[0]?.url ?? '', /\/api\/v4\/video\/play_info\?r=2080667445237319967$/)
+assert.deepEqual(videoCalls[0]?.body, {
+  content_id: 'answer-1',
+  content_type_str: 'answer',
+  video_id: '2080667445237319967',
+  scene_code: 'answer_detail_web',
+  is_only_video: true,
+})
+
+const zhihuContentScreenSource = readFileSync(new URL('../src/features/zhihu/ui/ZhihuContentScreen.tsx', import.meta.url), 'utf8')
+const inlineVideoPagesSource = readFileSync(new URL('../src/components/InlineVideoPages.tsx', import.meta.url), 'utf8')
+assert.match(zhihuContentScreenSource, /<InlineVideoPages/, '知乎回答正文必须原地挂载 video-page 播放器')
+assert.doesNotMatch(zhihuContentScreenSource, /videoPage &&/, '知乎视频不能再通过二级全屏视频页播放')
+assert.match(inlineVideoPagesSource, /<OriginPlayerSurface[\s\S]*embedded/, '通用嗅探失败时也必须在正文原位显示原站播放表面')
+assert.match(inlineVideoPagesSource, /resolveDirect/, '知乎已知视频协议应优先直取播放源，避免先展示原站页面')
 
 const article = toNewsArticle({
   ref: { kind: 'answer', id: '456' },
