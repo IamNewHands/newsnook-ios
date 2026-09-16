@@ -12,7 +12,7 @@ import {
   UserRound,
 } from 'lucide-react'
 
-import type { ZhihuContentSummary, ZhihuEntityKind } from '../types'
+import type { ZhihuAuthor, ZhihuContentSummary, ZhihuEntityKind } from '../types'
 import { formatZhihuCount, zhihuEntityLabel } from './ZhihuUiUtils'
 
 export function ZhihuEntityIcon({ kind, size = 13 }: { kind: ZhihuEntityKind; size?: number }) {
@@ -28,6 +28,29 @@ export function ZhihuEntityIcon({ kind, size = 13 }: { kind: ZhihuEntityKind; si
     case 'comment': return <MessageCircle {...props} />
     default: return <FileText {...props} />
   }
+}
+
+export function ZhihuAuthorAvatar({ author, className = 'size-8' }: { author: ZhihuAuthor; className?: string }) {
+  const initial = author.name.trim().slice(0, 1) || '?'
+  return (
+    <span
+      className={`relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-haze/70 bg-ink-raised/70 font-display text-paper-muted ${className}`}
+      aria-hidden
+    >
+      <span className="select-none text-[0.72em] leading-none">{initial}</span>
+      {author.avatarUrl && (
+        <img
+          src={author.avatarUrl}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          className="absolute inset-0 size-full object-cover"
+          onError={(event) => { event.currentTarget.style.display = 'none' }}
+        />
+      )}
+    </span>
+  )
 }
 
 export function ZhihuSurface({ children, className = '' }: { children: ReactNode; className?: string }) {

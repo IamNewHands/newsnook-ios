@@ -125,6 +125,8 @@ assert.match(zhihuWorkspaceSource, /onReplaceNavigate=\{replaceEntity\}/, '上�
 assert.match(zhihuContentSource, /aria-label="上一个回答"/, '回答页必须提供浮动的上一个回答按钮')
 assert.match(zhihuContentSource, /aria-label="下一个回答"/, '回答页必须提供浮动的下一个回答按钮')
 assert.match(zhihuContentSource, /查看问题详情/, '回答标题必须可进入所属问题详情')
+assert.match(zhihuContentSource, /ZhihuAuthorAvatar author=\{detail\.author\}/, '回答/文章详情头部必须显示作者头像')
+assert.match(zhihuContentSource, /onNavigate\(\{ kind: 'people', id: detail\.author!\.token \?\? detail\.author!\.id \}\)/, '详情页作者头像与姓名必须可进入用户页')
 assert.match(zhihuContentSource, /ImageLightbox/, '知乎正文图片必须复用 NewsNook ImageLightbox')
 assert.match(zhihuContentSource, /InlineArticleVideos/, '知乎正文原生 video 必须复用 NewsNook InkVideoPlayer 管线')
 assert.match(zhihuContentSource, /InlineYoutubeEmbeds/, '知乎正文 YouTube embed 必须复用 NewsNook 媒体播放管线')

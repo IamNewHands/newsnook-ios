@@ -24,6 +24,7 @@ import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
 import { ZhihuCollectionPicker } from './ZhihuCollectionPicker'
 import { ZhihuCommentsSection } from './ZhihuCommentsSection'
 import {
+  ZhihuAuthorAvatar,
   ZhihuContentRow,
   ZhihuEntityIcon,
   ZhihuErrorBanner,
@@ -609,7 +610,17 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
         </h1>
 
         <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[12px] text-paper-faint">
-          {detail.author?.name && <span className="font-medium text-paper-muted">{detail.author.name}</span>}
+          {detail.author?.name && (
+            <button
+              type="button"
+              onClick={() => onNavigate({ kind: 'people', id: detail.author!.token ?? detail.author!.id })}
+              aria-label={`查看 ${detail.author.name} 的主页`}
+              className="group inline-flex max-w-full items-center gap-2 rounded-full text-left transition-colors hover:text-cinnabar-soft"
+            >
+              <ZhihuAuthorAvatar author={detail.author} className="size-8" />
+              <span className="max-w-[12rem] truncate font-medium text-paper-muted transition-colors group-hover:text-cinnabar-soft sm:max-w-[18rem]">{detail.author.name}</span>
+            </button>
+          )}
           {detail.author?.headline && <span className="max-w-full truncate">{detail.author.headline}</span>}
           {refValue.kind !== 'answer' && voteCountLabel && <span>{voteCountLabel} 赞同</span>}
           {refValue.kind !== 'answer' && commentCountLabel && <span>{commentCountLabel} 评论</span>}

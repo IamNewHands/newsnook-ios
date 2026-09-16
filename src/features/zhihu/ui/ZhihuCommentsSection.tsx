@@ -13,7 +13,7 @@ import type { ZhihuCommentDraftStore } from '../comments/draftStore'
 import type { ZhihuCommentNode } from '../comments/types'
 import type { ZhihuEntityRef } from '../types'
 import { canExecuteZhihuOperation } from '../protocol'
-import { ZhihuEmptyState, ZhihuErrorBanner, ZhihuSectionHeader } from './ZhihuUi'
+import { ZhihuAuthorAvatar, ZhihuEmptyState, ZhihuErrorBanner, ZhihuSectionHeader } from './ZhihuUi'
 import { formatZhihuCount } from './ZhihuUiUtils'
 
 interface Props {
@@ -201,10 +201,10 @@ function CommentItem({
             { kind: 'people', id: comment.author.token ?? comment.author.id },
             `zhihu-comment-${comment.id}`,
           )}
-          className="flex size-7 shrink-0 items-center justify-center rounded-full border border-haze/70 bg-ink-raised/55 font-display text-[11.5px] text-paper-muted transition-colors hover:border-cinnabar/35 hover:text-cinnabar-soft"
+          className="flex size-7 shrink-0 items-center justify-center rounded-full transition-[transform,box-shadow] hover:scale-[1.04] hover:shadow-[0_5px_14px_-7px_rgba(0,0,0,0.55)] active:scale-[0.96]"
           aria-label={`查看 ${comment.author.name} 的主页`}
         >
-          {comment.author.name.slice(0, 1)}
+          <ZhihuAuthorAvatar author={comment.author} className="size-7" />
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">

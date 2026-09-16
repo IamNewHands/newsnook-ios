@@ -12,7 +12,7 @@ const decoded = decodeZhihuComment({
   like_count: 4,
   liked: false,
   child_comment_count: 1,
-  author: { id: 'person-1', url_token: 'person-token', name: '示例用户' },
+  author: { id: 'person-1', url_token: 'person-token', name: '示例用户', avatar_url: 'https://pic.example/comment-avatar.jpg' },
   child_comments: [{
     id: 'comment-2',
     content: '<p>示例回复</p>',
@@ -21,6 +21,7 @@ const decoded = decodeZhihuComment({
 })
 assert.ok(decoded)
 assert.equal(decoded?.author.token, 'person-token')
+assert.equal(decoded?.author.avatarUrl, 'https://pic.example/comment-avatar.jpg')
 assert.equal(decoded?.childCount, 1)
 assert.equal(decoded?.children[0]?.id, 'comment-2')
 
@@ -113,5 +114,7 @@ assert.doesNotMatch(
   '评论自动加载 effect 不能依赖自己刚 set 的 loading，否则 cleanup 会丢弃唯一响应并永久卡在加载中',
 )
 assert.match(commentsUiSource, /const controller = new AbortController\(\)/, '评论首屏请求必须可取消而不是用 disposed + loading 自相取消')
+assert.match(commentsUiSource, /ZhihuAuthorAvatar author=\{comment\.author\}/, '评论必须显示服务端返回的用户头像，不能只显示姓名首字')
+assert.match(commentsUiSource, /查看 \$\{comment\.author\.name\} 的主页/, '评论头像必须保留进入用户主页的点击语义')
 
 console.log('zhihu comments/drafts contract ok')
