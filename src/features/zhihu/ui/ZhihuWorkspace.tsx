@@ -11,7 +11,7 @@ import { parseExistingAnswerId } from '../editor/codec'
 import { ZhihuDraftStore } from '../editor/draftStore'
 import { ZhihuEditorService } from '../editor/service'
 import { ZhihuImageUploadService } from '../editor/upload'
-import { createZhihuFeedService, type ZhihuFeedService } from '../feed/service'
+import { createZhihuFeedService } from '../feed/service'
 import { useZhihuFeed } from '../feed/useZhihuFeed'
 import { ZhihuInteractionService } from '../interaction/service'
 import { createZhihuRootFrame, reduceRoutes } from '../navigation'
@@ -49,27 +49,25 @@ let retainedFrames: RouteFrame[] | null = null
 
 interface FeedRouteProps {
   mode: ZhihuFeedMode
-  service: ZhihuFeedService
+  feed: ReturnType<typeof useZhihuFeed>
   onModeChange: (mode: ZhihuFeedMode) => void
   onOpen: (item: ZhihuContentSummary) => void
   authenticated: boolean
   scrollContainerRef: MutableRefObject<HTMLDivElement | null>
-  accountId?: string | null
 }
 
-/** 只在 feed route 挂载时请求列表，避免正文/搜索页后台继续拉推荐。 */
+/**
+ * Feed 数据状态由 ZhihuWorkspace 持有；切到回答/搜索时这里只卸载视图，不卸载数据 hook。
+ * 这样回到首页只恢复原列表与滚动位置，不会因为 FeedRoute 重新挂载而隐式刷新。
+ */
 function ZhihuFeedRoute({
   mode,
-  service,
+  feed,
   onModeChange,
   onOpen,
   authenticated,
   scrollContainerRef,
-  accountId,
 }: FeedRouteProps) {
-  // 推荐协议来源是传输层细节，不属于用户信息架构。工作区固定使用移动端推荐，
-  // 用户只看到知乎语义上的「推荐 / 热榜 / 关注」。
-  const feed = useZhihuFeed(service, mode, 'android', accountId)
   const openItem = useCallback((item: ZhihuContentSummary) => {
     onOpen(item)
   }, [onOpen])
@@ -128,6 +126,15 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher }: Props
   const homeFeedMode: ZhihuFeedMode = rootFeedFrame?.route.screen === 'feed'
     ? rootFeedFrame.route.mode
     : 'recommended'
+  // Feed hook 固定在 workspace 生命周期内。回答页只是切换视图，不能把 feed hook 一起卸载，
+  // 否则返回首页会再次触发 useZhihuFeed 的首屏请求，看起来像“无操作自动刷新”。
+  const feed = useZhihuFeed(
+    feedService,
+    homeFeedMode,
+    'android',
+    sessionSnapshot.account?.id,
+    sessionHydrated,
+  )
 
   useEffect(() => runtime.session.subscribe(setSessionSnapshot), [runtime])
   useEffect(() => {
@@ -211,9 +218,13 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher }: Props
   }, [frames.length])
 
   const goHome = useCallback(() => {
-    setFrames([createZhihuRootFrame(homeFeedMode)])
+    setFrames((prev) => {
+      const saved = saveScroll(prev)
+      const existingRoot = saved.find((frame) => frame.route.screen === 'feed')
+      return [existingRoot ?? createZhihuRootFrame(homeFeedMode)]
+    })
     return true
-  }, [homeFeedMode])
+  }, [homeFeedMode, saveScroll])
 
   const answerRoute = current.route.screen === 'entity' && current.route.ref.kind === 'answer'
   const handleWorkspaceBack = useCallback(() => {
@@ -313,12 +324,11 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher }: Props
         return (
           <ZhihuFeedRoute
             mode={current.route.mode}
-            service={feedService}
+            feed={feed}
             onModeChange={setFeedMode}
             onOpen={openFeedItem}
             authenticated={sessionSnapshot.auth === 'authenticated'}
             scrollContainerRef={scrollRef}
-            accountId={sessionSnapshot.account?.id}
           />
         )
       case 'search':

@@ -24,11 +24,13 @@ export function useZhihuFeed(
   mode: ZhihuFeedMode,
   recommendationMode: ZhihuRecommendationMode = 'android',
   accountId?: string | null,
+  enabled = true,
 ) {
   const [state, setState] = useState<FeedState>(EMPTY)
   const requestEpoch = useRef(0)
 
   const refresh = useCallback(() => {
+    if (!enabled) return () => undefined
     requestEpoch.current += 1
     const epoch = requestEpoch.current
     const controller = new AbortController()
@@ -53,9 +55,12 @@ export function useZhihuFeed(
       },
     )
     return () => controller.abort()
-  }, [accountId, mode, recommendationMode, service])
+  }, [accountId, enabled, mode, recommendationMode, service])
 
-  useEffect(() => refresh(), [refresh])
+  useEffect(() => {
+    if (!enabled) return
+    return refresh()
+  }, [enabled, refresh])
 
   const loadMore = useCallback(() => {
     if (state.loading || state.loadingMore || !state.hasMore || !state.nextCursor) return

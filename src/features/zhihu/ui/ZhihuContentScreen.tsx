@@ -119,56 +119,63 @@ export function ZhihuAnswerActionBar({
 
   return (
     <nav
-      className="pointer-events-none fixed inset-x-0 z-40 px-4"
+      className="pointer-events-none fixed inset-x-0 z-40 px-3 sm:px-4"
       style={{ bottom: 'calc(var(--sab) + 4rem)' }}
       aria-label="回答操作"
     >
-      <div className="relative mx-auto flex w-full max-w-lg items-stretch gap-2.5">
+      <div className="relative mx-auto w-full max-w-lg">
         {actionError && (
-          <div role="alert" className="absolute bottom-full left-1/2 mb-2 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-xl border border-cinnabar/35 bg-ink/98 px-3 py-2 text-[11px] text-cinnabar-soft shadow-xl">
+          <div role="alert" className="absolute bottom-full left-1/2 mb-2.5 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-2xl border border-cinnabar/35 bg-ink/98 px-3.5 py-2.5 text-[11px] text-cinnabar-soft shadow-2xl">
             {actionError}
           </div>
         )}
 
-        <div className="pointer-events-auto flex h-[3.25rem] min-w-0 flex-[1.2] items-stretch overflow-hidden rounded-[1.35rem] border border-cinnabar/40 bg-ink/95 text-cinnabar-soft shadow-[0_12px_32px_rgba(0,0,0,0.3)] backdrop-blur-xl">
+        <div className="pointer-events-auto flex h-[3.65rem] min-w-0 items-center rounded-[1.85rem] border border-haze/90 bg-ink-raised/95 p-1 shadow-[0_18px_46px_-18px_rgba(0,0,0,0.72),0_5px_16px_-8px_rgba(0,0,0,0.48)] ring-1 ring-cinnabar/10 backdrop-blur-xl">
           <button
             type="button"
             disabled={voteDisabled}
             onClick={onUpVote}
             aria-label={voteState === 'up' ? '取消赞同' : '赞同'}
             title={!authenticated ? '登录后可赞同' : voteState === 'up' ? '取消赞同' : '赞同'}
-            className="flex min-w-0 flex-1 items-center justify-center gap-2 px-3 transition-colors hover:bg-cinnabar/12 disabled:opacity-35"
+            className={`flex h-[2.95rem] min-w-0 flex-[1.3] items-center justify-center gap-2 rounded-[1.45rem] px-3 transition-[background-color,color,box-shadow,transform] duration-200 active:scale-[0.97] disabled:opacity-35 disabled:active:scale-100 ${voteState === 'up' ? 'bg-cinnabar/16 text-cinnabar-soft shadow-[inset_0_0_0_1px_rgba(255,255,255,0.035)]' : 'text-paper-muted hover:bg-paper/5 hover:text-paper'}`}
           >
-            <ThumbsUp size={18} strokeWidth={1.75} fill={voteState === 'up' ? 'currentColor' : 'none'} />
-            {voteCountLabel && <span className="max-w-20 truncate font-mono text-[12.5px]">{voteCountLabel}</span>}
+            <ThumbsUp size={19} strokeWidth={1.8} fill={voteState === 'up' ? 'currentColor' : 'none'} />
+            {voteCountLabel && <span className="max-w-20 truncate text-[12.5px] font-medium tabular-nums">{voteCountLabel}</span>}
           </button>
-          <span className="my-2.5 w-px bg-cinnabar/25" aria-hidden />
+
+          <span className="mx-1.5 h-6 w-px shrink-0 bg-haze/90" aria-hidden />
+
           <button
             type="button"
             disabled={voteDisabled}
             onClick={onDownVote}
             aria-label={voteState === 'down' ? '取消反对' : '反对'}
             title={!authenticated ? '登录后可反对' : voteState === 'down' ? '取消反对' : '反对'}
-            className="flex w-12 items-center justify-center transition-colors hover:bg-cinnabar/12 disabled:opacity-35"
+            className={`flex size-[2.95rem] shrink-0 items-center justify-center rounded-[1.45rem] transition-[background-color,color,box-shadow,transform] duration-200 active:scale-[0.94] disabled:opacity-35 disabled:active:scale-100 ${voteState === 'down' ? 'bg-cinnabar/14 text-cinnabar-soft shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)]' : 'text-paper-muted hover:bg-paper/5 hover:text-paper'}`}
           >
-            <ThumbsDown size={18} strokeWidth={1.75} fill={voteState === 'down' ? 'currentColor' : 'none'} />
+            <ThumbsDown size={18.5} strokeWidth={1.75} fill={voteState === 'down' ? 'currentColor' : 'none'} />
+          </button>
+
+          <span className="mx-1.5 h-6 w-px shrink-0 bg-haze/90" aria-hidden />
+
+          <div className="flex size-[2.95rem] shrink-0 items-center justify-center text-paper-muted [&>button]:size-full [&>button]:min-h-0 [&>button]:rounded-[1.45rem] [&>button]:border-0 [&>button]:bg-transparent [&>button]:px-0 [&>button]:transition-[background-color,color,transform] [&>button]:duration-200 [&>button:hover]:bg-paper/5 [&>button:hover]:text-paper [&>button:active]:scale-[0.94]">
+            {collectionAction}
+          </div>
+
+          <span className="mx-1.5 h-6 w-px shrink-0 bg-haze/90" aria-hidden />
+
+          <button
+            type="button"
+            disabled={commentsDisabled}
+            onClick={onOpenComments}
+            aria-label={commentCountLabel ? `查看 ${commentCountLabel} 条评论` : '查看评论'}
+            title={commentsDisabled ? '当前内容暂无法读取评论' : '查看评论'}
+            className="flex h-[2.95rem] min-w-0 flex-1 items-center justify-center gap-2 rounded-[1.45rem] px-3 text-paper-muted transition-[background-color,color,transform] duration-200 hover:bg-paper/5 hover:text-paper active:scale-[0.97] disabled:opacity-35 disabled:active:scale-100"
+          >
+            <MessageCircle size={19} strokeWidth={1.75} />
+            {commentCountLabel && <span className="truncate text-[12px] font-medium tabular-nums">{commentCountLabel}</span>}
           </button>
         </div>
-
-        <div className="pointer-events-auto flex size-[3.25rem] shrink-0 items-center justify-center rounded-[1.35rem] border border-haze/80 bg-ink/95 text-paper-muted shadow-[0_12px_32px_rgba(0,0,0,0.3)] backdrop-blur-xl [&>button]:size-full [&>button]:min-h-0 [&>button]:rounded-[1.35rem] [&>button]:border-0 [&>button]:bg-transparent [&>button]:px-0">
-          {collectionAction}
-        </div>
-        <button
-          type="button"
-          disabled={commentsDisabled}
-          onClick={onOpenComments}
-          aria-label={commentCountLabel ? `查看 ${commentCountLabel} 条评论` : '查看评论'}
-          title={commentsDisabled ? '当前内容暂无法读取评论' : '查看评论'}
-          className="pointer-events-auto flex h-[3.25rem] min-w-0 flex-1 items-center justify-center gap-2 rounded-[1.35rem] border border-haze/80 bg-ink/95 px-3 text-paper-muted shadow-[0_12px_32px_rgba(0,0,0,0.3)] backdrop-blur-xl transition-colors hover:border-cinnabar/35 hover:text-paper disabled:opacity-35"
-        >
-          <MessageCircle size={19} strokeWidth={1.7} />
-          {commentCountLabel && <span className="truncate font-mono text-[12px]">{commentCountLabel}</span>}
-        </button>
       </div>
     </nav>
   )
@@ -731,7 +738,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
 
       {refValue.kind === 'answer' && detail.questionId && (previousAnswerRef || nextAnswerRef) && (
         <nav
-          className="pointer-events-none fixed right-3 z-30 flex flex-col gap-2 sm:right-5"
+          className="pointer-events-none fixed right-3 z-30 flex flex-col gap-2.5 sm:right-5"
           style={{ bottom: 'calc(var(--sab) + 8.75rem)' }}
           aria-label="此问题的回答导航"
         >
@@ -741,9 +748,10 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
             onClick={() => previousAnswerRef && onReplaceNavigate(previousAnswerRef)}
             aria-label="上一个回答"
             title="上一个回答"
-            className="pointer-events-auto flex size-11 items-center justify-center rounded-full border border-haze/80 bg-ink/95 text-paper-muted shadow-xl backdrop-blur-xl transition hover:border-cinnabar/45 hover:text-cinnabar-soft disabled:opacity-30"
+            className="group pointer-events-auto relative flex size-12 items-center justify-center overflow-hidden rounded-full border border-haze/90 bg-ink-raised/95 text-paper-muted shadow-[0_12px_30px_-12px_rgba(0,0,0,0.68),0_4px_12px_-6px_rgba(0,0,0,0.42)] ring-1 ring-cinnabar/10 backdrop-blur-xl transition-[transform,border-color,color,box-shadow] duration-200 hover:-translate-y-0.5 hover:border-cinnabar/45 hover:text-cinnabar-soft hover:shadow-[0_16px_34px_-12px_rgba(0,0,0,0.72)] active:translate-y-0 active:scale-[0.94] disabled:translate-y-0 disabled:border-haze/55 disabled:text-paper-faint disabled:opacity-30 disabled:shadow-md disabled:ring-0"
           >
-            <ChevronUp size={18} strokeWidth={1.7} />
+            <span className="absolute inset-x-3 top-1 h-px rounded-full bg-cinnabar/45 opacity-70 transition-opacity group-hover:opacity-100" aria-hidden />
+            <ChevronUp size={20} strokeWidth={1.9} />
           </button>
           <button
             type="button"
@@ -751,9 +759,10 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
             onClick={() => nextAnswerRef && onReplaceNavigate(nextAnswerRef)}
             aria-label="下一个回答"
             title="下一个回答"
-            className="pointer-events-auto flex size-11 items-center justify-center rounded-full border border-haze/80 bg-ink/95 text-paper-muted shadow-xl backdrop-blur-xl transition hover:border-cinnabar/45 hover:text-cinnabar-soft disabled:opacity-30"
+            className="group pointer-events-auto relative flex size-12 items-center justify-center overflow-hidden rounded-full border border-haze/90 bg-ink-raised/95 text-paper-muted shadow-[0_12px_30px_-12px_rgba(0,0,0,0.68),0_4px_12px_-6px_rgba(0,0,0,0.42)] ring-1 ring-cinnabar/10 backdrop-blur-xl transition-[transform,border-color,color,box-shadow] duration-200 hover:translate-y-0.5 hover:border-cinnabar/45 hover:text-cinnabar-soft hover:shadow-[0_16px_34px_-12px_rgba(0,0,0,0.72)] active:translate-y-0 active:scale-[0.94] disabled:translate-y-0 disabled:border-haze/55 disabled:text-paper-faint disabled:opacity-30 disabled:shadow-md disabled:ring-0"
           >
-            <ChevronDown size={18} strokeWidth={1.7} />
+            <ChevronDown size={20} strokeWidth={1.9} />
+            <span className="absolute inset-x-3 bottom-1 h-px rounded-full bg-cinnabar/45 opacity-70 transition-opacity group-hover:opacity-100" aria-hidden />
           </button>
         </nav>
       )}

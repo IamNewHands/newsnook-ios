@@ -102,10 +102,13 @@ assert.match(
 
 // 推荐传输策略是内部实现细节，不能再暴露成 Web/Android/混合/本地这类开发者选项。
 const zhihuFeedScreenSource = readFileSync(new URL('../src/features/zhihu/ui/ZhihuFeedScreen.tsx', import.meta.url), 'utf8')
+const zhihuFeedHookSource = readFileSync(new URL('../src/features/zhihu/feed/useZhihuFeed.ts', import.meta.url), 'utf8')
 const zhihuWorkspaceSource = readFileSync(new URL('../src/features/zhihu/ui/ZhihuWorkspace.tsx', import.meta.url), 'utf8')
 assert.doesNotMatch(zhihuFeedScreenSource, /ZHIHU_RECOMMENDATION_MODES|recommendationMode|onRecommendationModeChange/)
 assert.doesNotMatch(zhihuFeedScreenSource, />\s*(Web|Android|混合|本地)\s*</)
-assert.match(zhihuWorkspaceSource, /useZhihuFeed\(service, mode, 'android', accountId\)/)
+assert.match(zhihuWorkspaceSource, /const feed = useZhihuFeed\([\s\S]*feedService[\s\S]*sessionHydrated[\s\S]*\)/, '信息流状态必须由 workspace 持有，回答页返回不能因 FeedRoute 重挂载而自动刷新')
+assert.match(zhihuFeedHookSource, /enabled = true/, 'feed hook 必须支持会话恢复完成后再启用首屏请求')
+assert.match(zhihuWorkspaceSource, /existingRoot = saved\.find\(\(frame\) => frame\.route\.screen === 'feed'\)/, '返回知乎首页必须复用已有根 feed frame 与滚动位置')
 assert.match(zhihuWorkspaceSource, /<span>首页<\/span>/)
 assert.match(zhihuWorkspaceSource, /<span>消息<\/span>/)
 assert.match(zhihuWorkspaceSource, /<span>我的<\/span>/)
