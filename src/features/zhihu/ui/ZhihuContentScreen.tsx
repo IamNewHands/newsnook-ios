@@ -750,7 +750,6 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
             title="上一个回答"
             className="group pointer-events-auto relative flex size-12 items-center justify-center overflow-hidden rounded-full border border-haze/90 bg-ink-raised/95 text-paper-muted shadow-[0_12px_30px_-12px_rgba(0,0,0,0.68),0_4px_12px_-6px_rgba(0,0,0,0.42)] ring-1 ring-cinnabar/10 backdrop-blur-xl transition-[transform,border-color,color,box-shadow] duration-200 hover:-translate-y-0.5 hover:border-cinnabar/45 hover:text-cinnabar-soft hover:shadow-[0_16px_34px_-12px_rgba(0,0,0,0.72)] active:translate-y-0 active:scale-[0.94] disabled:translate-y-0 disabled:border-haze/55 disabled:text-paper-faint disabled:opacity-30 disabled:shadow-md disabled:ring-0"
           >
-            <span className="absolute inset-x-3 top-1 h-px rounded-full bg-cinnabar/45 opacity-70 transition-opacity group-hover:opacity-100" aria-hidden />
             <ChevronUp size={20} strokeWidth={1.9} />
           </button>
           <button
@@ -762,7 +761,6 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
             className="group pointer-events-auto relative flex size-12 items-center justify-center overflow-hidden rounded-full border border-haze/90 bg-ink-raised/95 text-paper-muted shadow-[0_12px_30px_-12px_rgba(0,0,0,0.68),0_4px_12px_-6px_rgba(0,0,0,0.42)] ring-1 ring-cinnabar/10 backdrop-blur-xl transition-[transform,border-color,color,box-shadow] duration-200 hover:translate-y-0.5 hover:border-cinnabar/45 hover:text-cinnabar-soft hover:shadow-[0_16px_34px_-12px_rgba(0,0,0,0.72)] active:translate-y-0 active:scale-[0.94] disabled:translate-y-0 disabled:border-haze/55 disabled:text-paper-faint disabled:opacity-30 disabled:shadow-md disabled:ring-0"
           >
             <ChevronDown size={20} strokeWidth={1.9} />
-            <span className="absolute inset-x-3 bottom-1 h-px rounded-full bg-cinnabar/45 opacity-70 transition-opacity group-hover:opacity-100" aria-hidden />
           </button>
         </nav>
       )}

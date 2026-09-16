@@ -193,15 +193,15 @@ function CommentItem({
   }
 
   return (
-    <article id={`zhihu-comment-${comment.id}`} className="scroll-mt-20 border-b border-haze/50 py-4 first:pt-1 last:border-b-0">
-      <div className="flex items-start gap-3">
+    <article id={`zhihu-comment-${comment.id}`} className="scroll-mt-20 border-b border-haze/50 py-2.5 first:pt-0.5 last:border-b-0">
+      <div className="flex items-start gap-2.5">
         <button
           type="button"
           onClick={() => onNavigate(
             { kind: 'people', id: comment.author.token ?? comment.author.id },
             `zhihu-comment-${comment.id}`,
           )}
-          className="flex size-8 shrink-0 items-center justify-center rounded-full border border-haze/70 bg-ink-raised/55 font-display text-[12px] text-paper-muted transition-colors hover:border-cinnabar/35 hover:text-cinnabar-soft"
+          className="flex size-7 shrink-0 items-center justify-center rounded-full border border-haze/70 bg-ink-raised/55 font-display text-[11.5px] text-paper-muted transition-colors hover:border-cinnabar/35 hover:text-cinnabar-soft"
           aria-label={`查看 ${comment.author.name} 的主页`}
         >
           {comment.author.name.slice(0, 1)}
@@ -223,18 +223,18 @@ function CommentItem({
             )}
           </div>
           <div
-            className="zhihu-comment-body mt-1.5 text-[13px] leading-[1.7] text-paper-muted"
+            className="zhihu-comment-body mt-1 text-[13px] leading-[1.55] text-paper-muted"
             dangerouslySetInnerHTML={{ __html: normalizeZhihuContentHtml(comment.contentHtml) }}
           />
 
-          <div className="mt-2 flex min-h-8 items-center gap-0.5">
+          <div className="mt-1 flex min-h-7 items-center gap-0.5">
             <button
               type="button"
               disabled={!authenticated || mutationBusy || !likeWritable}
               onClick={() => void toggleLike()}
               title={!authenticated ? '登录后可点赞' : liked ? '取消点赞' : '点赞'}
               aria-label={liked ? '取消点赞' : '点赞'}
-              className={`inline-flex min-h-8 items-center gap-1 rounded-lg px-2 font-mono text-[10px] transition-colors disabled:opacity-35 ${liked ? 'text-cinnabar-soft' : 'text-paper-faint hover:bg-paper/5 hover:text-paper-muted'}`}
+              className={`inline-flex min-h-7 items-center gap-1 rounded-lg px-1.5 font-mono text-[10px] transition-colors disabled:opacity-35 ${liked ? 'text-cinnabar-soft' : 'text-paper-faint hover:bg-paper/5 hover:text-paper-muted'}`}
             >
               <Heart size={13} strokeWidth={1.6} fill={liked ? 'currentColor' : 'none'} />
               {likeCount > 0 && <span>{formatZhihuCount(likeCount)}</span>}
@@ -245,7 +245,7 @@ function CommentItem({
               onClick={() => setReplying((value) => !value)}
               title={!authenticated ? '登录后可回复' : '回复'}
               aria-label="回复"
-              className="flex size-8 items-center justify-center rounded-lg text-paper-faint transition-colors hover:bg-paper/5 hover:text-paper-muted disabled:opacity-35"
+              className="flex size-7 items-center justify-center rounded-lg text-paper-faint transition-colors hover:bg-paper/5 hover:text-paper-muted disabled:opacity-35"
             >
               <Reply size={13} strokeWidth={1.6} />
             </button>
@@ -256,7 +256,7 @@ function CommentItem({
                 onClick={() => void remove()}
                 title="删除评论"
                 aria-label="删除评论"
-                className="flex size-8 items-center justify-center rounded-lg text-paper-faint transition-colors hover:bg-cinnabar/8 hover:text-cinnabar-soft disabled:opacity-35"
+                className="flex size-7 items-center justify-center rounded-lg text-paper-faint transition-colors hover:bg-cinnabar/8 hover:text-cinnabar-soft disabled:opacity-35"
               >
                 <Trash2 size={13} strokeWidth={1.6} />
               </button>
@@ -264,7 +264,7 @@ function CommentItem({
           </div>
 
           {replying && (
-            <div className="mt-2 flex items-end gap-2 rounded-xl border border-haze/70 bg-ink-raised/35 p-2.5 focus-within:border-cinnabar/35">
+            <div className="mt-1.5 flex items-end gap-2 rounded-xl border border-haze/70 bg-ink-raised/35 p-2 focus-within:border-cinnabar/35">
               <textarea
                 value={replyDraft.value}
                 onChange={(event) => replyDraft.setValue(event.target.value)}
@@ -286,13 +286,13 @@ function CommentItem({
           )}
 
           {comment.childCount > 0 && (
-            <div className="mt-1.5">
+            <div className="mt-1">
               {!expanded || children.length < comment.childCount || nextCursor ? (
                 <button
                   type="button"
                   onClick={loadChildren}
                   disabled={loading}
-                  className="inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2 text-[11px] text-cinnabar-soft transition-colors hover:bg-cinnabar/8 disabled:opacity-45"
+                  className="inline-flex min-h-7 items-center gap-1.5 rounded-lg px-1.5 text-[11px] text-cinnabar-soft transition-colors hover:bg-cinnabar/8 disabled:opacity-45"
                 >
                   {loading ? <Loader2 size={13} className="animate-spin" /> : <ChevronDown size={13} strokeWidth={1.6} />}
                   <span>{loading ? '正在读取' : expanded ? '更多回复' : `${comment.childCount} 条回复`}</span>
@@ -300,7 +300,7 @@ function CommentItem({
               ) : null}
               {error && <div className="mt-1"><ZhihuErrorBanner>{error}</ZhihuErrorBanner></div>}
               {expanded && children.length > 0 && (
-                <div className="ml-2 mt-1 border-l border-haze/65 pl-3">
+                <div className="ml-1.5 mt-0.5 border-l border-haze/65 pl-2.5">
                   {children.map((child) => (
                     <CommentItem
                       key={child.id}
@@ -522,7 +522,7 @@ export function ZhihuCommentsSection({ target, service, onNavigate, restoreAncho
       )}
 
       {items.length > 0 && (
-        <div className="mt-3 rounded-2xl border border-haze/70 bg-ink-raised/25 px-3.5 sm:px-4">
+        <div className="mt-2 rounded-2xl border border-haze/70 bg-ink-raised/25 px-3 sm:px-3.5">
           {items.map((comment) => (
             <CommentItem
               key={comment.id}

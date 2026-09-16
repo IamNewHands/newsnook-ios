@@ -10,7 +10,6 @@ import {
   ZhihuEmptyState,
   ZhihuErrorBanner,
   ZhihuLoadingState,
-  ZhihuSurface,
 } from './ZhihuUi'
 
 interface Props {
@@ -196,7 +195,7 @@ export function ZhihuFeedScreen({
   ]
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pb-28 pt-3 sm:px-6">
+    <div className="mx-auto w-full max-w-3xl pb-28 pt-3">
       <div
         aria-hidden={pullDistance <= 0}
         className="flex items-end justify-center overflow-hidden transition-[height] duration-75"
@@ -217,7 +216,7 @@ export function ZhihuFeedScreen({
         </div>
       </div>
 
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-3 flex items-center gap-2 px-4 sm:px-6">
         <div className="flex min-w-0 flex-1 rounded-xl border border-haze p-1">
           {modes.map((item) => {
             const active = mode === item.id
@@ -254,18 +253,18 @@ export function ZhihuFeedScreen({
         </button>
       </div>
 
-      {error && <div className="mb-3"><ZhihuErrorBanner>{errorMessage(error)}</ZhihuErrorBanner></div>}
+      {error && <div className="mb-3 px-4 sm:px-6"><ZhihuErrorBanner>{errorMessage(error)}</ZhihuErrorBanner></div>}
 
       {loading && items.length === 0 ? (
-        <ZhihuLoadingState label="正在读取知乎…" />
+        <div className="px-4 sm:px-6"><ZhihuLoadingState label="正在读取知乎…" /></div>
       ) : items.length === 0 && !error ? (
-        <ZhihuEmptyState title="没有可显示的内容" description={mode === 'following' ? '关注动态需要登录知乎后读取。' : '稍后下拉刷新再试。'} />
+        <div className="px-4 sm:px-6"><ZhihuEmptyState title="没有可显示的内容" description={mode === 'following' ? '关注动态需要登录知乎后读取。' : '稍后下拉刷新再试。'} /></div>
       ) : (
-        <ZhihuSurface className="divide-y divide-haze/55">
+        <div className="divide-y divide-haze/55 border-y border-haze/70 bg-ink-raised/20">
           {items.map((item) => (
             <ZhihuContentRow key={`${item.ref.kind}:${item.ref.id}`} item={item} onOpen={onOpen} compact />
           ))}
-        </ZhihuSurface>
+        </div>
       )}
 
       {items.length > 0 && hasMore && (

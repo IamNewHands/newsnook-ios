@@ -110,7 +110,7 @@ export function ZhihuContentRow({
     <button
       type="button"
       onClick={() => onOpen(item)}
-      className="group relative block w-full px-4 py-4 text-left transition-colors duration-200 hover:bg-ink-raised active:bg-ink-deep/25 sm:px-5"
+      className="group relative block w-full px-4 py-3.5 text-left transition-colors duration-200 hover:bg-ink-raised active:bg-ink-deep/25 sm:px-5 sm:py-4"
     >
       <span className="flex items-center gap-1.5 font-mono text-[10.5px] tracking-[0.06em] text-paper-faint">
         <span className="flex items-center gap-1.25 text-cinnabar-soft/85">
