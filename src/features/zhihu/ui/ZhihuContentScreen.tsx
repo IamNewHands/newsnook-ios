@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { MouseEvent, MutableRefObject, ReactNode } from 'react'
+import type { MouseEvent, MutableRefObject, ReactNode, RefObject } from 'react'
 import { Browser } from '@capacitor/browser'
 import { ChevronDown, ChevronUp, Copy, ExternalLink, Heart, Info, Loader2, LockKeyhole, MessageCircle, MessageSquareQuote, SquarePen, ThumbsDown, ThumbsUp, UserPlus, X } from 'lucide-react'
 import type { ZhihuCommentDraftStore } from '../comments/draftStore'
@@ -22,6 +22,7 @@ import { InlineYoutubeEmbeds } from '../../../components/InlineYoutubeEmbeds'
 import { InlineVideoPages } from '../../../components/InlineVideoPages'
 import type { MediaDescriptor } from '../../mediaSniffer/types'
 import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
+import { useReaderFontPinch } from '../../../hooks/useReaderFontPinch'
 import { ZhihuCollectionPicker } from './ZhihuCollectionPicker'
 import { ZhihuCommentsSection } from './ZhihuCommentsSection'
 import {
@@ -50,6 +51,9 @@ interface Props {
   commentDraftStore: ZhihuCommentDraftStore
   interaction: ZhihuInteractionService
   onWriteAnswer: (questionId: string) => void
+  scrollContainerRef: RefObject<HTMLElement | null>
+  fontScale: number
+  onFontScale: (next: number) => void
 }
 
 function detailFromPreview(preview: ZhihuContentSummary): ZhihuContentDetail {
@@ -204,7 +208,7 @@ export function ZhihuAnswerCommentsDialog({ open, onClose, children }: ZhihuAnsw
   )
 }
 
-export function ZhihuContentScreen({ refValue, preview, contentService, feedService, commentsService, onNavigate, onReplaceNavigate, overlayCloserRef, restoreAnchor, authenticated, accountId, commentDraftStore, interaction, onWriteAnswer }: Props) {
+export function ZhihuContentScreen({ refValue, preview, contentService, feedService, commentsService, onNavigate, onReplaceNavigate, overlayCloserRef, restoreAnchor, authenticated, accountId, commentDraftStore, interaction, onWriteAnswer, scrollContainerRef, fontScale, onFontScale }: Props) {
   const [detail, setDetail] = useState<ZhihuContentDetail | null>(null)
   const [answers, setAnswers] = useState<ZhihuContentSummary[]>([])
   const [answerOrder, setAnswerOrder] = useState<ZhihuQuestionAnswerOrder>('default')
@@ -230,6 +234,12 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
   const [segmentCommentsOpen, setSegmentCommentsOpen] = useState(false)
   const [segmentBusy, setSegmentBusy] = useState(false)
   const [segmentError, setSegmentError] = useState<string | null>(null)
+  const { hudLabel } = useReaderFontPinch({
+    targetRef: scrollContainerRef,
+    fontScale,
+    enabled: Boolean(detail) && !lightbox && !commentsOpen && !selectedSegment,
+    onCommit: onFontScale,
+  })
   const normalizedHtml = useMemo(
     () => normalizeZhihuContentHtml(
       detail?.contentHtml ?? '',
@@ -600,6 +610,15 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
 
   return (
     <article className={`mx-auto w-full max-w-3xl px-4 pt-5 sm:px-6 ${refValue.kind === 'answer' ? 'pb-44' : 'pb-28'}`}>
+      {hudLabel && (
+        <div
+          className="pointer-events-none fixed left-1/2 top-[40%] z-[70] -translate-x-1/2 rounded-full border border-haze bg-ink/92 px-3.5 py-1.5 font-mono text-[12px] text-paper shadow-lg backdrop-blur-md"
+          role="status"
+          aria-live="polite"
+        >
+          {hudLabel}
+        </div>
+      )}
       <header className="border-b border-haze/55 pb-5">
         <div className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.12em] text-cinnabar-soft">
           <ZhihuEntityIcon kind={refValue.kind} size={12} />

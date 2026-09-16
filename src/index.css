@@ -1013,8 +1013,12 @@ html[data-eink='1'] .preset-switcher-sheet {
 
 /* The shadow is only painted while the reader is revealing the page beneath it. */
 .reader-swipe-surface {
-  touch-action: pan-y pinch-zoom;
+  touch-action: pan-y;
   overscroll-behavior-x: none;
+}
+
+.reader-font-pinch-surface {
+  touch-action: pan-y;
 }
 
 .reader-swipe-surface[data-swipe-back-active='true'] {

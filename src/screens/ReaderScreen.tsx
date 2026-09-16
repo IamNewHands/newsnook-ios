@@ -1420,7 +1420,7 @@ export function ReaderScreen({
             ref={rootRef}
             {...{ [SCROLL_SURFACE_ATTR]: '' }}
             onScroll={einkMode ? undefined : handleScroll}
-            className={`scroll-hidden h-full overflow-x-hidden ${
+            className={`reader-font-pinch-surface scroll-hidden h-full overflow-x-hidden ${
               einkMode
                 ? paged.pageSliceHeight > paged.pageHeight
                   ? 'overflow-y-auto'

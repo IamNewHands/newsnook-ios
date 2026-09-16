@@ -1590,6 +1590,10 @@ export default function App() {
                 onExit={leaveActiveSite}
                 backHandlerRef={siteBackHandlerRef}
                 presetSwitcher={presetSwitcherConfig}
+                fontScale={prefs.typography.fontScale}
+                onFontScale={(next) =>
+                  update((prev) => updateTypography(prev, { fontScale: next }))
+                }
               />
             </Suspense>
           ) : (

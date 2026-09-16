@@ -43,6 +43,8 @@ interface Props {
   onExit: () => void
   backHandlerRef: MutableRefObject<(() => boolean) | null>
   presetSwitcher: PresetSwitcherProps
+  fontScale: number
+  onFontScale: (next: number) => void
 }
 
 let retainedFrames: RouteFrame[] | null = null
@@ -98,7 +100,7 @@ function capabilityPlaceholder(title: string, description: string) {
   )
 }
 
-export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher }: Props) {
+export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontScale, onFontScale }: Props) {
   const runtime = useMemo(() => createZhihuRuntime(), [])
   const feedService = useMemo(() => createZhihuFeedService(runtime.api), [runtime])
   const collectionService = useMemo(() => new ZhihuCollectionService(runtime.api), [runtime])
@@ -408,6 +410,9 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher }: Props
             commentDraftStore={commentDraftStore}
             interaction={interactionService}
             onWriteAnswer={(questionId) => void openAnswerEditor(questionId)}
+            scrollContainerRef={scrollRef}
+            fontScale={fontScale}
+            onFontScale={onFontScale}
           />
         )
       case 'notifications':
@@ -484,7 +489,7 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher }: Props
         <PresetSwitcher {...presetSwitcher} />
       </header>
 
-      <div ref={scrollRef} className="scroll-hidden min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div ref={scrollRef} className="reader-font-pinch-surface scroll-hidden min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {sessionRestoreError && (
           <div role="alert" className="mx-4 mt-3 rounded-xl border border-cinnabar/35 bg-cinnabar/5 px-3 py-2.5 text-[12px] leading-5 text-paper-muted sm:mx-6">
             账号恢复失败：{sessionRestoreError}。已保留本机数据，请到“我的”重试验证。
