@@ -4,7 +4,6 @@ import {
   applyReaderFontSizeVar,
   formatFontScaleHud,
   pinchFontScale,
-  shouldResetReaderPinchSequence,
 } from '../lib/readerFontPinch'
 
 const HUD_HOLD_MS = 1000
@@ -88,6 +87,27 @@ export function useReaderFontPinch({
     const element = targetRef.current
     if (!element) return
 
+    const beginPinch = (a: Point, b: Point) => {
+      clearHudTimer()
+      startDistanceRef.current = distance(a, b)
+      startScaleRef.current = fontScaleRef.current
+      previewRef.current = fontScaleRef.current
+      pinchingRef.current = true
+      setPinching(true)
+      setHudLabel(formatFontScaleHud(fontScaleRef.current))
+    }
+
+    const previewPinch = (a: Point, b: Point) => {
+      const next = pinchFontScale(
+        startScaleRef.current,
+        startDistanceRef.current,
+        distance(a, b),
+      )
+      previewRef.current = next
+      applyReaderFontSizeVar(next)
+      setHudLabel(formatFontScaleHud(next))
+    }
+
     const endPinch = () => {
       if (!pinchingRef.current) return
       pinchingRef.current = false
@@ -106,45 +126,31 @@ export function useReaderFontPinch({
     }
 
     const onPointerDown = (event: PointerEvent) => {
+      // Touch events stay reliable after Android WebView hands scrolling to its
+      // compositor; touch pointers may instead be cancelled as pinch begins.
+      if (event.pointerType === 'touch') return
       if (event.pointerType === 'mouse' && event.button !== 0) return
       if (isExcludedTarget(event.target)) return
 
-      // A new primary touch cannot belong to a still-active touch sequence.
-      // Therefore any contacts left in the Map are stale terminal-event fallout.
-      if (shouldResetReaderPinchSequence(pointersRef.current.size, event)) {
-        resetInterruptedPinch()
-      }
-
       pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
       if (pointersRef.current.size === 2) {
-        clearHudTimer()
         const [a, b] = [...pointersRef.current.values()]
-        startDistanceRef.current = distance(a, b)
-        startScaleRef.current = fontScaleRef.current
-        previewRef.current = fontScaleRef.current
-        pinchingRef.current = true
-        setPinching(true)
-        setHudLabel(formatFontScaleHud(fontScaleRef.current))
+        beginPinch(a, b)
       }
     }
 
     const onPointerMove = (event: PointerEvent) => {
+      if (event.pointerType === 'touch') return
       if (!pointersRef.current.has(event.pointerId)) return
       pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
       if (!pinchingRef.current || pointersRef.current.size < 2) return
       if (event.cancelable) event.preventDefault()
       const [a, b] = [...pointersRef.current.values()]
-      const next = pinchFontScale(
-        startScaleRef.current,
-        startDistanceRef.current,
-        distance(a, b),
-      )
-      previewRef.current = next
-      applyReaderFontSizeVar(next)
-      setHudLabel(formatFontScaleHud(next))
+      previewPinch(a, b)
     }
 
     const onPointerUp = (event: PointerEvent) => {
+      if (event.pointerType === 'touch') return
       if (!pointersRef.current.has(event.pointerId)) return
       pointersRef.current.delete(event.pointerId)
       if (pinchingRef.current && pointersRef.current.size < 2) {
@@ -154,9 +160,48 @@ export function useReaderFontPinch({
 
     const onGestureInterrupted = () => resetInterruptedPinch()
     const onPointerCancel = (event: PointerEvent) => {
+      if (event.pointerType === 'touch') return
       if (!pointersRef.current.has(event.pointerId)) return
       resetInterruptedPinch()
     }
+
+    const activeTouchPoints = (touches: TouchList): Point[] => {
+      const points: Point[] = []
+      for (let index = 0; index < touches.length; index += 1) {
+        const touch = touches.item(index)
+        if (!touch || isExcludedTarget(touch.target)) continue
+        points.push({ x: touch.clientX, y: touch.clientY })
+      }
+      return points
+    }
+
+    const onTouchStart = (event: TouchEvent) => {
+      const points = activeTouchPoints(event.touches)
+      if (points.length !== 2) {
+        if (pinchingRef.current) resetInterruptedPinch()
+        return
+      }
+      if (event.cancelable) event.preventDefault()
+      beginPinch(points[0], points[1])
+    }
+
+    const onTouchMove = (event: TouchEvent) => {
+      if (!pinchingRef.current) return
+      const points = activeTouchPoints(event.touches)
+      if (points.length !== 2) {
+        resetInterruptedPinch()
+        return
+      }
+      if (event.cancelable) event.preventDefault()
+      previewPinch(points[0], points[1])
+    }
+
+    const onTouchEnd = (event: TouchEvent) => {
+      if (!pinchingRef.current) return
+      if (activeTouchPoints(event.touches).length < 2) endPinch()
+    }
+
+    const onTouchCancel = () => resetInterruptedPinch()
 
     const onVisibilityChange = () => {
       if (document.visibilityState !== 'visible') onGestureInterrupted()
@@ -164,6 +209,10 @@ export function useReaderFontPinch({
 
     // Capture terminal events at window level so child controls stopping
     // propagation cannot strand an active reader pointer.
+    element.addEventListener('touchstart', onTouchStart, { passive: false })
+    element.addEventListener('touchmove', onTouchMove, { passive: false })
+    window.addEventListener('touchend', onTouchEnd, true)
+    window.addEventListener('touchcancel', onTouchCancel, true)
     element.addEventListener('pointerdown', onPointerDown)
     element.addEventListener('pointermove', onPointerMove, { passive: false })
     element.addEventListener('lostpointercapture', onPointerCancel)
@@ -175,6 +224,10 @@ export function useReaderFontPinch({
     document.addEventListener('visibilitychange', onVisibilityChange)
 
     return () => {
+      element.removeEventListener('touchstart', onTouchStart)
+      element.removeEventListener('touchmove', onTouchMove)
+      window.removeEventListener('touchend', onTouchEnd, true)
+      window.removeEventListener('touchcancel', onTouchCancel, true)
       element.removeEventListener('pointerdown', onPointerDown)
       element.removeEventListener('pointermove', onPointerMove)
       element.removeEventListener('lostpointercapture', onPointerCancel)

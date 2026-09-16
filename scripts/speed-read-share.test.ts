@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 const { buildCardHtml } = await import('../src/lib/speedReadShare/buildCardHtml')
 const { SPEED_READ_SECTION_TITLES: S } = await import('../src/features/speedRead/sections')
+const { ZHIHU_ANSWER_SPEED_READ_SECTION_TITLES: A } = await import('../src/features/speedRead/sections')
 
 const markdown = `## ${S.conclusion}
 核心判断。
@@ -67,6 +68,36 @@ const empty = buildCardHtml(
 assert.match(empty, /class="triad"/)
 assert.equal((empty.match(/>—</g) || []).length >= 3, true, '缺三评时每行占位为 —')
 assert.doesNotMatch(empty, /暂无额外可评/)
+
+const answerMarkdown = `## ${A.conclusion}
+作者的直接答案。
+## ${A.satire}
+- 从前提走向结论
+## ${A.structure}
+- 一段个人经验
+## ${A.situation}
+- 仅适用于特定情境
+## ${A.keyPoints}
+- 没有覆盖反例
+## ${A.warnings}
+- 个人经验不等于普遍事实
+`
+const answerCard = buildCardHtml(
+  {
+    articleTitle: '测试问题',
+    sourceName: '知乎 · 测试作者',
+    markdown: answerMarkdown,
+    profile: 'zhihu-answer',
+  },
+  'editorial',
+)
+assert.match(answerCard, new RegExp(A.conclusion))
+assert.match(answerCard, new RegExp(A.satire))
+assert.match(answerCard, new RegExp(A.structure))
+assert.match(answerCard, new RegExp(A.situation))
+assert.match(answerCard, new RegExp(A.keyPoints))
+assert.match(answerCard, new RegExp(A.warnings))
+assert.match(answerCard, /作者的直接答案/)
 
 const explicit = buildCardHtml(
   {

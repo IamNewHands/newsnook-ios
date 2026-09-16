@@ -3,7 +3,7 @@ import { Browser } from '@capacitor/browser'
 import { Capacitor } from '@capacitor/core'
 import { ArrowLeft, BookmarkCheck, BookmarkPlus, Globe, Languages, LoaderCircle, MessageSquare, MoreHorizontal, RefreshCw, ScrollText, X } from 'lucide-react'
 
-import { AiSpeedReadPanel, type SpeedReadUiState } from '../components/AiSpeedReadPanel'
+import { AiSpeedReadPanel } from '../components/AiSpeedReadPanel'
 import { ImageLightbox } from '../components/ImageLightbox'
 import { EinkReaderMenu } from '../components/EinkReaderMenu'
 import { ReaderMoreMenu } from '../components/ReaderMoreMenu'
@@ -66,9 +66,8 @@ import {
   translationProviderLabel,
 } from '../features/translation/config'
 import type { TranslatedArticleContent, TranslationPrefs } from '../features/translation/types'
-import { loadSpeedReadCache, saveSpeedReadCache, speedReadCacheKey } from '../features/speedRead/cache'
-import { createSpeedReadPartialStore, type SpeedReadPartialStore } from '../features/speedRead/partialStore'
-import { parseSpeedReadStored, summarizeArticle, hasSpeedReadableText } from '../features/speedRead/service'
+import { hasSpeedReadableText } from '../features/speedRead/service'
+import { useSpeedRead } from '../features/speedRead/useSpeedRead'
 import { fetchCommentCount, supportsComments } from '../features/comments/service'
 import { CommentsDrawer } from '../features/comments/components/CommentsDrawer'
 import { articleFromRelatedLink } from '../features/catalogEngine/toArticles'
@@ -152,17 +151,7 @@ export function ReaderScreen({
   const translationAbortRef = useRef<AbortController | null>(null)
   const pendingPartialRef = useRef<TranslatedArticleContent | null>(null)
   const partialFrameRef = useRef(0)
-  const [speedReadOpen, setSpeedReadOpen] = useState(false)
-  const [speedReadState, setSpeedReadState] = useState<SpeedReadUiState>('idle')
-  const [speedReadMarkdown, setSpeedReadMarkdown] = useState('')
-  const [speedReadError, setSpeedReadError] = useState('')
   const [exportingMarkdown, setExportingMarkdown] = useState(false)
-  const speedReadAbortRef = useRef<AbortController | null>(null)
-  const speedReadPartialStoreRef = useRef<SpeedReadPartialStore | null>(null)
-  if (!speedReadPartialStoreRef.current) {
-    speedReadPartialStoreRef.current = createSpeedReadPartialStore()
-  }
-  const speedReadPartialStore = speedReadPartialStoreRef.current
 
   const canComment = useMemo(
     () => supportsComments({ ...article, originUrl: resolvedOriginUrl || article.originUrl }),
@@ -206,13 +195,6 @@ export function ReaderScreen({
   useEffect(
     () => () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-    },
-    [],
-  )
-
-  useEffect(
-    () => () => {
-      speedReadAbortRef.current?.abort()
     },
     [],
   )
@@ -741,101 +723,45 @@ export function ReaderScreen({
     () => resolveAiFeatureConfig({ ai: translationPrefs.ai }, 'speedRead'),
     [translationPrefs.ai],
   )
-  const speedReadKey = useMemo(
-    () => speedReadCacheKey(article.id, canonicalTitle, html, speedReadConfig),
-    [article.id, canonicalTitle, html, speedReadConfig],
-  )
+  const speedReadDocument = useMemo(() => {
+    const available =
+      loadState === 'ready' &&
+      Boolean(html.trim()) &&
+      bodySource !== 'blocked' &&
+      (bodySource !== 'video' || hasSpeedReadableText(html))
+    if (!available) return null
+    return {
+      id: article.id,
+      title: canonicalTitle,
+      contentHtml: html,
+      profile: 'news' as const,
+    }
+  }, [article.id, bodySource, canonicalTitle, html, loadState])
+  const speedRead = useSpeedRead({ document: speedReadDocument, config: speedReadConfig })
+  const {
+    available: canSpeedRead,
+    open: speedReadOpen,
+    state: speedReadState,
+    markdown: speedReadMarkdown,
+    error: speedReadError,
+    partialStore: speedReadPartialStore,
+    openPanel: openSpeedRead,
+    closePanel: closeSpeedRead,
+    retry: retrySpeedRead,
+    cancel: cancelSpeedRead,
+  } = speedRead
 
   useEffect(() => {
-    speedReadAbortRef.current?.abort()
-    speedReadAbortRef.current = null
-    speedReadPartialStore.reset()
-    setSpeedReadOpen(false)
-    setSpeedReadError('')
-
-    if (loadState !== 'ready' || !html.trim()) {
-      setSpeedReadMarkdown('')
-      setSpeedReadState('idle')
-      return
+    if (!overlayCloserRef || !speedReadOpen) return
+    const previous = overlayCloserRef.current
+    overlayCloserRef.current = () => {
+      closeSpeedRead()
+      return true
     }
-
-    const cached = loadSpeedReadCache(speedReadKey)
-    if (cached) {
-      const parsed = parseSpeedReadStored(cached)
-      speedReadPartialStore.set({ thinking: parsed.thinking, body: parsed.body, status: '' })
-      setSpeedReadMarkdown(parsed.body)
-      setSpeedReadState('ready')
-      return
+    return () => {
+      overlayCloserRef.current = previous
     }
-
-    speedReadPartialStore.reset()
-    setSpeedReadMarkdown('')
-    setSpeedReadState('idle')
-  }, [html, loadState, speedReadKey, speedReadPartialStore])
-
-  const runSpeedRead = useCallback(async () => {
-    if (loadState !== 'ready' || !html.trim()) return
-
-    speedReadAbortRef.current?.abort()
-
-    const controller = new AbortController()
-    speedReadAbortRef.current = controller
-    speedReadPartialStore.reset()
-    setSpeedReadOpen(true)
-    setSpeedReadState('loading')
-    setSpeedReadError('')
-    setSpeedReadMarkdown('')
-
-    try {
-      const result = await summarizeArticle({
-        title: canonicalTitle,
-        contentHtml: html,
-        config: speedReadConfig,
-        signal: controller.signal,
-        onPartial: (partial) => {
-          if (controller.signal.aborted || speedReadAbortRef.current !== controller) return
-          speedReadPartialStore.set(partial)
-        },
-      })
-      if (controller.signal.aborted || speedReadAbortRef.current !== controller) return
-      const parsed = parseSpeedReadStored(result)
-      speedReadPartialStore.set({ thinking: parsed.thinking, body: parsed.body, status: '' })
-      setSpeedReadMarkdown(parsed.body)
-      setSpeedReadState('ready')
-      saveSpeedReadCache(speedReadKey, result)
-    } catch (error) {
-      if (speedReadAbortRef.current !== controller) return
-      if (controller.signal.aborted) {
-        const latest = speedReadPartialStore.getSnapshot()
-        speedReadPartialStore.set({ ...latest, status: '' })
-        setSpeedReadState('cancelled')
-        return
-      }
-      speedReadPartialStore.reset()
-      setSpeedReadMarkdown('')
-      setSpeedReadError(error instanceof Error ? error.message : 'AI 速读生成失败')
-      setSpeedReadState('error')
-    } finally {
-      if (speedReadAbortRef.current === controller) speedReadAbortRef.current = null
-    }
-  }, [canonicalTitle, html, loadState, speedReadConfig, speedReadKey, speedReadPartialStore])
-
-  const openSpeedRead = useCallback(() => {
-    setSpeedReadOpen(true)
-    if (speedReadState === 'ready' && speedReadMarkdown.trim()) return
-    if (speedReadState === 'loading') return
-    void runSpeedRead()
-  }, [runSpeedRead, speedReadMarkdown, speedReadState])
-
-  const closeSpeedRead = useCallback(() => {
-    setSpeedReadOpen(false)
-  }, [])
-
-  const cancelSpeedRead = useCallback(() => {
-    if (!speedReadAbortRef.current) return
-    speedReadAbortRef.current.abort()
-    setSpeedReadState('cancelled')
-  }, [])
+  }, [closeSpeedRead, overlayCloserRef, speedReadOpen])
 
   const paged = usePagedReader({
     enabled: einkMode,
@@ -1046,12 +972,6 @@ export function ReaderScreen({
   }, [bodySource, fromCache])
 
   const isBlockedBody = bodySource === 'blocked'
-
-  const canSpeedRead =
-    loadState === 'ready' &&
-    Boolean(html.trim()) &&
-    bodySource !== 'blocked' &&
-    (bodySource !== 'video' || hasSpeedReadableText(html))
 
   /** 出版社地址：只用于「浏览器核对原文」与分享 token 里的正文来源 */
   const originUrl = resolvedOriginUrl || article.originUrl
@@ -1420,7 +1340,7 @@ export function ReaderScreen({
             ref={rootRef}
             {...{ [SCROLL_SURFACE_ATTR]: '' }}
             onScroll={einkMode ? undefined : handleScroll}
-            className={`scroll-hidden h-full overflow-x-hidden ${
+            className={`reader-font-pinch-surface scroll-hidden h-full overflow-x-hidden ${
               einkMode
                 ? paged.pageSliceHeight > paged.pageHeight
                   ? 'overflow-y-auto'
@@ -1914,7 +1834,7 @@ export function ReaderScreen({
         sourceLabel={article.sourceLabel}
         originUrl={originUrl}
         onClose={closeSpeedRead}
-        onRetry={() => void runSpeedRead()}
+        onRetry={retrySpeedRead}
         onCancel={cancelSpeedRead}
       />
     </div>

@@ -1,26 +1,24 @@
 import type { ParsedSpeedRead } from './types'
-import { SPEED_READ_SECTION_TITLES } from '../../features/speedRead/sections'
+import {
+  speedReadSectionTitles,
+  type SpeedReadProfile,
+  type SpeedReadSectionTitles,
+} from '../../features/speedRead/sections'
 
-const {
-  conclusion: SECTION_CONCLUSION,
-  satire: SECTION_SATIRE,
-  structure: SECTION_STRUCTURE,
-  situation: SECTION_SITUATION,
-  keyPoints: SECTION_KEY_POINTS,
-  warnings: SECTION_WARNINGS,
-} = SPEED_READ_SECTION_TITLES
-
-function classifySection(title: string): keyof ParsedSpeedRead | 'other' {
-  if (title.includes(SECTION_SATIRE)) return 'satire'
-  if (title.includes(SECTION_STRUCTURE)) return 'structure'
-  if (title.includes(SECTION_SITUATION)) return 'situation'
-  if (title.includes(SECTION_CONCLUSION) || title.includes('一句话') || title.includes('结论')) {
+function classifySection(
+  title: string,
+  sections: SpeedReadSectionTitles,
+): keyof ParsedSpeedRead | 'other' {
+  if (title.includes(sections.satire)) return 'satire'
+  if (title.includes(sections.structure)) return 'structure'
+  if (title.includes(sections.situation)) return 'situation'
+  if (title.includes(sections.conclusion) || title.includes('一句话') || title.includes('结论')) {
     return 'conclusion'
   }
-  if (title.includes(SECTION_KEY_POINTS) || title.includes('关键') || title.includes('要点')) {
+  if (title.includes(sections.keyPoints) || title.includes('关键') || title.includes('要点')) {
     return 'keyPoints'
   }
-  if (title.includes(SECTION_WARNINGS) || title.includes('值得') || title.includes('注意')) {
+  if (title.includes(sections.warnings) || title.includes('值得') || title.includes('注意')) {
     return 'warnings'
   }
   return 'other'
@@ -35,7 +33,11 @@ function appendText(current: string, next: string): string {
 }
 
 /** 从速读 Markdown 提取结论、三评、要点与注意事项 */
-export function parseSpeedReadMarkdown(markdown: string): ParsedSpeedRead {
+export function parseSpeedReadMarkdown(
+  markdown: string,
+  profile: SpeedReadProfile = 'news',
+): ParsedSpeedRead {
+  const sections = speedReadSectionTitles(profile)
   const result: ParsedSpeedRead = {
     conclusion: '',
     satire: '',
@@ -51,7 +53,7 @@ export function parseSpeedReadMarkdown(markdown: string): ParsedSpeedRead {
     if (!trimmed) continue
 
     if (trimmed.startsWith('## ')) {
-      current = classifySection(trimmed.slice(3).trim())
+      current = classifySection(trimmed.slice(3).trim(), sections)
       continue
     }
 

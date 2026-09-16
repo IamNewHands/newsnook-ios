@@ -78,7 +78,7 @@ export const ArticleRow = memo(function ArticleRow({
         <button
           type="button"
           onClick={() => onOpen(article)}
-          className={`group relative flex w-full items-start gap-3.5 px-4 py-3.5 text-left transition-all duration-200 sm:px-5 sm:py-4 ${
+          className={`group relative flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-all duration-200 sm:px-5 sm:py-4 ${
             variant === 'auto' ? 'md:hidden' : ''
           } ${
             read
@@ -162,7 +162,7 @@ export const ArticleRow = memo(function ArticleRow({
 
           {/* 缩略图容器：微圆角与极细边框，强制满幅裁切消除 Letterboxing */}
           {cover && (
-            <span className="relative shrink-0 overflow-hidden rounded-lg border border-haze/70 bg-ink-deep/30 shadow-2xs mt-0.5 h-16 w-16 sm:h-17 sm:w-17">
+            <span className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-haze/70 bg-ink-deep/30 shadow-2xs sm:h-17 sm:w-17">
               <InkImage
                 src={cover}
                 collapseOnError
