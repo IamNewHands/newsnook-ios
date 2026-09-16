@@ -6,7 +6,7 @@ import type { ZhihuCommentDraftStore } from '../comments/draftStore'
 import type { ZhihuCommentsService } from '../comments/service'
 import type { ZhihuContentDetail } from '../api/decode'
 import { ZhihuApiError } from '../api/errors'
-import { parseZhihuLink } from '../content/links'
+import { parseZhihuLink, parseZhihuVideoId } from '../content/links'
 import { normalizeZhihuContentHtml } from '../content/normalize'
 import type { ZhihuContentService } from '../content/service'
 import type { ZhihuFeedService } from '../feed/service'
@@ -528,6 +528,21 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
       return
     }
 
+    const anchor = target.closest('a') as HTMLAnchorElement | null
+    const anchorUrl = anchor?.getAttribute('data-source-page') || anchor?.href || ''
+    const zhihuVideoId = anchorUrl ? parseZhihuVideoId(anchorUrl) : null
+    if (anchor && (anchor.getAttribute('data-media-format') === 'video-page' || zhihuVideoId)) {
+      event.preventDefault()
+      event.stopPropagation()
+      const posterImage = anchor.querySelector('img')
+      setVideoPage({
+        url: anchorUrl || (zhihuVideoId ? `https://www.zhihu.com/video/${zhihuVideoId}` : anchor.href),
+        title: anchor.getAttribute('data-related-title') || detail?.title || '视频',
+        poster: posterImage?.currentSrc || posterImage?.getAttribute('src') || undefined,
+      })
+      return
+    }
+
     const image = target.closest('img') as HTMLImageElement | null
     const imageCard = image?.closest('a[data-reader-role="zhihu-link-card"]')
     if (image && !imageCard && !image.classList.contains('async-img-failed')) {
@@ -540,19 +555,8 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
       }
     }
 
-    const anchor = target.closest('a[href]') as HTMLAnchorElement | null
     if (!anchor?.href) return
     event.preventDefault()
-
-    if (anchor.getAttribute('data-media-format') === 'video-page') {
-      const posterImage = anchor.querySelector('img')
-      setVideoPage({
-        url: anchor.getAttribute('data-source-page') || anchor.href,
-        title: anchor.getAttribute('data-related-title') || detail?.title || '视频',
-        poster: posterImage?.currentSrc || posterImage?.getAttribute('src') || undefined,
-      })
-      return
-    }
 
     const ref = parseZhihuLink(anchor.href)
     if (ref) onNavigate(ref)

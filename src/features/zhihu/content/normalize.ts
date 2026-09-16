@@ -4,6 +4,7 @@ import { sanitizeArticleHtml } from '../../../lib/sanitize'
 import type { ZhihuSegmentInfoParagraph } from '../api/decode'
 import { injectZhihuSegmentHighlights } from '../segments/normalize'
 import type { ZhihuEntityRef } from '../types'
+import { parseZhihuVideoId } from './links'
 
 const ZHIHU_HOSTS = new Set(['zhihu.com', 'www.zhihu.com', 'zhuanlan.zhihu.com'])
 const VIDEO_HOST_PATTERN = /(?:^|\.)(?:bilibili\.com|b23\.tv|youtube\.com|youtu\.be|vimeo\.com|douyin\.com|ixigua\.com)$/i
@@ -60,9 +61,11 @@ function bestLinkTitle(anchor: Element, url: URL): string {
 }
 
 function createExternalCard(document: Document, source: Element, url: URL): Element {
-  const isVideo = VIDEO_HOST_PATTERN.test(url.hostname) || /video/i.test(source.getAttribute('class') || '')
+  const isZhihuVideo = Boolean(parseZhihuVideoId(url.href))
+  const isVideo = isZhihuVideo || VIDEO_HOST_PATTERN.test(url.hostname) || /video/i.test(source.getAttribute('class') || '')
   const label = isVideo ? '视频' : '外链'
-  const title = bestLinkTitle(source, url)
+  const detectedTitle = bestLinkTitle(source, url)
+  const title = isZhihuVideo && /^(?:www\.)?zhihu\.com$/i.test(detectedTitle) ? '知乎视频' : detectedTitle
   const card = document.createElement('a')
   card.setAttribute('href', url.href)
   card.setAttribute('data-reader-role', 'zhihu-link-card')
@@ -181,12 +184,17 @@ function promoteStandaloneExternalLinks(rawHtml: string): string {
   if (!/<a\b/i.test(rawHtml)) return rawHtml
   try {
     const { document } = parseHTML(`<!doctype html><html><body>${rawHtml}</body></html>`)
-    const anchors = [...document.body.querySelectorAll('a[href]')]
+    const anchors = [...document.body.querySelectorAll('a[href], a.video-box[data-lens-id]')]
     for (const anchor of anchors) {
       const href = anchor.getAttribute('href')?.trim()
-      if (!href) continue
-      const url = resolveLinkUrl(href)
-      if (!url || ZHIHU_HOSTS.has(url.hostname)) continue
+      const lensId = anchor.getAttribute('data-lens-id')?.trim()
+      const syntheticZhihuVideo = !href && lensId && /^[0-9]+$/.test(lensId)
+        ? `https://www.zhihu.com/video/${lensId}`
+        : undefined
+      const url = resolveLinkUrl(href || syntheticZhihuVideo || '')
+      if (!url) continue
+      const isZhihuVideo = Boolean(parseZhihuVideoId(url.href))
+      if (ZHIHU_HOSTS.has(url.hostname) && !isZhihuVideo) continue
 
       const parent = anchor.parentElement
       const standalone = Boolean(parent && /^(P|DIV|FIGURE)$/i.test(parent.tagName) && isOnlyMeaningfulChild(parent, anchor))

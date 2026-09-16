@@ -13,6 +13,19 @@ export function parseZhihuMessagePeerId(input: string): string | null {
   return inbox?.[1] ? decodeURIComponent(inbox[1]) : null
 }
 
+export function parseZhihuVideoId(input: string): string | null {
+  let url: URL
+  try {
+    url = new URL(input, 'https://www.zhihu.com')
+  } catch {
+    return null
+  }
+  const host = url.hostname.toLowerCase()
+  if (host !== 'www.zhihu.com' && host !== 'zhihu.com') return null
+  const video = url.pathname.match(/^\/video\/([0-9]+)(?:\/|$)/)
+  return video?.[1] ?? null
+}
+
 export function parseZhihuLink(input: string): ZhihuEntityRef | null {
   let url: URL
   try {

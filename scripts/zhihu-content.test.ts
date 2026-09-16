@@ -7,7 +7,7 @@ import { zhihuEntityUrl } from '../src/features/zhihu/api/endpoints'
 import { parseZhihuJson } from '../src/features/zhihu/api/json'
 import { toNewsArticle } from '../src/features/zhihu/content/bridge'
 import { normalizeZhihuContentHtml } from '../src/features/zhihu/content/normalize'
-import { parseZhihuLink } from '../src/features/zhihu/content/links'
+import { parseZhihuLink, parseZhihuVideoId } from '../src/features/zhihu/content/links'
 
 assert.deepEqual(
   parseZhihuLink('https://www.zhihu.com/question/123/answer/456'),
@@ -17,6 +17,8 @@ assert.deepEqual(parseZhihuLink('https://www.zhihu.com/question/123'), { kind: '
 assert.deepEqual(parseZhihuLink('https://zhuanlan.zhihu.com/p/789'), { kind: 'article', id: '789' })
 assert.deepEqual(parseZhihuLink('https://www.zhihu.com/people/example-user'), { kind: 'people', id: 'example-user' })
 assert.equal(parseZhihuLink('https://example.com/question/123'), null)
+assert.equal(parseZhihuVideoId('https://www.zhihu.com/video/2081068623192224666'), '2081068623192224666')
+assert.equal(parseZhihuVideoId('https://www.zhihu.com/question/123'), null)
 
 const answerUrl = zhihuEntityUrl({ kind: 'answer', id: '2027676063409484209' })
 assert.match(answerUrl ?? '', /include=/)
@@ -59,6 +61,15 @@ assert.ok(videoCard.includes('data-reader-role="zhihu-link-image"'), '有封面�
 assert.ok(videoCard.includes('data-media-format="video-page"'), '站外视频卡片必须标记为可交给 NewsNook 媒体嗅探/InkVideoPlayer 的视频页')
 assert.ok(videoCard.includes('data-source-page='), '站外视频卡片必须保留真实视频页面供媒体嗅探')
 assert.ok(videoCard.includes('DeepSeek 唱歌测试'))
+
+const nativeZhihuVideoCard = normalizeZhihuContentHtml('<p><a class="video-box" data-lens-id="2081068623192224666" href="https://www.zhihu.com/video/2081068623192224666"><img src="https://pic.example/zhihu-video.jpg">https://www.zhihu.com/video/2081068623192224666</a></p>')
+assert.ok(nativeZhihuVideoCard.includes('data-reader-role="zhihu-link-card"'), '知乎自身 /video/:id 不能被当成普通站内链接留下截图 + 裸 URL')
+assert.ok(nativeZhihuVideoCard.includes('data-media-format="video-page"'), '知乎自身视频也必须进入 NewsNook 视频页播放器管线')
+assert.ok(nativeZhihuVideoCard.includes('data-source-page="https://www.zhihu.com/video/2081068623192224666"'), '知乎视频卡片必须保留原始视频页供原生嗅探')
+assert.ok(nativeZhihuVideoCard.includes('data-reader-role="zhihu-link-image"'), '知乎视频封面必须作为视频卡片封面保留')
+
+const lensOnlyZhihuVideoCard = normalizeZhihuContentHtml('<p><a class="video-box" data-lens-id="2081068623192224666"><img src="https://pic.example/zhihu-video.jpg"></a></p>')
+assert.ok(lensOnlyZhihuVideoCard.includes('href="https://www.zhihu.com/video/2081068623192224666"'), '只有 data-lens-id 的知乎视频也必须恢复成可播放视频页')
 
 const article = toNewsArticle({
   ref: { kind: 'answer', id: '456' },
