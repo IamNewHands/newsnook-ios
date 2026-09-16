@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { MouseEvent, MutableRefObject } from 'react'
+import type { MouseEvent, MutableRefObject, ReactNode } from 'react'
 import { Browser } from '@capacitor/browser'
 import { ChevronDown, ChevronUp, Copy, ExternalLink, Heart, Info, Loader2, LockKeyhole, MessageCircle, MessageSquareQuote, SquarePen, ThumbsDown, ThumbsUp, UserPlus, X } from 'lucide-react'
 import type { ZhihuCommentDraftStore } from '../comments/draftStore'
@@ -86,6 +86,115 @@ async function copyPlainText(value: string): Promise<void> {
   if (!copied) throw new Error('当前系统无法写入剪贴板')
 }
 
+interface ZhihuAnswerActionBarProps {
+  authenticated: boolean
+  voteWritable: boolean
+  actionBusy: boolean
+  voteState: ZhihuVoteState
+  voteCountLabel?: string
+  commentCountLabel?: string
+  commentsDisabled: boolean
+  actionError?: string | null
+  collectionAction: ReactNode
+  onUpVote: () => void
+  onDownVote: () => void
+  onOpenComments: () => void
+}
+
+export function ZhihuAnswerActionBar({
+  authenticated,
+  voteWritable,
+  actionBusy,
+  voteState,
+  voteCountLabel,
+  commentCountLabel,
+  commentsDisabled,
+  actionError,
+  collectionAction,
+  onUpVote,
+  onDownVote,
+  onOpenComments,
+}: ZhihuAnswerActionBarProps) {
+  const voteDisabled = !authenticated || !voteWritable || actionBusy
+
+  return (
+    <nav
+      className="pointer-events-none fixed inset-x-0 z-40 px-4"
+      style={{ bottom: 'calc(var(--sab) + 4rem)' }}
+      aria-label="回答操作"
+    >
+      <div className="relative mx-auto flex w-full max-w-lg items-stretch gap-2.5">
+        {actionError && (
+          <div role="alert" className="absolute bottom-full left-1/2 mb-2 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-xl border border-cinnabar/35 bg-ink/98 px-3 py-2 text-[11px] text-cinnabar-soft shadow-xl">
+            {actionError}
+          </div>
+        )}
+
+        <div className="pointer-events-auto flex h-[3.25rem] min-w-0 flex-[1.2] items-stretch overflow-hidden rounded-[1.35rem] border border-cinnabar/40 bg-ink/95 text-cinnabar-soft shadow-[0_12px_32px_rgba(0,0,0,0.3)] backdrop-blur-xl">
+          <button
+            type="button"
+            disabled={voteDisabled}
+            onClick={onUpVote}
+            aria-label={voteState === 'up' ? '取消赞同' : '赞同'}
+            title={!authenticated ? '登录后可赞同' : voteState === 'up' ? '取消赞同' : '赞同'}
+            className="flex min-w-0 flex-1 items-center justify-center gap-2 px-3 transition-colors hover:bg-cinnabar/12 disabled:opacity-35"
+          >
+            <ThumbsUp size={18} strokeWidth={1.75} fill={voteState === 'up' ? 'currentColor' : 'none'} />
+            {voteCountLabel && <span className="max-w-20 truncate font-mono text-[12.5px]">{voteCountLabel}</span>}
+          </button>
+          <span className="my-2.5 w-px bg-cinnabar/25" aria-hidden />
+          <button
+            type="button"
+            disabled={voteDisabled}
+            onClick={onDownVote}
+            aria-label={voteState === 'down' ? '取消反对' : '反对'}
+            title={!authenticated ? '登录后可反对' : voteState === 'down' ? '取消反对' : '反对'}
+            className="flex w-12 items-center justify-center transition-colors hover:bg-cinnabar/12 disabled:opacity-35"
+          >
+            <ThumbsDown size={18} strokeWidth={1.75} fill={voteState === 'down' ? 'currentColor' : 'none'} />
+          </button>
+        </div>
+
+        <div className="pointer-events-auto flex size-[3.25rem] shrink-0 items-center justify-center rounded-[1.35rem] border border-haze/80 bg-ink/95 text-paper-muted shadow-[0_12px_32px_rgba(0,0,0,0.3)] backdrop-blur-xl [&>button]:size-full [&>button]:min-h-0 [&>button]:rounded-[1.35rem] [&>button]:border-0 [&>button]:bg-transparent [&>button]:px-0">
+          {collectionAction}
+        </div>
+        <button
+          type="button"
+          disabled={commentsDisabled}
+          onClick={onOpenComments}
+          aria-label={commentCountLabel ? `查看 ${commentCountLabel} 条评论` : '查看评论'}
+          title={commentsDisabled ? '当前内容暂无法读取评论' : '查看评论'}
+          className="pointer-events-auto flex h-[3.25rem] min-w-0 flex-1 items-center justify-center gap-2 rounded-[1.35rem] border border-haze/80 bg-ink/95 px-3 text-paper-muted shadow-[0_12px_32px_rgba(0,0,0,0.3)] backdrop-blur-xl transition-colors hover:border-cinnabar/35 hover:text-paper disabled:opacity-35"
+        >
+          <MessageCircle size={19} strokeWidth={1.7} />
+          {commentCountLabel && <span className="truncate font-mono text-[12px]">{commentCountLabel}</span>}
+        </button>
+      </div>
+    </nav>
+  )
+}
+
+interface ZhihuAnswerCommentsDialogProps {
+  open: boolean
+  onClose: () => void
+  children: ReactNode
+}
+
+export function ZhihuAnswerCommentsDialog({ open, onClose, children }: ZhihuAnswerCommentsDialogProps) {
+  if (!open) return null
+
+  return (
+    <div className="fixed inset-0 z-[74] flex min-h-0 flex-col bg-ink/98" role="dialog" aria-modal="true" aria-label="知乎回答评论">
+      <button type="button" onClick={onClose} aria-label="关闭评论" title="关闭评论" className="absolute right-3 top-[calc(var(--sat)+0.5rem)] z-10 flex size-10 items-center justify-center rounded-xl border border-haze/60 bg-ink/90 text-paper-muted shadow-lg backdrop-blur-xl transition-colors hover:bg-ink-raised hover:text-paper">
+        <X size={18} />
+      </button>
+      <div className="scroll-hidden min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(var(--sab)+1rem)] sm:px-6">
+        <div className="mx-auto w-full max-w-3xl">{children}</div>
+      </div>
+    </div>
+  )
+}
+
 export function ZhihuContentScreen({ refValue, preview, contentService, feedService, commentsService, onNavigate, onReplaceNavigate, overlayCloserRef, restoreAnchor, authenticated, accountId, commentDraftStore, interaction, onWriteAnswer }: Props) {
   const [detail, setDetail] = useState<ZhihuContentDetail | null>(null)
   const [answers, setAnswers] = useState<ZhihuContentSummary[]>([])
@@ -107,6 +216,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
   const originPlayerCloseRef = useRef<OriginPlayerCloseHandle | null>(null)
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
   const [videoPage, setVideoPage] = useState<{ url: string; title: string; poster?: string } | null>(null)
+  const [commentsOpen, setCommentsOpen] = useState(Boolean(restoreAnchor))
   const [questionDetailExpanded, setQuestionDetailExpanded] = useState(false)
   const [questionDetailCanCollapse, setQuestionDetailCanCollapse] = useState(false)
   const [selectedSegment, setSelectedSegment] = useState<ZhihuSegmentTarget | null>(null)
@@ -133,12 +243,13 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
   useEffect(() => {
     setLightbox(null)
     setVideoPage(null)
+    setCommentsOpen(Boolean(restoreAnchor))
     setQuestionDetailExpanded(false)
     setQuestionDetailCanCollapse(false)
     setSelectedSegment(null)
     setSegmentCommentsOpen(false)
     setSegmentError(null)
-  }, [refValue.id, refValue.kind])
+  }, [refValue.id, refValue.kind, restoreAnchor])
 
   useEffect(() => {
     if (refValue.kind !== 'question') {
@@ -159,7 +270,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
 
   useEffect(() => {
     if (!overlayCloserRef) return
-    if (!lightbox && !videoPage && !selectedSegment) {
+    if (!lightbox && !videoPage && !commentsOpen && !selectedSegment) {
       overlayCloserRef.current = null
       return
     }
@@ -173,6 +284,10 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
         // 再由下一次返回关闭视频浮层。
         if (originPlayerCloseRef.current?.closeCustom()) return true
         setVideoPage(null)
+        return true
+      }
+      if (commentsOpen) {
+        setCommentsOpen(false)
         return true
       }
       if (segmentCommentsOpen) {
@@ -189,7 +304,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
     return () => {
       overlayCloserRef.current = null
     }
-  }, [lightbox, overlayCloserRef, segmentCommentsOpen, selectedSegment, videoPage])
+  }, [commentsOpen, lightbox, overlayCloserRef, segmentCommentsOpen, selectedSegment, videoPage])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -467,7 +582,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
   const activeActionClass = 'border-cinnabar/45 bg-cinnabar/12 text-cinnabar-soft'
 
   return (
-    <article className="mx-auto w-full max-w-3xl px-4 pb-28 pt-5 sm:px-6">
+    <article className={`mx-auto w-full max-w-3xl px-4 pt-5 sm:px-6 ${refValue.kind === 'answer' ? 'pb-44' : 'pb-28'}`}>
       <header className="border-b border-haze/55 pb-5">
         <div className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.12em] text-cinnabar-soft">
           <ZhihuEntityIcon kind={refValue.kind} size={12} />
@@ -489,37 +604,25 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
         <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[12px] text-paper-faint">
           {detail.author?.name && <span className="font-medium text-paper-muted">{detail.author.name}</span>}
           {detail.author?.headline && <span className="max-w-full truncate">{detail.author.headline}</span>}
-          {voteCountLabel && <span>{voteCountLabel} 赞同</span>}
-          {commentCountLabel && <span>{commentCountLabel} 评论</span>}
+          {refValue.kind !== 'answer' && voteCountLabel && <span>{voteCountLabel} 赞同</span>}
+          {refValue.kind !== 'answer' && commentCountLabel && <span>{commentCountLabel} 评论</span>}
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          {refValue.kind === 'answer' && (
-            <button
-              type="button"
-              disabled={!authenticated || !voteWritable || actionBusy}
-              onClick={() => void toggleDownVote()}
-              aria-label={voteState === 'down' ? '取消反对' : '反对'}
-              title={!authenticated ? '登录后可反对' : voteState === 'down' ? '取消反对' : '反对'}
-              className={`${actionClass} ${voteState === 'down' ? activeActionClass : ''}`}
-            >
-              <ThumbsDown size={14} strokeWidth={1.65} fill={voteState === 'down' ? 'currentColor' : 'none'} />
-            </button>
-          )}
-
-          {(refValue.kind === 'answer' || refValue.kind === 'article') && (
-            <button
-              type="button"
-              disabled={!authenticated || !voteWritable || actionBusy}
-              onClick={() => void toggleVote()}
-              aria-label={voteState === 'up' ? '取消赞同' : '赞同'}
-              title={!authenticated ? '登录后可赞同' : voteState === 'up' ? '取消赞同' : '赞同'}
-              className={`${actionClass} ${voteState === 'up' ? activeActionClass : ''}`}
-            >
-              <ThumbsUp size={14} strokeWidth={1.65} fill={voteState === 'up' ? 'currentColor' : 'none'} />
-              {voteCountLabel && <span>{voteCountLabel}</span>}
-            </button>
-          )}
+        {refValue.kind !== 'answer' && (
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            {refValue.kind === 'article' && (
+              <button
+                type="button"
+                disabled={!authenticated || !voteWritable || actionBusy}
+                onClick={() => void toggleVote()}
+                aria-label={voteState === 'up' ? '取消赞同' : '赞同'}
+                title={!authenticated ? '登录后可赞同' : voteState === 'up' ? '取消赞同' : '赞同'}
+                className={`${actionClass} ${voteState === 'up' ? activeActionClass : ''}`}
+              >
+                <ThumbsUp size={14} strokeWidth={1.65} fill={voteState === 'up' ? 'currentColor' : 'none'} />
+                {voteCountLabel && <span>{voteCountLabel}</span>}
+              </button>
+            )}
 
           {refValue.kind === 'question' && (
             <>
@@ -555,9 +658,10 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
           >
             <ExternalLink size={14} strokeWidth={1.65} />
           </button>
-        </div>
+          </div>
+        )}
 
-        {actionError && <div className="mt-3"><ZhihuErrorBanner>{actionError}</ZhihuErrorBanner></div>}
+        {refValue.kind !== 'answer' && actionError && <div className="mt-3"><ZhihuErrorBanner>{actionError}</ZhihuErrorBanner></div>}
       </header>
 
       {guestLimited && (
@@ -628,7 +732,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
       {refValue.kind === 'answer' && detail.questionId && (previousAnswerRef || nextAnswerRef) && (
         <nav
           className="pointer-events-none fixed right-3 z-30 flex flex-col gap-2 sm:right-5"
-          style={{ bottom: 'calc(var(--sab) + 4.5rem)' }}
+          style={{ bottom: 'calc(var(--sab) + 8.75rem)' }}
           aria-label="此问题的回答导航"
         >
           <button
@@ -652,6 +756,23 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
             <ChevronDown size={18} strokeWidth={1.7} />
           </button>
         </nav>
+      )}
+
+      {refValue.kind === 'answer' && (
+        <ZhihuAnswerActionBar
+          authenticated={authenticated}
+          voteWritable={voteWritable}
+          actionBusy={actionBusy}
+          voteState={voteState}
+          voteCountLabel={voteCountLabel}
+          commentCountLabel={commentCountLabel}
+          commentsDisabled={guestLimited}
+          actionError={actionError}
+          collectionAction={<ZhihuCollectionPicker refValue={refValue} service={interaction} authenticated={authenticated} />}
+          onUpVote={() => void toggleVote()}
+          onDownVote={() => void toggleDownVote()}
+          onOpenComments={() => setCommentsOpen(true)}
+        />
       )}
 
       {refValue.kind === 'question' && (
@@ -698,7 +819,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
         </section>
       )}
 
-      {!guestLimited && ['answer', 'article', 'pin', 'question'].includes(refValue.kind) && (
+      {!guestLimited && refValue.kind !== 'answer' && ['article', 'pin', 'question'].includes(refValue.kind) && (
         <ZhihuCommentsSection
           target={refValue}
           service={commentsService}
@@ -709,6 +830,22 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
           draftStore={commentDraftStore}
         />
       )}
+
+      <ZhihuAnswerCommentsDialog open={refValue.kind === 'answer' && commentsOpen} onClose={() => setCommentsOpen(false)}>
+        <ZhihuCommentsSection
+          target={refValue}
+          service={commentsService}
+          onNavigate={(nextRef, anchor) => {
+            setCommentsOpen(false)
+            onNavigate(nextRef, anchor)
+          }}
+          restoreAnchor={restoreAnchor}
+          authenticated={authenticated}
+          accountId={accountId}
+          draftStore={commentDraftStore}
+          variant="dialog"
+        />
+      </ZhihuAnswerCommentsDialog>
 
       {selectedSegment && !segmentCommentsOpen && (
         <div

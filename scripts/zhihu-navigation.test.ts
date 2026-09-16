@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import * as React from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 
 import { loadActiveSiteId, saveActiveSiteId, type LayoutStorage } from '../src/features/sites/layoutState'
 import { createZhihuRootFrame, reduceRoutes } from '../src/features/zhihu/navigation'
@@ -124,6 +126,48 @@ assert.match(zhihuContentSource, /ImageLightbox/, '知乎正文图片必须复�
 assert.match(zhihuContentSource, /InlineArticleVideos/, '知乎正文原生 video 必须复用 NewsNook InkVideoPlayer 管线')
 assert.match(zhihuContentSource, /InlineYoutubeEmbeds/, '知乎正文 YouTube embed 必须复用 NewsNook 媒体播放管线')
 assert.match(zhihuContentSource, /OriginPlayerSurface/, '知乎站外视频页必须复用 NewsNook 媒体嗅探/InkVideoPlayer 能力')
+
+;(globalThis as typeof globalThis & { React: typeof React }).React = React
+const contentUi = await import('../src/features/zhihu/ui/ZhihuContentScreen') as Record<string, unknown>
+assert.equal(typeof contentUi.ZhihuAnswerActionBar, 'function', '回答页必须提供独立的底部悬浮操作条')
+assert.equal(typeof contentUi.ZhihuAnswerCommentsDialog, 'function', '回答评论必须以独立层打开')
+
+const ZhihuAnswerActionBar = contentUi.ZhihuAnswerActionBar as (props: Record<string, unknown>) => ReturnType<typeof React.createElement>
+const ZhihuAnswerCommentsDialog = contentUi.ZhihuAnswerCommentsDialog as (props: Record<string, unknown>) => ReturnType<typeof React.createElement>
+const answerActions = renderToStaticMarkup(React.createElement(ZhihuAnswerActionBar, {
+  authenticated: true,
+  voteWritable: true,
+  actionBusy: false,
+  voteState: 'neutral',
+  voteCountLabel: '1513',
+  commentCountLabel: '220',
+  commentsDisabled: false,
+  onUpVote: () => undefined,
+  onDownVote: () => undefined,
+  onOpenComments: () => undefined,
+  collectionAction: React.createElement('button', { type: 'button', 'aria-label': '收藏' }),
+}))
+assert.match(answerActions, /aria-label="回答操作"/, '回答操作条必须是可识别的独立导航区')
+assert.match(answerActions, /class="[^"]*fixed/, '回答操作条必须悬浮固定，不得占据正文流')
+assert.match(answerActions, /max-w-lg/, '回答操作条应使用舒展的三段式宽布局')
+assert.ok(answerActions.indexOf('aria-label="赞同"') < answerActions.indexOf('aria-label="反对"'), '赞同与反对应组合显示，且赞同在前')
+assert.match(answerActions, /aria-label="查看 220 条评论"/, '悬浮条必须提供带数量的评论入口')
+assert.doesNotMatch(answerActions, /打开知乎原页/, '回答悬浮条不应保留访问原文入口')
+
+const hiddenComments = renderToStaticMarkup(React.createElement(ZhihuAnswerCommentsDialog, {
+  open: false,
+  onClose: () => undefined,
+}, React.createElement('span', null, '评论内容')))
+assert.equal(hiddenComments, '', '未点击评论时不得渲染评论 UI')
+const openedComments = renderToStaticMarkup(React.createElement(ZhihuAnswerCommentsDialog, {
+  open: true,
+  onClose: () => undefined,
+}, React.createElement('span', null, '评论内容')))
+assert.match(openedComments, /role="dialog"/, '点击后评论必须在独立对话层显示')
+assert.doesNotMatch(openedComments, />评论<\//, '独立评论层外壳不得重复渲染评论标题')
+assert.match(openedComments, /aria-label="关闭评论"/, '独立评论层必须保留紧凑的关闭入口')
+assert.match(openedComments, /评论内容/)
+assert.match(zhihuContentSource, /bottom:\s*'calc\(var\(--sab\) \+ 8\.75rem\)'/, '上下回答按钮必须抬高避让底部悬浮操作条')
 assert.match(zhihuFeedScreenSource, /PULL_THRESHOLD_PX/, '知乎信息流下拉刷新必须复用统一刷新阈值')
 assert.match(zhihuFeedScreenSource, /resistedPullDistance/, '知乎信息流下拉刷新必须使用统一阻尼函数')
 assert.match(zhihuFeedScreenSource, /touchcancel', onTouchCancel/, '手势取消只能取消刷新，不能误当 touchend 触发刷新')

@@ -176,7 +176,7 @@ export const ZHIHU_OPERATIONS = [
   },
   {
     operation: 'segment.like.clear', zIds: ['Z08'], status: 'source-only', method: 'DELETE', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/reaction/:type/:id/segment_reaction',
-    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/components/SegmentHighlight.kt`, note: '取消段落点赞 DELETE signed；body 为 seg_ids。' }], note: '目标态写；断线不重试。',
+    evidence: [{ kind: 'source', pa1.63  2.656th: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/components/SegmentHighlight.kt`, note: '取消段落点赞 DELETE signed；body 为 seg_ids。' }], note: '目标态写；断线不重试。',
   },
   {
     operation: 'comment.like.set', zIds: ['Z08'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/comments/:id/like',
