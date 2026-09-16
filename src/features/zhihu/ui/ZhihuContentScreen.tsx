@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent, MutableRefObject } from 'react'
 import { Browser } from '@capacitor/browser'
-import { ChevronDown, ChevronUp, ExternalLink, Info, Loader2, LockKeyhole, MessageSquareQuote, SquarePen, ThumbsDown, ThumbsUp, UserPlus, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Copy, ExternalLink, Heart, Info, Loader2, LockKeyhole, MessageCircle, MessageSquareQuote, SquarePen, ThumbsDown, ThumbsUp, UserPlus, X } from 'lucide-react'
 import type { ZhihuCommentDraftStore } from '../comments/draftStore'
 import type { ZhihuCommentsService } from '../comments/service'
 import type { ZhihuContentDetail } from '../api/decode'
@@ -12,6 +12,7 @@ import type { ZhihuContentService } from '../content/service'
 import type { ZhihuFeedService } from '../feed/service'
 import type { ZhihuInteractionService, ZhihuVoteState } from '../interaction/service'
 import { canExecuteZhihuOperation } from '../protocol'
+import { segmentTargetFromElement, type ZhihuSegmentTarget } from '../segments/normalize'
 import type { ZhihuContentSummary, ZhihuEntityRef } from '../types'
 import type { ZhihuQuestionAnswerOrder } from '../api/endpoints'
 import { SegmentedControl } from '../../../components/SegmentedControl'
@@ -53,6 +54,8 @@ function detailFromPreview(preview: ZhihuContentSummary): ZhihuContentDetail {
   return {
     ...preview,
     contentHtml: '',
+    segmentInfos: [],
+    allowSegmentInteraction: false,
     voteState: 'neutral',
     isFollowing: false,
   }
@@ -64,6 +67,23 @@ async function openExternal(url: string): Promise<void> {
   } catch {
     window.open(url, '_blank', 'noopener,noreferrer')
   }
+}
+
+async function copyPlainText(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value)
+    return
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.setAttribute('readonly', 'true')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.append(textarea)
+  textarea.select()
+  const copied = document.execCommand('copy')
+  textarea.remove()
+  if (!copied) throw new Error('当前系统无法写入剪贴板')
 }
 
 export function ZhihuContentScreen({ refValue, preview, contentService, feedService, commentsService, onNavigate, onReplaceNavigate, overlayCloserRef, restoreAnchor, authenticated, accountId, commentDraftStore, interaction, onWriteAnswer }: Props) {
@@ -83,25 +103,63 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
   const [actionError, setActionError] = useState<string | null>(null)
   const [guestLimited, setGuestLimited] = useState(false)
   const proseRef = useRef<HTMLDivElement | null>(null)
+  const questionDetailRef = useRef<HTMLDivElement | null>(null)
   const originPlayerCloseRef = useRef<OriginPlayerCloseHandle | null>(null)
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
   const [videoPage, setVideoPage] = useState<{ url: string; title: string; poster?: string } | null>(null)
+  const [questionDetailExpanded, setQuestionDetailExpanded] = useState(false)
+  const [questionDetailCanCollapse, setQuestionDetailCanCollapse] = useState(false)
+  const [selectedSegment, setSelectedSegment] = useState<ZhihuSegmentTarget | null>(null)
+  const [segmentCommentsOpen, setSegmentCommentsOpen] = useState(false)
+  const [segmentBusy, setSegmentBusy] = useState(false)
+  const [segmentError, setSegmentError] = useState<string | null>(null)
   const normalizedHtml = useMemo(
-    () => normalizeZhihuContentHtml(detail?.contentHtml ?? ''),
-    [detail?.contentHtml],
+    () => normalizeZhihuContentHtml(
+      detail?.contentHtml ?? '',
+      detail?.segmentInfos ?? [],
+      refValue,
+    ),
+    [detail?.contentHtml, detail?.segmentInfos, refValue],
   )
 
   // 与 NewsNook Reader 共用同一套图片代理、占位、渐显和失败处理。
-  useProgressiveImages(proseRef, normalizedHtml, Boolean(normalizedHtml))
+  // 知乎图片直连失败时允许走原生字节通道 + Referer 自动补救，并保留点按重试。
+  useProgressiveImages(proseRef, normalizedHtml, Boolean(normalizedHtml), {
+    autoLoad: true,
+    forceNativeFallback: true,
+    imageReferer: 'https://www.zhihu.com/',
+  })
 
   useEffect(() => {
     setLightbox(null)
     setVideoPage(null)
+    setQuestionDetailExpanded(false)
+    setQuestionDetailCanCollapse(false)
+    setSelectedSegment(null)
+    setSegmentCommentsOpen(false)
+    setSegmentError(null)
   }, [refValue.id, refValue.kind])
 
   useEffect(() => {
+    if (refValue.kind !== 'question') {
+      setQuestionDetailCanCollapse(false)
+      return
+    }
+    const node = questionDetailRef.current
+    if (!node) return
+    const measure = () => setQuestionDetailCanCollapse(node.scrollHeight > 300)
+    const frame = window.requestAnimationFrame(measure)
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
+    observer?.observe(node)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      observer?.disconnect()
+    }
+  }, [detail?.excerpt, normalizedHtml, refValue.kind])
+
+  useEffect(() => {
     if (!overlayCloserRef) return
-    if (!lightbox && !videoPage) {
+    if (!lightbox && !videoPage && !selectedSegment) {
       overlayCloserRef.current = null
       return
     }
@@ -117,12 +175,21 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
         setVideoPage(null)
         return true
       }
+      if (segmentCommentsOpen) {
+        setSegmentCommentsOpen(false)
+        return true
+      }
+      if (selectedSegment) {
+        setSelectedSegment(null)
+        setSegmentError(null)
+        return true
+      }
       return false
     }
     return () => {
       overlayCloserRef.current = null
     }
-  }, [lightbox, overlayCloserRef, videoPage])
+  }, [lightbox, overlayCloserRef, segmentCommentsOpen, selectedSegment, videoPage])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -285,9 +352,58 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
     }
   }
 
+  const syncSegmentDom = (previous: ZhihuSegmentTarget, next: ZhihuSegmentTarget) => {
+    const nodes = proseRef.current?.querySelectorAll<HTMLElement>('[data-reader-role="zhihu-segment"]') ?? []
+    for (const node of nodes) {
+      if (node.getAttribute('data-zhihu-segment-id') !== previous.segmentId) continue
+      node.setAttribute('data-zhihu-segment-id', next.segmentId)
+      node.setAttribute('data-zhihu-segment-liked', String(next.liked))
+      node.setAttribute('data-zhihu-segment-like-count', String(next.likeCount))
+    }
+  }
+
+  const toggleSegmentLike = async () => {
+    if (!selectedSegment || !authenticated || segmentBusy) return
+    const operation = selectedSegment.liked ? 'segment.like.clear' : 'segment.like.set'
+    if (!canExecuteZhihuOperation(operation)) return
+    const previous = selectedSegment
+    setSegmentBusy(true)
+    setSegmentError(null)
+    try {
+      const next = await interaction.setSegmentLiked(previous, !previous.liked)
+      syncSegmentDom(previous, next)
+      setSelectedSegment(next)
+    } catch (reason) {
+      setSegmentError(reason instanceof Error ? reason.message : '段落点赞失败')
+    } finally {
+      setSegmentBusy(false)
+    }
+  }
+
+  const copySelectedSegment = async () => {
+    if (!selectedSegment) return
+    setSegmentError(null)
+    try {
+      await copyPlainText(selectedSegment.displayText)
+      setSelectedSegment(null)
+    } catch (reason) {
+      setSegmentError(reason instanceof Error ? reason.message : '复制失败')
+    }
+  }
+
   const handleBodyClick = (event: MouseEvent<HTMLElement>) => {
     const target = event.target instanceof Element ? event.target : null
     if (!target) return
+
+    const segment = segmentTargetFromElement(target)
+    if (segment) {
+      event.preventDefault()
+      event.stopPropagation()
+      setSegmentError(null)
+      setSegmentCommentsOpen(false)
+      setSelectedSegment(segment)
+      return
+    }
 
     const image = target.closest('img') as HTMLImageElement | null
     const imageCard = image?.closest('a[data-reader-role="zhihu-link-card"]')
@@ -452,38 +568,59 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
       )}
 
       <div className="mt-6">
-        {detail.contentHtml ? (
-          <>
-            <div
-              ref={proseRef}
-              className="reader-prose zhihu-prose text-paper"
-              data-article-lang="zh"
-              onClick={handleBodyClick}
-              dangerouslySetInnerHTML={{ __html: normalizedHtml }}
-            />
-            <InlineArticleVideos
-              rootRef={proseRef}
-              html={normalizedHtml}
-              enabled={Boolean(normalizedHtml)}
-              fallbackTitle={detail.title}
-              sourcePage={detail.url}
-            />
-            <InlineYoutubeEmbeds
-              rootRef={proseRef}
-              html={normalizedHtml}
-              enabled={Boolean(normalizedHtml)}
-              fallbackTitle={detail.title}
-              sourcePage={detail.url}
-            />
-          </>
-        ) : detail.excerpt ? (
-          <div className="reader-prose zhihu-prose" data-article-lang="zh">
-            <p data-cjk="true">{detail.excerpt}</p>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 py-8 text-[12px] text-paper-faint">
-            <Info size={15} />
-            <span>没有可显示的正文内容。</span>
+        <div
+          ref={questionDetailRef}
+          className={`relative ${refValue.kind === 'question' && questionDetailCanCollapse && !questionDetailExpanded ? 'max-h-[18rem] overflow-hidden' : ''}`}
+        >
+          {detail.contentHtml ? (
+            <>
+              <div
+                ref={proseRef}
+                className="reader-prose zhihu-prose text-paper"
+                data-article-lang="zh"
+                onClick={handleBodyClick}
+                dangerouslySetInnerHTML={{ __html: normalizedHtml }}
+              />
+              <InlineArticleVideos
+                rootRef={proseRef}
+                html={normalizedHtml}
+                enabled={Boolean(normalizedHtml)}
+                fallbackTitle={detail.title}
+                sourcePage={detail.url}
+              />
+              <InlineYoutubeEmbeds
+                rootRef={proseRef}
+                html={normalizedHtml}
+                enabled={Boolean(normalizedHtml)}
+                fallbackTitle={detail.title}
+                sourcePage={detail.url}
+              />
+            </>
+          ) : detail.excerpt ? (
+            <div className="reader-prose zhihu-prose" data-article-lang="zh">
+              <p data-cjk="true">{detail.excerpt}</p>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 py-8 text-[12px] text-paper-faint">
+              <Info size={15} />
+              <span>没有可显示的正文内容。</span>
+            </div>
+          )}
+          {refValue.kind === 'question' && questionDetailCanCollapse && !questionDetailExpanded && (
+            <span className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-b from-transparent to-ink" aria-hidden />
+          )}
+        </div>
+        {refValue.kind === 'question' && questionDetailCanCollapse && (
+          <div className="mt-2 flex justify-center border-b border-haze/45 pb-3">
+            <button
+              type="button"
+              onClick={() => setQuestionDetailExpanded((value) => !value)}
+              aria-expanded={questionDetailExpanded}
+              className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-haze/70 bg-ink-raised/45 px-3.5 text-[11px] text-paper-muted transition-colors hover:border-cinnabar/35 hover:text-cinnabar-soft"
+            >
+              {questionDetailExpanded ? <ChevronUp size={14} strokeWidth={1.7} /> : <ChevronDown size={14} strokeWidth={1.7} />}
+              <span>{questionDetailExpanded ? '收起问题详情' : '展开问题详情'}</span>
+            </button>
           </div>
         )}
       </div>
@@ -563,7 +700,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
 
       {!guestLimited && ['answer', 'article', 'pin', 'question'].includes(refValue.kind) && (
         <ZhihuCommentsSection
-          refValue={refValue}
+          target={refValue}
           service={commentsService}
           onNavigate={onNavigate}
           restoreAnchor={restoreAnchor}
@@ -571,6 +708,102 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
           accountId={accountId}
           draftStore={commentDraftStore}
         />
+      )}
+
+      {selectedSegment && !segmentCommentsOpen && (
+        <div
+          className="fixed inset-0 z-[72] flex items-end bg-black/35 backdrop-blur-[2px]"
+          role="dialog"
+          aria-modal="true"
+          aria-label="段落互动"
+          onClick={() => { setSelectedSegment(null); setSegmentError(null) }}
+        >
+          <div
+            className="w-full rounded-t-[1.75rem] border-t border-haze/80 bg-ink/98 px-4 pb-[calc(var(--sab)+1rem)] pt-3 shadow-2xl sm:mx-auto sm:max-w-xl sm:rounded-[1.5rem] sm:border sm:mb-4 sm:pb-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mx-auto h-1 w-10 rounded-full bg-paper-faint/30" aria-hidden />
+            <div className="mt-4 rounded-xl border border-haze/60 bg-ink-raised/45 px-3.5 py-3 text-[12.5px] leading-[1.75] text-paper-muted">
+              {selectedSegment.displayText}
+            </div>
+            {segmentError && <div className="mt-2.5"><ZhihuErrorBanner>{segmentError}</ZhihuErrorBanner></div>}
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                disabled={
+                  !authenticated
+                  || segmentBusy
+                  || !canExecuteZhihuOperation(selectedSegment.liked ? 'segment.like.clear' : 'segment.like.set')
+                }
+                onClick={() => void toggleSegmentLike()}
+                className={`flex min-h-12 items-center justify-center gap-1.5 rounded-xl border text-[11px] transition-colors disabled:opacity-35 ${selectedSegment.liked ? 'border-cinnabar/45 bg-cinnabar/12 text-cinnabar-soft' : 'border-haze/70 bg-ink-raised/55 text-paper-muted hover:border-cinnabar/35 hover:text-cinnabar-soft'}`}
+                title={!authenticated ? '登录后可点赞这段文字' : selectedSegment.liked ? '取消段落点赞' : '点赞这段文字'}
+              >
+                {segmentBusy ? <Loader2 size={14} className="animate-spin" /> : <Heart size={14} fill={selectedSegment.liked ? 'currentColor' : 'none'} strokeWidth={1.7} />}
+                <span>{selectedSegment.liked ? '已赞' : '赞'}</span>
+                {selectedSegment.likeCount > 0 && <span className="font-mono text-[9.5px]">{formatZhihuCount(selectedSegment.likeCount)}</span>}
+              </button>
+              <button
+                type="button"
+                disabled={!canExecuteZhihuOperation('segment.comment.list-root')}
+                onClick={() => setSegmentCommentsOpen(true)}
+                className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-haze/70 bg-ink-raised/55 text-[11px] text-paper-muted transition-colors hover:border-cinnabar/35 hover:text-cinnabar-soft disabled:opacity-35"
+                title="查看段评"
+              >
+                <MessageCircle size={14} strokeWidth={1.7} />
+                <span>段评</span>
+                {selectedSegment.commentCount > 0 && <span className="font-mono text-[9.5px]">{formatZhihuCount(selectedSegment.commentCount)}</span>}
+              </button>
+              <button
+                type="button"
+                onClick={() => void copySelectedSegment()}
+                className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl border border-haze/70 bg-ink-raised/55 text-[11px] text-paper-muted transition-colors hover:border-cinnabar/35 hover:text-cinnabar-soft"
+                title="复制这段文字"
+              >
+                <Copy size={14} strokeWidth={1.7} />
+                <span>复制</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedSegment && segmentCommentsOpen && (
+        <div className="fixed inset-0 z-[74] flex min-h-0 flex-col bg-ink/98" role="dialog" aria-modal="true" aria-label="知乎段评">
+          <header className="shrink-0 border-b border-haze/60 px-4 pb-3 pt-[calc(var(--sat)+0.75rem)] sm:px-6">
+            <div className="flex items-center gap-3">
+              <MessageCircle size={17} className="shrink-0 text-cinnabar-soft" strokeWidth={1.7} />
+              <div className="min-w-0 flex-1">
+                <div className="font-display text-[17px] text-paper">段评</div>
+                <div className="mt-0.5 line-clamp-1 text-[10.5px] text-paper-faint">{selectedSegment.displayText}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSegmentCommentsOpen(false)}
+                aria-label="关闭段评"
+                className="flex size-10 shrink-0 items-center justify-center rounded-xl text-paper-muted hover:bg-paper/5 hover:text-paper"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </header>
+          <div className="scroll-hidden min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(var(--sab)+1rem)] sm:px-6">
+            <div className="mx-auto w-full max-w-3xl">
+              <ZhihuCommentsSection
+                target={selectedSegment}
+                service={commentsService}
+                onNavigate={(ref, anchor) => {
+                  setSegmentCommentsOpen(false)
+                  setSelectedSegment(null)
+                  onNavigate(ref, anchor)
+                }}
+                authenticated={authenticated}
+                accountId={accountId}
+                draftStore={commentDraftStore}
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       {videoPage && (

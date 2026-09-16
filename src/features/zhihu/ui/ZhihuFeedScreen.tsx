@@ -263,7 +263,7 @@ export function ZhihuFeedScreen({
       ) : (
         <ZhihuSurface className="divide-y divide-haze/55">
           {items.map((item) => (
-            <ZhihuContentRow key={`${item.ref.kind}:${item.ref.id}`} item={item} onOpen={onOpen} />
+            <ZhihuContentRow key={`${item.ref.kind}:${item.ref.id}`} item={item} onOpen={onOpen} compact />
           ))}
         </ZhihuSurface>
       )}

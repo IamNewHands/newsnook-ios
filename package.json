@@ -100,6 +100,7 @@
     "test:zhihu-content": "npx tsx scripts/zhihu-content.test.ts",
     "test:zhihu-public-entities": "npx tsx scripts/zhihu-public-entities.test.ts",
     "test:zhihu-comments": "npx tsx scripts/zhihu-comments.test.ts",
+    "test:zhihu-segments": "npx tsx scripts/zhihu-segments.test.ts",
     "test:zhihu-cache": "npx tsx scripts/zhihu-cache.test.ts",
     "test:zhihu": "npx tsx scripts/zhihu.test.ts",
     "test:cloudflare-routing": "npx tsx scripts/cloudflare-routing.test.ts",

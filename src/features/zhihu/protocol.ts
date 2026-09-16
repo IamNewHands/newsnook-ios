@@ -163,6 +163,22 @@ export const ZHIHU_OPERATIONS = [
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/comment/RootCommentViewModel.kt`, note: '评论 body 为 content HTML + optional reply_comment_id。' }], note: '非幂等写；仅在真实账号会话中执行一次，并以响应实体确认成功。',
   },
   {
+    operation: 'segment.comment.list-root', zIds: ['Z08'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/comment_v5/:type/:id/segment/root_comment',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/comment/RootCommentViewModel.kt`, note: 'SegmentCommentHolder.rootCommentUrl 使用 segment_id + limit=20 + offset 分页。' }], note: '段评根评论只读分页；segment_id 来自详情 segment_infos。',
+  },
+  {
+    operation: 'segment.comment.create', zIds: ['Z08'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/comment_v5/:type/:id/segment/comment',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/comment/RootCommentViewModel.kt`, note: 'SegmentCommentHolder.buildSubmitCommentBody 包含 segment.content 与 start/end paragraph_id/offset。' }], note: '非幂等段评写入；服务端返回评论实体后才更新 UI。',
+  },
+  {
+    operation: 'segment.like.set', zIds: ['Z08'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/reaction/:type/:id/segment_reaction',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/components/SegmentHighlight.kt`, note: 'toggleSegmentLike POST signed；body 为 optional seg_id + content + position。' }], note: '服务端可能 204，或返回 payload.segId 更新段落 reaction ids。',
+  },
+  {
+    operation: 'segment.like.clear', zIds: ['Z08'], status: 'source-only', method: 'DELETE', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/reaction/:type/:id/segment_reaction',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/components/SegmentHighlight.kt`, note: '取消段落点赞 DELETE signed；body 为 seg_ids。' }], note: '目标态写；断线不重试。',
+  },
+  {
     operation: 'comment.like.set', zIds: ['Z08'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/comments/:id/like',
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/comment/BaseCommentViewModel.kt`, note: 'POST 点赞评论。' }], note: '只在服务端成功后更新本地状态。',
   },
@@ -207,6 +223,14 @@ export const ZHIHU_OPERATIONS = [
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: 'PeopleFollowingTopicsViewModel。' }], note: '关注的话题分页。',
   },
   {
+    operation: 'people.columns', zIds: ['Z09'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/members/:token/column-contributions',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: 'PeopleColumnContributionsViewModel 使用 members/:token/column-contributions，include=data[*].articles_count,followers,author。' }], note: '用户专栏贡献分页；参考客户端点击专栏时打开一方 Zhihu Web URL。',
+  },
+  {
+    operation: 'people.following-columns', zIds: ['Z09'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/members/:token/following-columns',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: 'PeopleFollowingColumnsViewModel 使用 members/:token/following-columns，include=data[*].articles_count,followers,author。' }], note: '用户关注的专栏分页；保持参考实现的 Web 打开语义。',
+  },
+  {
     operation: 'people.collections', zIds: ['Z09', 'Z10'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/members/:token/favlists',
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PeopleScreen.kt`, note: 'PeopleCollectionsViewModel 使用 members/:token/favlists，并在列表项进入 CollectionContent。' }], note: '公开用户收藏夹分页；私密条目仍由上游权限决定。',
   },
@@ -248,7 +272,7 @@ export const ZHIHU_OPERATIONS = [
   },
   {
     operation: 'collection.membership', zIds: ['Z10'], status: 'source-only', method: 'PUT', auth: 'required', retry: 'never', endpoint: 'https://api.zhihu.com/collections/contents/:contentType/:id',
-    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/ArticleViewModel.kt`, note: 'application/x-www-form-urlencoded add_collections/remove_collections。' }], note: '目标态写入；body 必须参与 ZSE96 签名。',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/ArticleViewModel.kt`, note: 'account HttpClient 直接 PUT application/x-www-form-urlencoded add_collections/remove_collections，不走 postSigned。' }], note: '目标态写入；显式使用已登录 Cookie，但不附加 Web ZSE96。',
   },
   {
     operation: 'draft.answer.save', zIds: ['Z11', 'Z12'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/questions/:id/draft',
@@ -273,6 +297,13 @@ export const ZHIHU_OPERATIONS = [
   {
     operation: 'draft.pin.save', zIds: ['Z11', 'Z13'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://api.zhihu.com/content/drafts',
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/WritePinScreen.kt`, note: '想法草稿保存使用 action=pin。' }], note: '非幂等；本地先保存后再尝试远端。',
+  },
+  {
+    operation: 'pin.topic.recommend', zIds: ['Z13'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://api.zhihu.com/content/publish/topics/recommend',
+    evidence: [
+      { kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/WritePinScreen.kt`, note: '输入话题关键字时 postSigned 到 topics/recommend，body 为 title + content。' },
+      { kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/editor/ZhihuPinPublisher.kt`, note: 'PinTopicSuggestionResponse 与发布 topic.topics 结构。' },
+    ], note: '只读语义的推荐请求，但协议方法为 POST；不自动重发，由编辑器防抖触发。',
   },
   {
     operation: 'pin.publish', zIds: ['Z13'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/content/publish',
@@ -312,11 +343,11 @@ export const ZHIHU_OPERATIONS = [
   },
   {
     operation: 'notification.list', zIds: ['Z16'], status: 'source-only', method: 'GET', auth: 'required', retry: 'safe-read', endpoint: 'https://api.zhihu.com/notifications/v3/message/v3',
-    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/NotificationViewModel.kt`, note: 'NotificationViewModel overview 使用 message/v3，返回 head/unread/data/paging。' }], note: '通知总览及各分类未读数；账号私有，不进入公共缓存。',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/NotificationViewModel.kt`, note: 'NotificationViewModel overview 使用 message/v3，返回 head/column_head/unread/data/paging。' }], note: '通知总览、邀请回答入口及消息会话；unread.message.count 是消息页总未读，不等同于私信未读。账号私有，不进入公共缓存。',
   },
   {
     operation: 'notification.timeline', zIds: ['Z16'], status: 'source-only', method: 'GET', auth: 'required', retry: 'safe-read', endpoint: 'https://api.zhihu.com/notifications/v3/timeline/entry/:entry',
-    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/NotificationViewModel.kt`, note: 'NotificationTimelineViewModel 按 comment/like/favlist_me/follow entry 分页。' }], note: '分类通知时间线；paging.next 必须经过知乎域白名单。',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/NotificationViewModel.kt`, note: 'NotificationTimelineViewModel 按 comment/like/favlist_me/follow/invite entry 分页；invite 首屏增加 invite_with_time_slice=1。' }], note: '分类通知与邀请回答时间线；paging.next 必须经过知乎域白名单。',
   },
   {
     operation: 'notification.readall', zIds: ['Z16'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://api.zhihu.com/notifications/v3/timeline/entry/:entry/actions/readall',
@@ -331,11 +362,12 @@ export const ZHIHU_OPERATIONS = [
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/NotificationViewModel.kt`, note: '会话页并行读取 peer 资料。' }], note: '账号私有，不缓存到公共域。',
   },
   {
-    operation: 'message.send', zIds: ['Z16'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/messages',
+    operation: 'message.send', zIds: ['Z16'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://api.zhihu.com/messages',
     evidence: [
-      { kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/PrivateMessageScreen.kt`, note: '参考项目证明私信会话与发送仍为现行产品能力。' },
-      { kind: 'local-test', path: 'scripts/zhihu-message.test.ts', note: 'NewsNook Web v4 JSON 发送只执行一次，并用会话读回确认；无法确认时返回 unknown/conflict，绝不自动重发。' },
-    ], note: '使用 Web v4 messages 的 JSON body；非幂等发送只调用一次，响应无实体时必须读回确认。',
+      { kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/NotificationViewModel.kt`, note: 'PrivateMessageViewModel 使用 api.zhihu.com/messages、101_1_1.0、form-url-encoded 明文和本地消息体加密。' },
+      { kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/util/ZhihuMessageBodyEncryptor.kt`, note: '消息体加密协议与官方 Android 11.3.0 请求向量一致。' },
+      { kind: 'local-test', path: 'scripts/zhihu-message.test.ts', note: 'NewsNook 固定加密向量与单次 POST 行为测试；结果未知时绝不自动重发。' },
+    ], note: 'Android 消息协议；非幂等发送只调用一次，只有服务端返回可解码消息实体才视为成功。',
   },
   {
     operation: 'bridge.article', zIds: ['Z17'], status: 'blocked', method: 'LOCAL', auth: 'local-only', retry: 'never', endpoint: null,

@@ -1,3 +1,4 @@
+import { asRecord } from '../api/decode'
 import { ZhihuApiError } from '../api/errors'
 import type { ZhihuDraftStore } from './draftStore'
 import {
@@ -14,6 +15,13 @@ export type ZhihuPublishResult =
   | { status: 'confirmed'; operationId: string; contentId: string }
   | { status: 'failed'; operationId: string; error: string }
   | { status: 'unknown'; operationId: string; error: string }
+
+export interface ZhihuPinTopicSuggestion {
+  id: string
+  topicId: string
+  name: string
+  discussCount?: string
+}
 
 export interface ZhihuEditorApi {
   getJson(operation: string, url: string, signal?: AbortSignal): Promise<unknown>
@@ -33,6 +41,10 @@ function isUnknownWriteFailure(error: unknown): boolean {
   return error.code === 'network' && (error.status === undefined || error.status >= 500)
 }
 
+function answerDraftReferer(questionId: string, answerId?: string): string {
+  return `https://www.zhihu.com/question/${encodeURIComponent(questionId)}/answer/${answerId ? encodeURIComponent(answerId) : ''}`
+}
+
 export class ZhihuEditorService {
   private readonly api: ZhihuEditorApi
   private readonly drafts: ZhihuDraftStore
@@ -40,6 +52,55 @@ export class ZhihuEditorService {
   constructor(api: ZhihuEditorApi, drafts: ZhihuDraftStore) {
     this.api = api
     this.drafts = drafts
+  }
+
+  async recommendPinTopics(
+    query: string,
+    title: string,
+    contentHtml: string,
+    signal?: AbortSignal,
+  ): Promise<ZhihuPinTopicSuggestion[]> {
+    const normalized = query.trim().replace(/^#+/, '')
+    if (!normalized) return []
+    const params = new URLSearchParams()
+    params.set('recommend_type', 'pin')
+    params.set('key_word', normalized)
+    const raw = await this.api.requestRawJson(
+      'pin.topic.recommend',
+      `https://api.zhihu.com/content/publish/topics/recommend?${params.toString()}`,
+      'POST',
+      JSON.stringify({ title: title.trim(), content: contentHtml }),
+      { 'Content-Type': 'application/json' },
+      signal,
+      { signing: 'web-zse96' },
+    )
+    const root = asRecord(raw)
+    const data = asRecord(root?.data)
+    const list = Array.isArray(data?.list) ? data.list : []
+    const seen = new Set<string>()
+    return list.map((item): ZhihuPinTopicSuggestion | null => {
+      const record = asRecord(item)
+      if (!record) return null
+      const rawTopicId = record.topicId ?? record.topic_id
+      const topicId = typeof rawTopicId === 'string'
+        ? rawTopicId
+        : typeof rawTopicId === 'number' && Number.isFinite(rawTopicId)
+          ? String(rawTopicId)
+          : ''
+      const name = typeof record.name === 'string' ? record.name.trim() : ''
+      if (!topicId || !name || seen.has(topicId)) return null
+      seen.add(topicId)
+      return {
+        id: typeof record.id === 'string' && record.id ? record.id : topicId,
+        topicId,
+        name,
+        discussCount: typeof record.discussCount === 'string'
+          ? record.discussCount
+          : typeof record.discuss_count === 'string'
+            ? record.discuss_count
+            : undefined,
+      }
+    }).filter((item): item is ZhihuPinTopicSuggestion => Boolean(item))
   }
 
   async saveRemoteDraft(input: ZhihuDraftSnapshot): Promise<ZhihuDraftSnapshot> {
@@ -50,6 +111,11 @@ export class ZhihuEditorService {
     }
     if (locallySaved.kind === 'answer') {
       if (!locallySaved.targetId) throw new Error('回答草稿缺少 questionId')
+      const relationship = await this.api.getJson(
+        'answer.relationship',
+        `https://api.zhihu.com/questions/${encodeURIComponent(locallySaved.targetId)}?include=relationship,relationship.my_answer`,
+      )
+      const existingAnswerId = parseExistingAnswerId(relationship)
       await this.api.requestRawJson(
         'draft.answer.save',
         `https://www.zhihu.com/api/v4/questions/${encodeURIComponent(locallySaved.targetId)}/draft`,
@@ -57,7 +123,7 @@ export class ZhihuEditorService {
         JSON.stringify(buildAnswerDraftPayload(locallySaved)),
         {
           'Content-Type': 'application/json',
-          Referer: `https://www.zhihu.com/question/${encodeURIComponent(locallySaved.targetId)}`,
+          Referer: answerDraftReferer(locallySaved.targetId, existingAnswerId),
         },
       )
     } else {
@@ -100,7 +166,7 @@ export class ZhihuEditorService {
           `https://www.zhihu.com/api/v4/questions/${encodeURIComponent(locallySaved.targetId)}/draft`,
           'POST',
           JSON.stringify(buildAnswerDraftPayload(locallySaved)),
-          { 'Content-Type': 'application/json', Referer: `https://www.zhihu.com/question/${encodeURIComponent(locallySaved.targetId)}` },
+          { 'Content-Type': 'application/json', Referer: answerDraftReferer(locallySaved.targetId, existingAnswerId) },
         )
         raw = await this.api.requestRawJson(
           'answer.publish',

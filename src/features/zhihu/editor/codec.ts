@@ -9,6 +9,35 @@ function publishTraceId(): string {
   return `${Date.now()},${id}`
 }
 
+export const ZHIHU_PIN_IMAGE_LIMIT = 9
+
+export function calculatePinHtmlTextLength(html: string): number {
+  const text = html
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&#x([0-9a-f]+);/gi, (_match, hex: string) => {
+      const codePoint = Number.parseInt(hex, 16)
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : ''
+    })
+    .replace(/&#(\d+);/g, (_match, decimal: string) => {
+      const codePoint = Number.parseInt(decimal, 10)
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : ''
+    })
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return text.length
+}
+
+export const ZHIHU_ANSWER_PUBLISH_INCLUDE =
+  'is_visible,paid_info,paid_info_content,has_column,admin_closed_comment,reward_info,annotation_action,annotation_detail,collapse_reason,is_normal,is_sticky,collapsed_by,suggest_edit,comment_count,thanks_count,favlists_count,can_comment,content,editable_content,voteup_count,reshipment_settings,comment_permission,created_time,updated_time,review_info,relevant_info,question,excerpt,attachment,content_source,is_labeled,endorsements,reaction_instruction,ip_info,relationship.is_authorized,voting,is_thanked,is_author,is_nothelp,is_favorited;author.vip_info,kvip_info,badge[*].topics;settings.table_of_contents.enabled'
+
 function answerSettings() {
   return {
     reshipment_settings: 'allowed',
@@ -63,7 +92,7 @@ export function buildAnswerPublishPayload(snapshot: ZhihuDraftSnapshot, existing
       extra_info: {
         question_id: snapshot.targetId,
         publisher: 'pc',
-        include: '',
+        include: ZHIHU_ANSWER_PUBLISH_INCLUDE,
         pc_business_params: pcBusinessParams,
       },
       hybrid: { html: snapshot.document.html },
@@ -93,10 +122,23 @@ export function buildPinPayload(snapshot: ZhihuDraftSnapshot): unknown {
   if (snapshot.document.html.trim()) {
     data.hybrid = {
       html: snapshot.document.html,
-      textLength: snapshot.document.text.length,
+      textLength: calculatePinHtmlTextLength(snapshot.document.html),
     }
   }
+  const topics = (snapshot.topics ?? [])
+    .map((topic) => ({
+      topic_id: topic.topicId,
+      topic_name: `#${topic.name.replace(/^#+|#+$/g, '')}#`,
+    }))
+    .filter((topic, index, all) => topic.topic_id && topic.topic_name !== '##'
+      && all.findIndex((candidate) => candidate.topic_id === topic.topic_id) === index)
+  if (topics.length > 0) {
+    data.topic = { topics }
+  }
   const images = snapshot.assets.filter((asset) => asset.uploadState === 'ready' && asset.remoteUrl)
+  if (images.length > ZHIHU_PIN_IMAGE_LIMIT) {
+    throw new Error(`想法最多添加 ${ZHIHU_PIN_IMAGE_LIMIT} 张图片`)
+  }
   if (images.length > 0) {
     data.media = {
       medias: images.map((asset) => ({

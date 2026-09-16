@@ -1,8 +1,11 @@
 import { asRecord } from '../api/decode'
 import { ZhihuApiError } from '../api/errors'
 import { validateZhihuCursor } from '../api/endpoints'
+import { encryptZhihuMessageBody } from '../crypto/messageBody'
+import { ANDROID_PUBLIC_HEADERS } from '../feed/service'
 
 export type ZhihuNotificationCategory = 'comment' | 'like' | 'favlist_me' | 'follow'
+export type ZhihuNotificationTimelineEntry = ZhihuNotificationCategory | 'invite'
 
 export interface ZhihuNotificationItem {
   id: string
@@ -11,6 +14,7 @@ export interface ZhihuNotificationItem {
   createdAt?: number
   unread: boolean
   targetUrl?: string
+  avatarUrl?: string
   author?: {
     id?: string
     token?: string
@@ -19,12 +23,24 @@ export interface ZhihuNotificationItem {
   }
 }
 
+export interface ZhihuNotificationInvitation {
+  id: string
+  title: string
+  text: string
+  targetUrl?: string
+  avatarUrl?: string
+  unreadCount: number
+  createdAt?: number
+}
+
 export interface ZhihuNotificationOverview {
   items: ZhihuNotificationItem[]
   nextCursor?: string
   hasMore: boolean
   unread: Record<ZhihuNotificationCategory, number>
-  messageUnread: number
+  /** message/v3 顶层 unread.message.count 是消息页总未读，不是“私信未读”。 */
+  totalUnread: number
+  invitation?: ZhihuNotificationInvitation
 }
 
 export interface ZhihuNotificationPage {
@@ -35,7 +51,31 @@ export interface ZhihuNotificationPage {
 
 export interface ZhihuNotificationApi {
   getJson(operation: string, url: string, signal?: AbortSignal): Promise<unknown>
+  getJsonWithHeaders?(
+    operation: string,
+    url: string,
+    headers: Record<string, string>,
+    signal?: AbortSignal,
+    options?: { signing?: 'web-zse96' | 'none' },
+  ): Promise<unknown>
   postJson(operation: string, url: string, body?: unknown, signal?: AbortSignal): Promise<unknown>
+  postJsonWithHeaders?(
+    operation: string,
+    url: string,
+    headers: Record<string, string>,
+    body?: unknown,
+    signal?: AbortSignal,
+    options?: { signing?: 'web-zse96' | 'none' },
+  ): Promise<unknown>
+  requestRawJson(
+    operation: string,
+    url: string,
+    method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    body: string,
+    headers: Record<string, string>,
+    signal?: AbortSignal,
+    options?: { signing?: 'web-zse96' | 'none' },
+  ): Promise<unknown>
 }
 
 export function mergeZhihuNotificationItems(
@@ -101,32 +141,69 @@ function firstText(...values: unknown[]): string {
   return ''
 }
 
+function notificationTargetUrl(...values: unknown[]): string | undefined {
+  const urls = values
+    .map((value) => stringValue(value)?.trim())
+    .filter((value): value is string => Boolean(value))
+  // message/v3 的会话卡片有时同时携带普通通知链接和 inbox 链接；私信会话必须优先。
+  return urls.find((url) => /(?:^|\/)inbox\//i.test(url)) ?? urls[0]
+}
+
 function decodeNotification(value: unknown): ZhihuNotificationItem | null {
   const root = asRecord(value)
-  if (!root) return null
+  if (!root || root.type === 'empty') return null
   const content = asRecord(root.content)
   const head = asRecord(root.head)
   const author = decodePeer(head?.author)
   const targetSource = asRecord(root.target_source)
   const target = asRecord(root.target)
-  const id = firstText(root.unique_id, root.id) || `${numberValue(root.created) ?? 0}-${firstText(root.card_type, root.type)}`
-  const title = firstText(content?.title, content?.sub_title, root.detail_title, head?.labels)
-  const text = firstText(content?.text, content?.sub_text, content?.abstract_text, targetSource?.full_text, targetSource?.text, title)
-  const targetUrl = firstText(content?.target_link, targetSource?.target_link, head?.target_link, target?.url) || undefined
-  if (!id || (!title && !text)) return null
+  const createdAt = (numberValue(root.created) ?? Number(stringValue(root.created_str))) || undefined
+  const id = firstText(root.unique_id, root.id) || `${createdAt ?? 0}-${firstText(root.card_type, root.type)}`
+  if (!id) return null
+
+  const title = firstText(content?.title, root.detail_title, target?.name, author?.name) || '通知'
+  const text = firstText(content?.text, content?.sub_text, content?.abstract_text, targetSource?.full_text, targetSource?.text)
+  const targetUrl = notificationTargetUrl(
+    content?.target_link,
+    content?.sub_target_link,
+    targetSource?.target_link,
+    head?.target_link,
+    target?.url,
+  )
+  const avatarUrl = firstText(head?.avatar_url, author?.avatarUrl, target?.avatar_url, content?.sub_icon) || undefined
   return {
     id,
-    title: title || '知乎通知',
+    title,
     text,
-    createdAt: numberValue(root.created),
-    unread: root.is_read === false,
+    createdAt,
+    unread: root.is_read === false || (numberValue(root.unread_count) ?? 0) > 0,
     targetUrl,
+    avatarUrl,
     author: author ? {
       id: author.id,
       token: author.token,
       name: author.name,
       avatarUrl: author.avatarUrl,
     } : undefined,
+  }
+}
+
+function decodeInvitation(value: unknown): ZhihuNotificationInvitation | undefined {
+  const root = asRecord(value)
+  if (!root) return undefined
+  const id = firstText(root.id) || 'invite'
+  const title = firstText(root.title) || '邀请回答'
+  const text = `${stringValue(root.text_prefix) ?? ''}${stringValue(root.text) ?? ''}`.trim()
+  const avatarUrls = Array.isArray(root.avatar_urls) ? root.avatar_urls : []
+  const firstAvatar = asRecord(avatarUrls[0])
+  return {
+    id,
+    title,
+    text,
+    targetUrl: firstText(root.target_link) || undefined,
+    avatarUrl: firstText(firstAvatar?.url, firstAvatar?.night_url) || undefined,
+    unreadCount: numberValue(root.unread_count) ?? 0,
+    createdAt: numberValue(root.created),
   }
 }
 
@@ -168,9 +245,16 @@ export class ZhihuNotificationService {
     this.api = api
   }
 
+  private getMobileJson(operation: string, url: string, signal?: AbortSignal): Promise<unknown> {
+    if (this.api.getJsonWithHeaders) {
+      return this.api.getJsonWithHeaders(operation, url, ANDROID_PUBLIC_HEADERS, signal, { signing: 'none' })
+    }
+    return this.api.getJson(operation, url, signal)
+  }
+
   async overview(cursor?: string, signal?: AbortSignal): Promise<ZhihuNotificationOverview> {
     const url = cursor ? validateZhihuCursor(cursor) : 'https://api.zhihu.com/notifications/v3/message/v3?limit=20'
-    const raw = await this.api.getJson('notification.list', url, signal)
+    const raw = await this.getMobileJson('notification.list', url, signal)
     const root = asRecord(raw)
     if (!root) throw new ZhihuApiError('invalid-response', '知乎通知响应不是 JSON object')
     const data = Array.isArray(root.data) ? root.data : []
@@ -182,34 +266,46 @@ export class ZhihuNotificationService {
       }),
     ) as Record<ZhihuNotificationCategory, number>
     const unreadRoot = asRecord(root.unread)
-    const messageUnread = numberValue(asRecord(unreadRoot?.message)?.count) ?? 0
+    const totalUnread = numberValue(asRecord(unreadRoot?.message)?.count) ?? 0
+    const columnHead = Array.isArray(root.column_head) ? root.column_head : []
+    const invitation = columnHead.map(decodeInvitation).find((item): item is ZhihuNotificationInvitation => Boolean(item))
     const paging = pagingFrom(root)
     return {
       items: data.map(decodeNotification).filter((item): item is ZhihuNotificationItem => Boolean(item)),
       ...paging,
       unread,
-      messageUnread,
+      totalUnread,
+      invitation,
     }
   }
 
   async markCategoryRead(category: ZhihuNotificationCategory, signal?: AbortSignal): Promise<void> {
-    await this.api.postJson(
-      'notification.readall',
-      `https://api.zhihu.com/notifications/v3/timeline/entry/${category}/actions/readall`,
-      undefined,
-      signal,
-    )
+    const url = `https://api.zhihu.com/notifications/v3/timeline/entry/${category}/actions/readall`
+    if (this.api.postJsonWithHeaders) {
+      await this.api.postJsonWithHeaders(
+        'notification.readall',
+        url,
+        ANDROID_PUBLIC_HEADERS,
+        undefined,
+        signal,
+        { signing: 'none' },
+      )
+      return
+    }
+    await this.api.postJson('notification.readall', url, undefined, signal)
   }
 
   async timeline(
-    category: ZhihuNotificationCategory,
+    category: ZhihuNotificationTimelineEntry,
     cursor?: string,
     signal?: AbortSignal,
   ): Promise<ZhihuNotificationPage> {
     const url = cursor
       ? validateZhihuCursor(cursor)
-      : `https://api.zhihu.com/notifications/v3/timeline/entry/${category}?limit=20`
-    const raw = await this.api.getJson('notification.timeline', url, signal)
+      : category === 'invite'
+        ? 'https://api.zhihu.com/notifications/v3/timeline/entry/invite?invite_with_time_slice=1&limit=20'
+        : `https://api.zhihu.com/notifications/v3/timeline/entry/${category}?limit=20`
+    const raw = await this.getMobileJson('notification.timeline', url, signal)
     const root = asRecord(raw)
     if (!root) throw new ZhihuApiError('invalid-response', '知乎分类通知响应不是 JSON object')
     const data = Array.isArray(root.data) ? root.data : []
@@ -220,7 +316,7 @@ export class ZhihuNotificationService {
   }
 
   async readPeer(peerId: string, signal?: AbortSignal): Promise<ZhihuMessagePeer> {
-    const raw = await this.api.getJson(
+    const raw = await this.getMobileJson(
       'message.peer',
       `https://api.zhihu.com/messages/user/${encodeURIComponent(peerId)}`,
       signal,
@@ -234,7 +330,7 @@ export class ZhihuNotificationService {
     const url = cursor
       ? validateZhihuCursor(cursor)
       : `https://api.zhihu.com/messages?limit=20&sender_id=${encodeURIComponent(peerId)}`
-    const raw = await this.api.getJson('message.list', url, signal)
+    const raw = await this.getMobileJson('message.list', url, signal)
     const root = asRecord(raw)
     if (!root) throw new ZhihuApiError('invalid-response', '知乎私信响应不是 JSON object')
     const data = Array.isArray(root.data) ? root.data : []
@@ -250,14 +346,26 @@ export class ZhihuNotificationService {
     if (!normalizedPeer) throw new ZhihuApiError('invalid-response', '私信接收者不能为空')
     if (!normalizedContent) throw new ZhihuApiError('invalid-response', '私信内容不能为空')
 
-    const startedAt = Math.floor(Date.now() / 1000) - 10
-    // 非幂等：POST 永远只执行一次。Web v4 端点在部分版本只返回 {msg:"success"}，
-    // 因此响应没有消息实体时只做 GET 读回确认，绝不因为网络/确认失败自动重发。
-    const raw = await this.api.postJson(
+    // 官方 Android 11.3.0 协议：先按 form-url-encoded 生成明文，再用本地协议表加密。
+    // 非幂等发送只允许一次 POST；不对“结果未知”做任何自动重发。
+    const form = new URLSearchParams([
+      ['receiver_id', normalizedPeer],
+      ['content', normalizedContent],
+      ['content_type', '0'],
+      ['source_type', 'message_list'],
+    ]).toString()
+    const raw = await this.api.requestRawJson(
       'message.send',
-      'https://www.zhihu.com/api/v4/messages',
-      { type: 'common', content: normalizedContent, receiver_hash: normalizedPeer },
+      'https://api.zhihu.com/messages',
+      'POST',
+      encryptZhihuMessageBody(form),
+      {
+        ...ANDROID_PUBLIC_HEADERS,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Zse-93': '101_1_1.0',
+      },
       signal,
+      { signing: 'none' },
     )
     const root = asRecord(raw)
     const direct = decodeMessage(raw) ?? decodeMessage(root?.data) ?? decodeMessage(root?.message)
@@ -266,32 +374,9 @@ export class ZhihuNotificationService {
     const error = asRecord(root?.error)
     const errorMessage = firstText(error?.message, root?.message)
     if (error) throw new ZhihuApiError('forbidden', errorMessage || '知乎拒绝发送私信')
-
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      if (attempt > 0) {
-        await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(resolve, 350)
-          signal?.addEventListener('abort', () => {
-            clearTimeout(timer)
-            reject(new DOMException('Aborted', 'AbortError'))
-          }, { once: true })
-        })
-      }
-      const page = await this.conversation(normalizedPeer, undefined, signal)
-      const confirmed = page.items.find((message) => {
-        if (message.content !== normalizedContent) return false
-        if (message.createdAt && message.createdAt < startedAt) return false
-        const receiverMatches = !message.receiver
-          || message.receiver.id === normalizedPeer
-          || message.receiver.token === normalizedPeer
-        return receiverMatches
-      })
-      if (confirmed) return confirmed
-    }
-
     throw new ZhihuApiError(
       'conflict',
-      '私信请求已经提交，但暂时没有从会话中读回确认结果。请先刷新会话确认，不要立即重复发送。',
+      '私信请求已经提交，但服务端没有返回可确认的消息实体。请刷新会话确认后再决定是否重发。',
     )
   }
 }

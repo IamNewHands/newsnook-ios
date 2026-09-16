@@ -2,6 +2,7 @@ import { asRecord } from '../api/decode'
 import type { ZhihuApiClient } from '../api/client'
 import { validateZhihuCursor } from '../api/endpoints'
 import { ZhihuApiError } from '../api/errors'
+import type { ZhihuSegmentTarget } from '../segments/normalize'
 import type { ZhihuEntityRef } from '../types'
 
 export type ZhihuVoteState = 'up' | 'down' | 'neutral'
@@ -92,6 +93,50 @@ export class ZhihuInteractionService {
     // 赞同写入响应通常返回 voteup_count；neutral/article 响应若只给 2xx 也允许，
     // 但 UI 只在这个 await 成功后切换目标态。
     return { state, voteupCount }
+  }
+
+  async setSegmentLiked(
+    target: ZhihuSegmentTarget,
+    liked: boolean,
+    signal?: AbortSignal,
+  ): Promise<ZhihuSegmentTarget> {
+    const url = `https://www.zhihu.com/api/v4/reaction/${target.contentType}s/${encodeURIComponent(target.contentId)}/segment_reaction`
+    if (liked) {
+      const body: Record<string, unknown> = {
+        content: target.segmentContent,
+        position: {
+          start: { paragraph_id: target.paragraphId, offset: target.startOffset },
+          end: { paragraph_id: target.paragraphId, offset: target.endOffset },
+        },
+      }
+      if (target.segmentIds.length > 0) body.seg_id = target.segmentIds.join(',')
+      const raw = await this.api.postJson('segment.like.set', url, body, signal)
+      const root = asRecord(raw)
+      const payload = asRecord(root?.payload)
+      const returnedIds = stringValue(payload?.segId ?? payload?.seg_id)
+        ?.split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+      const segmentIds = returnedIds?.length ? returnedIds : target.segmentIds
+      return {
+        ...target,
+        segmentIds,
+        segmentId: segmentIds.join(',') || target.segmentId,
+        liked: true,
+        likeCount: target.liked ? target.likeCount : target.likeCount + 1,
+      }
+    }
+    await this.api.deleteJson(
+      'segment.like.clear',
+      url,
+      { seg_ids: target.segmentIds.join(',') || target.segmentId },
+      signal,
+    )
+    return {
+      ...target,
+      liked: false,
+      likeCount: target.liked ? Math.max(0, target.likeCount - 1) : target.likeCount,
+    }
   }
 
   async setFollowing(
@@ -204,6 +249,7 @@ export class ZhihuInteractionService {
       body,
       { 'Content-Type': 'application/x-www-form-urlencoded' },
       signal,
+      { signing: 'none' },
     )
   }
 }

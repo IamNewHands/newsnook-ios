@@ -72,6 +72,7 @@ export class ZhihuCredentialStore {
         },
         wwwCookie: parsed.wwwCookie,
         apiCookie: parsed.apiCookie,
+        userAgent: typeof parsed.userAgent === 'string' && parsed.userAgent.trim() ? parsed.userAgent : undefined,
         profileJson: typeof parsed.profileJson === 'string' ? parsed.profileJson : undefined,
         updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
       }

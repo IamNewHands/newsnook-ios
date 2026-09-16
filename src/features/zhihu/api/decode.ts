@@ -23,6 +23,12 @@ function stringArray(value: unknown): string[] {
   return value.map(stringValue).filter((item): item is string => Boolean(item))
 }
 
+function booleanCompat(value: unknown): boolean {
+  if (value === true || value === 1 || value === '1') return true
+  if (typeof value === 'string') return value.toLowerCase() === 'true'
+  return false
+}
+
 function htmlText(value: unknown): string {
   if (typeof value !== 'string') return ''
   return value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
@@ -240,6 +246,66 @@ export function decodeZhihuPage(value: unknown): DecodedZhihuPage {
   return { items, nextCursor: next || undefined, hasMore: Boolean(next) && !isEnd, skipped }
 }
 
+export interface ZhihuSegmentMeta {
+  segIds: string[]
+  isLike: boolean
+  likeCount: number
+  commentCount: number
+  myCommentCount: number
+  isSpan: boolean
+}
+
+export interface ZhihuSegmentInfoMark {
+  startIndex: number
+  endIndex: number
+  segInfo?: ZhihuSegmentMeta
+  masterSegInfo?: ZhihuSegmentMeta
+}
+
+export interface ZhihuSegmentInfoParagraph {
+  pid: string
+  text: string
+  marks: ZhihuSegmentInfoMark[]
+}
+
+function decodeZhihuSegmentMeta(value: unknown): ZhihuSegmentMeta | undefined {
+  const root = asRecord(value)
+  if (!root) return undefined
+  return {
+    segIds: stringArray(root.segIds ?? root.seg_ids),
+    isLike: booleanCompat(root.isLike ?? root.is_like),
+    likeCount: numberValue(root.likeCount ?? root.like_count) ?? 0,
+    commentCount: numberValue(root.commentCount ?? root.comment_count) ?? 0,
+    myCommentCount: numberValue(root.myCommentCount ?? root.my_comment_count) ?? 0,
+    isSpan: booleanCompat(root.isSpan ?? root.is_span),
+  }
+}
+
+export function decodeZhihuSegmentInfos(value: unknown): ZhihuSegmentInfoParagraph[] {
+  if (!Array.isArray(value)) return []
+  const paragraphs: ZhihuSegmentInfoParagraph[] = []
+  for (const rawParagraph of value) {
+    const paragraph = asRecord(rawParagraph)
+    const pid = stringValue(paragraph?.pid)?.trim()
+    const text = stringValue(paragraph?.text)
+    if (!paragraph || !pid || text == null) continue
+    const rawMarks = Array.isArray(paragraph.marks) ? paragraph.marks : []
+    const marks: ZhihuSegmentInfoMark[] = []
+    for (const rawMark of rawMarks) {
+      const mark = asRecord(rawMark)
+      const startIndex = numberValue(mark?.startIndex ?? mark?.start_index)
+      const endIndex = numberValue(mark?.endIndex ?? mark?.end_index)
+      if (!mark || startIndex == null || endIndex == null) continue
+      const segInfo = decodeZhihuSegmentMeta(mark.segInfo ?? mark.seg_info)
+      const masterSegInfo = decodeZhihuSegmentMeta(mark.masterSegInfo ?? mark.master_seg_info)
+      if (!segInfo && !masterSegInfo) continue
+      marks.push({ startIndex, endIndex, segInfo, masterSegInfo })
+    }
+    paragraphs.push({ pid, text, marks })
+  }
+  return paragraphs
+}
+
 export interface ZhihuContentDetail extends ZhihuContentSummary {
   contentHtml: string
   /** 编辑器专用原始可编辑 HTML；不能用阅读 sanitizer 的结果覆盖。 */
@@ -248,6 +314,8 @@ export interface ZhihuContentDetail extends ZhihuContentSummary {
   questionId?: string
   previousAnswerIds?: string[]
   nextAnswerIds?: string[]
+  segmentInfos: ZhihuSegmentInfoParagraph[]
+  allowSegmentInteraction: boolean
   voteState: 'up' | 'down' | 'neutral'
   isFollowing: boolean
 }
@@ -272,6 +340,8 @@ export function decodeZhihuContentDetail(value: unknown): ZhihuContentDetail {
     questionId: stringValue(question?.id),
     previousAnswerIds: stringArray(pagination?.prev_answer_ids ?? pagination?.prevAnswerIds),
     nextAnswerIds: stringArray(pagination?.next_answer_ids ?? pagination?.nextAnswerIds),
+    segmentInfos: decodeZhihuSegmentInfos(object.segment_infos ?? object.segmentInfos),
+    allowSegmentInteraction: booleanCompat(object.allow_segment_interaction ?? object.allowSegmentInteraction),
     voteState,
     isFollowing: relationship?.is_following === true || relation?.following === true,
   }

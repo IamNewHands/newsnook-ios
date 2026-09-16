@@ -25,7 +25,13 @@ export type ZhihuRecommendationMode = 'web' | 'android' | 'mixed' | 'local'
 export type ZhihuRoute =
   | { screen: 'feed'; mode: ZhihuFeedMode }
   | { screen: 'entity'; ref: ZhihuEntityRef }
-  | { screen: 'search'; query: string }
+  | {
+      screen: 'search'
+      query: string
+      /** 知乎 member_hash_id；存在时搜索严格限制为该用户的创作。 */
+      restrictedMemberHashId?: string
+      restrictedMemberName?: string
+    }
   | { screen: 'editor'; localDraftId: string }
   | { screen: 'notifications' }
   | { screen: 'conversation'; peerId: string }

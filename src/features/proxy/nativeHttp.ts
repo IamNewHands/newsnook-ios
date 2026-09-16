@@ -21,6 +21,8 @@ export type ProxiedHttpRequest = {
 export type ProxiedHttpResponse = {
   status: number
   headers: Record<string, string>
+  /** 同名 Set-Cookie 必须逐条保留，不能用逗号拼接。旧版原生桥可能没有此字段。 */
+  setCookies?: string[]
   /** base64 编码的响应体 */
   data: string
 }

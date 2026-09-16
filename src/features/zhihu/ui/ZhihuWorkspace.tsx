@@ -186,8 +186,22 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher }: Props
     pushEntity(item.ref)
   }, [pushEntity])
 
-  const pushSearch = useCallback((query = '') => {
-    setFrames((prev) => reduceRoutes(saveScroll(prev), { type: 'push', frame: { route: { screen: 'search', query }, scrollTop: 0 } }))
+  const pushSearch = useCallback((
+    query = '',
+    restriction?: { memberHashId: string; memberName: string },
+  ) => {
+    setFrames((prev) => reduceRoutes(saveScroll(prev), {
+      type: 'push',
+      frame: {
+        route: {
+          screen: 'search',
+          query,
+          restrictedMemberHashId: restriction?.memberHashId,
+          restrictedMemberName: restriction?.memberName,
+        },
+        scrollTop: 0,
+      },
+    }))
   }, [saveScroll])
 
   const goBack = useCallback(() => {
@@ -312,8 +326,22 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher }: Props
           <ZhihuSearchScreen
             initialQuery={current.route.query}
             service={feedService}
+            restrictedMemberHashId={current.route.restrictedMemberHashId}
+            restrictedMemberName={current.route.restrictedMemberName}
             onQueryChange={(query) => setFrames((prev) => reduceRoutes(prev, {
-              type: 'replace', frame: { route: { screen: 'search', query }, scrollTop: 0 },
+              type: 'replace',
+              frame: {
+                route: {
+                  screen: 'search',
+                  query,
+                  restrictedMemberHashId: current.route.screen === 'search' ? current.route.restrictedMemberHashId : undefined,
+                  restrictedMemberName: current.route.screen === 'search' ? current.route.restrictedMemberName : undefined,
+                },
+                scrollTop: 0,
+              },
+            }))}
+            onClearRestriction={() => setFrames((prev) => reduceRoutes(prev, {
+              type: 'replace', frame: { route: { screen: 'search', query: current.route.screen === 'search' ? current.route.query : '' }, scrollTop: 0 },
             }))}
             onOpen={pushEntity}
             scrollContainerRef={scrollRef}
@@ -328,7 +356,9 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher }: Props
               onOpen={pushEntity}
               interaction={interactionService}
               authenticated={sessionSnapshot.auth === 'authenticated'}
+              viewer={sessionSnapshot.account}
               onMessage={(peerId) => navTo({ route: { screen: 'conversation', peerId }, scrollTop: 0 })}
+              onSearchCreations={(memberHashId, memberName) => pushSearch('', { memberHashId, memberName })}
             />
           )
         }

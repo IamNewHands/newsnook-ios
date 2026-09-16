@@ -11,6 +11,7 @@ type Call = {
   url: string
   body?: unknown
   headers?: Record<string, string>
+  signing?: 'web-zse96' | 'none'
 }
 
 class RecordingApi {
@@ -27,7 +28,7 @@ class RecordingApi {
         },
       }
     }
-    if (operation === 'comment.list-root') {
+    if (operation === 'comment.list-root' || operation === 'segment.comment.list-root') {
       return {
         data: [{
           id: 'c-1',
@@ -46,7 +47,7 @@ class RecordingApi {
 
   async postJson(operation: string, url: string, body?: unknown): Promise<unknown> {
     this.calls.push({ method: 'POST', operation, url, body })
-    if (operation === 'comment.create') {
+    if (operation === 'comment.create' || operation === 'segment.comment.create') {
       return {
         id: 'c-created',
         content: '<p>created</p>',
@@ -59,6 +60,9 @@ class RecordingApi {
     }
     if (operation === 'collection.create') {
       return { status: 100, collection: { id: 'fav-1', title: '资料', is_public: false } }
+    }
+    if (operation === 'segment.like.set') {
+      return { payload: { segId: 'seg-new-a,seg-new-b' } }
     }
     return { voteup_count: 10 }
   }
@@ -75,8 +79,10 @@ class RecordingApi {
     method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     body: string,
     headers: Record<string, string>,
+    _signal?: AbortSignal,
+    options?: { signing?: 'web-zse96' | 'none' },
   ): Promise<unknown> {
-    this.calls.push({ method, operation, url, body, headers })
+    this.calls.push({ method, operation, url, body, headers, signing: options?.signing })
     return null
   }
 }
@@ -101,6 +107,49 @@ await assert.rejects(
   (error: unknown) => error instanceof ZhihuApiError && error.code === 'unsupported',
 )
 assert.equal(api.calls.length, beforeArticleDown, '文章反对没有可靠协议时不得把取消赞同冒充反对')
+
+const segmentTarget = {
+  kind: 'segment' as const,
+  contentId: '42',
+  contentType: 'answer' as const,
+  segmentId: 'seg-old',
+  segmentIds: ['seg-old'],
+  segmentContent: '被选中的段落',
+  displayText: '被选中的段落',
+  paragraphId: 'p-1',
+  startOffset: 2,
+  endOffset: 9,
+  liked: false,
+  likeCount: 3,
+  commentCount: 4,
+  myCommentCount: 0,
+  isSpan: false,
+}
+const likedSegment = await interaction.setSegmentLiked(segmentTarget, true)
+assert.deepEqual(api.calls.at(-1), {
+  method: 'POST',
+  operation: 'segment.like.set',
+  url: 'https://www.zhihu.com/api/v4/reaction/answers/42/segment_reaction',
+  body: {
+    seg_id: 'seg-old',
+    content: '被选中的段落',
+    position: {
+      start: { paragraph_id: 'p-1', offset: 2 },
+      end: { paragraph_id: 'p-1', offset: 9 },
+    },
+  },
+})
+assert.equal(likedSegment.segmentId, 'seg-new-a,seg-new-b')
+assert.deepEqual(likedSegment.segmentIds, ['seg-new-a', 'seg-new-b'])
+assert.equal(likedSegment.likeCount, 4)
+const unlikedSegment = await interaction.setSegmentLiked(likedSegment, false)
+assert.deepEqual(api.calls.at(-1), {
+  method: 'DELETE',
+  operation: 'segment.like.clear',
+  url: 'https://www.zhihu.com/api/v4/reaction/answers/42/segment_reaction',
+  body: { seg_ids: 'seg-new-a,seg-new-b' },
+})
+assert.equal(unlikedSegment.likeCount, 3)
 
 await interaction.setFollowing('person', 'alice', true)
 assert.equal(api.calls.at(-1)?.operation, 'follow.person.set')
@@ -147,6 +196,7 @@ assert.deepEqual(api.calls.at(-1), {
   url: 'https://api.zhihu.com/collections/contents/answer/42',
   body: 'add_collections=fav-1',
   headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  signing: 'none',
 })
 
 const comments = new ZhihuCommentsService(api)
@@ -161,6 +211,27 @@ assert.equal(createCall?.operation, 'comment.create')
 assert.deepEqual(createCall?.body, {
   content: '<p>A &lt; B &amp; &quot;C&quot;<br>next</p>',
   reply_comment_id: 'c-1',
+})
+
+await comments.listRoot(segmentTarget)
+const segmentListCall = api.calls.at(-1)
+assert.equal(segmentListCall?.operation, 'segment.comment.list-root')
+assert.match(segmentListCall?.url ?? '', /\/comment_v5\/answers\/42\/segment\/root_comment\?segment_id=seg-old/)
+assert.match(segmentListCall?.url ?? '', /order_by=score/)
+await comments.create(segmentTarget, '段评 <ok>', 'c-1')
+const segmentCreateCall = api.calls.at(-1)
+assert.equal(segmentCreateCall?.operation, 'segment.comment.create')
+assert.equal(segmentCreateCall?.url, 'https://www.zhihu.com/api/v4/comment_v5/answers/42/segment/comment')
+assert.deepEqual(segmentCreateCall?.body, {
+  content: '<p>段评 &lt;ok&gt;</p>',
+  reply_comment_id: 'c-1',
+  segment: {
+    content: '被选中的段落',
+    position: {
+      start: { offset: 2, paragraph_id: 'p-1' },
+      end: { offset: 9, paragraph_id: 'p-1' },
+    },
+  },
 })
 
 await comments.delete('c-1')

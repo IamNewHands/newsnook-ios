@@ -1,52 +1,76 @@
 import assert from 'node:assert/strict'
 
 import { ZhihuApiError } from '../src/features/zhihu/api/errors'
+import { encryptZhihuMessageBody } from '../src/features/zhihu/crypto/messageBody'
 import { ZhihuNotificationService, type ZhihuNotificationApi } from '../src/features/zhihu/notification/service'
 import {
   createMemoryZhihuMessageDraftDatabase,
   ZhihuMessageDraftStore,
 } from '../src/features/zhihu/notification/draftStore'
 
-class RecordingApi implements ZhihuNotificationApi {
-  calls: Array<{ operation: string; url: string; body?: unknown }> = []
+interface RawCall {
+  operation: string
+  url: string
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  body: string
+  headers: Record<string, string>
+  signing?: 'web-zse96' | 'none'
+}
 
-  async getJson(operation: string, url: string): Promise<unknown> {
-    this.calls.push({ operation, url })
-    if (operation !== 'message.list') throw new Error(`unexpected GET: ${operation}`)
+class RecordingApi implements ZhihuNotificationApi {
+  calls: RawCall[] = []
+
+  async getJson(): Promise<unknown> { throw new Error('send must not issue confirmation GET') }
+  async postJson(): Promise<unknown> { throw new Error('send must use encrypted raw body') }
+  async requestRawJson(
+    operation: string,
+    url: string,
+    method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    body: string,
+    headers: Record<string, string>,
+    _signal?: AbortSignal,
+    options?: { signing?: 'web-zse96' | 'none' },
+  ): Promise<unknown> {
+    this.calls.push({ operation, url, method, body, headers, signing: options?.signing })
     return {
-      data: [{
-        id: 'message-1',
-        content: '测试 & 消息',
-        created_time: Math.floor(Date.now() / 1000),
-        sender: { id: 'me', name: '我' },
-        receiver: { id: 'peer-id', name: '对方' },
-      }],
-      paging: { is_end: true },
+      id: 'message-1',
+      content: '测试 & 消息',
+      created_time: Math.floor(Date.now() / 1000),
+      sender: { id: 'me', name: '我' },
+      receiver: { id: 'peer-id', name: '对方' },
     }
   }
-
-  async postJson(operation: string, url: string, body?: unknown): Promise<unknown> {
-    this.calls.push({ operation, url, body })
-    if (operation !== 'message.send') throw new Error(`unexpected POST: ${operation}`)
-    return { msg: 'success' }
-  }
 }
+
+assert.equal(
+  encryptZhihuMessageBody('hello'),
+  '14RJeQ+vLOS4ihOY/LtYCg==',
+  '消息体加密必须保持官方 Android 11.3.0 固定向量',
+)
 
 const api = new RecordingApi()
 const service = new ZhihuNotificationService(api)
 const sent = await service.sendMessage('peer-id', ' 测试 & 消息 ')
 assert.equal(sent.id, 'message-1')
-assert.deepEqual(api.calls, [
-  {
-    operation: 'message.send',
-    url: 'https://www.zhihu.com/api/v4/messages',
-    body: { type: 'common', content: '测试 & 消息', receiver_hash: 'peer-id' },
-  },
-  {
-    operation: 'message.list',
-    url: 'https://api.zhihu.com/messages?limit=20&sender_id=peer-id',
-  },
-], '私信 POST 只发送一次；无实体响应时只能 GET 读回确认')
+assert.equal(api.calls.length, 1, '私信发送只能进行一次 POST，不能追加确认 GET 或自动重发')
+const sendCall = api.calls[0]!
+assert.equal(sendCall.operation, 'message.send')
+assert.equal(sendCall.url, 'https://api.zhihu.com/messages')
+assert.equal(sendCall.method, 'POST')
+assert.equal(sendCall.headers['Content-Type'], 'application/x-www-form-urlencoded')
+assert.equal(sendCall.headers['X-Zse-93'], '101_1_1.0')
+assert.equal(sendCall.headers['x-api-version'], '3.1.8')
+assert.equal(sendCall.headers['x-app-version'], '10.61.0')
+assert.match(sendCall.headers['User-Agent'] ?? '', /^com\.zhihu\.android\//)
+assert.equal(sendCall.signing, 'none')
+const expectedForm = new URLSearchParams([
+  ['receiver_id', 'peer-id'],
+  ['content', '测试 & 消息'],
+  ['content_type', '0'],
+  ['source_type', 'message_list'],
+]).toString()
+assert.equal(sendCall.body, encryptZhihuMessageBody(expectedForm))
+assert.ok(!sendCall.body.includes('测试'), '原生消息请求体不得携带私信明文')
 
 const callsBeforeInvalid = api.calls.length
 await assert.rejects(service.sendMessage('', '内容'), /接收者不能为空/)
@@ -54,14 +78,11 @@ await assert.rejects(service.sendMessage('peer-id', '   '), /内容不能为空/
 assert.equal(api.calls.length, callsBeforeInvalid, '非法输入不得触达 API')
 
 class UnconfirmedApi implements ZhihuNotificationApi {
-  posts = 0
-  reads = 0
-  async getJson(): Promise<unknown> {
-    this.reads += 1
-    return { data: [], paging: { is_end: true } }
-  }
-  async postJson(): Promise<unknown> {
-    this.posts += 1
+  rawPosts = 0
+  async getJson(): Promise<unknown> { throw new Error('结果未知时不得自动 GET 猜测成功') }
+  async postJson(): Promise<unknown> { throw new Error('unexpected JSON POST') }
+  async requestRawJson(): Promise<unknown> {
+    this.rawPosts += 1
     return { msg: 'success' }
   }
 }
@@ -69,10 +90,9 @@ const unconfirmedApi = new UnconfirmedApi()
 await assert.rejects(
   new ZhihuNotificationService(unconfirmedApi).sendMessage('peer-id', '只发一次'),
   (error: unknown) => error instanceof ZhihuApiError && error.code === 'conflict',
-  '发送请求得到 ACK 但无法读回时必须进入未知结果，不能冒充成功',
+  '发送响应没有消息实体时必须进入未知结果，不能冒充成功',
 )
-assert.equal(unconfirmedApi.posts, 1, '非幂等私信发送不能自动重试 POST')
-assert.equal(unconfirmedApi.reads, 2, '允许安全读回确认，但不能重复发送')
+assert.equal(unconfirmedApi.rawPosts, 1, '非幂等私信发送不能自动重试 POST')
 
 const draftDb = createMemoryZhihuMessageDraftDatabase()
 const draftStore = new ZhihuMessageDraftStore(draftDb)

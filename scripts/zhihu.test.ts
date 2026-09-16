@@ -13,6 +13,7 @@ const suites = [
   './zhihu-content.test.ts',
   './zhihu-public-entities.test.ts',
   './zhihu-comments.test.ts',
+  './zhihu-segments.test.ts',
   './zhihu-cache.test.ts',
 ] as const
 

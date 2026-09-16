@@ -8,6 +8,7 @@ import { ZhihuAccountService } from '../src/features/zhihu/session/account'
 import { ZhihuSessionService } from '../src/features/zhihu/session/service'
 import { ZhihuCredentialStore, zhihuSecureKey } from '../src/features/zhihu/session/store'
 import { assertZhihuUrl } from '../src/features/zhihu/transport/safeRead'
+import { applyZhihuResponseCookies, mergeZhihuRequestCookies, shouldSignZhihuRequest } from '../src/features/zhihu/transport/android'
 import type { ZhihuRequest, ZhihuResponse, ZhihuTransport } from '../src/features/zhihu/transport/types'
 
 class DelayedTransport implements ZhihuTransport {
@@ -49,7 +50,21 @@ const flaky = new FlakyTransport()
 const retryClient = new ZhihuApiClient(flaky, guestSession)
 const result = await retryClient.getJson('answer.read', 'https://www.zhihu.com/api/v4/answers/1') as { id?: string }
 assert.equal(result.id, '1')
-assert.equal(flaky.calls, 2, 'safe-read 最多重试一次')
+assert.equal(flaky.calls, 2, 'safe-read 遇到瞬时网络失败必须自动重试')
+
+class RetryableHttpTransport implements ZhihuTransport {
+  calls = 0
+  async request(): Promise<ZhihuResponse> {
+    this.calls += 1
+    if (this.calls < 3) return { status: 503, headers: {}, body: '{"message":"upstream busy"}' }
+    return { status: 200, headers: {}, body: '{"id":"2","type":"answer"}' }
+  }
+}
+const retryableHttp = new RetryableHttpTransport()
+const retryableHttpClient = new ZhihuApiClient(retryableHttp, new ZhihuSessionService())
+const recovered = await retryableHttpClient.getJson('answer.read', 'https://www.zhihu.com/api/v4/answers/2') as { id?: string }
+assert.equal(recovered.id, '2')
+assert.equal(retryableHttp.calls, 3, 'safe-read 对 5xx 应进行有界退避重试')
 
 await assert.rejects(
   retryClient.getJson('message.list', 'https://api.zhihu.com/messages'),
@@ -61,6 +76,35 @@ assert.equal(zhihuSecureKey('account/a', 'cookie jar'), 'site.zhihu.account_a.co
 assert.equal(assertZhihuUrl('https://www.zhihu.com/api/v4/questions/1').hostname, 'www.zhihu.com')
 assert.throws(() => assertZhihuUrl('https://example.com/api/v4/questions/1'))
 assert.throws(() => assertZhihuUrl('http://www.zhihu.com/api/v4/questions/1'))
+assert.equal(shouldSignZhihuRequest(new URL('https://www.zhihu.com/api/v4/answers/1')), true)
+assert.equal(shouldSignZhihuRequest(new URL('https://api.zhihu.com/people/self')), true)
+assert.equal(shouldSignZhihuRequest(new URL('https://api.zhihu.com/people/self'), 'web-zse96'), true)
+assert.equal(shouldSignZhihuRequest(new URL('https://www.zhihu.com/api/v4/answers/1'), 'none'), false)
+assert.equal(shouldSignZhihuRequest(new URL('https://api.zhihu.com/topstory/recommend'), 'none'), false)
+assert.match(
+  mergeZhihuRequestCookies('shared=www; www_only=1', 'shared=api; api_only=1', 'www.zhihu.com'),
+  /shared=www/,
+  'www 请求遇到同名 Cookie 时必须以 www jar 为准',
+)
+assert.match(
+  mergeZhihuRequestCookies('shared=www; www_only=1', 'shared=api; api_only=1', 'api.zhihu.com'),
+  /shared=api/,
+  'api 请求遇到同名 Cookie 时必须以 api jar 为准',
+)
+
+const rotatedCookies = applyZhihuResponseCookies(
+  '_xsrf=old-xsrf; d_c0=dc0',
+  'z_c0=token; BEC=old-bec',
+  'www.zhihu.com',
+  [
+    'BEC=new-bec; Domain=.zhihu.com; Path=/; Secure; HttpOnly',
+    '_xsrf=new-xsrf; Path=/; Secure',
+  ],
+)
+assert.match(rotatedCookies.wwwCookie, /BEC=new-bec/, '共享域 Cookie 必须同步到 www jar')
+assert.match(rotatedCookies.apiCookie, /BEC=new-bec/, '共享域 Cookie 必须同步到 api jar')
+assert.match(rotatedCookies.wwwCookie, /_xsrf=new-xsrf/, 'www host-only Cookie 必须更新 www jar')
+assert.doesNotMatch(rotatedCookies.apiCookie, /_xsrf=new-xsrf/, 'www host-only Cookie 不能污染 api jar')
 
 const emptyCredentialStore = new ZhihuCredentialStore(createMemorySecureStore())
 const hydrateSession = new ZhihuSessionService()
@@ -83,11 +127,13 @@ await credentialStore.saveAccount({
   account: { id: 'u-b', name: 'B' },
   wwwCookie: 'd_c0=b; _xsrf=x-b',
   apiCookie: 'z_c0=token-b',
+  userAgent: 'Mozilla/5.0 ZhihuSessionTest',
   updatedAt: 2,
 })
 await credentialStore.setActiveAccountId('u-b')
 assert.deepEqual(await credentialStore.listAccountIds(), ['u-a', 'u-b'])
 assert.equal((await credentialStore.loadAccount('u-b'))?.account.name, 'B')
+assert.equal((await credentialStore.loadAccount('u-b'))?.userAgent, 'Mozilla/5.0 ZhihuSessionTest', '认证 UA 必须随安全会话持久化')
 assert.equal(await credentialStore.getActiveAccountId(), 'u-b')
 
 class OfflineTransport implements ZhihuTransport {
@@ -102,6 +148,13 @@ const resumed = await resumeService.hydrate()
 assert.equal(resumed?.account.id, 'u-b')
 assert.equal(resumeSession.getSnapshot().auth, 'authenticated', '冷启动网络抖动不能把已持久化知乎账号误判成退出登录')
 assert.equal(resumeSession.getSnapshot().account?.name, 'B', '网络失败时仍应展示本机已保存的账号资料')
+await assert.rejects(
+  resumeClient.getJson('answer.read', 'https://www.zhihu.com/api/v4/answers/1'),
+  (error: unknown) => error instanceof ZhihuApiError
+    && error.code === 'network'
+    && error.message.includes('网络连接被中断'),
+  '底层 TLS/连接中断应转换成用户可理解的知乎网络错误',
+)
 
 await credentialStore.removeAccount('u-b')
 assert.equal(await credentialStore.getActiveAccountId(), null)
@@ -163,6 +216,7 @@ assert.match(nativeSession, /endsWith\("\.zhihu\.com"\)/, '认证 WebView 必须
 assert.match(nativeSession, /clearBrowserSession/, '必须提供知乎域作用域的浏览器会话清理能力')
 assert.match(nativeSession, /setAcceptThirdPartyCookies\(webView, true\)/, '登录 WebView 需要允许知乎跨子域认证 Cookie')
 assert.match(nativeSession, /new OkHttpClient\.Builder\(\)/, '登录完成必须由原生 HTTP 校验第一方会话')
+assert.match(nativeSession, /result\.put\("userAgent", userAgent\)/, '认证结果必须返回登录 WebView 的真实 UA，供后续 members API 复用')
 assert.doesNotMatch(nativeSession, /evaluateJavascript\(script/, '不能用 evaluateJavascript 的 async Promise 回调判断登录完成')
 assert.match(nativeSession, /title\.setText\("登录知乎"\)/, '认证 WebView 必须由 NewsNook 原生 chrome 提供明确标题')
 assert.doesNotMatch(nativeSession, /close\.setText\("完成"\)/, '禁止再把“完成”按钮悬浮覆盖在知乎网页上')

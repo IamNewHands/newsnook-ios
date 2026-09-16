@@ -335,6 +335,7 @@ public class ZhihuSessionPlugin extends Plugin {
                     result.put("headline", profile.optString("headline", ""));
                     result.put("wwwCookie", wwwCookie);
                     result.put("apiCookie", apiCookie);
+                    result.put("userAgent", userAgent);
                     result.put("profileJson", profile.toString());
                     probing.set(false);
                     finishSuccess(result);

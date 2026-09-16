@@ -47,6 +47,11 @@ assert.ok(sanitized.includes('data-reader-role="zhihu-image-host"'), '知乎正�
 assert.ok(sanitized.includes('图片加载中'), '知乎正文图片加载完成前必须显示加载中占位')
 assert.ok(sanitized.includes('图片加载失败'), '知乎正文图片失败时必须有明确占位而不是空白洞')
 
+const fallbackImage = normalizeZhihuContentHtml('<p><img src="https://pic1.zhimg.com/50/fallback_b.jpg" data-actualsrc="https://pic1.zhimg.com/80/preferred_b.jpg" data-original="https://pic1.zhimg.com/100/original_r.jpg"></p>')
+assert.ok(fallbackImage.includes('https://pic1.zhimg.com/80/preferred_b.jpg'), '知乎图片应优先保留正文实际图源')
+assert.ok(fallbackImage.includes('data-reader-image-fallbacks='), '知乎图片应保留备用源供失败自动重试')
+assert.ok(fallbackImage.includes('https://pic1.zhimg.com/100/original_r.jpg'), '原图 URL 应进入安全备用源列表')
+
 const videoCard = normalizeZhihuContentHtml('<p><a class="video-box" href="https://link.zhihu.com/?target=https%3A%2F%2Fwww.bilibili.com%2Fvideo%2FBV1test"><img src="https://pic.example/video.jpg">DeepSeek 唱歌测试</a></p>')
 assert.ok(videoCard.includes('data-reader-role="zhihu-link-card"'), '知乎视频/站外卡片不能退化成一行裸链接')
 assert.ok(videoCard.includes('bilibili.com/video/BV1test'), '知乎 link.zhihu.com 跳转必须恢复真实站外目标')

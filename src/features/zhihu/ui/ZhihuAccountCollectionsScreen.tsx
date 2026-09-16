@@ -26,6 +26,8 @@ export function ZhihuAccountCollectionsScreen({ urlToken, service, onOpenCollect
   const [loadingMore, setLoadingMore] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [newTitle, setNewTitle] = useState('')
+  const [newDescription, setNewDescription] = useState('')
+  const [newPublic, setNewPublic] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<ZhihuCollectionSummary | null>(null)
 
@@ -74,9 +76,11 @@ export function ZhihuAccountCollectionsScreen({ urlToken, service, onOpenCollect
     setBusyId('__create__')
     setError(null)
     try {
-      const created = await service.createCollection(title)
+      const created = await service.createCollection(title, newDescription.trim(), newPublic)
       setItems((prev) => [created, ...prev.filter((item) => item.id !== created.id)])
       setNewTitle('')
+      setNewDescription('')
+      setNewPublic(false)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '创建收藏夹失败')
     } finally {
@@ -107,25 +111,46 @@ export function ZhihuAccountCollectionsScreen({ urlToken, service, onOpenCollect
           <h1 className="font-display text-[22px] font-medium text-paper">我的收藏夹</h1>
         </div>
         <p className="mt-1.5 text-[11.5px] leading-relaxed text-paper-faint">创建、查看和管理知乎收藏夹。</p>
-        <div className="mt-4 flex items-center gap-2 rounded-xl border border-haze/70 bg-ink-raised/40 p-2.5 focus-within:border-cinnabar/35">
-          <input
-            value={newTitle}
-            onChange={(event) => setNewTitle(event.target.value)}
+        <div className="mt-4 rounded-xl border border-haze/70 bg-ink-raised/40 p-2.5 focus-within:border-cinnabar/35">
+          <div className="flex items-center gap-2">
+            <input
+              value={newTitle}
+              onChange={(event) => setNewTitle(event.target.value)}
+              disabled={!createWritable}
+              maxLength={80}
+              placeholder={createWritable ? '新收藏夹名称' : '当前会话暂不可创建'}
+              className="min-h-9 min-w-0 flex-1 bg-transparent px-1 text-[12.5px] text-paper outline-none placeholder:text-paper-faint/65 disabled:opacity-45"
+            />
+            <button
+              type="button"
+              disabled={!createWritable || !newTitle.trim() || Boolean(busyId)}
+              onClick={() => void create()}
+              aria-label="新建收藏夹"
+              title="新建收藏夹"
+              className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-cinnabar/50 bg-cinnabar/12 text-cinnabar-soft disabled:opacity-35"
+            >
+              {busyId === '__create__' ? <Loader2 size={14} className="animate-spin" /> : <Plus size={15} strokeWidth={1.7} />}
+            </button>
+          </div>
+          <textarea
+            value={newDescription}
+            onChange={(event) => setNewDescription(event.target.value)}
             disabled={!createWritable}
-            maxLength={80}
-            placeholder={createWritable ? '新收藏夹名称' : '当前会话暂不可创建'}
-            className="min-h-9 min-w-0 flex-1 bg-transparent px-1 text-[12.5px] text-paper outline-none placeholder:text-paper-faint/65 disabled:opacity-45"
+            maxLength={500}
+            rows={2}
+            placeholder="描述（可选）"
+            className="mt-1.5 min-h-14 w-full resize-none border-t border-haze/45 bg-transparent px-1 pt-2 text-[11.5px] leading-5 text-paper outline-none placeholder:text-paper-faint/65 disabled:opacity-45"
           />
-          <button
-            type="button"
-            disabled={!createWritable || !newTitle.trim() || Boolean(busyId)}
-            onClick={() => void create()}
-            aria-label="新建收藏夹"
-            title="新建收藏夹"
-            className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-cinnabar/50 bg-cinnabar/12 text-cinnabar-soft disabled:opacity-35"
-          >
-            {busyId === '__create__' ? <Loader2 size={14} className="animate-spin" /> : <Plus size={15} strokeWidth={1.7} />}
-          </button>
+          <label className="mt-1 flex min-h-9 cursor-pointer items-center justify-between gap-3 rounded-lg px-1 text-[11px] text-paper-muted">
+            <span><span className="block font-medium text-paper">公开收藏夹</span><span className="mt-0.5 block text-[9.5px] text-paper-faint">关闭时按私密收藏夹创建</span></span>
+            <input
+              type="checkbox"
+              checked={newPublic}
+              disabled={!createWritable}
+              onChange={(event) => setNewPublic(event.target.checked)}
+              className="size-4 accent-current"
+            />
+          </label>
         </div>
       </header>
 

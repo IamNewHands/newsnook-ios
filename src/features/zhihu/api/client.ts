@@ -35,6 +35,44 @@ function responseErrorPayload(body: string): ZhihuErrorPayload {
   }
 }
 
+function friendlyNetworkError(error: unknown): string {
+  const message = error instanceof Error ? error.message.trim() : ''
+  if (/connection closed|sslhandshake|eofexception|handshake/i.test(message)) {
+    return '知乎网络连接被中断，请检查网络或代理/VPN 后重试'
+  }
+  if (/timed? ?out|timeout/i.test(message)) {
+    return '知乎连接超时，请检查网络后重试'
+  }
+  if (/unable to resolve host|unknownhost|name or service not known|dns/i.test(message)) {
+    return '无法解析知乎服务器地址，请检查 DNS、网络或代理设置'
+  }
+  return message || '知乎网络请求失败'
+}
+
+function isRetryableSafeReadError(error: ZhihuApiError): boolean {
+  if (error.code === 'invalid-response') return true
+  if (error.code === 'rate-limited') return true
+  if (error.code !== 'network') return false
+  if (error.status == null) return true
+  return error.status === 408 || error.status === 425 || error.status === 429 || error.status >= 500
+}
+
+async function waitBeforeRetry(attempt: number, signal?: AbortSignal): Promise<void> {
+  const delay = attempt === 0 ? 220 : 650
+  if (signal?.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError')
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, delay)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 export class ZhihuApiClient {
   private readonly transport: ZhihuTransport
   private readonly session: ZhihuSessionService
@@ -63,6 +101,17 @@ export class ZhihuApiClient {
 
   async postJson(operation: string, url: string, body?: unknown, signal?: AbortSignal): Promise<unknown> {
     return this.requestJson(operation, url, 'POST', body, signal)
+  }
+
+  async postJsonWithHeaders(
+    operation: string,
+    url: string,
+    headers: Record<string, string>,
+    body?: unknown,
+    signal?: AbortSignal,
+    options?: { signing?: 'web-zse96' | 'none' },
+  ): Promise<unknown> {
+    return this.requestJson(operation, url, 'POST', body, signal, { headers, signing: options?.signing })
   }
 
   async putJson(operation: string, url: string, body?: unknown, signal?: AbortSignal): Promise<unknown> {
@@ -112,7 +161,8 @@ export class ZhihuApiClient {
       throw new ZhihuApiError('auth-expired', '此功能需要先登录知乎账号')
     }
 
-    const attempts = method === 'GET' && contract.retry === 'safe-read' ? 2 : 1
+    const safeRead = method === 'GET' && contract.retry === 'safe-read'
+    const attempts = safeRead ? 3 : 1
     let lastError: unknown
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
@@ -156,12 +206,21 @@ export class ZhihuApiClient {
         if (error instanceof StaleZhihuGenerationError) {
           throw new ZhihuApiError('stale-generation', error.message)
         }
-        if (error instanceof ZhihuApiError) throw error
         if (signal?.aborted) throw error
+        if (error instanceof ZhihuApiError) {
+          lastError = error
+          if (!safeRead || !isRetryableSafeReadError(error) || attempt + 1 >= attempts) throw error
+          await waitBeforeRetry(attempt, signal)
+          continue
+        }
         lastError = error
-        if (attempt + 1 >= attempts) break
+        // 原生 transport 抛出的连接/TLS/DNS 异常最多只补一次。一次连接超时可能已经
+        // 消耗 15 秒，如果和 HTTP 5xx 一样做三次，会把离线页面拖到近一分钟才报错。
+        // HTTP 5xx/429/解析异常仍走上面的 ZhihuApiError 分支，可使用完整三次有界重试。
+        if (attempt + 1 >= Math.min(attempts, 2)) break
+        await waitBeforeRetry(attempt, signal)
       }
     }
-    throw new ZhihuApiError('network', lastError instanceof Error ? lastError.message : '知乎网络请求失败')
+    throw new ZhihuApiError('network', friendlyNetworkError(lastError))
   }
 }

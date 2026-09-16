@@ -20,27 +20,44 @@ async function resolveAutoLoadMedia(override?: boolean): Promise<boolean> {
   })
 }
 
-export async function resolvePlayableImageSrc(url: string): Promise<string> {
+export async function resolvePlayableImageSrc(
+  url: string,
+  options?: {
+    /** WebView 直连失败后，强制改用 Capacitor/OkHttp 字节请求，即使当前未配置隧道代理。 */
+    forceNative?: boolean
+    /** 部分图片 CDN（尤其 zhimg）会校验来源；失败补救时显式发送正文来源。 */
+    referer?: string
+    signal?: AbortSignal
+  },
+): Promise<string> {
   if (!url.startsWith('http')) return url
   if (!Capacitor.isNativePlatform()) return url
 
   const prefs = getRuntimeProxyPrefs()
   const runtime = currentProxyRuntime()
   const transport = resolveProxyTransport(url, undefined, prefs, runtime)
-  if (transport.kind !== 'native-tunnel' || !transport.tunnel) return url
+  const tunnel = transport.kind === 'native-tunnel' ? transport.tunnel : undefined
+  if (!options?.forceNative && !tunnel) return url
+  if (transport.kind === 'unsupported') return url
 
   try {
+    const host = new URL(url).hostname.toLowerCase()
+    const referer = options?.referer ?? (host.endsWith('.zhimg.com') || host === 'zhimg.com' ? 'https://www.zhihu.com/' : undefined)
+    const requestUrl = transport.kind === 'web-wrap' ? transport.requestUrl : url
     const result = await nativeFetchBytes(
-      transport.requestUrl,
+      requestUrl,
       {
         'User-Agent': BROWSER_UA,
         Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        ...(referer ? { Referer: referer } : {}),
       },
-      transport.tunnel,
+      tunnel,
+      options?.signal,
     )
     if (result.status < 200 || result.status >= 300) return url
     const type = result.contentType || 'image/jpeg'
+    if (result.contentType && !result.contentType.toLowerCase().startsWith('image/')) return url
     const blob = new Blob([result.data], { type })
     return URL.createObjectURL(blob)
   } catch {

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import { createMemoryZhihuCommentDraftDatabase, ZhihuCommentDraftStore } from '../src/features/zhihu/comments/draftStore'
-import { ZhihuCommentsService, decodeZhihuComment } from '../src/features/zhihu/comments/service'
+import { ZhihuCommentsService, decodeZhihuComment, zhihuCommentDraftRef } from '../src/features/zhihu/comments/service'
 import { isZhihuOperationEnabled, zhihuOperation } from '../src/features/zhihu/protocol'
 
 const decoded = decodeZhihuComment({
@@ -79,5 +80,38 @@ assert.equal(await draftStore.load('account-b', answerRef), '', '评论草稿不
 assert.equal(await draftStore.load('account-a', { kind: 'answer', id: 'answer-2' }), '', '评论草稿不得跨内容读取')
 await draftStore.clear('account-a', answerRef, 'comment-1')
 assert.equal(await draftStore.load('account-a', answerRef, 'comment-1'), '')
+
+const segmentDraftRef = zhihuCommentDraftRef({
+  kind: 'segment',
+  contentId: 'answer-1',
+  contentType: 'answer',
+  segmentId: 'seg-a,seg-b',
+  segmentIds: ['seg-a', 'seg-b'],
+  segmentContent: '段落',
+  displayText: '段落',
+  paragraphId: 'p-1',
+  startOffset: 0,
+  endOffset: 2,
+  liked: false,
+  likeCount: 0,
+  commentCount: 0,
+  myCommentCount: 0,
+  isSpan: false,
+})
+assert.deepEqual(segmentDraftRef, {
+  kind: 'comment',
+  id: 'segment:answer:answer-1:seg-a,seg-b',
+})
+await draftStore.save('account-a', segmentDraftRef, undefined, '段评草稿')
+assert.equal(await draftStore.load('account-a', answerRef), '根评论草稿', '段评草稿不得覆盖全文评论草稿')
+assert.equal(await draftStore.load('account-a', segmentDraftRef), '段评草稿')
+
+const commentsUiSource = readFileSync(new URL('../src/features/zhihu/ui/ZhihuCommentsSection.tsx', import.meta.url), 'utf8')
+assert.doesNotMatch(
+  commentsUiSource,
+  /\[loadedOnce,\s*loading,\s*refValue,\s*service,\s*sort\]/,
+  '评论自动加载 effect 不能依赖自己刚 set 的 loading，否则 cleanup 会丢弃唯一响应并永久卡在加载中',
+)
+assert.match(commentsUiSource, /const controller = new AbortController\(\)/, '评论首屏请求必须可取消而不是用 disposed + loading 自相取消')
 
 console.log('zhihu comments/drafts contract ok')

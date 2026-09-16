@@ -255,7 +255,17 @@ export class ZhihuImageUploadService {
     this.session.assertGeneration(generation)
     const hash = md5Hex(bytesAsLatin1(bytes))
     const dimensions = await imageDimensions(file)
-    const rawApply = await this.api.postJson('image.upload', 'https://api.zhihu.com/images', { image_hash: hash, source }, signal)
+    // 参考实现这里使用 account HttpClient 直连 api.zhihu.com/images，而不是 postSigned。
+    // 显式 signing:none，避免 transport 的默认 Web ZSE 签名污染图片协议。
+    const rawApply = await this.api.requestRawJson(
+      'image.upload',
+      'https://api.zhihu.com/images',
+      'POST',
+      JSON.stringify({ image_hash: hash, source }),
+      { 'Content-Type': 'application/json' },
+      signal,
+      { signing: 'none' },
+    )
     const apply = decodeApplyResponse(rawApply)
     this.session.assertGeneration(generation)
 
@@ -264,17 +274,26 @@ export class ZhihuImageUploadService {
       if (file.type === 'image/gif') await ossMultipart(hash, bytes, apply.token)
       else await ossSinglePut(hash, bytes, file.type, apply.token)
       this.session.assertGeneration(generation)
-      await this.api.putJson(
+      await this.api.requestRawJson(
         'image.status.set',
         `https://api.zhihu.com/images/${encodeURIComponent(apply.imageId)}/uploading_status`,
-        { upload_result: 'success' },
+        'PUT',
+        JSON.stringify({ upload_result: 'success' }),
+        { 'Content-Type': 'application/json' },
         signal,
+        { signing: 'none' },
       )
     }
 
     let latest: ReturnType<typeof statusImage> = {}
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      const raw = await this.api.getJson('image.status.get', `https://api.zhihu.com/images/${encodeURIComponent(apply.imageId)}`, signal)
+      const raw = await this.api.getJsonWithHeaders(
+        'image.status.get',
+        `https://api.zhihu.com/images/${encodeURIComponent(apply.imageId)}`,
+        {},
+        signal,
+        { signing: 'none' },
+      )
       latest = statusImage(raw)
       if (latest.status === 'success') break
       if (attempt < 9) await new Promise<void>((resolve) => window.setTimeout(resolve, 2_000))

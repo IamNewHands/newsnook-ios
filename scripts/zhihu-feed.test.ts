@@ -135,6 +135,16 @@ assert.equal(filteredSearchUrl.searchParams.get('vertical'), 'answer')
 assert.equal(filteredSearchUrl.searchParams.get('time_interval'), 'a_month')
 assert.equal(filteredSearchUrl.searchParams.get('search_source'), 'Filter')
 
+const restrictedSearchUrl = new URL(zhihuSearchUrl('储能', 0, 20, {
+  tab: 'general',
+  restrictedMemberHashId: 'member-hash-1',
+}))
+assert.equal(restrictedSearchUrl.searchParams.get('restricted_scene'), 'member')
+assert.equal(restrictedSearchUrl.searchParams.get('restricted_field'), 'member_hash_id')
+assert.equal(restrictedSearchUrl.searchParams.get('restricted_value'), 'member-hash-1')
+assert.equal(restrictedSearchUrl.searchParams.get('filter_fields'), '')
+assert.equal(restrictedSearchUrl.searchParams.get('lc_idx'), '0')
+
 const peopleSearchUrl = new URL(zhihuSearchUrl('示例用户', 0, 20, {
   tab: 'people',
   sort: 'latest',

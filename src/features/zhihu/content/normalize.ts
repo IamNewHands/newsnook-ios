@@ -1,6 +1,9 @@
 import { parseHTML } from 'linkedom'
 
 import { sanitizeArticleHtml } from '../../../lib/sanitize'
+import type { ZhihuSegmentInfoParagraph } from '../api/decode'
+import { injectZhihuSegmentHighlights } from '../segments/normalize'
+import type { ZhihuEntityRef } from '../types'
 
 const ZHIHU_HOSTS = new Set(['zhihu.com', 'www.zhihu.com', 'zhuanlan.zhihu.com'])
 const VIDEO_HOST_PATTERN = /(?:^|\.)(?:bilibili\.com|b23\.tv|youtube\.com|youtu\.be|vimeo\.com|douyin\.com|ixigua\.com)$/i
@@ -99,6 +102,34 @@ function createExternalCard(document: Document, source: Element, url: URL): Elem
   return card
 }
 
+function safeImageCandidate(value: string | null | undefined): string | undefined {
+  const candidate = value?.trim()
+  if (!candidate) return undefined
+  try {
+    const url = new URL(candidate)
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function zhihuImageCandidates(image: Element): string[] {
+  const values: Array<string | undefined> = [
+    // data-actualsrc 是知乎正文当前展示图；original-* 作为直连失败后的备用源。
+    safeImageCandidate(image.getAttribute('data-actualsrc')),
+    safeImageCandidate(image.getAttribute('src')),
+    safeImageCandidate(image.getAttribute('data-original-src')),
+    safeImageCandidate(image.getAttribute('data-original')),
+  ]
+  const srcset = image.getAttribute('srcset')
+  if (srcset) {
+    for (const entry of srcset.split(',')) {
+      values.push(safeImageCandidate(entry.trim().split(/\s+/, 1)[0]))
+    }
+  }
+  return [...new Set(values.filter((value): value is string => Boolean(value)))]
+}
+
 /**
  * 正文图片不能在网络较慢时留下一个“空白洞”。
  * 这里给普通正文图补一个稳定占位层；真正的加载/成功/失败状态仍由
@@ -115,6 +146,13 @@ function wrapContentImages(rawHtml: string): string {
       if (image.getAttribute('data-reader-role') === 'badge') continue
       if (image.closest('a[data-reader-role="zhihu-link-card"]')) continue
 
+      const candidates = zhihuImageCandidates(image)
+      if (candidates[0]) image.setAttribute('src', candidates[0])
+      image.removeAttribute('srcset')
+      if (candidates.length > 1) {
+        image.setAttribute('data-reader-image-fallbacks', JSON.stringify(candidates.slice(1)))
+      }
+
       const host = document.createElement('span')
       host.setAttribute('data-reader-role', 'zhihu-image-host')
 
@@ -124,7 +162,7 @@ function wrapContentImages(rawHtml: string): string {
 
       const failed = document.createElement('span')
       failed.setAttribute('data-reader-role', 'zhihu-image-failed')
-      failed.textContent = '图片加载失败'
+      failed.textContent = '图片加载失败，点按重试'
 
       image.replaceWith(host)
       host.append(image, loading, failed)
@@ -166,7 +204,14 @@ function promoteStandaloneExternalLinks(rawHtml: string): string {
 }
 
 /** 展示层清洗；编辑原始正文不得调用此函数覆盖源数据。 */
-export function normalizeZhihuContentHtml(rawHtml: string): string {
+export function normalizeZhihuContentHtml(
+  rawHtml: string,
+  segmentInfos: ZhihuSegmentInfoParagraph[] = [],
+  ref?: ZhihuEntityRef,
+): string {
   if (!rawHtml.trim()) return ''
-  return sanitizeArticleHtml(wrapContentImages(promoteStandaloneExternalLinks(rawHtml)))
+  const segmented = ref && segmentInfos.length > 0
+    ? injectZhihuSegmentHighlights(rawHtml, segmentInfos, ref)
+    : rawHtml
+  return sanitizeArticleHtml(wrapContentImages(promoteStandaloneExternalLinks(segmented)))
 }

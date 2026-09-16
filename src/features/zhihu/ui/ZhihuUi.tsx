@@ -95,11 +95,14 @@ export function ZhihuContentRow({
   onOpen,
   showReason = true,
   trailing,
+  compact = false,
 }: {
   item: ZhihuContentSummary
   onOpen: (item: ZhihuContentSummary) => void
   showReason?: boolean
   trailing?: ReactNode
+  /** 首页信息流保持与 NewsNook 新闻列表相同的扫描密度：标题 2 行、摘要 2 行。 */
+  compact?: boolean
 }) {
   const vote = formatZhihuCount(item.voteupCount)
   const comments = formatZhihuCount(item.commentCount)
@@ -129,11 +132,11 @@ export function ZhihuContentRow({
 
       <span className="mt-1.5 flex items-start gap-3">
         <span className="min-w-0 flex-1">
-          <span className="block font-display text-[17px] font-medium leading-[1.46] tracking-[0.005em] text-paper transition-colors group-hover:text-cinnabar sm:text-[18px]">
+          <span className={`zhihu-content-row-title block font-display text-[17px] font-medium leading-[1.46] tracking-[0.005em] text-paper transition-colors group-hover:text-cinnabar sm:text-[18px] ${compact ? 'is-compact' : ''}`}>
             {item.title}
           </span>
           {item.excerpt && (
-            <span className="mt-1.5 line-clamp-3 block text-[13px] leading-[1.72] text-paper-muted">
+            <span className={`zhihu-content-row-excerpt mt-1.5 block text-[13px] leading-[1.72] text-paper-muted ${compact ? 'is-compact' : ''}`}>
               {item.excerpt}
             </span>
           )}

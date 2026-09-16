@@ -1,10 +1,8 @@
 import { md5Hex } from '../../../lib/hash'
-import LAESUtils from './vendor/laes_utils.js'
-import { encryptConf, encryptIv, encryptKey } from './vendor/zse96_config.js'
+import { encryptZhihuZseV4 } from './zseV4'
+export { encryptZhihuZseV4 } from './zseV4'
 
 export const ZHIHU_WEB_ZSE93 = '101_3_3.0'
-
-let encryptor: ((input: string) => string) | null = null
 
 function utf8AsLatin1(value: string): string {
   const bytes = new TextEncoder().encode(value)
@@ -17,16 +15,7 @@ function utf8AsLatin1(value: string): string {
 }
 
 function md5Utf8(value: string): string {
-  // src/lib/hash 的 md5Hex 接受字节语义的 latin1 string；这里显式 UTF-8 编码，
-  // 避免中文 JSON body 因 charCode 截断而产生错误签名。
   return md5Hex(utf8AsLatin1(value))
-}
-
-function getEncryptor(): (input: string) => string {
-  if (encryptor) return encryptor
-  const laes = new LAESUtils(encryptConf, null)
-  encryptor = laes.createEncryptor(encryptKey, encryptIv)
-  return encryptor
 }
 
 export function zhihuSigningPath(rawUrl: string): string {
@@ -35,8 +24,9 @@ export function zhihuSigningPath(rawUrl: string): string {
 }
 
 /**
- * 当前 Web fetch 签名源：zse93 + pathname/query + d_c0 + optional body。
- * method 不参与这一版 Web 签名；body 必须与实际发送的 JSON 字符串逐字节一致。
+ * Current Web fetch signing source: zse93 + pathname/query + d_c0 + optional body.
+ * The request method is not part of this signature version. JSON bodies must be
+ * signed byte-for-byte exactly as they are sent.
  */
 export function zhihuSignSource(
   rawUrl: string,
@@ -56,7 +46,7 @@ export function createZhihuZse96(
   zse93 = ZHIHU_WEB_ZSE93,
 ): string {
   const digest = md5Utf8(zhihuSignSource(rawUrl, dc0, body, zse93))
-  return `2.0_${getEncryptor()(digest)}`
+  return `2.0_${encryptZhihuZseV4(digest)}`
 }
 
 export function buildZhihuZseHeaders(

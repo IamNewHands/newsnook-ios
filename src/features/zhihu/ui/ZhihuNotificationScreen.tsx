@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Browser } from '@capacitor/browser'
-import { AtSign, Bell, Bookmark, CheckCheck, Heart, Loader2, MessageCircle, UserPlus } from 'lucide-react'
+import { AtSign, Bell, Bookmark, CheckCheck, CircleHelp, Heart, Loader2, UserPlus } from 'lucide-react'
 
 import { parseZhihuLink, parseZhihuMessagePeerId } from '../content/links'
 import type {
   ZhihuNotificationCategory,
+  ZhihuNotificationInvitation,
   ZhihuNotificationItem,
   ZhihuNotificationService,
+  ZhihuNotificationTimelineEntry,
 } from '../notification/service'
 import { mergeZhihuNotificationItems } from '../notification/service'
 import type { ZhihuEntityRef } from '../types'
@@ -35,12 +37,13 @@ function notificationTime(value?: number): string {
 
 export function ZhihuNotificationScreen({ service, onOpen, onMessage }: Props) {
   const readAllWritable = canExecuteZhihuOperation('notification.readall')
-  const [activeCategory, setActiveCategory] = useState<ZhihuNotificationCategory | null>(null)
+  const [activeEntry, setActiveEntry] = useState<ZhihuNotificationTimelineEntry | null>(null)
   const [items, setItems] = useState<ZhihuNotificationItem[]>([])
   const [nextCursor, setNextCursor] = useState<string | undefined>()
   const [hasMore, setHasMore] = useState(false)
   const [unread, setUnread] = useState<Record<ZhihuNotificationCategory, number>>({ comment: 0, like: 0, favlist_me: 0, follow: 0 })
-  const [messageUnread, setMessageUnread] = useState(0)
+  const [overviewUnread, setOverviewUnread] = useState(0)
+  const [invitation, setInvitation] = useState<ZhihuNotificationInvitation | undefined>()
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [marking, setMarking] = useState<ZhihuNotificationCategory | 'all' | null>(null)
@@ -52,8 +55,8 @@ export function ZhihuNotificationScreen({ service, onOpen, onMessage }: Props) {
     setError(null)
     void (async () => {
       try {
-        if (activeCategory) {
-          const page = await service.timeline(activeCategory, undefined, controller.signal)
+        if (activeEntry) {
+          const page = await service.timeline(activeEntry, undefined, controller.signal)
           if (controller.signal.aborted) return
           setItems(page.items)
           setNextCursor(page.nextCursor)
@@ -66,7 +69,8 @@ export function ZhihuNotificationScreen({ service, onOpen, onMessage }: Props) {
         setNextCursor(page.nextCursor)
         setHasMore(page.hasMore)
         setUnread(page.unread)
-        setMessageUnread(page.messageUnread)
+        setOverviewUnread(page.totalUnread)
+        setInvitation(page.invitation)
       } catch (reason) {
         if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '读取知乎通知失败')
       } finally {
@@ -74,15 +78,15 @@ export function ZhihuNotificationScreen({ service, onOpen, onMessage }: Props) {
       }
     })()
     return () => controller.abort()
-  }, [activeCategory, service])
+  }, [activeEntry, service])
 
   const loadMore = async () => {
     if (!nextCursor || loadingMore) return
     setLoadingMore(true)
     setError(null)
     try {
-      const page = activeCategory
-        ? await service.timeline(activeCategory, nextCursor)
+      const page = activeEntry
+        ? await service.timeline(activeEntry, nextCursor)
         : await service.overview(nextCursor)
       setItems((prev) => mergeZhihuNotificationItems(prev, page.items))
       setNextCursor(page.nextCursor)
@@ -100,8 +104,10 @@ export function ZhihuNotificationScreen({ service, onOpen, onMessage }: Props) {
     setError(null)
     try {
       await service.markCategoryRead(category)
+      const cleared = unread[category]
       setUnread((prev) => ({ ...prev, [category]: 0 }))
-      if (activeCategory === category) setItems((prev) => prev.map((item) => ({ ...item, unread: false })))
+      setOverviewUnread((prev) => Math.max(0, prev - cleared))
+      if (activeEntry === category) setItems((prev) => prev.map((item) => ({ ...item, unread: false })))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '标记已读失败')
     } finally {
@@ -114,13 +120,16 @@ export function ZhihuNotificationScreen({ service, onOpen, onMessage }: Props) {
     setMarking('all')
     setError(null)
     try {
+      let cleared = 0
       for (const category of CATEGORIES) {
         if (unread[category.id] > 0) {
+          cleared += unread[category.id]
           await service.markCategoryRead(category.id)
           setUnread((prev) => ({ ...prev, [category.id]: 0 }))
         }
       }
-      setItems((prev) => prev.map((item) => ({ ...item, unread: false })))
+      setOverviewUnread((prev) => Math.max(0, prev - cleared))
+      if (activeEntry !== 'invite') setItems((prev) => prev.map((item) => ({ ...item, unread: false })))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '标记全部已读失败')
     } finally {
@@ -154,7 +163,7 @@ export function ZhihuNotificationScreen({ service, onOpen, onMessage }: Props) {
       case 'follow': return <UserPlus size={13} />
     }
   }
-  const totalUnread = Object.values(unread).reduce((sum, value) => sum + value, 0)
+  const categoryUnread = Object.values(unread).reduce((sum, value) => sum + value, 0)
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pb-28 pt-5 sm:px-6">
@@ -162,17 +171,17 @@ export function ZhihuNotificationScreen({ service, onOpen, onMessage }: Props) {
         <div className="scroll-hidden -mx-1 flex min-w-0 flex-1 gap-1.5 overflow-x-auto px-1 pb-1">
           <button
             type="button"
-            onClick={() => setActiveCategory(null)}
-            className={`flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[11px] transition-colors ${activeCategory == null ? 'border-cinnabar/40 bg-cinnabar/12 text-cinnabar-soft' : 'border-haze/70 bg-ink-raised/35 text-paper-faint hover:bg-paper/5 hover:text-paper-muted'}`}
+            onClick={() => setActiveEntry(null)}
+            className={`flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[11px] transition-colors ${activeEntry == null ? 'border-cinnabar/40 bg-cinnabar/12 text-cinnabar-soft' : 'border-haze/70 bg-ink-raised/35 text-paper-faint hover:bg-paper/5 hover:text-paper-muted'}`}
           >
-            <Bell size={13} /><span>全部</span>{totalUnread > 0 && <span className="font-mono text-[9.5px]">{formatZhihuCount(totalUnread)}</span>}
+            <Bell size={13} /><span>全部</span>{overviewUnread > 0 && <span className="font-mono text-[9.5px]">{formatZhihuCount(overviewUnread)}</span>}
           </button>
           {CATEGORIES.map((category) => (
             <button
               key={category.id}
               type="button"
-              onClick={() => setActiveCategory(category.id)}
-              className={`flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[11px] transition-colors ${activeCategory === category.id ? 'border-cinnabar/40 bg-cinnabar/12 text-cinnabar-soft' : 'border-haze/70 bg-ink-raised/35 text-paper-faint hover:bg-paper/5 hover:text-paper-muted'}`}
+              onClick={() => setActiveEntry(category.id)}
+              className={`flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-[11px] transition-colors ${activeEntry === category.id ? 'border-cinnabar/40 bg-cinnabar/12 text-cinnabar-soft' : 'border-haze/70 bg-ink-raised/35 text-paper-faint hover:bg-paper/5 hover:text-paper-muted'}`}
             >
               {categoryIcon(category.id)}<span>{category.label}</span>{unread[category.id] > 0 && <span className="font-mono text-[9.5px]">{formatZhihuCount(unread[category.id])}</span>}
             </button>
@@ -180,7 +189,7 @@ export function ZhihuNotificationScreen({ service, onOpen, onMessage }: Props) {
         </div>
         <button
           type="button"
-          disabled={!readAllWritable || Boolean(marking) || totalUnread === 0}
+          disabled={!readAllWritable || Boolean(marking) || categoryUnread === 0}
           onClick={() => void markAll()}
           aria-label="全部标记已读"
           title="全部标记已读"
@@ -190,36 +199,53 @@ export function ZhihuNotificationScreen({ service, onOpen, onMessage }: Props) {
         </button>
       </div>
 
-      {activeCategory && unread[activeCategory] > 0 && (
+      {activeEntry && activeEntry !== 'invite' && unread[activeEntry] > 0 && (
         <div className="mb-3 flex justify-end">
           <button
             type="button"
             disabled={!readAllWritable || Boolean(marking)}
-            onClick={() => void markCategory(activeCategory)}
+            onClick={() => void markCategory(activeEntry)}
             className="inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2.5 font-mono text-[10px] text-paper-faint transition-colors hover:bg-paper/5 hover:text-paper-muted disabled:opacity-35"
           >
-            {marking === activeCategory ? <Loader2 size={12} className="animate-spin" /> : <CheckCheck size={13} />}
+            {marking === activeEntry ? <Loader2 size={12} className="animate-spin" /> : <CheckCheck size={13} />}
             <span>当前分类已读</span>
           </button>
         </div>
       )}
 
-      {messageUnread > 0 && (
-        <div className="mb-3 flex items-center gap-2 rounded-xl border border-cinnabar/25 bg-cinnabar/7 px-3 py-2.5 text-[11px] text-paper-muted">
-          <MessageCircle size={14} strokeWidth={1.6} className="text-cinnabar-soft" />
-          <span>{messageUnread} 条私信未读</span>
-        </div>
+      {!activeEntry && invitation && (
+        <button
+          type="button"
+          onClick={() => setActiveEntry('invite')}
+          className="mb-3 flex w-full items-center gap-3 rounded-2xl border border-haze/70 bg-ink-raised/45 px-4 py-3.5 text-left transition-colors hover:bg-paper/5"
+        >
+          {invitation.avatarUrl ? (
+            <img src={invitation.avatarUrl} alt="" className="size-10 shrink-0 rounded-xl object-cover" loading="lazy" />
+          ) : (
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-paper/5"><CircleHelp size={16} className="text-cinnabar-soft" /></span>
+          )}
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-2">
+              <span className="truncate text-[12.5px] font-medium text-paper">{invitation.title}</span>
+              {invitation.unreadCount > 0 && <span className="rounded-full bg-cinnabar/12 px-1.5 py-0.5 font-mono text-[9px] text-cinnabar-soft">{formatZhihuCount(invitation.unreadCount)}</span>}
+              <span className="ml-auto shrink-0 font-mono text-[9px] text-paper-faint">{notificationTime(invitation.createdAt)}</span>
+            </span>
+            {invitation.text && <span className="mt-1 line-clamp-2 block text-[11.5px] leading-[1.6] text-paper-muted">{invitation.text}</span>}
+          </span>
+        </button>
       )}
       {error && <div className="mb-3"><ZhihuErrorBanner>{error}</ZhihuErrorBanner></div>}
       {loading && items.length === 0 && <ZhihuLoadingState label="正在读取知乎消息…" />}
-      {!loading && items.length === 0 && !error && <ZhihuEmptyState icon={<Bell size={28} />} title="暂无消息" />}
+      {!loading && items.length === 0 && !error && !(activeEntry == null && invitation) && (
+        <ZhihuEmptyState icon={activeEntry === 'invite' ? <CircleHelp size={28} /> : <Bell size={28} />} title={activeEntry === 'invite' ? '暂无邀请' : '暂无消息'} />
+      )}
 
       {items.length > 0 && (
         <ZhihuSurface className="divide-y divide-haze/55">
           {items.map((item) => (
             <button key={item.id} type="button" onClick={() => openItem(item)} className="flex w-full gap-3 px-4 py-3.5 text-left transition-colors hover:bg-paper/5">
-              {item.author?.avatarUrl ? (
-                <img src={item.author.avatarUrl} alt="" className="size-10 shrink-0 rounded-xl object-cover" loading="lazy" />
+              {item.avatarUrl || item.author?.avatarUrl ? (
+                <img src={item.avatarUrl || item.author?.avatarUrl} alt="" className="size-10 shrink-0 rounded-xl object-cover" loading="lazy" />
               ) : (
                 <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-paper/5"><Bell size={15} className="text-paper-faint" /></span>
               )}

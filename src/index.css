@@ -1905,6 +1905,19 @@ html[data-eink='1'] .lead-cover-veil {
 }
 
 
+/* 知乎信息流与 NewsNook 新闻列表保持相同的可扫描密度。显式写 WebKit clamp，
+ * 不依赖 Tailwind line-clamp 在旧 Android WebView 中的生成结果。 */
+.zhihu-content-row-title,
+.zhihu-content-row-excerpt {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.zhihu-content-row-title { -webkit-line-clamp: 3; }
+.zhihu-content-row-excerpt { -webkit-line-clamp: 3; }
+.zhihu-content-row-title.is-compact,
+.zhihu-content-row-excerpt.is-compact { -webkit-line-clamp: 2; }
+
 /* 知乎工作区正文复用 NewsNook 阅读器排版，只补知乎独有的站外引用卡片。 */
 .reader-prose.zhihu-prose a[data-reader-role='zhihu-link-card'] {
   display: flex;
@@ -1968,6 +1981,26 @@ html[data-eink='1'] .lead-cover-veil {
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.04em;
+}
+
+/* 知乎段评/段落 reaction。只有服务端 segment_infos 明确标注的字符范围才会
+ * 被注入为可点击 span；视觉上保持阅读连续性，仅用很轻的底色/下划线提示可互动。 */
+.reader-prose.zhihu-prose [data-reader-role='zhihu-segment'] {
+  cursor: pointer;
+  border-radius: 0.18em;
+  background: color-mix(in oklab, var(--color-cinnabar) 7%, transparent);
+  box-shadow: inset 0 -1px color-mix(in oklab, var(--color-cinnabar-soft) 34%, transparent);
+  -webkit-tap-highlight-color: color-mix(in oklab, var(--color-cinnabar) 16%, transparent);
+}
+
+.reader-prose.zhihu-prose [data-reader-role='zhihu-segment']:active,
+.reader-prose.zhihu-prose [data-reader-role='zhihu-segment']:hover {
+  background: color-mix(in oklab, var(--color-cinnabar) 12%, transparent);
+}
+
+.reader-prose.zhihu-prose [data-reader-role='zhihu-segment'][data-zhihu-segment-liked='true'] {
+  background: color-mix(in oklab, var(--color-cinnabar) 14%, transparent);
+  box-shadow: inset 0 -1px color-mix(in oklab, var(--color-cinnabar-soft) 56%, transparent);
 }
 
 .zhihu-comment-body p {
@@ -2043,6 +2076,15 @@ html[data-eink='1'] .lead-cover-veil {
 .reader-prose.zhihu-prose [data-reader-role='zhihu-image-failed'] {
   display: none;
   color: var(--color-cinnabar-soft);
+}
+
+.reader-prose.zhihu-prose [data-reader-role='zhihu-image-host'].is-failed {
+  cursor: pointer;
+  border: 1px dashed color-mix(in oklab, var(--color-cinnabar) 30%, var(--color-haze));
+}
+
+.reader-prose.zhihu-prose [data-reader-role='zhihu-image-host'].is-decorative {
+  display: none;
 }
 
 .reader-prose.zhihu-prose img.async-img-done ~ [data-reader-role='zhihu-image-loading'],

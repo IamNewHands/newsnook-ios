@@ -2,7 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Clock3, Flame, Heart, Loader2, MessageCircle, RefreshCw, Reply, Send, Trash2 } from 'lucide-react'
 
 import { normalizeZhihuContentHtml } from '../content/normalize'
-import type { ZhihuCommentSort, ZhihuCommentsService } from '../comments/service'
+import {
+  type ZhihuCommentSort,
+  type ZhihuCommentTarget,
+  type ZhihuCommentsService,
+  zhihuCommentDraftRef,
+  zhihuCommentTargetKey,
+} from '../comments/service'
 import type { ZhihuCommentDraftStore } from '../comments/draftStore'
 import type { ZhihuCommentNode } from '../comments/types'
 import type { ZhihuEntityRef } from '../types'
@@ -11,7 +17,7 @@ import { ZhihuEmptyState, ZhihuErrorBanner, ZhihuSectionHeader } from './ZhihuUi
 import { formatZhihuCount } from './ZhihuUiUtils'
 
 interface Props {
-  refValue: ZhihuEntityRef
+  target: ZhihuCommentTarget
   service: ZhihuCommentsService
   onNavigate: (ref: ZhihuEntityRef, sourceAnchor?: string) => void
   restoreAnchor?: string
@@ -28,12 +34,15 @@ function mergeComments(current: ZhihuCommentNode[], incoming: ZhihuCommentNode[]
 function useCommentDraft(
   store: ZhihuCommentDraftStore,
   accountId: string | undefined,
-  refValue: ZhihuEntityRef,
+  target: ZhihuCommentTarget,
   replyToCommentId?: string,
 ) {
+  const targetKey = zhihuCommentTargetKey(target)
   const stableRef = useMemo<ZhihuEntityRef>(
-    () => ({ kind: refValue.kind, id: refValue.id }),
-    [refValue.id, refValue.kind],
+    () => zhihuCommentDraftRef(target),
+    // targetKey captures every identity field relevant to draft isolation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [targetKey],
   )
   const [value, setValue] = useState('')
   const [ready, setReady] = useState(false)
@@ -85,7 +94,7 @@ function CommentItem({
   authenticated,
   accountId,
   draftStore,
-  rootRef,
+  rootTarget,
   onDeleted,
 }: {
   comment: ZhihuCommentNode
@@ -94,11 +103,11 @@ function CommentItem({
   authenticated: boolean
   accountId?: string
   draftStore: ZhihuCommentDraftStore
-  rootRef: ZhihuEntityRef
+  rootTarget: ZhihuCommentTarget
   onDeleted: (commentId: string) => void
 }) {
   const likeWritable = canExecuteZhihuOperation(comment.liked ? 'comment.like.clear' : 'comment.like.set')
-  const replyWritable = canExecuteZhihuOperation('comment.create')
+  const replyWritable = canExecuteZhihuOperation(rootTarget.kind === 'segment' ? 'segment.comment.create' : 'comment.create')
   const deleteWritable = canExecuteZhihuOperation('comment.delete')
   const cached = service.cachedChildren(comment.id)
   const initialChildren = cached?.items ?? comment.children
@@ -111,7 +120,7 @@ function CommentItem({
   const [likeCount, setLikeCount] = useState(comment.likeCount)
   const [mutationBusy, setMutationBusy] = useState(false)
   const [replying, setReplying] = useState(false)
-  const replyDraft = useCommentDraft(draftStore, accountId, rootRef, comment.id)
+  const replyDraft = useCommentDraft(draftStore, accountId, rootTarget, comment.id)
 
   useEffect(() => {
     setLiked(comment.liked)
@@ -157,7 +166,7 @@ function CommentItem({
     setMutationBusy(true)
     setError(null)
     try {
-      const created = await service.create(rootRef, replyDraft.value, comment.id)
+      const created = await service.create(rootTarget, replyDraft.value, comment.id)
       setChildren((prev) => [created, ...prev.filter((item) => item.id !== created.id)])
       setExpanded(true)
       await replyDraft.clear()
@@ -300,7 +309,7 @@ function CommentItem({
                       authenticated={authenticated}
                       accountId={accountId}
                       draftStore={draftStore}
-                      rootRef={rootRef}
+                      rootTarget={rootTarget}
                       onDeleted={(id) => setChildren((prev) => prev.filter((item) => item.id !== id))}
                     />
                   ))}
@@ -314,49 +323,59 @@ function CommentItem({
   )
 }
 
-export function ZhihuCommentsSection({ refValue, service, onNavigate, restoreAnchor, authenticated, accountId, draftStore }: Props) {
+export function ZhihuCommentsSection({ target, service, onNavigate, restoreAnchor, authenticated, accountId, draftStore }: Props) {
   const [sort, setSort] = useState<ZhihuCommentSort>('score')
-  const initialCache = service.cachedRoot(refValue, 'score')
+  const targetKey = zhihuCommentTargetKey(target)
+  const stableTarget = useMemo<ZhihuCommentTarget>(
+    () => target,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [targetKey],
+  )
+  const initialCache = service.cachedRoot(stableTarget, 'score')
   const [items, setItems] = useState<ZhihuCommentNode[]>(initialCache?.items ?? [])
   const [nextCursor, setNextCursor] = useState<string | undefined>(initialCache?.nextCursor)
   const [loading, setLoading] = useState(false)
   const [loadedOnce, setLoadedOnce] = useState(Boolean(initialCache))
   const [error, setError] = useState<string | null>(null)
-  const rootDraft = useCommentDraft(draftStore, accountId, refValue)
+  const rootDraft = useCommentDraft(draftStore, accountId, stableTarget)
   const [sending, setSending] = useState(false)
-  const commentWritable = canExecuteZhihuOperation('comment.create')
+  const commentWritable = canExecuteZhihuOperation(stableTarget.kind === 'segment' ? 'segment.comment.create' : 'comment.create')
+  const sectionTitle = stableTarget.kind === 'segment' ? '段评' : '评论'
 
+  // 旧实现把 loading 放进自动加载 effect 的依赖：setLoading(true) 会立刻触发 cleanup，
+  // 把正在进行的请求标成 disposed，响应随后永远被丢掉，于是 UI 永久停在“正在读取评论”。
+  // 现在每个“内容 + 排序”只维护一个可取消请求；命中缓存则立即展示，不再二次起请求。
   useEffect(() => {
-    const cached = service.cachedRoot(refValue, sort)
+    const cached = service.cachedRoot(stableTarget, sort)
     setItems(cached?.items ?? [])
     setNextCursor(cached?.nextCursor)
-    setLoadedOnce(Boolean(cached))
-    setLoading(false)
     setError(null)
-  }, [refValue, service, sort])
+    if (cached) {
+      setLoadedOnce(true)
+      setLoading(false)
+      return
+    }
 
-  useEffect(() => {
-    if (loadedOnce || loading) return
-    let disposed = false
+    const controller = new AbortController()
+    setLoadedOnce(false)
     setLoading(true)
-    setError(null)
-    void service.listRoot(refValue, undefined, undefined, sort).then(
+    void service.listRoot(stableTarget, undefined, controller.signal, sort).then(
       (page) => {
-        if (disposed) return
+        if (controller.signal.aborted) return
         setItems(page.items)
         setNextCursor(page.hasMore ? page.nextCursor : undefined)
         setLoadedOnce(true)
         setLoading(false)
       },
       (reason) => {
-        if (disposed) return
+        if (controller.signal.aborted) return
         setError(reason instanceof Error ? reason.message : '评论读取失败')
         setLoadedOnce(true)
         setLoading(false)
       },
     )
-    return () => { disposed = true }
-  }, [loadedOnce, loading, refValue, service, sort])
+    return () => controller.abort()
+  }, [service, sort, stableTarget])
 
   useEffect(() => {
     if (!restoreAnchor || items.length === 0) return
@@ -371,7 +390,7 @@ export function ZhihuCommentsSection({ refValue, service, onNavigate, restoreAnc
     setLoading(true)
     setError(null)
     try {
-      const page = await service.listRoot(refValue, undefined, undefined, sort)
+      const page = await service.listRoot(stableTarget, undefined, undefined, sort)
       setItems(page.items)
       setNextCursor(page.hasMore ? page.nextCursor : undefined)
       setLoadedOnce(true)
@@ -387,7 +406,7 @@ export function ZhihuCommentsSection({ refValue, service, onNavigate, restoreAnc
     setLoading(true)
     setError(null)
     try {
-      const page = await service.listRoot(refValue, nextCursor, undefined, sort)
+      const page = await service.listRoot(stableTarget, nextCursor, undefined, sort)
       setItems((prev) => mergeComments(prev, page.items))
       setNextCursor(page.hasMore ? page.nextCursor : undefined)
     } catch (reason) {
@@ -402,7 +421,7 @@ export function ZhihuCommentsSection({ refValue, service, onNavigate, restoreAnc
     setSending(true)
     setError(null)
     try {
-      const created = await service.create(refValue, rootDraft.value)
+      const created = await service.create(stableTarget, rootDraft.value)
       setItems((prev) => [created, ...prev.filter((item) => item.id !== created.id)])
       setLoadedOnce(true)
       await rootDraft.clear()
@@ -442,7 +461,7 @@ export function ZhihuCommentsSection({ refValue, service, onNavigate, restoreAnc
     <section className="mt-9 border-t border-haze/55 pt-5" aria-label="知乎评论">
       <ZhihuSectionHeader
         icon={<MessageCircle size={17} />}
-        title="评论"
+        title={sectionTitle}
         detail={items.length > 0 ? `${items.length} 条已载入` : undefined}
         action={(
           <div className="flex items-center gap-1.5">
@@ -468,7 +487,7 @@ export function ZhihuCommentsSection({ refValue, service, onNavigate, restoreAnc
             onChange={(event) => rootDraft.setValue(event.target.value)}
             rows={2}
             maxLength={5000}
-            placeholder="写下你的评论…"
+            placeholder={stableTarget.kind === 'segment' ? '评论这段文字…' : '写下你的评论…'}
             className="min-h-16 min-w-0 flex-1 resize-y bg-transparent text-[13px] leading-[1.65] text-paper outline-none placeholder:text-paper-faint/65"
           />
           <button
@@ -484,7 +503,7 @@ export function ZhihuCommentsSection({ refValue, service, onNavigate, restoreAnc
         </div>
       ) : (
         <div className="rounded-xl border border-haze/60 bg-ink-raised/35 px-3.5 py-2.5 text-[11px] leading-relaxed text-paper-faint">
-          {!authenticated ? '登录知乎后可发表评论、回复和点赞。' : '当前会话暂不可发表评论。'}
+          {!authenticated ? `登录知乎后可发表${stableTarget.kind === 'segment' ? '段评' : '评论'}、回复和点赞。` : `当前会话暂不可发表${stableTarget.kind === 'segment' ? '段评' : '评论'}。`}
         </div>
       )}
 
@@ -492,11 +511,11 @@ export function ZhihuCommentsSection({ refValue, service, onNavigate, restoreAnc
       {loading && items.length === 0 && (
         <div className="flex min-h-28 items-center justify-center gap-2 font-mono text-[10.5px] text-paper-faint">
           <Loader2 size={14} className="animate-spin text-cinnabar-soft" />
-          <span>正在读取评论…</span>
+          <span>正在读取{stableTarget.kind === 'segment' ? '段评' : '评论'}…</span>
         </div>
       )}
       {!loading && loadedOnce && !error && items.length === 0 && (
-        <ZhihuEmptyState icon={<MessageCircle size={26} />} title="还没有评论" description="这里会显示这条内容下的讨论。" />
+        <ZhihuEmptyState icon={<MessageCircle size={26} />} title={stableTarget.kind === 'segment' ? '还没有段评' : '还没有评论'} description={stableTarget.kind === 'segment' ? '这里会显示围绕这段文字的讨论。' : '这里会显示这条内容下的讨论。'} />
       )}
 
       {items.length > 0 && (
@@ -510,7 +529,7 @@ export function ZhihuCommentsSection({ refValue, service, onNavigate, restoreAnc
               authenticated={authenticated}
               accountId={accountId}
               draftStore={draftStore}
-              rootRef={refValue}
+              rootTarget={stableTarget}
               onDeleted={(id) => setItems((prev) => prev.filter((item) => item.id !== id))}
             />
           ))}

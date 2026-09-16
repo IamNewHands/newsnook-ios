@@ -10,6 +10,7 @@ interface NativeAuthResult {
   headline?: string
   wwwCookie: string
   apiCookie: string
+  userAgent?: string
   profileJson?: string
 }
 
@@ -53,6 +54,7 @@ export async function authenticateZhihuNative(options: {
     },
     wwwCookie: result.wwwCookie ?? '',
     apiCookie: result.apiCookie ?? '',
+    userAgent: result.userAgent?.trim() || undefined,
     profileJson: result.profileJson || undefined,
     updatedAt: Date.now(),
   }

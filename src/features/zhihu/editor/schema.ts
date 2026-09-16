@@ -11,6 +11,12 @@ export interface ZhihuEditorDocumentV1 {
   text: string
 }
 
+export interface ZhihuDraftTopic {
+  /** 知乎 topic_id；统一存字符串，避免大整数经过 JS number 丢精度。 */
+  topicId: string
+  name: string
+}
+
 export interface ZhihuDraftAsset {
   id: string
   mediaType: string
@@ -33,6 +39,8 @@ export interface ZhihuDraftSnapshot {
   kind: ZhihuDraftKind
   targetId?: string
   title?: string
+  /** 想法发布时附带的结构化话题；旧草稿没有该字段时按空列表兼容。 */
+  topics?: ZhihuDraftTopic[]
   document: ZhihuEditorDocumentV1
   assets: ZhihuDraftAsset[]
   localRevision: number
@@ -67,6 +75,18 @@ export function validateZhihuDraftSnapshot(value: unknown): ZhihuDraftSnapshot {
   const states: ZhihuPublishState[] = ['local', 'remote-draft', 'publishing', 'unknown', 'published', 'failed']
   if (!states.includes(value.publishState as ZhihuPublishState)) throw new Error('知乎草稿 publishState 无效')
   if (typeof value.createdAt !== 'number' || typeof value.updatedAt !== 'number') throw new Error('知乎草稿时间字段无效')
+  const topics = Array.isArray(value.topics) ? value.topics : []
+  const validatedTopics: ZhihuDraftTopic[] = []
+  const seenTopicIds = new Set<string>()
+  for (const topic of topics) {
+    if (!isObject(topic) || typeof topic.topicId !== 'string' || !topic.topicId.trim() || typeof topic.name !== 'string' || !topic.name.trim()) {
+      throw new Error('知乎草稿话题记录无效')
+    }
+    const topicId = topic.topicId.trim()
+    if (seenTopicIds.has(topicId)) continue
+    seenTopicIds.add(topicId)
+    validatedTopics.push({ topicId, name: topic.name.trim() })
+  }
   const assets = Array.isArray(value.assets) ? value.assets : []
   for (const asset of assets) {
     if (!isObject(asset) || typeof asset.id !== 'string' || typeof asset.mediaType !== 'string' || typeof asset.uploadState !== 'string') {
@@ -80,6 +100,7 @@ export function validateZhihuDraftSnapshot(value: unknown): ZhihuDraftSnapshot {
     kind,
     targetId: typeof value.targetId === 'string' ? value.targetId : undefined,
     title: typeof value.title === 'string' ? value.title : undefined,
+    topics: validatedTopics.length > 0 ? validatedTopics : undefined,
     document: validateZhihuEditorDocument(value.document),
     assets: assets as unknown as ZhihuDraftAsset[],
     localRevision: value.localRevision,

@@ -2,7 +2,10 @@ import { asRecord } from '../api/decode'
 import { ZhihuApiError } from '../api/errors'
 import type { ZhihuReadApi } from '../feed/service'
 import type { Page, ZhihuAuthor, ZhihuEntityRef } from '../types'
+import type { ZhihuSegmentTarget } from '../segments/normalize'
 import type { ZhihuCommentNode } from './types'
+
+export type ZhihuCommentTarget = ZhihuEntityRef | ZhihuSegmentTarget
 
 export interface ZhihuCommentCacheEntry extends Page<ZhihuCommentNode> {}
 export type ZhihuCommentSort = 'score' | 'time'
@@ -28,8 +31,25 @@ function stringValue(value: unknown): string | undefined {
   return undefined
 }
 
-function rootCacheKey(ref: ZhihuEntityRef, sort: ZhihuCommentSort): string {
-  return `${ref.kind}:${ref.id}:${sort}`
+export function zhihuCommentTargetKey(target: ZhihuCommentTarget): string {
+  if (target.kind === 'segment') {
+    return `segment:${target.contentType}:${target.contentId}:${target.segmentId}`
+  }
+  return `${target.kind}:${target.id}`
+}
+
+function rootCacheKey(target: ZhihuCommentTarget, sort: ZhihuCommentSort): string {
+  return `${zhihuCommentTargetKey(target)}:${sort}`
+}
+
+/** Comment drafts still use the existing entity-keyed local store. Segment threads get a
+ * deterministic synthetic comment ref so drafts never collide with whole-content comments. */
+export function zhihuCommentDraftRef(target: ZhihuCommentTarget): ZhihuEntityRef {
+  if (target.kind !== 'segment') return target
+  return {
+    kind: 'comment',
+    id: `segment:${target.contentType}:${target.contentId}:${target.segmentId}`,
+  }
 }
 
 function mergeCommentPages(
@@ -135,8 +155,8 @@ export class ZhihuCommentsService {
     this.api = api
   }
 
-  cachedRoot(ref: ZhihuEntityRef, sort: ZhihuCommentSort = 'score'): ZhihuCommentCacheEntry | undefined {
-    return this.rootCache.get(rootCacheKey(ref, sort))
+  cachedRoot(target: ZhihuCommentTarget, sort: ZhihuCommentSort = 'score'): ZhihuCommentCacheEntry | undefined {
+    return this.rootCache.get(rootCacheKey(target, sort))
   }
 
   cachedChildren(commentId: string): ZhihuCommentCacheEntry | undefined {
@@ -144,18 +164,21 @@ export class ZhihuCommentsService {
   }
 
   async listRoot(
-    ref: ZhihuEntityRef,
+    target: ZhihuCommentTarget,
     cursor?: string,
     signal?: AbortSignal,
     sort: ZhihuCommentSort = 'score',
   ): Promise<Page<ZhihuCommentNode>> {
-    const type = rootCommentType(ref)
-    if (!type) throw new ZhihuApiError('unsupported', `${ref.kind} 暂无评论读取适配`)
+    const type = target.kind === 'segment' ? `${target.contentType}s` : rootCommentType(target)
+    if (!type) throw new ZhihuApiError('unsupported', `${target.kind} 暂无评论读取适配`)
     const url = cursor
       ? assertCommentCursor(cursor)
-      : `https://www.zhihu.com/api/v4/comment_v5/${type}/${encodeURIComponent(ref.id)}/root_comment?order_by=${sort === 'time' ? 'ts' : 'score'}`
-    const page = decodeCommentPage(await this.api.getJson('comment.list-root', url, signal))
-    const key = rootCacheKey(ref, sort)
+      : target.kind === 'segment'
+        ? `https://www.zhihu.com/api/v4/comment_v5/${type}/${encodeURIComponent(target.contentId)}/segment/root_comment?segment_id=${encodeURIComponent(target.segmentId)}&limit=20&offset=&order_by=${sort === 'time' ? 'ts' : 'score'}`
+        : `https://www.zhihu.com/api/v4/comment_v5/${type}/${encodeURIComponent(target.id)}/root_comment?order_by=${sort === 'time' ? 'ts' : 'score'}`
+    const operation = target.kind === 'segment' ? 'segment.comment.list-root' : 'comment.list-root'
+    const page = decodeCommentPage(await this.api.getJson(operation, url, signal))
+    const key = rootCacheKey(target, sort)
     const merged = mergeCommentPages(cursor ? this.rootCache.get(key) : undefined, page)
     this.rootCache.set(key, merged)
     return page
@@ -172,22 +195,34 @@ export class ZhihuCommentsService {
   }
 
   async create(
-    ref: ZhihuEntityRef,
+    target: ZhihuCommentTarget,
     text: string,
     replyToCommentId?: string,
     signal?: AbortSignal,
   ): Promise<ZhihuCommentNode> {
-    const type = rootCommentType(ref)
+    const type = target.kind === 'segment' ? `${target.contentType}s` : rootCommentType(target)
     const normalized = text.trim()
-    if (!type) throw new ZhihuApiError('unsupported', `${ref.kind} 暂不支持发表评论`)
+    if (!type) throw new ZhihuApiError('unsupported', `${target.kind} 暂不支持发表评论`)
     if (!normalized) throw new ZhihuApiError('invalid-response', '评论内容不能为空')
-    const body: Record<string, string> = {
+    const body: Record<string, unknown> = {
       content: `<p>${escapeCommentText(normalized)}</p>`,
     }
     if (replyToCommentId) body.reply_comment_id = replyToCommentId
+    if (target.kind === 'segment') {
+      body.segment = {
+        content: target.segmentContent,
+        position: {
+          start: { offset: target.startOffset, paragraph_id: target.paragraphId },
+          end: { offset: target.endOffset, paragraph_id: target.paragraphId },
+        },
+      }
+    }
+    const operation = target.kind === 'segment' ? 'segment.comment.create' : 'comment.create'
+    const id = target.kind === 'segment' ? target.contentId : target.id
+    const path = target.kind === 'segment' ? 'segment/comment' : 'comment'
     const raw = await this.api.postJson(
-      'comment.create',
-      `https://www.zhihu.com/api/v4/comment_v5/${type}/${encodeURIComponent(ref.id)}/comment`,
+      operation,
+      `https://www.zhihu.com/api/v4/comment_v5/${type}/${encodeURIComponent(id)}/${path}`,
       body,
       signal,
     )
@@ -196,7 +231,7 @@ export class ZhihuCommentsService {
     // 新评论同时投影到已经存在的两种根评论缓存；不创建尚未读取的缓存，
     // 避免让本地插入条目伪装成已加载服务端页面。
     for (const sort of ['score', 'time'] as const) {
-      const key = rootCacheKey(ref, sort)
+      const key = rootCacheKey(target, sort)
       const current = this.rootCache.get(key)
       if (!current) continue
       this.rootCache.set(key, {

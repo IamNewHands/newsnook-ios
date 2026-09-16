@@ -26,6 +26,9 @@ interface Props {
   service: ZhihuFeedService
   onQueryChange: (query: string) => void
   onOpen: (ref: ZhihuEntityRef) => void
+  restrictedMemberHashId?: string
+  restrictedMemberName?: string
+  onClearRestriction?: () => void
   scrollContainerRef?: MutableRefObject<HTMLDivElement | null>
 }
 
@@ -67,7 +70,16 @@ function FilterChip({ icon, label, onClick }: { icon: ReactNode; label: string; 
   )
 }
 
-export function ZhihuSearchScreen({ initialQuery, service, onQueryChange, onOpen, scrollContainerRef }: Props) {
+export function ZhihuSearchScreen({
+  initialQuery,
+  service,
+  onQueryChange,
+  onOpen,
+  restrictedMemberHashId,
+  restrictedMemberName,
+  onClearRestriction,
+  scrollContainerRef,
+}: Props) {
   const [input, setInput] = useState(initialQuery)
   const [query, setQuery] = useState(initialQuery)
   const [tab, setTab] = useState<ZhihuSearchTab>('general')
@@ -94,7 +106,13 @@ export function ZhihuSearchScreen({ initialQuery, service, onQueryChange, onOpen
     const controller = new AbortController()
     setLoading(true)
     setError(null)
-    void service.search(query, undefined, controller.signal, { tab, sort, contentType, timeRange }).then(
+    void service.search(query, undefined, controller.signal, {
+      tab,
+      sort,
+      contentType,
+      timeRange,
+      restrictedMemberHashId,
+    }).then(
       (page) => {
         if (request !== epoch.current) return
         setItems(page.items)
@@ -109,7 +127,7 @@ export function ZhihuSearchScreen({ initialQuery, service, onQueryChange, onOpen
       },
     )
     return () => controller.abort()
-  }, [contentType, query, service, sort, tab, timeRange])
+  }, [contentType, query, restrictedMemberHashId, service, sort, tab, timeRange])
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -124,7 +142,13 @@ export function ZhihuSearchScreen({ initialQuery, service, onQueryChange, onOpen
     const request = epoch.current
     setLoadingMore(true)
     setError(null)
-    void service.search(query, cursor, undefined, { tab, sort, contentType, timeRange }).then(
+    void service.search(query, cursor, undefined, {
+      tab,
+      sort,
+      contentType,
+      timeRange,
+      restrictedMemberHashId,
+    }).then(
       (page) => {
         if (request !== epoch.current) return
         setItems((prev) => {
@@ -189,6 +213,24 @@ export function ZhihuSearchScreen({ initialQuery, service, onQueryChange, onOpen
           <Search size={17} strokeWidth={1.8} />
         </button>
       </form>
+
+      {restrictedMemberHashId && (
+        <div className="mt-3 flex items-center gap-2 rounded-xl border border-cinnabar/25 bg-cinnabar/7 px-3 py-2.5 text-[11px] text-paper-muted">
+          <UserRound size={14} strokeWidth={1.6} className="shrink-0 text-cinnabar-soft" />
+          <span className="min-w-0 flex-1 truncate">只搜索 {restrictedMemberName?.trim() || 'TA'} 的创作</span>
+          {onClearRestriction && (
+            <button
+              type="button"
+              onClick={onClearRestriction}
+              aria-label="取消用户范围限制"
+              title="改为全站搜索"
+              className="flex size-7 shrink-0 items-center justify-center rounded-lg text-paper-faint transition-colors hover:bg-paper/5 hover:text-paper"
+            >
+              <X size={13} />
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="mt-3">
         <SegmentedControl

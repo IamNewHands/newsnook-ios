@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { ZhihuCollectionService, decodeZhihuCollectionDetail } from '../src/features/zhihu/collection/service'
-import { ZhihuPeopleService, decodeZhihuPeopleProfile } from '../src/features/zhihu/people/service'
+import { ZhihuPeopleService, decodeZhihuPeopleColumn, decodeZhihuPeopleProfile } from '../src/features/zhihu/people/service'
 import { ZhihuTopicService, decodeZhihuTopicDetail } from '../src/features/zhihu/topic/service'
 
 const profile = decodeZhihuPeopleProfile({
@@ -19,6 +19,21 @@ assert.equal(profile.token, 'person-token')
 assert.equal(profile.followerCount, 42)
 assert.equal(profile.followingCount, 8)
 assert.equal(profile.isBlocking, true)
+
+const column = decodeZhihuPeopleColumn({
+  id: 'column-1',
+  title: '示例专栏',
+  description: '专栏说明',
+  url: 'https://www.zhihu.com/api/v4/columns/column-1',
+  articles_count: 17,
+  followers: 39,
+  follower_count: 21,
+  is_following: true,
+})
+assert.equal(column.url, 'https://www.zhihu.com/column/column-1')
+assert.equal(column.articlesCount, 17)
+assert.equal(column.followerCount, 39, '专栏 followerCount 应兼容 followers/follower_count 并取可用较大值')
+assert.equal(column.isFollowing, true)
 
 const topic = decodeZhihuTopicDetail({
   id: 'topic-1',
@@ -86,6 +101,17 @@ const api = {
       data: [{ id: 'people-collection', title: '用户收藏夹', description: '收藏夹说明', follower_count: 3 }],
       paging: { is_end: true },
     }
+    if (operation === 'people.columns' || operation === 'people.following-columns') return {
+      data: [{
+        id: 'people-column',
+        title: '用户专栏',
+        description: '专栏说明',
+        url: 'https://www.zhihu.com/api/v4/columns/people-column',
+        articles_count: 8,
+        followers: 16,
+      }],
+      paging: { is_end: true },
+    }
     return {
       data: [{ id: 'answer-1', type: 'answer', content: '<p>正文</p>', question: { id: 'q-1', title: '问题' } }],
       paging: { is_end: false, next: 'https://www.zhihu.com/api/v4/next' },
@@ -96,13 +122,20 @@ const api = {
 const peopleService = new ZhihuPeopleService(api)
 await peopleService.read('person-token')
 assert.equal(calls.at(-1)?.url, 'https://api.zhihu.com/people/person-token')
+const peopleContentCallCount = calls.length
 const peoplePage = await peopleService.listContent('person-token', 'answers')
 assert.equal(peoplePage.nextCursor, 'https://www.zhihu.com/api/v4/next')
+assert.equal(calls.length, peopleContentCallCount + 1, '用户内容首屏必须只发一次精确协议请求')
 assert.equal(calls.at(-1)?.operation, 'people.content')
 assert.ok(calls.at(-1)?.url.includes('/members/person-token/answers'))
-assert.ok(calls.at(-1)?.url.includes('offset=0'))
+assert.ok(calls.at(-1)?.url.includes('sort_by=voteups'))
+assert.ok(calls.at(-1)?.url.includes('include='), '用户内容首屏必须携带该内容类型所需 include 字段')
 await peopleService.listContent('person-token', 'answers', 'https://www.zhihu.com/api/v4/members/person-token/answers?offset=20&limit=20')
 assert.ok(calls.at(-1)?.url.includes('offset=20'))
+await peopleService.listContent('person-token', 'pins')
+assert.ok(calls.at(-1)?.url.includes('/api/v4/v2/pins/person-token/moments'), '用户想法不能套用 members/:token/pins 错误模板')
+assert.ok(calls.at(-1)?.url.includes('include='))
+
 await assert.rejects(
   peopleService.listContent('person-token', 'answers', 'https://evil.example/steal'),
   /允许域内|请求目标不在允许域内/,
@@ -128,6 +161,21 @@ assert.equal(calls.at(-1)?.operation, 'people.collections')
 const followedCollections = await peopleService.listCollections('person-token', 'following-collections')
 assert.equal(followedCollections.items[0]?.ref.id, 'people-collection')
 assert.equal(calls.at(-1)?.operation, 'people.following-collections')
+const columns = await peopleService.listColumns('person-token', 'columns')
+assert.equal(columns.items[0]?.title, '用户专栏')
+assert.equal(columns.items[0]?.url, 'https://www.zhihu.com/column/people-column')
+assert.equal(calls.at(-1)?.operation, 'people.columns')
+assert.ok(calls.at(-1)?.url.includes('/members/person-token/column-contributions'))
+assert.ok(calls.at(-1)?.url.includes('include='), '专栏贡献必须携带 articles_count/followers/author include')
+const followedColumns = await peopleService.listColumns('person-token', 'following-columns')
+assert.equal(followedColumns.items[0]?.followerCount, 16)
+assert.equal(calls.at(-1)?.operation, 'people.following-columns')
+assert.ok(calls.at(-1)?.url.includes('/members/person-token/following-columns'))
+await assert.rejects(
+  peopleService.listColumns('person-token', 'columns', 'https://evil.example/columns'),
+  /允许域内|请求目标不在允许域内/,
+  '专栏翻页必须拒绝非知乎 next URL',
+)
 
 const topicService = new ZhihuTopicService(api)
 await topicService.read('topic-1')
