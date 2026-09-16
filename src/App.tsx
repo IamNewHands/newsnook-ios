@@ -108,6 +108,7 @@ import {
   translationLanguageLabel,
   translationProviderLabel,
 } from './features/translation/config'
+import { resolveAiFeatureConfig } from './features/translation/aiConfig'
 import { RECOMMEND_CATEGORY_ID, type CategoryId } from './sources/categories'
 import {
   FONT_FAMILY_OPTIONS,
@@ -258,6 +259,10 @@ function prefetchBody(task: BodyPrefetchTask): void {
 
 export default function App() {
   const { prefs, resolvedTheme, update, replaceFromSync: replacePreferences } = usePreferences()
+  const speedReadConfig = useMemo(
+    () => resolveAiFeatureConfig({ ai: prefs.translation.ai }, 'speedRead'),
+    [prefs.translation.ai],
+  )
   const [tab, setTab] = useState<TabKey>('today')
   const [activeSiteId, setActiveSiteId] = useState<SiteId | null>(() => loadActiveSiteId())
   const siteBackHandlerRef = useRef<(() => boolean) | null>(null)
@@ -1594,6 +1599,7 @@ export default function App() {
                 onFontScale={(next) =>
                   update((prev) => updateTypography(prev, { fontScale: next }))
                 }
+                speedReadConfig={speedReadConfig}
               />
             </Suspense>
           ) : (

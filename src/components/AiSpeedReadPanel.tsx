@@ -32,8 +32,10 @@ import {
 } from '../lib/speedReadImage'
 import { warmupSpeedReadShareAssets } from '../lib/speedReadShare/assets'
 import type { SpeedReadPartialStore } from '../features/speedRead/partialStore'
+import type { SpeedReadProfile } from '../features/speedRead/sections'
+import type { SpeedReadUiState } from '../features/speedRead/types'
 
-export type SpeedReadUiState = 'idle' | 'loading' | 'ready' | 'error' | 'cancelled'
+export type { SpeedReadUiState } from '../features/speedRead/types'
 
 type ActionId = 'copy' | 'export-md' | 'save-image' | 'share-image'
 
@@ -47,6 +49,8 @@ interface Props {
   sourceName: string
   sourceLabel?: string
   originUrl?: string
+  profile?: SpeedReadProfile
+  scopeLabel?: string
   onClose: () => void
   onRetry: () => void
   onCancel: () => void
@@ -292,6 +296,8 @@ export function AiSpeedReadPanel({
   sourceName,
   sourceLabel,
   originUrl,
+  profile = 'news',
+  scopeLabel,
   onClose,
   onRetry,
   onCancel,
@@ -421,6 +427,7 @@ export function AiSpeedReadPanel({
         sourceLabel,
         model,
         markdown: trimmed,
+        profile,
       }
       const blob = await renderSpeedReadImageBlob(imageInput, shareStyle)
       const styleLabel = SPEED_READ_SHARE_STYLES.find((item) => item.id === shareStyle)?.label ?? shareStyle
@@ -475,6 +482,11 @@ export function AiSpeedReadPanel({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h2 className="text-[15px] font-semibold tracking-[0.01em] text-paper">AI 速读</h2>
+              {scopeLabel && (
+                <span className="rounded-full border border-cinnabar/25 bg-cinnabar/8 px-2 py-0.5 font-mono text-[9px] tracking-[0.08em] text-cinnabar-soft">
+                  {scopeLabel}
+                </span>
+              )}
               {state === 'loading' && (
                 <span className="inline-flex items-center gap-1 font-mono text-[9.5px] tracking-[0.08em] text-cinnabar-soft">
                   <LoaderCircle size={10} className="animate-spin" />
@@ -483,7 +495,7 @@ export function AiSpeedReadPanel({
               )}
             </div>
             <p className="mt-0.5 truncate font-mono text-[9.5px] tracking-[0.06em] text-paper-faint">
-              {displayTitle}
+              {scopeLabel && sourceLabel ? `${sourceLabel} · ` : ''}{displayTitle}
               {model ? ` · ${model}` : ''}
             </p>
           </div>

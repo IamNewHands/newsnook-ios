@@ -1,4 +1,5 @@
 import type { CloudTranslationConfig } from '../translation/types'
+import type { SpeedReadProfile } from './sections'
 
 const STORAGE_KEY = 'newsnook:speed-read:v1'
 const MAX_ENTRIES = 32
@@ -25,9 +26,13 @@ export function speedReadCacheKey(
   title: string,
   html: string,
   config: Pick<CloudTranslationConfig, 'endpoint' | 'model'>,
+  profile: SpeedReadProfile = 'news',
 ): string {
+  const promptVersion = profile === 'news'
+    ? SPEED_READ_PROMPT_VERSION
+    : `${SPEED_READ_PROMPT_VERSION}:${profile}:v1`
   return `${articleId}:${hashString(
-    `${SPEED_READ_PROMPT_VERSION}\u0000${config.endpoint}\u0000${config.model || ''}\u0000${title}\u0000${html}`,
+    `${promptVersion}\u0000${config.endpoint}\u0000${config.model || ''}\u0000${title}\u0000${html}`,
   )}`
 }
 

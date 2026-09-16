@@ -18,7 +18,11 @@ const { createSpeedReadPartialStore, EMPTY_SPEED_READ_PARTIAL } = await import(
   '../src/features/speedRead/partialStore'
 )
 const { hasSpeedReadableText, SPEED_READ_MIN_TEXT_CHARS } = await import('../src/features/speedRead/service')
-const { SPEED_READ_SECTION_TITLES, SPEED_READ_COMMENT_KEYS } = await import(
+const {
+  SPEED_READ_SECTION_TITLES,
+  ZHIHU_ANSWER_SPEED_READ_SECTION_TITLES,
+  SPEED_READ_COMMENT_KEYS,
+} = await import(
   '../src/features/speedRead/sections'
 )
 const { parseSpeedReadMarkdown } = await import('../src/lib/speedReadShare/parse')
@@ -79,7 +83,11 @@ assert.equal(placeholder.satire, '暂无额外可评')
 assert.equal(placeholder.structure, '暂无额外可评')
 assert.equal(placeholder.situation, '暂无额外可评')
 
-const { buildSpeedReadSystemPrompt, buildSpeedReadChunkSystemPrompt } = await import(
+const {
+  buildSpeedReadSystemPrompt,
+  buildSpeedReadChunkSystemPrompt,
+  buildZhihuAnswerSpeedReadSystemPrompt,
+} = await import(
   '../src/features/speedRead/service'
 )
 const { SPEED_READ_PROMPT_VERSION } = await import('../src/features/speedRead/cache')
@@ -105,6 +113,14 @@ assert.match(system, /新汉语老师/)
 assert.match(system, /拆机器/)
 assert.match(system, /把人放回现场/)
 
+const answerSystem = buildZhihuAnswerSpeedReadSystemPrompt()
+for (const title of Object.values(ZHIHU_ANSWER_SPEED_READ_SECTION_TITLES)) {
+  assert.match(answerSystem, new RegExp(`## ${title}`))
+}
+assert.match(answerSystem, /归因给回答作者/)
+assert.match(answerSystem, /个人经历、判断与推测不得改写成公认事实/)
+assert.doesNotMatch(answerSystem, /Oscar Wilde|辛辣讽刺|新汉语老师/)
+
 const chunk = buildSpeedReadChunkSystemPrompt()
 assert.match(chunk, /不要下全文结论/)
 assert.doesNotMatch(chunk, /讽世/)
@@ -124,6 +140,11 @@ assert.notEqual(baselineKey, speedReadCacheKey('article-1', '标题', '<p>正文
 assert.notEqual(
   baselineKey,
   speedReadCacheKey('article-1', '标题', '<p>正文</p>', { ...config, model: 'model-b' }),
+)
+assert.notEqual(
+  baselineKey,
+  speedReadCacheKey('article-1', '标题', '<p>正文</p>', config, 'zhihu-answer'),
+  '回答提示词必须使用独立缓存身份',
 )
 
 const serialized = serializeSpeedRead({

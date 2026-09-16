@@ -16,6 +16,7 @@ import { segmentTargetFromElement, type ZhihuSegmentTarget } from '../segments/n
 import type { ZhihuContentSummary, ZhihuEntityRef } from '../types'
 import type { ZhihuQuestionAnswerOrder } from '../api/endpoints'
 import { SegmentedControl } from '../../../components/SegmentedControl'
+import { AiSpeedReadPanel } from '../../../components/AiSpeedReadPanel'
 import { ImageLightbox } from '../../../components/ImageLightbox'
 import { InlineArticleVideos } from '../../../components/InlineArticleVideos'
 import { InlineYoutubeEmbeds } from '../../../components/InlineYoutubeEmbeds'
@@ -23,6 +24,9 @@ import { InlineVideoPages } from '../../../components/InlineVideoPages'
 import type { MediaDescriptor } from '../../mediaSniffer/types'
 import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
 import { useReaderFontPinch } from '../../../hooks/useReaderFontPinch'
+import { useSpeedRead } from '../../speedRead/useSpeedRead'
+import type { SpeedReadUiState } from '../../speedRead/types'
+import type { CloudTranslationConfig } from '../../translation/types'
 import { ZhihuCollectionPicker } from './ZhihuCollectionPicker'
 import { ZhihuCommentsSection } from './ZhihuCommentsSection'
 import {
@@ -54,6 +58,14 @@ interface Props {
   scrollContainerRef: RefObject<HTMLElement | null>
   fontScale: number
   onFontScale: (next: number) => void
+  speedReadConfig: CloudTranslationConfig
+  onSpeedReadHeaderActionChange: (action: ZhihuSpeedReadHeaderAction | null) => void
+}
+
+export interface ZhihuSpeedReadHeaderAction {
+  state: SpeedReadUiState
+  open: boolean
+  onOpen: () => void
 }
 
 function detailFromPreview(preview: ZhihuContentSummary): ZhihuContentDetail {
@@ -208,7 +220,7 @@ export function ZhihuAnswerCommentsDialog({ open, onClose, children }: ZhihuAnsw
   )
 }
 
-export function ZhihuContentScreen({ refValue, preview, contentService, feedService, commentsService, onNavigate, onReplaceNavigate, overlayCloserRef, restoreAnchor, authenticated, accountId, commentDraftStore, interaction, onWriteAnswer, scrollContainerRef, fontScale, onFontScale }: Props) {
+export function ZhihuContentScreen({ refValue, preview, contentService, feedService, commentsService, onNavigate, onReplaceNavigate, overlayCloserRef, restoreAnchor, authenticated, accountId, commentDraftStore, interaction, onWriteAnswer, scrollContainerRef, fontScale, onFontScale, speedReadConfig, onSpeedReadHeaderActionChange }: Props) {
   const [detail, setDetail] = useState<ZhihuContentDetail | null>(null)
   const [answers, setAnswers] = useState<ZhihuContentSummary[]>([])
   const [answerOrder, setAnswerOrder] = useState<ZhihuQuestionAnswerOrder>('default')
@@ -247,6 +259,30 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
       refValue,
     ),
     [detail?.contentHtml, detail?.segmentInfos, refValue],
+  )
+  const speedReadDocument = useMemo(() => {
+    if (!detail || detail.ref.kind !== refValue.kind || detail.ref.id !== refValue.id) return null
+    if (!['answer', 'article', 'pin'].includes(refValue.kind) || !normalizedHtml.trim()) return null
+    return {
+      id: `zhihu:${refValue.kind}:${refValue.id}`,
+      title: detail.title,
+      contentHtml: normalizedHtml,
+      profile: refValue.kind === 'answer' ? 'zhihu-answer' as const : 'news' as const,
+    }
+  }, [detail, normalizedHtml, refValue.id, refValue.kind])
+  const speedRead = useSpeedRead({ document: speedReadDocument, config: speedReadConfig })
+  const speedReadOpen = speedRead.open
+  const closeSpeedRead = speedRead.closePanel
+  useEffect(() => {
+    onSpeedReadHeaderActionChange(speedRead.available ? {
+      state: speedRead.state,
+      open: speedRead.open,
+      onOpen: speedRead.openPanel,
+    } : null)
+  }, [onSpeedReadHeaderActionChange, speedRead.available, speedRead.open, speedRead.openPanel, speedRead.state])
+  useEffect(
+    () => () => onSpeedReadHeaderActionChange(null),
+    [onSpeedReadHeaderActionChange],
   )
   const contentId = refValue.id
   const contentKind = refValue.kind
@@ -307,11 +343,15 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
 
   useEffect(() => {
     if (!overlayCloserRef) return
-    if (!lightbox && !commentsOpen && !selectedSegment) {
+    if (!lightbox && !commentsOpen && !selectedSegment && !speedReadOpen) {
       overlayCloserRef.current = null
       return
     }
     overlayCloserRef.current = () => {
+      if (speedReadOpen) {
+        closeSpeedRead()
+        return true
+      }
       if (lightbox) {
         setLightbox(null)
         return true
@@ -334,7 +374,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
     return () => {
       overlayCloserRef.current = null
     }
-  }, [commentsOpen, lightbox, overlayCloserRef, segmentCommentsOpen, selectedSegment])
+  }, [closeSpeedRead, commentsOpen, lightbox, overlayCloserRef, segmentCommentsOpen, selectedSegment, speedReadOpen])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -1004,6 +1044,23 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
           onClose={() => setLightbox(null)}
         />
       )}
+
+      <AiSpeedReadPanel
+        open={speedRead.open}
+        state={speedRead.state}
+        partialStore={speedRead.partialStore}
+        error={speedRead.error}
+        model={speedReadConfig.model}
+        articleTitle={detail.title}
+        sourceName={detail.author?.name ? `知乎 · ${detail.author.name}` : '知乎'}
+        sourceLabel={detail.author?.name}
+        originUrl={detail.url}
+        profile={speedReadDocument?.profile}
+        scopeLabel={refValue.kind === 'answer' ? '本回答' : '本正文'}
+        onClose={speedRead.closePanel}
+        onRetry={speedRead.retry}
+        onCancel={speedRead.cancel}
+      />
     </article>
   )
 }

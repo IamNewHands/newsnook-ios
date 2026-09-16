@@ -1,3 +1,5 @@
+import type { SpeedReadProfile } from '../../features/speedRead/sections'
+
 export type SpeedReadShareStyle = 'warm-paper' | 'editorial' | 'dusk' | 'journal'
 
 export interface SpeedReadImageInput {
@@ -6,6 +8,7 @@ export interface SpeedReadImageInput {
   sourceLabel?: string
   model?: string
   markdown: string
+  profile?: SpeedReadProfile
 }
 
 export interface ParsedSpeedRead {

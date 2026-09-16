@@ -2,10 +2,11 @@ import { parseSpeedReadMarkdown } from './parse'
 import { getShareLogoSrc } from './assets'
 import { displayArticleTitle } from '../displayArticleTitle'
 import { speedReadBodyForExport } from '../../features/speedRead/serialize'
-import { SPEED_READ_SECTION_TITLES } from '../../features/speedRead/sections'
+import {
+  speedReadSectionTitles,
+  type SpeedReadSectionTitles,
+} from '../../features/speedRead/sections'
 import type { ParsedSpeedRead, SpeedReadImageInput, SpeedReadShareStyle } from './types'
-
-const S = SPEED_READ_SECTION_TITLES
 
 const PCLIP_SVG =
   '<svg class="pclip" width="30" height="62" viewBox="0 0 30 62" fill="none" aria-hidden="true"><path d="M9 16 V46 a6.5 6.5 0 0 0 13 0 V12 a9.5 9.5 0 0 0 -19 0 V44" stroke="#98a1ac" stroke-width="3.4" stroke-linecap="round" fill="none"/></svg>'
@@ -62,11 +63,15 @@ function commentText(value: string): string {
   return value.trim() || '—'
 }
 
-function commentsBand(content: ParsedSpeedRead, mode: 'v1' | 'b' | 'mark'): string {
+function commentsBand(
+  content: ParsedSpeedRead,
+  mode: 'v1' | 'b' | 'mark',
+  sections: SpeedReadSectionTitles,
+): string {
   const rows: Array<[string, string]> = [
-    [S.satire, content.satire],
-    [S.structure, content.structure],
-    [S.situation, content.situation],
+    [sections.satire, content.satire],
+    [sections.structure, content.structure],
+    [sections.situation, content.situation],
   ]
   const items = rows
     .map(
@@ -111,6 +116,7 @@ function buildWarmPaper(
   meta: string,
   content: ParsedSpeedRead,
   dateCn: string,
+  sections: SpeedReadSectionTitles,
 ): string {
   const keyItems = content.keyPoints
     .map((item) => `<li>${formatInline(item, 'v1')}</li>`)
@@ -127,13 +133,13 @@ function buildWarmPaper(
     <hr class="v1-rule">
     <section class="v1-note">
       <span class="tape" aria-hidden="true"></span>
-      <h3>${S.conclusion}</h3>
+      <h3>${sections.conclusion}</h3>
       <p>${formatInline(content.conclusion || '—', 'v1')}</p>
     </section>
-    ${commentsBand(content, 'v1')}
-    <div class="v1-sec"><span class="sq"></span><h3>${S.keyPoints}</h3><span class="cnt">${content.keyPoints.length} 条</span><span class="ln"></span></div>
+    ${commentsBand(content, 'v1', sections)}
+    <div class="v1-sec"><span class="sq"></span><h3>${sections.keyPoints}</h3><span class="cnt">${content.keyPoints.length} 条</span><span class="ln"></span></div>
     <ul class="key">${keyItems || '<li>—</li>'}</ul>
-    <div class="v1-sec amber"><span class="sq"></span><h3>${S.warnings}</h3><span class="cnt">${content.warnings.length} 条</span><span class="ln"></span></div>
+    <div class="v1-sec amber"><span class="sq"></span><h3>${sections.warnings}</h3><span class="cnt">${content.warnings.length} 条</span><span class="ln"></span></div>
     <ul class="wrn">${warnItems || '<li>—</li>'}</ul>
     ${footerBlock(false, dateCn)}
   </article>`
@@ -144,6 +150,7 @@ function buildEditorial(
   meta: string,
   content: ParsedSpeedRead,
   dateCn: string,
+  sections: SpeedReadSectionTitles,
 ): string {
   const keyItems = content.keyPoints
     .map((item, index) => `<li><span class="n">${pad2(index + 1)}</span><p>${formatInline(item, 'b')}</p></li>`)
@@ -157,19 +164,25 @@ function buildEditorial(
     <h1>${title}</h1>
     <p class="meta">${escapeHtml(meta)}</p>
     <div class="v2-quote">
-      <p class="lab">${S.conclusion} / SUOWEN</p>
+      <p class="lab">${sections.conclusion} / SUOWEN</p>
       <p>${formatInline(content.conclusion || '—', 'b')}</p>
     </div>
-    ${commentsBand(content, 'b')}
-    <div class="v2-h"><span class="no">02</span><h3>${S.keyPoints}</h3><span class="en">Key Thread</span><span class="ln"></span></div>
+    ${commentsBand(content, 'b', sections)}
+    <div class="v2-h"><span class="no">02</span><h3>${sections.keyPoints}</h3><span class="en">Key Thread</span><span class="ln"></span></div>
     <ol>${keyItems || '<li><span class="n">01</span><p>—</p></li>'}</ol>
-    <div class="v2-h"><span class="no">03</span><h3>${S.warnings}</h3><span class="en">Notes</span><span class="ln"></span></div>
+    <div class="v2-h"><span class="no">03</span><h3>${sections.warnings}</h3><span class="en">Notes</span><span class="ln"></span></div>
     <ol class="wrn">${warnItems || '<li><span class="n">01</span><p>—</p></li>'}</ol>
     ${footerBlock(false, dateCn)}
   </article>`
 }
 
-function buildDusk(title: string, meta: string, content: ParsedSpeedRead, dateCn: string): string {
+function buildDusk(
+  title: string,
+  meta: string,
+  content: ParsedSpeedRead,
+  dateCn: string,
+  sections: SpeedReadSectionTitles,
+): string {
   const keyItems = content.keyPoints
     .map((item, index) => `<li><span class="n">${pad2(index + 1)}</span>${formatInline(item, 'b')}</li>`)
     .join('')
@@ -182,19 +195,25 @@ function buildDusk(title: string, meta: string, content: ParsedSpeedRead, dateCn
     <h1>${title}</h1>
     <p class="meta">${escapeHtml(meta)}<span class="ln"></span></p>
     <div class="v3-quote">
-      <span class="lab">${S.conclusion}</span>
+      <span class="lab">${sections.conclusion}</span>
       <p>${formatInline(content.conclusion || '—', 'b')}</p>
     </div>
-    ${commentsBand(content, 'b')}
-    <div class="v3-h"><span class="bar"></span><h3>${S.keyPoints}</h3><span class="cnt">${content.keyPoints.length} 条</span></div>
+    ${commentsBand(content, 'b', sections)}
+    <div class="v3-h"><span class="bar"></span><h3>${sections.keyPoints}</h3><span class="cnt">${content.keyPoints.length} 条</span></div>
     <ul class="key">${keyItems || '<li>—</li>'}</ul>
-    <div class="v3-h"><span class="bar"></span><h3>${S.warnings}</h3><span class="cnt">${content.warnings.length} 条</span></div>
+    <div class="v3-h"><span class="bar"></span><h3>${sections.warnings}</h3><span class="cnt">${content.warnings.length} 条</span></div>
     <ul class="wrn">${warnItems || '<li>—</li>'}</ul>
     ${footerBlock(true, dateCn)}
   </article>`
 }
 
-function buildJournal(title: string, meta: string, content: ParsedSpeedRead, dateCn: string): string {
+function buildJournal(
+  title: string,
+  meta: string,
+  content: ParsedSpeedRead,
+  dateCn: string,
+  sections: SpeedReadSectionTitles,
+): string {
   const keyItems = content.keyPoints
     .map((item, index) => `<li><span class="n">${index + 1}</span><p>${formatInline(item, 'mark')}</p></li>`)
     .join('')
@@ -211,17 +230,17 @@ function buildJournal(title: string, meta: string, content: ParsedSpeedRead, dat
     </section>
     <section class="v4-note">
       <span class="tape" aria-hidden="true"></span>
-      <span class="lab">${S.conclusion} ✎</span>
+      <span class="lab">${sections.conclusion} ✎</span>
       <p>${formatInline(content.conclusion || '—', 'mark')}</p>
     </section>
-    ${commentsBand(content, 'mark')}
+    ${commentsBand(content, 'mark', sections)}
     <section class="v4-points">
-      <div class="lab" data-count="${content.keyPoints.length} 条"><span class="dot"></span>${S.keyPoints}</div>
+      <div class="lab" data-count="${content.keyPoints.length} 条"><span class="dot"></span>${sections.keyPoints}</div>
       <ol>${keyItems || '<li><span class="n">1</span><p>—</p></li>'}</ol>
     </section>
     <section class="v4-warn">
       <span class="tape" aria-hidden="true"></span>
-      <div class="lab"><span class="tri"></span>${S.warnings}</div>
+      <div class="lab"><span class="tri"></span>${sections.warnings}</div>
       <ul>${warnItems || '<li>—</li>'}</ul>
     </section>
     <div class="strip">
@@ -233,7 +252,9 @@ function buildJournal(title: string, meta: string, content: ParsedSpeedRead, dat
 }
 
 export function buildCardHtml(input: SpeedReadImageInput, style: SpeedReadShareStyle): string {
-  const content = parseSpeedReadMarkdown(speedReadBodyForExport(input.markdown))
+  const profile = input.profile ?? 'news'
+  const sections = speedReadSectionTitles(profile)
+  const content = parseSpeedReadMarkdown(speedReadBodyForExport(input.markdown), profile)
   const title = formatTitleHtml(
     displayArticleTitle(input.articleTitle, {
       sourceName: input.sourceName,
@@ -247,16 +268,16 @@ export function buildCardHtml(input: SpeedReadImageInput, style: SpeedReadShareS
   let card = ''
   switch (style) {
     case 'warm-paper':
-      card = buildWarmPaper(title, meta, content, dateCn)
+      card = buildWarmPaper(title, meta, content, dateCn, sections)
       break
     case 'editorial':
-      card = buildEditorial(title, meta, content, dateCn)
+      card = buildEditorial(title, meta, content, dateCn, sections)
       break
     case 'dusk':
-      card = buildDusk(title, meta, content, dateCn)
+      card = buildDusk(title, meta, content, dateCn, sections)
       break
     case 'journal':
-      card = buildJournal(title, meta, content, dateCn)
+      card = buildJournal(title, meta, content, dateCn, sections)
       break
   }
 

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
-import { ArrowLeft, Bell, Home, Search, UserRound } from 'lucide-react'
+import { ArrowLeft, Bell, Home, Loader2, ScrollText, Search, UserRound } from 'lucide-react'
 
 import { PresetSwitcher, type PresetSwitcherProps } from '../../../components/PresetSwitcher'
+import type { CloudTranslationConfig } from '../../translation/types'
 import { ZhihuCollectionService } from '../collection/service'
 import { ZhihuCommentDraftStore } from '../comments/draftStore'
 import { ZhihuCommentsService } from '../comments/service'
@@ -27,7 +28,7 @@ import type {
   ZhihuFeedMode,
 } from '../types'
 import type { ZhihuSessionSnapshot } from '../session/types'
-import { ZhihuContentScreen } from './ZhihuContentScreen'
+import { ZhihuContentScreen, type ZhihuSpeedReadHeaderAction } from './ZhihuContentScreen'
 import { ZhihuAccountCollectionsScreen } from './ZhihuAccountCollectionsScreen'
 import { ZhihuCollectionScreen } from './ZhihuCollectionScreen'
 import { ZhihuFeedScreen } from './ZhihuFeedScreen'
@@ -45,6 +46,7 @@ interface Props {
   presetSwitcher: PresetSwitcherProps
   fontScale: number
   onFontScale: (next: number) => void
+  speedReadConfig: CloudTranslationConfig
 }
 
 let retainedFrames: RouteFrame[] | null = null
@@ -100,7 +102,7 @@ function capabilityPlaceholder(title: string, description: string) {
   )
 }
 
-export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontScale, onFontScale }: Props) {
+export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontScale, onFontScale, speedReadConfig }: Props) {
   const runtime = useMemo(() => createZhihuRuntime(), [])
   const feedService = useMemo(() => createZhihuFeedService(runtime.api), [runtime])
   const collectionService = useMemo(() => new ZhihuCollectionService(runtime.api), [runtime])
@@ -119,6 +121,7 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
   const [sessionHydrated, setSessionHydrated] = useState(false)
   const [sessionRestoreError, setSessionRestoreError] = useState<string | null>(null)
   const [workspaceError, setWorkspaceError] = useState<string | null>(null)
+  const [speedReadHeaderAction, setSpeedReadHeaderAction] = useState<ZhihuSpeedReadHeaderAction | null>(null)
   const [frames, setFrames] = useState<RouteFrame[]>(() => retainedFrames?.map((frame) => ({ ...frame })) ?? [createZhihuRootFrame()])
   const current = frames.at(-1) ?? createZhihuRootFrame()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -413,6 +416,8 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
             scrollContainerRef={scrollRef}
             fontScale={fontScale}
             onFontScale={onFontScale}
+            speedReadConfig={speedReadConfig}
+            onSpeedReadHeaderActionChange={setSpeedReadHeaderAction}
           />
         )
       case 'notifications':
@@ -478,6 +483,21 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
           <ArrowLeft size={18} strokeWidth={1.6} />
         </button>
         <div className="min-w-0 flex-1 truncate font-display text-[18px] font-medium tracking-[0.01em] text-paper">{currentTitle}</div>
+        {speedReadHeaderAction && (
+          <button
+            type="button"
+            onClick={speedReadHeaderAction.onOpen}
+            aria-expanded={speedReadHeaderAction.open}
+            aria-label={speedReadHeaderAction.state === 'loading' ? '当前内容正在生成 AI 速读' : '打开当前内容的 AI 速读'}
+            className={`group flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium transition-[border-color,background-color,color,transform] active:scale-[0.97] ${speedReadHeaderAction.open || speedReadHeaderAction.state === 'ready' ? 'border-cinnabar/40 bg-cinnabar/10 text-cinnabar-soft' : 'border-haze/75 bg-ink-raised/45 text-paper-muted hover:border-cinnabar/35 hover:text-paper'}`}
+          >
+            {speedReadHeaderAction.state === 'loading'
+              ? <Loader2 size={14} className="animate-spin" />
+              : <ScrollText size={14} strokeWidth={1.7} />}
+            <span>AI 速读</span>
+            {speedReadHeaderAction.state === 'ready' && <span className="size-1 rounded-full bg-cinnabar" aria-hidden />}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => pushSearch('')}

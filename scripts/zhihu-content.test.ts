@@ -106,9 +106,17 @@ assert.deepEqual(videoCalls[0]?.body, {
 })
 
 const zhihuContentScreenSource = readFileSync(new URL('../src/features/zhihu/ui/ZhihuContentScreen.tsx', import.meta.url), 'utf8')
+const zhihuWorkspaceSource = readFileSync(new URL('../src/features/zhihu/ui/ZhihuWorkspace.tsx', import.meta.url), 'utf8')
 const inlineVideoPagesSource = readFileSync(new URL('../src/components/InlineVideoPages.tsx', import.meta.url), 'utf8')
 assert.match(zhihuContentScreenSource, /<InlineVideoPages/, '知乎回答正文必须原地挂载 video-page 播放器')
 assert.doesNotMatch(zhihuContentScreenSource, /videoPage &&/, '知乎视频不能再通过二级全屏视频页播放')
+assert.match(zhihuContentScreenSource, /useSpeedRead/, '知乎正文必须复用统一 AI 速读生命周期')
+assert.match(zhihuContentScreenSource, /\['answer', 'article', 'pin'\]/, '速读范围只能覆盖回答、文章与想法，不把问题壳当正文')
+assert.match(zhihuContentScreenSource, /zhihu-answer/, '知乎回答必须使用独立的回答速读提示词档案')
+assert.match(zhihuContentScreenSource, /zhihu:\$\{refValue\.kind\}:\$\{refValue\.id\}/, '每个知乎实体必须拥有独立本地速读缓存身份')
+assert.match(zhihuContentScreenSource, /onSpeedReadHeaderActionChange/, '正文速读状态必须上送工作区顶部栏')
+assert.match(zhihuWorkspaceSource, /<span>AI 速读<\/span>/, '知乎速读入口必须常驻工作区顶部栏')
+assert.doesNotMatch(zhihuContentScreenSource, /<span>AI 速读<\/span>/, '正文头部不应重复显示速读入口')
 assert.match(inlineVideoPagesSource, /<OriginPlayerSurface[\s\S]*embedded/, '通用嗅探失败时也必须在正文原位显示原站播放表面')
 assert.match(inlineVideoPagesSource, /resolveDirect/, '知乎已知视频协议应优先直取播放源，避免先展示原站页面')
 
