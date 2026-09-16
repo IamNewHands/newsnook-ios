@@ -28,12 +28,15 @@ export function useZhihuFeed(
 ) {
   const [state, setState] = useState<FeedState>(EMPTY)
   const requestEpoch = useRef(0)
+  const refreshControllerRef = useRef<AbortController | null>(null)
 
-  const refresh = useCallback(() => {
-    if (!enabled) return () => undefined
+  const refresh = useCallback(async () => {
+    if (!enabled) return
     requestEpoch.current += 1
     const epoch = requestEpoch.current
+    refreshControllerRef.current?.abort()
     const controller = new AbortController()
+    refreshControllerRef.current = controller
     const cached = loadZhihuPublicFeedCache(mode, undefined, Date.now(), recommendationMode)
     setState((prev) => ({
       ...prev,
@@ -43,23 +46,26 @@ export function useZhihuFeed(
       loading: true,
       error: null,
     }))
-    void service.listFeed(mode, undefined, controller.signal, recommendationMode, accountId).then(
-      (page) => {
-        if (requestEpoch.current !== epoch) return
-        saveZhihuPublicFeedCache(mode, page, undefined, Date.now(), recommendationMode)
-        setState({ ...page, loading: false, loadingMore: false, error: null })
-      },
-      (error) => {
-        if (controller.signal.aborted || requestEpoch.current !== epoch) return
-        setState((prev) => ({ ...prev, loading: false, loadingMore: false, error: asApiError(error) }))
-      },
-    )
-    return () => controller.abort()
+    try {
+      const page = await service.listFeed(mode, undefined, controller.signal, recommendationMode, accountId)
+      if (controller.signal.aborted || requestEpoch.current !== epoch) return
+      saveZhihuPublicFeedCache(mode, page, undefined, Date.now(), recommendationMode)
+      setState({ ...page, loading: false, loadingMore: false, error: null })
+    } catch (error) {
+      if (controller.signal.aborted || requestEpoch.current !== epoch) return
+      setState((prev) => ({ ...prev, loading: false, loadingMore: false, error: asApiError(error) }))
+    } finally {
+      if (refreshControllerRef.current === controller) refreshControllerRef.current = null
+    }
   }, [accountId, enabled, mode, recommendationMode, service])
 
   useEffect(() => {
     if (!enabled) return
-    return refresh()
+    void refresh()
+    return () => {
+      refreshControllerRef.current?.abort()
+      refreshControllerRef.current = null
+    }
   }, [enabled, refresh])
 
   const loadMore = useCallback(() => {

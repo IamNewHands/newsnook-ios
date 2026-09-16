@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { RefObject } from 'react'
 
 import {
   MAX_PULL_PX,
@@ -20,6 +21,10 @@ interface Options {
   onRefresh: () => Promise<void> | void
   disabled?: boolean
   reduced?: boolean
+  /** 可选：监听既有滚动容器，而不是让 hook 自己持有 scroller ref。 */
+  containerRef?: RefObject<HTMLDivElement | null>
+  /** 可选：下拉时只位移内容层，滚动容器本身保持原位，便于外部指示器露出。 */
+  surfaceRef?: RefObject<HTMLElement | null>
 }
 
 interface Gesture {
@@ -44,8 +49,15 @@ function currentTranslateY(element: HTMLElement): number {
  * gesture at scrollTop=0. Drag frames are painted directly on a compositor layer;
  * React only updates when the semantic phase changes.
  */
-export function usePullToRefresh({ onRefresh, disabled = false, reduced = false }: Options) {
-  const containerRef = useRef<HTMLDivElement | null>(null)
+export function usePullToRefresh({
+  onRefresh,
+  disabled = false,
+  reduced = false,
+  containerRef: externalContainerRef,
+  surfaceRef: externalSurfaceRef,
+}: Options) {
+  const ownedContainerRef = useRef<HTMLDivElement | null>(null)
+  const containerRef = externalContainerRef ?? ownedContainerRef
   const indicatorRef = useRef<HTMLDivElement | null>(null)
   const onRefreshRef = useRef(onRefresh)
   const cancelRef = useRef<() => void>(() => undefined)
@@ -66,8 +78,9 @@ export function usePullToRefresh({ onRefresh, disabled = false, reduced = false 
 
   useEffect(() => {
     const element = containerRef.current
+    const surface = externalSurfaceRef?.current ?? element
     const indicator = indicatorRef.current
-    if (!element || !indicator || disabled) return
+    if (!element || !surface || !indicator || disabled) return
 
     let gesture: Gesture | null = null
     let activePointer: number | null = null
@@ -87,7 +100,7 @@ export function usePullToRefresh({ onRefresh, disabled = false, reduced = false 
       const progress = Math.min(1, value / PULL_THRESHOLD_PX)
       const height = Math.max(value, phaseRef.current === 'refreshing' ? REFRESH_HOLD_PX : 0)
 
-      element.style.transform = value
+      surface.style.transform = value
         ? `translate3d(0, ${value}px, 0)`
         : 'translate3d(0, 0, 0)'
       indicator.style.setProperty('--pull-height', `${height}px`)
@@ -118,7 +131,7 @@ export function usePullToRefresh({ onRefresh, disabled = false, reduced = false 
       cancelFrame()
       clearTimer()
       render(distance)
-      element.style.transition = duration ? `transform ${duration}ms ${PULL_EASING}` : 'none'
+      surface.style.transition = duration ? `transform ${duration}ms ${PULL_EASING}` : 'none'
       indicator.style.transition = duration ? `height ${duration}ms ${PULL_EASING}` : 'none'
       render(value)
     }
@@ -136,7 +149,7 @@ export function usePullToRefresh({ onRefresh, disabled = false, reduced = false 
       clearTimer()
       distance = 0
       pendingDistance = 0
-      clearGestureCompositorStyles(element)
+      clearGestureCompositorStyles(surface)
       indicator.style.transition = ''
       indicator.style.removeProperty('--pull-height')
       indicator.style.removeProperty('--pull-glow-opacity')
@@ -185,12 +198,12 @@ export function usePullToRefresh({ onRefresh, disabled = false, reduced = false 
 
     const begin = (x: number, y: number) => {
       if (!canStart()) return
-      const visualDistance = Math.max(0, currentTranslateY(element))
+      const visualDistance = Math.max(0, currentTranslateY(surface))
       clearTimer()
       // 零位时不要预先写 translate3d(0,0,0)：方向尚未确定，原生滚动
       // 可能马上接管；Android WebView 偶尔会因此留下失效的合成滚动层。
       if (visualDistance > 0) {
-        element.style.transition = 'none'
+        surface.style.transition = 'none'
         indicator.style.transition = 'none'
         render(visualDistance)
       }
@@ -201,7 +214,7 @@ export function usePullToRefresh({ onRefresh, disabled = false, reduced = false 
         lock: visualDistance > 0 ? 'vertical' : 'none',
       }
       if (visualDistance > 0) {
-        element.style.willChange = 'transform'
+        surface.style.willChange = 'transform'
         setPhaseSafe(visualDistance >= PULL_THRESHOLD_PX ? 'ready' : 'pulling')
       }
     }
@@ -210,7 +223,7 @@ export function usePullToRefresh({ onRefresh, disabled = false, reduced = false 
       if (!gesture || phaseRef.current === 'refreshing') return
       if (element.scrollTop > 0) {
         clearGesture()
-        clearGestureCompositorStyles(element)
+        clearGestureCompositorStyles(surface)
         return
       }
 
@@ -224,14 +237,14 @@ export function usePullToRefresh({ onRefresh, disabled = false, reduced = false 
           if (distance > 0 || gesture.startDistance > 0) settle()
           else {
             clearGesture()
-            clearGestureCompositorStyles(element)
+            clearGestureCompositorStyles(surface)
           }
           return
         }
         if (absY < absX * DIRECTION_BIAS) return
 
         gesture.lock = 'vertical'
-        element.style.willChange = 'transform'
+        surface.style.willChange = 'transform'
         setPhaseSafe('pulling')
       }
 
@@ -338,7 +351,7 @@ export function usePullToRefresh({ onRefresh, disabled = false, reduced = false 
       clearGesture()
       clearVisual()
     }
-  }, [disabled, reduced, setPhaseSafe])
+  }, [containerRef, disabled, externalSurfaceRef, reduced, setPhaseSafe])
 
   return { containerRef, indicatorRef, phase, cancel, trigger }
 }
