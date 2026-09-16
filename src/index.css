@@ -2004,7 +2004,7 @@ html[data-eink='1'] .lead-cover-veil {
 }
 
 .zhihu-comment-body p {
-  margin: 0.1em 0 0.25em;
+  margin: 0 0 0.12em;
   color: inherit;
   line-height: inherit;
 }
