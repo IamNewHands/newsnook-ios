@@ -44,6 +44,7 @@ export {
   isCustomCategory,
   moveCategory,
   orderedCategories,
+  removeCategorySource,
   recommendationScopeSourceIds,
   reorderCategories,
   resetCategoryLayout,
@@ -54,9 +55,11 @@ export {
   sourceIdsForCategoryWithPrefs,
   sourceUsageByOtherCategories,
   toggleCategorySource,
+  toggleFavoriteSource,
   toggleCategoryVisible,
   updateCustomCategory,
   visibleCategories,
+  withFavoriteCategory,
   withRecommendCategory,
 } from './preferences/categoryPrefs'
 

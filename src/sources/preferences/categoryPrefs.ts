@@ -5,6 +5,8 @@
 
 import {
   CATEGORIES,
+  FAVORITES_CATEGORY,
+  FAVORITES_CATEGORY_ID,
   findCategory,
   isReservedCategoryLabel,
   PORTAL_CATEGORY_SOURCES,
@@ -49,8 +51,9 @@ export function describeSources(sourceIds: string[], extraSources?: NewsSource[]
 
 /** 分类的实际信源：用户覆盖优先，否则用分类自身默认 */
 export function categorySourceIds(categoryId: CategoryId, prefs: Preferences): string[] {
-  const override = prefs.categorySources[categoryId]
-  if (override?.length) return override
+  if (Object.prototype.hasOwnProperty.call(prefs.categorySources, categoryId)) {
+    return prefs.categorySources[categoryId] ?? []
+  }
 
   const custom = prefs.customCategories?.find((category) => category.id === categoryId)
   if (custom?.sourceIds?.length) return custom.sourceIds
@@ -82,7 +85,7 @@ export function sourceUsageByOtherCategories(
 }
 
 export function hasSourceOverride(categoryId: CategoryId, prefs: Preferences): boolean {
-  return Boolean(prefs.categorySources[categoryId]?.length)
+  return Object.prototype.hasOwnProperty.call(prefs.categorySources, categoryId)
 }
 
 /**
@@ -205,10 +208,26 @@ export function withRecommendCategory(
  * 默认选中与回退目标：跳过动态「推荐」，永远取第一个普通分类。
  * 进入软件、切换预设或当前分类失效时都以此为准，推荐只能由用户手动选中。
  */
+export function withFavoriteCategory(
+  categories: NewsCategory[],
+  favoriteSourceIds: string[],
+): NewsCategory[] {
+  if (!favoriteSourceIds.length) return categories
+  const favoriteCategory: NewsCategory = {
+    ...FAVORITES_CATEGORY,
+    caption: `当前预设收藏的 ${favoriteSourceIds.length} 个信源`,
+    sourceIds: [...favoriteSourceIds],
+  }
+  const insertAt = categories[0]?.id === RECOMMEND_CATEGORY_ID ? 1 : 0
+  return [...categories.slice(0, insertAt), favoriteCategory, ...categories.slice(insertAt)]
+}
+
 export function defaultFeedCategoryId(categories: NewsCategory[]): CategoryId {
   return (
-    categories.find((category) => category.id !== RECOMMEND_CATEGORY_ID)?.id ??
-    FOLLOWS_ENABLED_SOURCES
+    categories.find(
+      (category) =>
+        category.id !== RECOMMEND_CATEGORY_ID && category.id !== FAVORITES_CATEGORY_ID,
+    )?.id ?? FOLLOWS_ENABLED_SOURCES
   )
 }
 
@@ -218,11 +237,12 @@ export function sourceIdsForCategoryWithPrefs(
   prefs: Preferences,
   enabledIds: string[],
 ): string[] {
+  if (categoryId === FAVORITES_CATEGORY_ID) return prefs.favoriteSourceIds
   if (categoryId === RECOMMEND_CATEGORY_ID) {
     return recommendationScopeSourceIds(prefs, enabledIds)
   }
-  const ids = categorySourceIds(categoryId, prefs)
-  return ids.length ? ids : enabledIds
+  if (categoryId === FOLLOWS_ENABLED_SOURCES) return enabledIds
+  return categorySourceIds(categoryId, prefs)
 }
 
 // —— 以下为不可变更新函数，供设置界面调用 ——
@@ -304,6 +324,36 @@ export function toggleCategorySource(
   return {
     ...prefs,
     categorySources: { ...prefs.categorySources, [categoryId]: next },
+  }
+}
+
+/** 新闻页长按「移出」允许移除普通分类的最后一个信源。 */
+export function removeCategorySource(
+  prefs: Preferences,
+  categoryId: CategoryId,
+  sourceId: string,
+): Preferences {
+  if (isAggregateCategoryId(categoryId)) return prefs
+  const current = categorySourceIds(categoryId, prefs)
+  if (!current.includes(sourceId)) return prefs
+  return {
+    ...prefs,
+    categorySources: {
+      ...prefs.categorySources,
+      [categoryId]: current.filter((id) => id !== sourceId),
+    },
+  }
+}
+
+/** 当前预设内收藏/取消收藏信源。 */
+export function toggleFavoriteSource(prefs: Preferences, sourceId: string): Preferences {
+  if (!allRegisteredSources(prefs).some((source) => source.id === sourceId)) return prefs
+  const current = prefs.favoriteSourceIds
+  return {
+    ...prefs,
+    favoriteSourceIds: current.includes(sourceId)
+      ? current.filter((id) => id !== sourceId)
+      : [...current, sourceId],
   }
 }
 

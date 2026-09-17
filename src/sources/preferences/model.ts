@@ -16,6 +16,7 @@ import { DEFAULT_PROXY_PREFS } from '../../features/proxy/config'
 import type { ProxyPrefs } from '../../features/proxy/types'
 import {
   CATEGORIES,
+  FAVORITES_CATEGORY_ID,
   PORTAL_CATEGORY_SOURCES,
   PORTAL_VISIBLE_CATEGORY_IDS,
   RECOMMEND_CATEGORY_ID,
@@ -69,6 +70,8 @@ export interface Preferences {
   hiddenCategoryIds: CategoryId[]
   /** 分类 → 自定义信源；缺省表示沿用注册表默认 */
   categorySources: Record<CategoryId, string[]>
+  /** 当前场景预设收藏的信源；由动态「收藏」分类统一展示 */
+  favoriteSourceIds: string[]
   /** 用户自建的自定义分类列表 */
   customCategories?: NewsCategory[]
   /** 用户自建或导入的自定义订阅源 */
@@ -123,6 +126,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   categoryOrder: [...PORTAL_VISIBLE_CATEGORY_IDS],
   hiddenCategoryIds: [...DEFAULT_HIDDEN_CATEGORY_IDS],
   categorySources: { ...PORTAL_CATEGORY_SOURCES },
+  favoriteSourceIds: [],
   customCategories: [],
   customSources: [],
   typography: DEFAULT_TYPOGRAPHY,
@@ -145,7 +149,11 @@ export const FOLLOWS_ENABLED_SOURCES: CategoryId = 'mix'
  * 不接受 categorySources 覆盖，持久化时同样跳过。
  */
 export function isAggregateCategoryId(categoryId: CategoryId): boolean {
-  return categoryId === FOLLOWS_ENABLED_SOURCES || categoryId === RECOMMEND_CATEGORY_ID
+  return (
+    categoryId === FOLLOWS_ENABLED_SOURCES ||
+    categoryId === FAVORITES_CATEGORY_ID ||
+    categoryId === RECOMMEND_CATEGORY_ID
+  )
 }
 
 export const FONT_FAMILY_OPTIONS: { id: FontFamilyId; label: string; cssVar: string }[] = [

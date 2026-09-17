@@ -176,9 +176,7 @@ export function deleteCustomSources(
   Object.entries(prefs.categorySources).forEach(([categoryId, ids]) => {
     if (!validCategoryIds.has(categoryId)) return
     const filtered = ids.filter((id) => !deletedIds.has(id))
-    if (filtered.length) {
-      nextCategorySources[categoryId] = filtered
-    }
+    nextCategorySources[categoryId] = filtered
   })
 
   return {
@@ -186,6 +184,7 @@ export function deleteCustomSources(
     customSources: nextCustomSources,
     categorySources: nextCategorySources,
     customCategories: nextCustomCategories,
+    favoriteSourceIds: prefs.favoriteSourceIds.filter((id) => !deletedIds.has(id)),
     categoryOrder: prefs.categoryOrder.filter((id) => validCategoryIds.has(id)),
     hiddenCategoryIds: prefs.hiddenCategoryIds.filter((id) => validCategoryIds.has(id)),
   }

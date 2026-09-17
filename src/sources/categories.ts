@@ -11,6 +11,9 @@ import { SOURCES } from './registry'
 
 export type CategoryId = string
 
+/** 当前场景预设内收藏的信源：动态分类，不进静态分类注册表。 */
+export const FAVORITES_CATEGORY_ID: CategoryId = 'favorites'
+
 /** 本地推荐分类：候选池为当前预设启用的全部信源，排序见 lib/recommend.ts */
 export const RECOMMEND_CATEGORY_ID: CategoryId = 'recommend'
 
@@ -28,6 +31,14 @@ export interface NewsCategory {
   isCustom?: boolean
 }
 
+/** 收藏分类由当前预设的 favoriteSourceIds 派生；空收藏时不显示。 */
+export const FAVORITES_CATEGORY: NewsCategory = {
+  id: FAVORITES_CATEGORY_ID,
+  label: '收藏',
+  short: '收藏',
+  caption: '当前预设收藏的信源',
+}
+
 /**
  * 动态「推荐」分类：不进 CATEGORIES 注册表，不参与分类管理与预设快照；
  * 由 App 在预设内阅读量达标（lib/recommend.isRecommendationReady）时插到轨道最前。
@@ -39,9 +50,10 @@ export const RECOMMEND_CATEGORY: NewsCategory = {
   caption: '基于本机已读记录对预设内信源做个性化排序 · 数据不出本机',
 }
 
-/** 「推荐」是动态栏位的保留名：自建分类的名称与短名都不得使用 */
+/** 动态栏位名称保留给系统使用：自建分类的名称与短名都不得占用。 */
 export function isReservedCategoryLabel(label: string): boolean {
-  return label.trim() === RECOMMEND_CATEGORY.label
+  const normalized = label.trim()
+  return normalized === RECOMMEND_CATEGORY.label || normalized === FAVORITES_CATEGORY.label
 }
 
 /** 单源分类：轨道名与来源名一致 */

@@ -109,8 +109,9 @@ import {
   translationProviderLabel,
 } from './features/translation/config'
 import { resolveAiFeatureConfig } from './features/translation/aiConfig'
-import { RECOMMEND_CATEGORY_ID, type CategoryId } from './sources/categories'
+import { FAVORITES_CATEGORY_ID, RECOMMEND_CATEGORY_ID, type CategoryId } from './sources/categories'
 import {
+  FOLLOWS_ENABLED_SOURCES,
   FONT_FAMILY_OPTIONS,
   FONT_SCALE_OPTIONS,
   addCustomCategory,
@@ -122,6 +123,7 @@ import {
   deleteCustomSource,
   deleteCustomSources,
   recommendationScopeSourceIds,
+  removeCategorySource,
   resetCategoryLayout,
   resetCategorySources,
   resetTypography,
@@ -137,11 +139,13 @@ import {
   setThemeMode,
   sourceIdsForCategoryWithPrefs,
   toggleCategorySource,
+  toggleFavoriteSource,
   toggleCategoryVisible,
   updateCustomCategory,
   updateCustomSource,
   updateTypography,
   visibleCategories,
+  withFavoriteCategory,
   withRecommendCategory,
   type TypographyPrefs,
 } from './sources/preferences'
@@ -449,8 +453,12 @@ export default function App() {
 
   /** 首页轨道：推荐亮起时插到最前；默认选中与回退永远落在第一个普通分类 */
   const categories = useMemo(
-    () => withRecommendCategory(regularCategories, recommendReady),
-    [regularCategories, recommendReady],
+    () =>
+      withFavoriteCategory(
+        withRecommendCategory(regularCategories, recommendReady),
+        prefs.favoriteSourceIds,
+      ),
+    [regularCategories, recommendReady, prefs.favoriteSourceIds],
   )
 
   // 当前分类失效（被隐藏 / 推荐熄灭 / 首次进入不可见）时退回第一个普通分类，绝不自动落到推荐
@@ -766,6 +774,24 @@ export default function App() {
     setCategoryId(newId)
     setCategoryFilterSourceId(null)
   }, [])
+
+  const handleToggleFavoriteSource = useCallback(
+    (sourceId: string) => update((prev) => toggleFavoriteSource(prev, sourceId)),
+    [update],
+  )
+
+  const handleRemoveCategorySource = useCallback(
+    (sourceId: string) => {
+      if (categoryId === FAVORITES_CATEGORY_ID || categoryId === RECOMMEND_CATEGORY_ID) return
+      if (categoryId === FOLLOWS_ENABLED_SOURCES) {
+        setEnabledIds((prev) => prev.filter((id) => id !== sourceId))
+      } else {
+        update((prev) => removeCategorySource(prev, categoryId, sourceId))
+      }
+      setCategoryFilterSourceId((prev) => (prev === sourceId ? null : prev))
+    },
+    [categoryId, update],
+  )
 
   const laterIds = useMemo(() => new Set(later.map((item) => item.id)), [later])
 
@@ -1518,6 +1544,13 @@ export default function App() {
         availableSources={availableCategorySources}
         selectedSourceId={categoryFilterSourceId}
         onSelectSource={setCategoryFilterSourceId}
+        favoriteSourceIds={prefs.favoriteSourceIds}
+        onToggleFavoriteSource={handleToggleFavoriteSource}
+        onRemoveSource={
+          categoryId === FAVORITES_CATEGORY_ID || categoryId === RECOMMEND_CATEGORY_ID
+            ? undefined
+            : handleRemoveCategorySource
+        }
         articlesForCategory={articlesForCategory}
         presetSwitcher={presetSwitcherConfig}
         translationPrefs={prefs.translation}
