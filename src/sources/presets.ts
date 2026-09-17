@@ -35,6 +35,8 @@ export interface LayoutSnapshot {
   categorySources: Record<CategoryId, string[]>
   customCategories: NewsCategory[]
   enabledSourceIds: string[]
+  /** 当前预设收藏的信源；旧快照缺省为空 */
+  favoriteSourceIds?: string[]
 }
 
 export interface LayoutPreset {
@@ -110,7 +112,7 @@ export function normalizeSnapshot(raw: unknown): LayoutSnapshot {
   Object.entries(input.categorySources ?? {}).forEach(([categoryId, sourceIds]) => {
     if (!allCategoryIds.has(categoryId) || isAggregateCategoryId(categoryId)) return
     const valid = uniqueValidSourceIds(sourceIds)
-    if (valid.length) categorySources[categoryId] = valid
+    categorySources[categoryId] = valid
   })
 
   // 「推荐」已改为动态栏位（不进注册表）：旧快照中的 recommend id 由 uniqueValid 自然剔除
@@ -122,6 +124,7 @@ export function normalizeSnapshot(raw: unknown): LayoutSnapshot {
     categorySources,
     customCategories,
     enabledSourceIds: uniqueValidSourceIds(input.enabledSourceIds),
+    favoriteSourceIds: uniqueValidSourceIds(input.favoriteSourceIds),
   }
 }
 
@@ -135,6 +138,7 @@ export function snapshotFromRuntime(
     categorySources: prefs.categorySources,
     customCategories: prefs.customCategories ?? [],
     enabledSourceIds,
+    favoriteSourceIds: prefs.favoriteSourceIds,
   })
 }
 
@@ -147,6 +151,7 @@ export function applySnapshotToPrefs(prefs: Preferences, snapshot: LayoutSnapsho
     hiddenCategoryIds: normalized.hiddenCategoryIds,
     categorySources: normalized.categorySources,
     customCategories: normalized.customCategories,
+    favoriteSourceIds: normalized.favoriteSourceIds ?? [],
   }
 }
 
@@ -573,6 +578,7 @@ export function emptyLayoutSnapshot(): LayoutSnapshot {
     categorySources: {},
     customCategories: [],
     enabledSourceIds: [],
+    favoriteSourceIds: [],
   })
 }
 

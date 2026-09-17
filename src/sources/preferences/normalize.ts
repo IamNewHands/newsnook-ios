@@ -120,7 +120,7 @@ export function normalizePreferences(raw: unknown): Preferences {
     Object.entries(input.categorySources).forEach(([categoryId, sourceIds]) => {
       if (!allCategoryIds.has(categoryId) || isAggregateCategoryId(categoryId)) return
       const valid = uniqueValid(sourceIds, knownSourceIds)
-      if (valid.length) categorySources[categoryId] = valid
+      categorySources[categoryId] = valid
     })
   }
 
@@ -147,6 +147,7 @@ export function normalizePreferences(raw: unknown): Preferences {
     // 至少保留一个可见分类，否则首页无内容可选
     hiddenCategoryIds: hidden.length >= allCategoryIds.size ? hidden.slice(1) : hidden,
     categorySources,
+    favoriteSourceIds: uniqueValid(input.favoriteSourceIds, knownSourceIds),
     customCategories,
     customSources,
     theme: isThemeMode(input.theme) ? input.theme : DEFAULT_THEME_MODE,

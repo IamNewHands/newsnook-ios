@@ -53,6 +53,9 @@ interface Props {
   selectedSourceId?: string | null
   /** 切换选中的单个信源 */
   onSelectSource?: (sourceId: string | null) => void
+  favoriteSourceIds?: readonly string[]
+  onToggleFavoriteSource?: (sourceId: string) => void
+  onRemoveSource?: (sourceId: string) => void
   /** 预览邻页用：按分类取已缓存的文章，横滑时并排露出 */
   articlesForCategory?: (id: CategoryId) => Article[]
   /** 首页场景预设快捷切换；单源聚焦页不传 */
@@ -191,6 +194,9 @@ export const FeedScreen = memo(function FeedScreen({
   availableSources,
   selectedSourceId,
   onSelectSource,
+  favoriteSourceIds,
+  onToggleFavoriteSource,
+  onRemoveSource,
   articlesForCategory,
   presetSwitcher,
   translationPrefs,
@@ -889,13 +895,16 @@ export const FeedScreen = memo(function FeedScreen({
           </div>
         )}
 
-        {availableSources && availableSources.length > 1 && onSelectSource && (
+        {availableSources && availableSources.length > 0 && onSelectSource && (
           <div className="mt-0.5 lg:mt-1.5">
             <SourceFilterChips
               sources={availableSources}
               selectedSourceId={selectedSourceId ?? null}
               onSelect={onSelectSource}
               counts={sourceCounts}
+              favoriteSourceIds={favoriteSourceIds}
+              onToggleFavorite={onToggleFavoriteSource}
+              onRemoveSource={onRemoveSource}
             />
           </div>
         )}
