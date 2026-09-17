@@ -1567,7 +1567,6 @@ export default function App() {
         onRemoveCategory={handleRemoveCategory}
         onRenameCategory={handleRenameCategory}
         articlesForCategory={articlesForCategory}
-        presetSwitcher={presetSwitcherConfig}
         translationPrefs={prefs.translation}
         customSources={prefs.customSources}
         onRefresh={runRefresh}
@@ -1666,6 +1665,7 @@ export default function App() {
                     setTab(key)
                   }}
                   onTodayDoubleTap={() => setTodayPullRefreshSeq((seq) => seq + 1)}
+                  presetSwitcher={presetSwitcherConfig}
                 />
               )}
 

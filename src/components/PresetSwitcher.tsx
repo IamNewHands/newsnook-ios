@@ -30,13 +30,15 @@ export interface PresetSwitcherProps {
   onSites?: () => void
   /** 已适配站点数量 */
   siteCount?: number
-  variant?: 'pill' | 'card'
+  variant?: 'pill' | 'card' | 'tabbar' | 'sidebar'
 }
 
 /**
- * 首页顶栏及侧边栏场景预设快捷切换：
- * - variant='pill': 适用于移动端顶栏（紧凑胶囊，朱砂微光描边，醒目易点）
- * - variant='card': 适用于桌面侧边栏（全宽精装卡片，标题+图标+激活态指示）
+ * 场景预设快捷切换：
+ * - variant='tabbar': 移动端底栏中央动作入口，轻微抬升但不成为独立页面
+ * - variant='sidebar': PC 侧栏中的普通导航动作，与速闻/稍后读同层级
+ * - variant='pill': 紧凑胶囊，保留给站点工作区等非首页场景
+ * - variant='card': 保留给需要突出展示当前预设的桌面场景
  * - 弹窗在移动端为底部抽屉，在平板/PC 端自适应为居中精美浮窗
  */
 export function PresetSwitcher({
@@ -245,6 +247,65 @@ export function PresetSwitcher({
       </div>,
       document.body,
     )
+
+  if (variant === 'tabbar') {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-label={`布局，当前：${activeName}，点击切换`}
+          title={`当前布局：${activeName}`}
+          data-tour="preset-switcher"
+          className="group relative -mt-2 flex h-[62px] w-full flex-col items-center justify-start gap-0.5 pt-0 text-paper-muted transition-colors duration-200 active:scale-[0.98]"
+        >
+          <span className="relative flex size-11 items-center justify-center rounded-full border border-haze/90 bg-ink-raised shadow-[0_5px_16px_rgba(0,0,0,0.16)] transition-all duration-200 group-hover:border-cinnabar/45 group-hover:text-cinnabar group-active:translate-y-0.5">
+            <span className="absolute inset-1 rounded-full bg-cinnabar/8" aria-hidden />
+            <LayoutTemplate
+              size={19}
+              strokeWidth={1.85}
+              className="relative text-cinnabar transition-transform duration-200 group-hover:scale-105"
+            />
+          </span>
+          <span className="font-mono text-[10.5px] font-medium tracking-[0.14em] text-paper-muted transition-colors group-hover:text-cinnabar">
+            布局
+          </span>
+        </button>
+        {sheet}
+      </>
+    )
+  }
+
+  if (variant === 'sidebar') {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-label={`布局，当前：${activeName}，点击切换`}
+          title={`当前布局：${activeName}`}
+          className="group flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-paper-muted transition-all duration-200 hover:bg-ink-raised/50 hover:text-paper"
+        >
+          <span className="flex min-w-0 items-center gap-2.5">
+            <LayoutTemplate
+              size={16}
+              strokeWidth={1.7}
+              className="shrink-0 text-cinnabar-soft transition-colors group-hover:text-cinnabar"
+            />
+            <span className="text-[13.5px] tracking-wide">布局</span>
+          </span>
+          <span className="max-w-[104px] truncate font-mono text-[9.5px] text-paper-faint transition-colors group-hover:text-paper-muted">
+            {activeName}
+          </span>
+        </button>
+        {sheet}
+      </>
+    )
+  }
 
   if (variant === 'card') {
     return (

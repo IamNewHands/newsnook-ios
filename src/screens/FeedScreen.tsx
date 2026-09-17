@@ -4,7 +4,6 @@ import { ChevronLeft, Loader2, RotateCw, Search, X } from 'lucide-react'
 import { ArticleRow, LeadStory } from '../components/ArticleItem'
 import { CategoryRail } from '../components/CategoryRail'
 import { FeedSkeleton } from '../components/FeedSkeleton'
-import { PresetSwitcher, type PresetSwitcherProps } from '../components/PresetSwitcher'
 import { PullIndicator } from '../components/PullIndicator'
 import { SourceFilterChips } from '../components/SourceFilterChips'
 import { useIsDesktop } from '../hooks/useMediaQuery'
@@ -60,8 +59,6 @@ interface Props {
   onRenameCategory?: (categoryId: CategoryId, name: string) => void
   /** 预览邻页用：按分类取已缓存的文章，横滑时并排露出 */
   articlesForCategory?: (id: CategoryId) => Article[]
-  /** 首页场景预设快捷切换；单源聚焦页不传 */
-  presetSwitcher?: Omit<PresetSwitcherProps, 'variant'>
   translationPrefs?: TranslationPrefs
   /** 自定义源，用于刷新进度显示名称 */
   customSources?: NewsSource[]
@@ -202,7 +199,6 @@ export const FeedScreen = memo(function FeedScreen({
   onRemoveCategory,
   onRenameCategory,
   articlesForCategory,
-  presetSwitcher,
   translationPrefs,
   customSources,
   onRefresh,
@@ -217,6 +213,7 @@ export const FeedScreen = memo(function FeedScreen({
 }: Props) {
   const isDesktop = useIsDesktop()
   const reduced = useReducedMotion()
+  const isBrandedHome = title === '有所闻' && Boolean(onBrandTap)
   const listRef = useRef<HTMLDivElement>(null)
   const pulseRef = useRef<HTMLSpanElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
@@ -835,7 +832,7 @@ export const FeedScreen = memo(function FeedScreen({
             <p className="hidden md:inline-block min-w-0 truncate font-mono text-[11px] lg:text-[11.5px] tracking-[0.12em] text-paper-faint">
               {activeCategory?.caption || caption}
             </p>
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full border border-haze/80 bg-ink-raised/60 text-[9.5px] lg:text-[10px] font-mono text-paper-faint">
+            <span className={`${isBrandedHome ? 'hidden lg:inline-flex' : 'inline-flex'} items-center px-1.5 py-0.5 rounded-full border border-haze/80 bg-ink-raised/60 text-[9.5px] lg:text-[10px] font-mono text-paper-faint`}>
               {articles.length} 篇
             </span>
           </div>
@@ -856,17 +853,11 @@ export const FeedScreen = memo(function FeedScreen({
               </button>
             )}
 
-            {presetSwitcher && (
-              <div className="lg:hidden" data-tour="preset-switcher">
-                <PresetSwitcher {...presetSwitcher} />
-              </div>
-            )}
-
             <button
               type="button"
               onClick={() => void onRefresh()}
               aria-label="刷新"
-              className="relative flex h-7.5 w-7.5 lg:h-8 lg:w-8 lg:px-2.5 lg:w-auto shrink-0 items-center justify-center gap-1.5 rounded-lg border border-transparent lg:border-haze/70 lg:bg-ink-raised/50 lg:hover:bg-ink-raised lg:hover:border-paper-faint/30 transition-all text-paper-muted hover:text-paper"
+              className={`relative h-7.5 w-7.5 lg:h-8 lg:w-8 lg:px-2.5 lg:w-auto shrink-0 items-center justify-center gap-1.5 rounded-lg border border-transparent lg:border-haze/70 lg:bg-ink-raised/50 lg:hover:bg-ink-raised lg:hover:border-paper-faint/30 transition-all text-paper-muted hover:text-paper ${isBrandedHome ? 'hidden lg:flex' : 'flex'}`}
             >
               <RotateCw
                 size={14}

@@ -122,23 +122,6 @@ export const DesktopSidebar = memo(function DesktopSidebar({
             </p>
           </div>
         </div>
-
-        {/* 预设切换小插槽 */}
-        {presetSwitcher && (
-          <div className="mt-3.5 pt-3 border-t border-haze/60">
-            <PresetSwitcher
-              variant="card"
-              activeName={presetSwitcher.activeName}
-              items={presetSwitcher.items}
-              onSelect={presetSwitcher.onSelect}
-              onManage={presetSwitcher.onManage}
-              siteItems={presetSwitcher.siteItems}
-              onSelectSite={presetSwitcher.onSelectSite}
-              onSites={presetSwitcher.onSites}
-              siteCount={presetSwitcher.siteCount}
-            />
-          </div>
-        )}
       </div>
 
       {/* 中间主导航与分类列表 */}
@@ -172,6 +155,22 @@ export const DesktopSidebar = memo(function DesktopSidebar({
                 )}
               </button>
             </li>
+
+            {presetSwitcher && (
+              <li>
+                <PresetSwitcher
+                  variant="sidebar"
+                  activeName={presetSwitcher.activeName}
+                  items={presetSwitcher.items}
+                  onSelect={presetSwitcher.onSelect}
+                  onManage={presetSwitcher.onManage}
+                  siteItems={presetSwitcher.siteItems}
+                  onSelectSite={presetSwitcher.onSelectSite}
+                  onSites={presetSwitcher.onSites}
+                  siteCount={presetSwitcher.siteCount}
+                />
+              </li>
+            )}
 
             <li>
               <button

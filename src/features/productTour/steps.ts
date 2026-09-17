@@ -9,7 +9,7 @@ export function tourSelector(target: string): string {
  * 引导步骤（顺序即播放顺序）：
  * 先在「速闻」讲清分类、预设切换、列表与底栏，再切到「我的」讲收藏、
  * 自定义订阅、翻译、预设管理与其余设置。
- * 「速闻」步骤按当前 DOM 可见性过滤（桌面端底栏 / 分类轨道 / 预设胶囊隐藏时自动跳过），
+ * 「速闻」步骤按当前 DOM 可见性过滤（桌面端底栏 / 分类轨道 / 底栏布局入口隐藏时自动跳过），
  * 「我的」步骤在切 Tab 后才挂载，由服务的 waitForElement 等待。
  */
 export const PRODUCT_TOUR_STEPS: ProductTourStepDefinition[] = [
@@ -36,8 +36,8 @@ export const PRODUCT_TOUR_STEPS: ProductTourStepDefinition[] = [
     selector: tourSelector('preset-switcher'),
     title: '切换场景预设',
     description:
-      '点右上角这枚胶囊，可在工作、通勤、深度阅读等场景间一键切换，每套预设决定首页展示哪些分类与信源。新建和调整预设稍后在「我的」里介绍。',
-    side: 'bottom',
+      '点底部中间的「布局」，可在工作、通勤、深度阅读等场景间一键切换；它会从底部展开，不会离开当前阅读上下文。每套预设决定首页展示哪些分类与信源。',
+    side: 'top',
   },
   {
     id: 'feed-list',
@@ -54,7 +54,7 @@ export const PRODUCT_TOUR_STEPS: ProductTourStepDefinition[] = [
     selector: tourSelector('tab-bar'),
     title: '底栏导航',
     description:
-      '「速闻」看更新，「我的」管收藏与设置；在速闻页双击「速闻」可快速刷新。稍后读有内容时，「我的」会带角标。',
+      '「速闻」看更新，中间「布局」切换阅读场景，「我的」管收藏与设置；在速闻页双击「速闻」可快速刷新。稍后读有内容时，「我的」会带角标。',
     side: 'top',
   },
   {
