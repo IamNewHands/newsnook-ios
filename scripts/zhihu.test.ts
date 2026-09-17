@@ -1,5 +1,6 @@
 const suites = [
   './zhihu-protocol.test.ts',
+  './zhihu-answer-navigation.test.ts',
   './zhihu-navigation.test.ts',
   './zhihu-session.test.ts',
   './zhihu-zse96.test.ts',

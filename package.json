@@ -90,6 +90,7 @@
     "test:app-deep-link": "npx tsx scripts/app-deep-link.test.ts",
     "test:zhihu-protocol": "npx tsx scripts/zhihu-protocol.test.ts",
     "test:zhihu-navigation": "npx tsx scripts/zhihu-navigation.test.ts",
+    "test:zhihu-answer-navigation": "npx tsx scripts/zhihu-answer-navigation.test.ts",
     "test:zhihu-session": "npx tsx scripts/zhihu-session.test.ts",
     "test:zhihu-zse96": "npx tsx scripts/zhihu-zse96.test.ts",
     "test:zhihu-drafts": "npx tsx scripts/zhihu-drafts.test.ts",

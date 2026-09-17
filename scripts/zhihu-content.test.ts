@@ -24,7 +24,7 @@ assert.equal(parseZhihuVideoId('https://www.zhihu.com/question/123'), null)
 
 const answerUrl = zhihuEntityUrl({ kind: 'answer', id: '2027676063409484209' })
 assert.match(answerUrl ?? '', /include=/)
-assert.match(decodeURIComponent(answerUrl ?? ''), /pagination_info/, '回答详情必须请求 pagination_info 才能直接得到上下回答')
+assert.doesNotMatch(decodeURIComponent(answerUrl ?? ''), /pagination_info/, '回答详情不得请求不保证默认排序的上下回答 ID')
 const pagedDetail = decodeZhihuContentDetail(parseZhihuJson(`{
   "id": 2027676063409484209,
   "type": "answer",
@@ -39,6 +39,7 @@ const pagedDetail = decodeZhihuContentDetail(parseZhihuJson(`{
 }`))
 assert.equal(pagedDetail?.ref.id, '2027676063409484209')
 assert.equal(pagedDetail?.editableContentHtml, "<p data-pid='editable'>可编辑正文</p>", '编辑已有回答必须保留 editable_content，而不是把阅读 HTML 回写')
+// 解码器继续兼容偶尔随详情返回的字段，但回答导航不会消费它们。
 assert.deepEqual(pagedDetail?.previousAnswerIds, ['2027000000000000001'])
 assert.deepEqual(pagedDetail?.nextAnswerIds, ['2028000000000000002', '2028000000000000003'])
 

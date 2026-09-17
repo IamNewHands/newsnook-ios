@@ -8,6 +8,7 @@ import type { ZhihuContentDetail } from '../api/decode'
 import { ZhihuApiError } from '../api/errors'
 import { parseZhihuLink, parseZhihuVideoId } from '../content/links'
 import { normalizeZhihuContentHtml } from '../content/normalize'
+import { ZhihuAnswerNavigator, type ZhihuAnswerNeighbors } from '../content/answerNavigation'
 import type { ZhihuContentService } from '../content/service'
 import type { ZhihuFeedService } from '../feed/service'
 import type { ZhihuInteractionService, ZhihuVoteState } from '../interaction/service'
@@ -228,6 +229,12 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
   const [answersHasMore, setAnswersHasMore] = useState(false)
   const [answersLoadingMore, setAnswersLoadingMore] = useState(false)
   const [answersError, setAnswersError] = useState<string | null>(null)
+  const answerNavigator = useMemo(() => new ZhihuAnswerNavigator(feedService), [feedService])
+  const [answerNeighbors, setAnswerNeighbors] = useState<{
+    questionId: string
+    answerId: string
+    value: ZhihuAnswerNeighbors
+  } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [voteState, setVoteState] = useState<ZhihuVoteState>('neutral')
@@ -430,41 +437,21 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
   }, [answerOrder, authenticated, contentService, feedService, preview, refValue])
 
   useEffect(() => {
-    if (refValue.kind !== 'answer' || !detail?.questionId) return
-    // 新版回答详情直接给 pagination_info.prev/next_answer_ids，这是最可靠的上下回答
-    // 导航，不需要从问题第一页开始暴力扫描。只有上游没有该字段时才走分页回退。
-    if ((detail.previousAnswerIds?.length ?? 0) > 0 || (detail.nextAnswerIds?.length ?? 0) > 0) return
+    if (refValue.kind !== 'answer' || detail?.ref.kind !== 'answer' || detail.ref.id !== refValue.id || !detail.questionId) return
     const questionId = detail.questionId
+    const answerId = refValue.id
     const controller = new AbortController()
-    void (async () => {
-      try {
-        let cursor: string | undefined
-        let collected: ZhihuContentSummary[] = []
-        // 回答详情必须能给出同一问题的上/下一个回答。当前回答可能不在回答列表首屏，
-        // 因此按服务端顺序向后寻找；找到后若它恰好是页尾，再多取一页以得到“下一个”。
-        for (let pageIndex = 0; pageIndex < 10 && !controller.signal.aborted; pageIndex += 1) {
-          const page = await feedService.questionAnswers(questionId, 'default', cursor, controller.signal)
-          const seen = new Set(collected.map((item) => `${item.ref.kind}:${item.ref.id}`))
-          collected = [...collected, ...page.items.filter((item) => !seen.has(`${item.ref.kind}:${item.ref.id}`))]
-          const currentIndex = collected.findIndex((item) => item.ref.kind === 'answer' && item.ref.id === refValue.id)
-          if (currentIndex >= 0) {
-            if (currentIndex === collected.length - 1 && page.hasMore && page.nextCursor) {
-              const nextPage = await feedService.questionAnswers(questionId, 'default', page.nextCursor, controller.signal)
-              const currentSeen = new Set(collected.map((item) => `${item.ref.kind}:${item.ref.id}`))
-              collected = [...collected, ...nextPage.items.filter((item) => !currentSeen.has(`${item.ref.kind}:${item.ref.id}`))]
-            }
-            break
-          }
-          if (!page.hasMore || !page.nextCursor) break
-          cursor = page.nextCursor
-        }
-        if (!controller.signal.aborted) setAnswers(collected)
-      } catch {
+    setAnswerNeighbors((current) => current?.questionId === questionId && current.answerId === answerId ? current : null)
+    void answerNavigator.neighbors(questionId, answerId, controller.signal).then(
+      (value) => {
+        if (!controller.signal.aborted) setAnswerNeighbors({ questionId, answerId, value })
+      },
+      () => {
         // 正文已经可读时，回答队列失败只影响上/下一个导航，不抹掉正文。
-      }
-    })()
+      },
+    )
     return () => controller.abort()
-  }, [detail?.nextAnswerIds?.length, detail?.previousAnswerIds?.length, detail?.questionId, feedService, refValue.id, refValue.kind])
+  }, [answerNavigator, detail?.questionId, detail?.ref.id, detail?.ref.kind, refValue.id, refValue.kind])
 
   const loadMoreAnswers = async () => {
     if (refValue.kind !== 'question' || !answersCursor || answersLoadingMore) return
@@ -631,17 +618,13 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
 
   const voteWritable = canExecuteZhihuOperation('vote.set')
   const questionFollowWritable = canExecuteZhihuOperation(following ? 'follow.question.clear' : 'follow.question.set')
-  const currentAnswerIndex = refValue.kind === 'answer'
-    ? answers.findIndex((item) => item.ref.kind === 'answer' && item.ref.id === refValue.id)
-    : -1
-  const previousAnswer = currentAnswerIndex > 0 ? answers[currentAnswerIndex - 1] : undefined
-  const nextAnswer = currentAnswerIndex >= 0 ? answers[currentAnswerIndex + 1] : undefined
-  const previousAnswerRef: ZhihuEntityRef | undefined = detail.previousAnswerIds?.[0]
-    ? { kind: 'answer', id: detail.previousAnswerIds[0] }
-    : previousAnswer?.ref
-  const nextAnswerRef: ZhihuEntityRef | undefined = detail.nextAnswerIds?.[0]
-    ? { kind: 'answer', id: detail.nextAnswerIds[0] }
-    : nextAnswer?.ref
+  const resolvedAnswerNeighbors = answerNeighbors
+    && answerNeighbors.questionId === detail.questionId
+    && answerNeighbors.answerId === refValue.id
+    ? answerNeighbors.value
+    : null
+  const previousAnswerRef = resolvedAnswerNeighbors?.previous
+  const nextAnswerRef = resolvedAnswerNeighbors?.next
   const voteCountLabel = formatZhihuCount(voteCount)
   const commentCountLabel = formatZhihuCount(detail.commentCount)
 

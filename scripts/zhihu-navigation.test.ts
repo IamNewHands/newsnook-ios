@@ -119,8 +119,8 @@ assert.doesNotMatch(zhihuFeedScreenSource, /recommendationSource/, '信息流卡
 
 const zhihuContentSource = readFileSync(new URL('../src/features/zhihu/ui/ZhihuContentScreen.tsx', import.meta.url), 'utf8')
 assert.doesNotMatch(zhihuContentSource, /NewsNook 阅读|BookOpen/, '知乎正文必须直接在站点工作区渲染，不能要求二次进入 NewsNook Reader')
-assert.match(zhihuContentSource, /previousAnswerIds/, '回答页应优先消费 pagination_info 的上一回答')
-assert.match(zhihuContentSource, /nextAnswerIds/, '回答页应优先消费 pagination_info 的下一回答')
+assert.match(zhihuContentSource, /ZhihuAnswerNavigator/, '回答页必须通过默认排序队列解析上下回答')
+assert.doesNotMatch(zhihuContentSource, /detail\.previousAnswerIds|detail\.nextAnswerIds/, '回答导航不得使用详情接口中不保证默认排序的 pagination_info')
 assert.match(zhihuWorkspaceSource, /返回知乎首页/, '回答页左上角/系统返回必须直接返回知乎首页')
 assert.match(zhihuWorkspaceSource, /onReplaceNavigate=\{replaceEntity\}/, '上下回答切换必须使用 replace 导航，避免回答栈无限增长')
 assert.match(zhihuContentSource, /aria-label="上一个回答"/, '回答页必须提供浮动的上一个回答按钮')
