@@ -97,9 +97,12 @@ assert.equal(
   false,
 )
 
-// 8. 通用 Web 下载提示：浏览器显示，Capacitor 原生壳不显示；下载入口始终指向最新 Release。
+// 8. 通用 Web 下载提示：浏览器显示，Capacitor 原生壳不显示；下载入口直连 R2 最新云端版 APK。
 assert.equal(shouldShowWebAppDownloadBanner(false), true)
 assert.equal(shouldShowWebAppDownloadBanner(true), false)
-assert.equal(ANDROID_APP_DOWNLOAD_URL, 'https://github.com/t59688/newsnook/releases/latest')
+assert.equal(
+  ANDROID_APP_DOWNLOAD_URL,
+  'https://news-update.aizeek.com/newsnook/latest-cloud.apk',
+)
 
 console.log('App deep link tests: ALL PASSED')

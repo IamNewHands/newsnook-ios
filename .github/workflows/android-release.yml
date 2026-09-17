@@ -229,10 +229,19 @@ jobs:
             --cache-control 'public,max-age=604800,immutable' \
             --no-progress
 
+          # Web 顶部下载提示使用固定 URL。每次 Release 覆盖该对象，避免用户先跳 GitHub
+          # 或在浏览器端额外请求 latest.json；no-store 确保始终拿到最新 APK。
+          aws s3 cp "$CLOUD_APK" "s3://${R2_BUCKET}/newsnook/latest-cloud.apk" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --content-type 'application/vnd.android.package-archive' \
+            --content-disposition "attachment; filename=\"${CLOUD_NAME}\"" \
+            --cache-control 'no-store,max-age=0' \
+            --no-progress
+
       - name: Verify new APKs through public R2 domain
         run: |
           set -euo pipefail
-          for name in "$CLOUD_NAME" "$LOCAL_NAME"; do
+          for name in "$CLOUD_NAME" "$LOCAL_NAME" 'latest-cloud.apk'; do
             curl --fail --silent --show-error --location \
               --retry 5 --retry-delay 3 --head \
               "${UPDATE_BASE_URL}/newsnook/${name}" > /dev/null
@@ -277,7 +286,7 @@ jobs:
 
           while IFS= read -r key; do
             case "$key" in
-              'newsnook/latest.json'|"newsnook/${CLOUD_NAME}"|"newsnook/${LOCAL_NAME}")
+              'newsnook/latest.json'|'newsnook/latest-cloud.apk'|"newsnook/${CLOUD_NAME}"|"newsnook/${LOCAL_NAME}")
                 ;;
               *)
                 echo "Deleting old R2 object: $key"
@@ -302,13 +311,13 @@ jobs:
 
           jq -r '.Contents[]?.Key' "$FINAL"
           COUNT="$(jq '[.Contents[]?] | length' "$FINAL")"
-          if [ "$COUNT" -ne 3 ]; then
-            echo "::error::Expected exactly 3 NewsNook R2 objects, got ${COUNT}."
+          if [ "$COUNT" -ne 4 ]; then
+            echo "::error::Expected exactly 4 NewsNook R2 objects, got ${COUNT}."
             exit 1
           fi
 
           jq -e \
             --arg cloud "newsnook/${CLOUD_NAME}" \
             --arg local "newsnook/${LOCAL_NAME}" \
-            '[.Contents[]?.Key] | sort == (["newsnook/latest.json", $cloud, $local] | sort)' \
+            '[.Contents[]?.Key] | sort == (["newsnook/latest.json", "newsnook/latest-cloud.apk", $cloud, $local] | sort)' \
             "$FINAL" > /dev/null
