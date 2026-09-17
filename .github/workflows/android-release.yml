@@ -275,17 +275,20 @@ jobs:
             --endpoint-url "$R2_ENDPOINT" \
             --output json > "$OBJECTS"
 
-          jq -r '.Contents[]?.Key' "$OBJECTS" | while IFS= read -r key; do
+          while IFS= read -r key; do
             case "$key" in
               'newsnook/latest.json'|"newsnook/${CLOUD_NAME}"|"newsnook/${LOCAL_NAME}")
                 ;;
               *)
                 echo "Deleting old R2 object: $key"
-                aws s3 rm "s3://${R2_BUCKET}/${key}" \
-                  --endpoint-url "$R2_ENDPOINT" --no-progress
+                aws s3api delete-object \
+                  --bucket "$R2_BUCKET" \
+                  --key "$key" \
+                  --endpoint-url "$R2_ENDPOINT" \
+                  > /dev/null
                 ;;
             esac
-          done
+          done < <(jq -r '.Contents[]?.Key' "$OBJECTS")
 
       - name: Verify R2 retains only the current release
         run: |
