@@ -320,7 +320,7 @@ export function AboutScreen({
               <div className="min-w-0 flex-1">
                 <span className="text-[14px] font-medium text-paper">开源许可</span>
                 <p className="mt-0.5 truncate font-mono text-[11px] text-paper-faint">
-                  Apache 2.0 · 第三方组件清单
+                  AGPL 3.0 · 第三方组件清单
                 </p>
               </div>
             </button>
@@ -383,7 +383,7 @@ export function AboutScreen({
           NEWSNOOK
         </p>
         <p className="mt-1 font-mono text-[9px] text-paper-faint/60">
-          Open Sourced under Apache License 2.0
+          Open Sourced under AGPL-3.0
         </p>
       </footer>
     </SettingsShell>

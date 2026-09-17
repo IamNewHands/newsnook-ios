@@ -123,6 +123,7 @@ import {
   deleteCustomSource,
   deleteCustomSources,
   recommendationScopeSourceIds,
+  renameCategory,
   removeCategorySource,
   resetCategoryLayout,
   resetCategorySources,
@@ -791,6 +792,18 @@ export default function App() {
       setCategoryFilterSourceId((prev) => (prev === sourceId ? null : prev))
     },
     [categoryId, update],
+  )
+
+  const handleRemoveCategory = useCallback(
+    (id: CategoryId) => update((prev) => toggleCategoryVisible(prev, id)),
+    [update],
+  )
+
+  const handleRenameCategory = useCallback(
+    (id: CategoryId, name: string) => {
+      update((prev) => renameCategory(prev, id, name))
+    },
+    [update],
   )
 
   const laterIds = useMemo(() => new Set(later.map((item) => item.id)), [later])
@@ -1551,6 +1564,8 @@ export default function App() {
             ? undefined
             : handleRemoveCategorySource
         }
+        onRemoveCategory={handleRemoveCategory}
+        onRenameCategory={handleRenameCategory}
         articlesForCategory={articlesForCategory}
         presetSwitcher={presetSwitcherConfig}
         translationPrefs={prefs.translation}

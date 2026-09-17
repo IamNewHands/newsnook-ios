@@ -218,6 +218,7 @@ function recordsFromProjection(state: LocalRuntimeState): SyncRecord[] {
     categoryOrder: ['tech', 'custom-cat', 'mix'],
     hiddenCategoryIds: ['game'],
     categorySources: { tech: ['custom:example'] },
+    categoryNames: { tech: { label: '数码前沿', short: '数码' } },
     theme: 'dark',
     typography: { ...local.prefs.typography, fontScale: 1.1 },
   })
@@ -244,6 +245,10 @@ function recordsFromProjection(state: LocalRuntimeState): SyncRecord[] {
 
   assert.ok(restored.enabledIds.includes('custom:example'))
   assert.deepEqual(restored.prefs.categorySources.tech, ['custom:example'])
+  assert.deepEqual(restored.prefs.categoryNames.tech, {
+    label: '数码前沿',
+    short: '数码',
+  })
   assert.ok(restored.prefs.hiddenCategoryIds.includes('game'))
   assert.equal(restored.prefs.categoryOrder[0], 'tech')
   assert.equal(restored.prefs.categoryOrder[1], 'custom-cat')

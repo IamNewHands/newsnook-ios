@@ -273,6 +273,7 @@ function applyCategories(prefs: Preferences, merged: Map<string, MergedEntity>):
   const categoryOrder: CategoryId[] = []
   const hiddenCategoryIds: CategoryId[] = []
   const categorySources: Record<CategoryId, string[]> = {}
+  const categoryNames: Preferences['categoryNames'] = {}
   const customCategories: NewsCategory[] = []
 
   for (const entity of categories) {
@@ -289,9 +290,23 @@ function applyCategories(prefs: Preferences, merged: Map<string, MergedEntity>):
         (id): id is string => typeof id === 'string',
       )
     }
+    const label = text(entity.payload.label)
+    if (label) {
+      categoryNames[entity.entityId] = {
+        label,
+        short: text(entity.payload.short) ?? label.slice(0, 6),
+      }
+    }
   }
 
-  return { ...prefs, categoryOrder, hiddenCategoryIds, categorySources, customCategories }
+  return {
+    ...prefs,
+    categoryOrder,
+    hiddenCategoryIds,
+    categorySources,
+    categoryNames,
+    customCategories,
+  }
 }
 
 function applyPresets(current: PresetsState, merged: Map<string, MergedEntity>): PresetsState {

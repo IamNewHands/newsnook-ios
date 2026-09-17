@@ -490,6 +490,27 @@
   }
 }
 
+@keyframes context-action-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.context-action-menu {
+  animation: context-action-menu-in 120ms var(--ease-ink) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .context-action-menu {
+    animation: none;
+  }
+}
+
 .preset-switcher-sheet {
   animation: preset-switcher-in 160ms var(--ease-ink) both;
 }

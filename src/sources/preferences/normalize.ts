@@ -11,7 +11,13 @@ import {
 import { DEFAULT_CUSTOM_SCHEME, normalizeCustomScheme } from '../../lib/customScheme'
 import { normalizeTranslationPrefs } from '../../features/translation/config'
 import { normalizeProxyPrefs } from '../../features/proxy/config'
-import { CATEGORIES, PORTAL_CATEGORY_SOURCES, type CategoryId, type NewsCategory } from '../categories'
+import {
+  CATEGORIES,
+  isReservedCategoryLabel,
+  PORTAL_CATEGORY_SOURCES,
+  type CategoryId,
+  type NewsCategory,
+} from '../categories'
 import {
   SOURCES,
   makeCustomSourceId,
@@ -28,6 +34,7 @@ import {
   normalizePrestorePrefs,
   uniqueValid,
   type FontFamilyId,
+  type CategoryNameOverride,
   type Preferences,
   type TypographyPrefs,
 } from './model'
@@ -124,6 +131,23 @@ export function normalizePreferences(raw: unknown): Preferences {
     })
   }
 
+  const categoryNames: Record<CategoryId, CategoryNameOverride> = {}
+  if (input.categoryNames && typeof input.categoryNames === 'object') {
+    const builtinIds = new Set(CATEGORIES.map((category) => category.id))
+    Object.entries(input.categoryNames).forEach(([categoryId, value]) => {
+      if (!builtinIds.has(categoryId) || !value || typeof value !== 'object') return
+      const override = value as Partial<CategoryNameOverride>
+      const label = typeof override.label === 'string' ? override.label.trim().slice(0, 16) : ''
+      if (!label || isReservedCategoryLabel(label)) return
+      const short =
+        typeof override.short === 'string' && override.short.trim()
+          ? override.short.trim().slice(0, 6)
+          : label.slice(0, 6)
+      if (isReservedCategoryLabel(short)) return
+      categoryNames[categoryId] = { label, short }
+    })
+  }
+
   // 缺省键 → 门户经典默认隐藏；显式 [] 表示用户/旧数据「全部显示」，不强制迁移
   const hidden = Array.isArray(input.hiddenCategoryIds)
     ? uniqueValid(input.hiddenCategoryIds, allCategoryIds)
@@ -147,6 +171,7 @@ export function normalizePreferences(raw: unknown): Preferences {
     // 至少保留一个可见分类，否则首页无内容可选
     hiddenCategoryIds: hidden.length >= allCategoryIds.size ? hidden.slice(1) : hidden,
     categorySources,
+    categoryNames,
     favoriteSourceIds: uniqueValid(input.favoriteSourceIds, knownSourceIds),
     customCategories,
     customSources,

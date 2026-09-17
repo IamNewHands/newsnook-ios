@@ -45,6 +45,11 @@ export interface PrestorePrefs {
   perSourceLimit: number
 }
 
+export interface CategoryNameOverride {
+  label: string
+  short: string
+}
+
 export const DEFAULT_PRESTORE_PREFS: PrestorePrefs = {
   enabled: false,
   perSourceLimit: 10,
@@ -70,6 +75,8 @@ export interface Preferences {
   hiddenCategoryIds: CategoryId[]
   /** 分类 → 自定义信源；缺省表示沿用注册表默认 */
   categorySources: Record<CategoryId, string[]>
+  /** 内置分类在当前预设内的显示名称覆盖；分类 id 与信源契约保持不变 */
+  categoryNames: Record<CategoryId, CategoryNameOverride>
   /** 当前场景预设收藏的信源；由动态「收藏」分类统一展示 */
   favoriteSourceIds: string[]
   /** 用户自建的自定义分类列表 */
@@ -126,6 +133,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   categoryOrder: [...PORTAL_VISIBLE_CATEGORY_IDS],
   hiddenCategoryIds: [...DEFAULT_HIDDEN_CATEGORY_IDS],
   categorySources: { ...PORTAL_CATEGORY_SOURCES },
+  categoryNames: {},
   favoriteSourceIds: [],
   customCategories: [],
   customSources: [],

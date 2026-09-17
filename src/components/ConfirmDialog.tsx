@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { Check } from 'lucide-react'
 
 import { lockBodyScroll } from '../lib/bodyScrollLock'
@@ -251,13 +252,13 @@ export function PromptDialog({
     return () => window.clearTimeout(timer)
   }, [open, defaultValue])
 
-  if (!open) return null
+  if (!open || typeof document === 'undefined') return null
 
   const trimmed = value.trim()
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/60 px-4 backdrop-blur-sm"
       role="presentation"
       onClick={onCancel}
     >
@@ -265,30 +266,41 @@ export function PromptDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="ink-prompt-title"
-        className="w-full max-w-sm rounded-2xl border border-haze bg-ink-raised p-5 shadow-2xl"
+        className="flex w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-haze bg-ink-raised shadow-2xl"
+        style={{
+          marginTop: 'max(var(--sat, 0px), 16px)',
+          marginBottom: 'max(var(--sab, 0px), 16px)',
+          maxHeight:
+            'calc(100dvh - max(var(--sat, 0px), 16px) - max(var(--sab, 0px), 16px))',
+        }}
         onClick={(event) => event.stopPropagation()}
       >
-        <h3 id="ink-prompt-title" className="font-display text-[17px] font-medium text-paper">
+        <h3
+          id="ink-prompt-title"
+          className="shrink-0 px-5 pt-5 font-display text-[17px] font-medium text-paper"
+        >
           {title}
         </h3>
-        {message && (
-          <div className="mt-2 text-[12.5px] leading-relaxed text-paper-muted">{message}</div>
-        )}
-        <label htmlFor={inputId} className="mt-4 block font-mono text-[10px] tracking-[0.14em] text-paper-faint">
-          {label}
-        </label>
-        <input
-          ref={inputRef}
-          id={inputId}
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && trimmed) onConfirm(trimmed)
-            if (event.key === 'Escape') onCancel()
-          }}
-          className="mt-1.5 w-full rounded-xl border border-haze bg-ink px-3 py-2.5 text-[14px] text-paper outline-none focus:border-cinnabar/50"
-        />
-        <div className="mt-5 flex items-center justify-end gap-2.5">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5">
+          {message && (
+            <div className="mt-2 text-[12.5px] leading-relaxed text-paper-muted">{message}</div>
+          )}
+          <label htmlFor={inputId} className="mt-4 block font-mono text-[10px] tracking-[0.14em] text-paper-faint">
+            {label}
+          </label>
+          <input
+            ref={inputRef}
+            id={inputId}
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && trimmed) onConfirm(trimmed)
+              if (event.key === 'Escape') onCancel()
+            }}
+            className="mt-1.5 w-full rounded-xl border border-haze bg-ink px-3 py-2.5 text-[14px] text-paper outline-none focus:border-cinnabar/50"
+          />
+        </div>
+        <div className="flex shrink-0 items-center justify-end gap-2.5 px-5 pt-4 pb-5">
           <button type="button" onClick={onCancel} className={DIALOG_CANCEL_CLASS}>
             {cancelLabel}
           </button>
@@ -302,6 +314,7 @@ export function PromptDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

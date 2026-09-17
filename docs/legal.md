@@ -1,6 +1,6 @@
 # 权利声明与免责声明
 
-本文档是 NewsNook 的完整权利声明与免责声明。产品概览见根目录 [`README.md`](../README.md)。软件以 [Apache License 2.0](../LICENSE) 开源；版权归属与署名见 [`NOTICE`](../NOTICE)。
+本文档是 NewsNook 的完整权利声明与免责声明。产品概览见根目录 [`README.md`](../README.md)。软件以 [GNU Affero General Public License v3.0 (AGPL-3.0)](../LICENSE) 开源；版权归属与署名见 [`NOTICE`](../NOTICE)。
 
 ## 权利声明
 
@@ -17,7 +17,7 @@
    云端翻译等功能所使用的 API Key、端点地址，以及阅读偏好、缓存、稍后读等内容，均由用户自行保管于本机。项目维护者不收集、不托管这些数据。
 
 5. **软件许可**  
-   NewsNook 源代码与本仓库中的软件以 [Apache License 2.0](../LICENSE) 授权。你可以在遵守该许可的前提下使用、修改与再分发；版权归属与署名见 [`NOTICE`](../NOTICE)。第三方新闻正文、商标与媒体名称的权利归属不受本许可影响，仍适用上文第 1–3 条。
+   NewsNook 源代码与本仓库中的软件以 [GNU Affero General Public License v3.0 (AGPL-3.0)](../LICENSE) 授权。你可以在遵守该许可的前提下使用、修改与再分发；版权归属与署名见 [`NOTICE`](../NOTICE)。第三方新闻正文、商标与媒体名称的权利归属不受本许可影响，仍适用上文第 1–3 条。
 
 ## 免责声明
 

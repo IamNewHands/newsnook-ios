@@ -5,11 +5,13 @@ import {
   addCustomCategory,
   addCustomSource,
   allRegisteredCategories,
+  categorySourceIds,
   deleteCustomCategory,
   describeSources,
   isCategoryVisible,
   normalizePreferences,
   orderedCategories,
+  renameCategory,
   resetCategoryLayout,
   resolveCategory,
   updateCustomCategory,
@@ -100,5 +102,30 @@ assert.equal(describeSources([customRssId], prefsRssCategory.customSources), '�
 const rssResolved = resolveCategory(rssCategoryId, prefsRssCategory)
 assert.deepEqual(rssResolved.sourceIds, [customRssId])
 assert.equal(rssResolved.caption, '示例')
+
+// 9. 内置分类重命名是当前预设的显示覆盖，不改注册表 id / 信源归属
+const renamedBuiltinPrefs = normalizePreferences({
+  ...DEFAULT_PREFERENCES,
+  categoryNames: { hot: { label: '焦点新闻', short: '焦点' } },
+})
+const renamedBuiltin = resolveCategory('hot', renamedBuiltinPrefs)
+assert.equal(renamedBuiltin.id, 'hot')
+assert.equal(renamedBuiltin.label, '焦点新闻')
+assert.equal(renamedBuiltin.short, '焦点')
+assert.deepEqual(
+  categorySourceIds('hot', renamedBuiltinPrefs),
+  categorySourceIds('hot', DEFAULT_PREFERENCES),
+)
+const renamedViaAction = renameCategory(DEFAULT_PREFERENCES, 'hot', '今日焦点')
+assert.equal(resolveCategory('hot', renamedViaAction).label, '今日焦点')
+assert.equal(resolveCategory('hot', renamedViaAction).short, '今日焦点')
+
+const legacyPrefsWithoutNames = { ...DEFAULT_PREFERENCES } as Partial<typeof DEFAULT_PREFERENCES>
+delete legacyPrefsWithoutNames.categoryNames
+assert.equal(
+  resolveCategory('hot', legacyPrefsWithoutNames as typeof DEFAULT_PREFERENCES).label,
+  '热点',
+  '升级前的内存态没有 categoryNames 时仍应回落注册表名称',
+)
 
 console.log('custom category lifecycle: all tests passed successfully!')

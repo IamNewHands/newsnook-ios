@@ -2,6 +2,7 @@
   "name": "@newsnook/cloud",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "description": "NewsNook Cloud：可选账户与配置同步 API（Fastify + PostgreSQL + Better Auth）。不托管文章内容。",
   "main": "dist/server.js",

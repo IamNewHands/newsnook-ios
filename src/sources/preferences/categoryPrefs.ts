@@ -105,15 +105,17 @@ export function resolveCategory(categoryId: CategoryId, prefs: Preferences): New
   }
 
   const base = findCategory(categoryId)
-  if (base.id === FOLLOWS_ENABLED_SOURCES) return base
+  const nameOverride = prefs.categoryNames?.[base.id]
+  const namedBase = nameOverride ? { ...base, ...nameOverride } : base
+  if (base.id === FOLLOWS_ENABLED_SOURCES) return namedBase
 
   const sourceIds = categorySourceIds(base.id, prefs)
   return {
-    ...base,
+    ...namedBase,
     sourceIds,
     caption: hasSourceOverride(base.id, prefs)
       ? describeSources(sourceIds, prefs.customSources)
-      : base.caption,
+      : namedBase.caption,
   }
 }
 
@@ -460,12 +462,44 @@ export function updateCustomCategory(
   }
 }
 
+/** 当前预设内重命名分类：内置项写显示覆盖，自建项仍更新自身定义。 */
+export function renameCategory(
+  prefs: Preferences,
+  categoryId: CategoryId,
+  name: string,
+): Preferences {
+  const label = name.trim().slice(0, 16)
+  const short = label.slice(0, 6)
+  if (!label || isReservedCategoryLabel(label) || isReservedCategoryLabel(short)) return prefs
+
+  if (isCustomCategory(categoryId, prefs)) {
+    return updateCustomCategory(prefs, categoryId, { label, short })
+  }
+
+  const base = CATEGORIES.find((category) => category.id === categoryId)
+  if (!base) return prefs
+  if (base.label === label && base.short === short) {
+    const categoryNames = { ...(prefs.categoryNames ?? {}) }
+    delete categoryNames[categoryId]
+    return { ...prefs, categoryNames }
+  }
+  return {
+    ...prefs,
+    categoryNames: {
+      ...(prefs.categoryNames ?? {}),
+      [categoryId]: { label, short },
+    },
+  }
+}
+
 export function deleteCustomCategory(prefs: Preferences, categoryId: CategoryId): Preferences {
   const nextCustom = (prefs.customCategories ?? []).filter((category) => category.id !== categoryId)
   const nextOrder = prefs.categoryOrder.filter((id) => id !== categoryId)
   const nextHidden = prefs.hiddenCategoryIds.filter((id) => id !== categoryId)
   const nextSources = { ...prefs.categorySources }
   delete nextSources[categoryId]
+  const nextNames = { ...(prefs.categoryNames ?? {}) }
+  delete nextNames[categoryId]
 
   return {
     ...prefs,
@@ -473,6 +507,7 @@ export function deleteCustomCategory(prefs: Preferences, categoryId: CategoryId)
     categoryOrder: nextOrder,
     hiddenCategoryIds: nextHidden,
     categorySources: nextSources,
+    categoryNames: nextNames,
   }
 }
 
@@ -485,6 +520,7 @@ export function resetCategoryLayout(
     categoryOrder: [...PORTAL_VISIBLE_CATEGORY_IDS],
     hiddenCategoryIds: [...DEFAULT_HIDDEN_CATEGORY_IDS],
     categorySources: { ...PORTAL_CATEGORY_SOURCES },
+    categoryNames: {},
     customCategories: options?.removeCustom ? [] : (prefs.customCategories ?? []),
   }
 }

@@ -15,6 +15,7 @@ import {
   FOLLOWS_ENABLED_SOURCES,
   isAggregateCategoryId,
   type Preferences,
+  type CategoryNameOverride,
 } from './preferences'
 import { isCustomSourceId, SOURCES } from './registry'
 
@@ -33,6 +34,8 @@ export interface LayoutSnapshot {
   categoryOrder: CategoryId[]
   hiddenCategoryIds: CategoryId[]
   categorySources: Record<CategoryId, string[]>
+  /** 当前预设的内置分类显示名覆盖；旧快照缺省为空 */
+  categoryNames?: Record<CategoryId, CategoryNameOverride>
   customCategories: NewsCategory[]
   enabledSourceIds: string[]
   /** 当前预设收藏的信源；旧快照缺省为空 */
@@ -115,6 +118,19 @@ export function normalizeSnapshot(raw: unknown): LayoutSnapshot {
     categorySources[categoryId] = valid
   })
 
+  const categoryNames: Record<CategoryId, CategoryNameOverride> = {}
+  Object.entries(input.categoryNames ?? {}).forEach(([categoryId, value]) => {
+    if (!BUILTIN_CATEGORY_IDS.has(categoryId) || !value || typeof value !== 'object') return
+    const override = value as Partial<CategoryNameOverride>
+    const label = typeof override.label === 'string' ? override.label.trim().slice(0, 16) : ''
+    if (!label) return
+    const short =
+      typeof override.short === 'string' && override.short.trim()
+        ? override.short.trim().slice(0, 6)
+        : label.slice(0, 6)
+    categoryNames[categoryId] = { label, short }
+  })
+
   // 「推荐」已改为动态栏位（不进注册表）：旧快照中的 recommend id 由 uniqueValid 自然剔除
   const hidden = uniqueValid(input.hiddenCategoryIds, allCategoryIds)
   const categoryOrder = uniqueValid(input.categoryOrder, allCategoryIds)
@@ -122,6 +138,7 @@ export function normalizeSnapshot(raw: unknown): LayoutSnapshot {
     categoryOrder,
     hiddenCategoryIds: hidden.length >= allCategoryIds.size ? hidden.slice(1) : hidden,
     categorySources,
+    categoryNames,
     customCategories,
     enabledSourceIds: uniqueValidSourceIds(input.enabledSourceIds),
     favoriteSourceIds: uniqueValidSourceIds(input.favoriteSourceIds),
@@ -136,6 +153,7 @@ export function snapshotFromRuntime(
     categoryOrder: prefs.categoryOrder,
     hiddenCategoryIds: prefs.hiddenCategoryIds,
     categorySources: prefs.categorySources,
+    categoryNames: prefs.categoryNames ?? {},
     customCategories: prefs.customCategories ?? [],
     enabledSourceIds,
     favoriteSourceIds: prefs.favoriteSourceIds,
@@ -150,6 +168,7 @@ export function applySnapshotToPrefs(prefs: Preferences, snapshot: LayoutSnapsho
     categoryOrder: normalized.categoryOrder,
     hiddenCategoryIds: normalized.hiddenCategoryIds,
     categorySources: normalized.categorySources,
+    categoryNames: normalized.categoryNames ?? {},
     customCategories: normalized.customCategories,
     favoriteSourceIds: normalized.favoriteSourceIds ?? [],
   }

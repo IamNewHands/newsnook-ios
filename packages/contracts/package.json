@@ -2,6 +2,7 @@
   "name": "@newsnook/contracts",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "description": "NewsNook 客户端与 cloud 服务共享的同步协议：DTO、Zod schema、稳定错误码。不含任何数据库或 ORM 实现。",
   "exports": {

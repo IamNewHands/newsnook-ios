@@ -88,6 +88,17 @@ const restoredPrefs = applySnapshotToPrefs(prefsCustomLayout, customSnap)
 assert.deepEqual(categorySourceIds(customCatId, restoredPrefs), [customRssId])
 assert.equal(resolveCategory(customCatId, restoredPrefs).caption, '示例')
 
+const renamedRuntime = {
+  ...prefsCustomLayout,
+  categoryNames: { tech: { label: '数码前沿', short: '数码' } },
+}
+const renamedSnap = snapshotFromRuntime(renamedRuntime, ['ithome'])
+assert.deepEqual(renamedSnap.categoryNames, {
+  tech: { label: '数码前沿', short: '数码' },
+})
+const renamedRestored = applySnapshotToPrefs(DEFAULT_PREFERENCES, renamedSnap)
+assert.equal(resolveCategory('tech', renamedRestored).label, '数码前沿')
+
 const ghostCustomSnap = normalizeSnapshot({
   customCategories: [
     {
