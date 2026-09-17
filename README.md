@@ -1,4 +1,4 @@
-﻿# NewsNook（有所闻）
+# NewsNook（有所闻）
 
 [![License](https://img.shields.io/github/license/t59688/newsnook)](./LICENSE)
 [![Release](https://img.shields.io/github/v/release/t59688/newsnook)](https://github.com/t59688/newsnook/releases)
@@ -7,7 +7,7 @@
 
 本地优先的 Android 新闻阅读客户端：不用账号也能完整使用，无云端推荐。订阅源由你配置，列表与正文由客户端直连上游获取，并在应用内阅读。想跨设备统一配置时，可以自愿登录，只同步订阅与设置。
 
-软件定位是**工具**，不是内容平台。不生产新闻，不做观点输出，不试图留住你的注意力。以 [Apache License 2.0](./LICENSE) 开源。
+软件定位是**工具**，不是内容平台。不生产新闻，不做观点输出，不试图留住你的注意力。以 [GNU Affero General Public License v3.0 (AGPL-3.0)](./LICENSE) 开源。
 
 ## 目录
 
@@ -208,7 +208,7 @@ NewsNook 是一个免费、开源并持续维护的个人项目。
 
 ## 许可与声明
 
-- 软件以 [Apache License 2.0](./LICENSE) 授权；版权归属与署名见 [`NOTICE`](./NOTICE)
+- 软件以 [GNU Affero General Public License v3.0 (AGPL-3.0)](./LICENSE) 授权；版权归属与署名见 [`NOTICE`](./NOTICE)
 - NewsNook 是阅读器，不主张第三方新闻正文的版权；商标与媒体名称归各自权利人
 - 偏好、缓存与用户自填的 API Key 仅保存在本机；维护者不收集、不托管
 - 软件按「现状」提供；上游可用性、解析完整性与翻译质量均不保证

@@ -56,6 +56,8 @@ interface Props {
   favoriteSourceIds?: readonly string[]
   onToggleFavoriteSource?: (sourceId: string) => void
   onRemoveSource?: (sourceId: string) => void
+  onRemoveCategory?: (categoryId: CategoryId) => void
+  onRenameCategory?: (categoryId: CategoryId, name: string) => void
   /** 预览邻页用：按分类取已缓存的文章，横滑时并排露出 */
   articlesForCategory?: (id: CategoryId) => Article[]
   /** 首页场景预设快捷切换；单源聚焦页不传 */
@@ -197,6 +199,8 @@ export const FeedScreen = memo(function FeedScreen({
   favoriteSourceIds,
   onToggleFavoriteSource,
   onRemoveSource,
+  onRemoveCategory,
+  onRenameCategory,
   articlesForCategory,
   presetSwitcher,
   translationPrefs,
@@ -891,6 +895,8 @@ export const FeedScreen = memo(function FeedScreen({
               containerWidth={containerWidth}
               transitionMs={transitionMs}
               reduced={reduced}
+              onRemoveCategory={onRemoveCategory}
+              onRenameCategory={onRenameCategory}
             />
           </div>
         )}

@@ -9,7 +9,7 @@ export interface OssLicenseEntry {
 
 export const APP_LICENSE = {
   name: 'NewsNook（有所闻）',
-  license: 'Apache License 2.0',
+  license: 'AGPL-3.0',
   url: 'https://github.com/t59688/newsnook/blob/main/LICENSE',
   notice: 'Copyright 2026 t59688',
 } as const

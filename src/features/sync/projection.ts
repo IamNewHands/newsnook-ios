@@ -296,6 +296,8 @@ function projectCategories(target: LocalProjection, input: ProjectionInput): voi
       sortRank,
       // null 表示沿用注册表默认信源，与「用户显式选了空集」区分开
       sourceIds: prefs.categorySources[id] ?? null,
+      label: prefs.categoryNames?.[id]?.label,
+      short: prefs.categoryNames?.[id]?.short,
     })
   })
 }
