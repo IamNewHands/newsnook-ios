@@ -140,9 +140,9 @@ export function ZhihuFeedScreen({
       ) : items.length === 0 && !error ? (
         <div className="px-4 sm:px-6"><ZhihuEmptyState title="没有可显示的内容" description={mode === 'following' ? '关注动态需要登录知乎后读取。' : '稍后下拉刷新再试。'} /></div>
       ) : (
-        <div className="divide-y divide-haze/55 border-y border-haze/70 bg-ink-raised/20">
+        <div className="space-y-3 px-3 sm:px-5">
           {items.map((item) => (
-            <ZhihuContentRow key={`${item.ref.kind}:${item.ref.id}`} item={item} onOpen={onOpen} compact />
+            <ZhihuContentRow key={`${item.ref.kind}:${item.ref.id}`} item={item} onOpen={onOpen} compact showReason={false} />
           ))}
         </div>
       )}

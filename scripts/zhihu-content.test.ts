@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import * as React from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 
 import { feedArticleId } from '../src/lib/articleId'
 import { articleFromSharePayload, buildShareUrl, parseShareUrl, sharePayloadFromArticle } from '../src/lib/shareLink'
@@ -10,6 +12,9 @@ import { toNewsArticle } from '../src/features/zhihu/content/bridge'
 import { normalizeZhihuContentHtml } from '../src/features/zhihu/content/normalize'
 import { parseZhihuLink, parseZhihuVideoId } from '../src/features/zhihu/content/links'
 import { ZhihuContentService } from '../src/features/zhihu/content/service'
+import { ZhihuAnswerMeta } from '../src/features/zhihu/ui/ZhihuUi'
+
+;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 assert.deepEqual(
   parseZhihuLink('https://www.zhihu.com/question/123/answer/456'),
@@ -30,6 +35,9 @@ const pagedDetail = decodeZhihuContentDetail(parseZhihuJson(`{
   "type": "answer",
   "content": "<p>正文</p>",
   "editable_content": "<p data-pid='editable'>可编辑正文</p>",
+  "created_time": 1700000000,
+  "updated_time": 1700003600,
+  "ip_info": "上海",
   "question": { "id": 423780782, "title": "问题" },
   "pagination_info": {
     "index": 12,
@@ -42,6 +50,19 @@ assert.equal(pagedDetail?.editableContentHtml, "<p data-pid='editable'>可编辑
 // 解码器继续兼容偶尔随详情返回的字段，但回答导航不会消费它们。
 assert.deepEqual(pagedDetail?.previousAnswerIds, ['2027000000000000001'])
 assert.deepEqual(pagedDetail?.nextAnswerIds, ['2028000000000000002', '2028000000000000003'])
+assert.equal(pagedDetail?.createdAt, 1700000000)
+assert.equal(pagedDetail?.updatedAt, 1700003600)
+assert.equal(pagedDetail?.ipLocation, '上海')
+
+const answerMeta = renderToStaticMarkup(React.createElement(ZhihuAnswerMeta, {
+  createdAt: pagedDetail.createdAt,
+  updatedAt: pagedDetail.updatedAt,
+  ipLocation: pagedDetail.ipLocation,
+}))
+assert.match(answerMeta, /发布于/)
+assert.match(answerMeta, /编辑于/)
+assert.match(answerMeta, /IP 属地/)
+assert.match(answerMeta, /上海/)
 
 const dirty = '<p>正文<img src="https://pic.example/a.jpg" onerror="alert(1)"></p><script>alert(1)</script>'
 const sanitized = normalizeZhihuContentHtml(dirty)

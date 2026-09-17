@@ -32,6 +32,7 @@ import { ZhihuCollectionPicker } from './ZhihuCollectionPicker'
 import { ZhihuCommentsSection } from './ZhihuCommentsSection'
 import {
   ZhihuAuthorAvatar,
+  ZhihuAnswerMeta,
   ZhihuContentRow,
   ZhihuEntityIcon,
   ZhihuErrorBanner,
@@ -805,6 +806,14 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
           </div>
         )}
       </div>
+
+      {refValue.kind === 'answer' && !guestLimited && (
+        <ZhihuAnswerMeta
+          createdAt={detail.createdAt}
+          updatedAt={detail.updatedAt}
+          ipLocation={detail.ipLocation}
+        />
+      )}
 
       {refValue.kind === 'answer' && detail.questionId && (previousAnswerRef || nextAnswerRef) && (
         <nav

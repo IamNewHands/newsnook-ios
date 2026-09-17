@@ -98,7 +98,7 @@ export function zhihuQuestionAnswersUrl(
 }
 
 const ENTITY_INCLUDE: Partial<Record<ZhihuEntityRef['kind'], string>> = {
-  answer: '.settings,content,editable_content,paid_info,can_comment,excerpt,thanks_count,voteup_count,comment_count,visited_count,attachment,reaction,ip_info,endorsements,question.topics,question.author,reaction.relation.voting,author.badge_v2,settings.table_of_contents.enabled',
+  answer: '.settings,content,editable_content,created_time,updated_time,paid_info,can_comment,excerpt,thanks_count,voteup_count,comment_count,visited_count,attachment,reaction,ip_info,endorsements,question.topics,question.author,reaction.relation.voting,author.badge_v2,settings.table_of_contents.enabled',
   article: 'content,topics,paid_info,can_comment,excerpt,thanks_count,voteup_count,comment_count,visited_count,relationship,ip_info,relationship.vote,author.badge_v2',
   question: 'read_count,visit_count,answer_count,voteup_count,comment_count,follower_count,detail,excerpt,author,relationship.is_following,topics',
   pin: 'topics',

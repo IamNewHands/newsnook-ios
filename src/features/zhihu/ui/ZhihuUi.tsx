@@ -9,6 +9,7 @@ import {
   LoaderCircle,
   MessageCircle,
   MessageSquareQuote,
+  ThumbsUp,
   UserRound,
 } from 'lucide-react'
 
@@ -113,6 +114,45 @@ export function ZhihuErrorBanner({ children }: { children: ReactNode }) {
   )
 }
 
+function formatZhihuDetailTime(value?: number): string | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  const date = new Date(value * 1000)
+  const pad = (part: number) => String(part).padStart(2, '0')
+  return `${date.getFullYear()}年${pad(date.getMonth() + 1)}月${pad(date.getDate())}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+export function ZhihuAnswerMeta({
+  createdAt,
+  updatedAt,
+  ipLocation,
+}: {
+  createdAt?: number
+  updatedAt?: number
+  ipLocation?: string
+}) {
+  const created = formatZhihuDetailTime(createdAt)
+  const updated = formatZhihuDetailTime(updatedAt)
+  const entries = [
+    { label: '发布于', value: created ?? '时间未知', timestamp: createdAt },
+    { label: '编辑于', value: updated ?? '时间未知', timestamp: updatedAt },
+    { label: 'IP 属地', value: ipLocation?.trim() || '未显示' },
+  ]
+  return (
+    <dl className="mt-10 grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-haze/65 bg-haze/65 sm:grid-cols-3" aria-label="回答信息">
+      {entries.map((entry) => (
+        <div key={entry.label} className="bg-ink-raised/80 px-4 py-3.5">
+          <dt className="font-mono text-[9.5px] tracking-[0.12em] text-paper-faint">{entry.label}</dt>
+          <dd className="mt-1.5 text-[11.5px] leading-relaxed text-paper-muted">
+            {entry.timestamp && entry.value !== '时间未知'
+              ? <time dateTime={new Date(entry.timestamp * 1000).toISOString()}>{entry.value}</time>
+              : entry.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
 export function ZhihuContentRow({
   item,
   onOpen,
@@ -129,6 +169,45 @@ export function ZhihuContentRow({
 }) {
   const vote = formatZhihuCount(item.voteupCount)
   const comments = formatZhihuCount(item.commentCount)
+  if (compact) {
+    return (
+      <button
+        type="button"
+        onClick={() => onOpen(item)}
+        className="group block w-full overflow-hidden rounded-2xl border border-haze/70 bg-ink-raised/48 p-3.5 text-left shadow-[0_12px_30px_-24px_rgba(0,0,0,0.75)] transition-[border-color,background-color,transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:border-cinnabar/35 hover:bg-ink-raised/72 hover:shadow-[0_18px_36px_-24px_rgba(0,0,0,0.86)] active:translate-y-0 active:scale-[0.995] sm:p-4"
+      >
+        <span className="flex min-w-0 items-stretch gap-3.5">
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="zhihu-content-row-title is-compact block font-display text-[17px] font-medium leading-[1.42] tracking-[0.005em] text-paper transition-colors group-hover:text-cinnabar-soft sm:text-[18px]">
+              {item.title}
+            </span>
+            {item.excerpt && (
+              <span className="zhihu-content-row-excerpt is-compact mt-1.5 block text-[12.5px] leading-[1.68] text-paper-muted">
+                {item.excerpt}
+              </span>
+            )}
+            <span className="mt-auto flex items-center gap-1.5 pt-2.5 font-mono text-[10.5px] text-paper-faint">
+              <ThumbsUp size={12.5} strokeWidth={1.65} className="text-cinnabar-soft/75" />
+              <span>{vote ?? '—'} 赞同</span>
+            </span>
+          </span>
+          {item.imageUrl && (
+            <span className="relative aspect-[4/3] w-[34%] max-w-32 shrink-0 overflow-hidden rounded-xl border border-haze/60 bg-ink-deep sm:max-w-36">
+              <img
+                src={item.imageUrl}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                referrerPolicy="no-referrer"
+                className="absolute inset-0 size-full object-cover transition-transform duration-500 group-hover:scale-[1.035]"
+                onError={(event) => { event.currentTarget.parentElement?.classList.add('hidden') }}
+              />
+            </span>
+          )}
+        </span>
+      </button>
+    )
+  }
   return (
     <button
       type="button"

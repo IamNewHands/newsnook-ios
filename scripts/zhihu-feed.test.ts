@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import * as React from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 
 import { decodeZhihuContentDetail, decodeZhihuPage } from '../src/features/zhihu/api/decode'
 import { zhihuSearchUrl } from '../src/features/zhihu/api/endpoints'
 import { parseZhihuJson } from '../src/features/zhihu/api/json'
 import { mergeZhihuPages, ZhihuFeedService } from '../src/features/zhihu/feed/service'
+import { ZhihuContentRow } from '../src/features/zhihu/ui/ZhihuUi'
+
+;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
 const recommended = JSON.parse(readFileSync('scripts/fixtures/zhihu/feed.recommended.source.json', 'utf8')) as unknown
 const decoded = decodeZhihuPage(recommended)
@@ -26,6 +31,33 @@ const htmlMarkedSearch = decodeZhihuPage({
 assert.equal(htmlMarkedSearch.items[0]?.title, 'DeepSeek 崩了吗？', '搜索/列表标题不能把 <em> 等服务端高亮标签直接显示给用户')
 assert.equal(htmlMarkedSearch.items[0]?.excerpt, '讨论 DeepSeek 的近况')
 
+const illustratedFeed = decodeZhihuPage({
+  data: [{
+    target: {
+      type: 'answer',
+      id: 'illustrated-answer-1',
+      excerpt: '从正文中提取第一张图片作为信息流封面。',
+      content: '<p>正文</p><figure><img src="https://pic.example/preview.jpg" data-original="https://pic.example/original.jpg"></figure>',
+      voteup_count: 321,
+      question: { id: 'question-1', title: '有图片的回答应该怎样展示？' },
+    },
+  }],
+  paging: { is_end: true },
+})
+assert.equal(illustratedFeed.items[0]?.imageUrl, 'https://pic.example/original.jpg', '信息流必须从正文第一张图片提取清晰图源')
+assert.equal(illustratedFeed.items[0]?.voteupCount, 321)
+
+const illustratedRow = renderToStaticMarkup(React.createElement(ZhihuContentRow, {
+  item: illustratedFeed.items[0]!,
+  onOpen: () => undefined,
+  compact: true,
+  showReason: false,
+}))
+assert.match(illustratedRow, /有图片的回答应该怎样展示？/)
+assert.match(illustratedRow, /从正文中提取第一张图片作为信息流封面。/)
+assert.match(illustratedRow, /src="https:\/\/pic\.example\/original\.jpg"/)
+assert.match(illustratedRow, /321 赞同/, '首页卡片必须展示赞同数量')
+
 const componentCard = {
   data: [{
     id: 'card-1',
@@ -46,8 +78,10 @@ const componentCard = {
       },
     },
     children: [
+      { type: 'Image', test_id: 'answer.2027676063409484209.author', url: 'https://pic.example/avatar.jpg' },
       { type: 'Text', test_id: 'answer.2027676063409484209.title', text: '现阶段的时代红利是什么？' },
       { type: 'Text', test_id: 'answer.2027676063409484209.description', text: '这是新版 ComponentCard 摘要' },
+      { type: 'Image', test_id: 'answer.2027676063409484209.thumbnail', url: 'https://pic.example/content-cover.jpg' },
     ],
   }],
   paging: { is_end: true },
@@ -57,6 +91,7 @@ assert.equal(componentPage.items.length, 1, '新版 Android ComponentCard 信息
 assert.equal(componentPage.items[0]?.ref.id, '2027676063409484209')
 assert.equal(componentPage.items[0]?.title, '现阶段的时代红利是什么？')
 assert.equal(componentPage.items[0]?.author?.name, '示例作者')
+assert.equal(componentPage.items[0]?.imageUrl, 'https://pic.example/content-cover.jpg', 'ComponentCard 必须跳过作者头像并提取正文缩略图')
 assert.match(componentPage.items[0]?.url ?? '', /question\/423780782\/answer\/2027676063409484209/)
 
 const hotListPayload = {

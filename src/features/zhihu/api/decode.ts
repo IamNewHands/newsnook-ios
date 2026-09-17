@@ -34,6 +34,68 @@ function htmlText(value: unknown): string {
   return value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
+function safeImageUrl(value: unknown): string | undefined {
+  const raw = stringValue(value)?.trim().replaceAll('&amp;', '&')
+  if (!raw) return undefined
+  try {
+    const url = new URL(raw.startsWith('//') ? `https:${raw}` : raw)
+    return url.protocol === 'https:' ? url.href : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function imageFromValue(value: unknown): string | undefined {
+  const direct = safeImageUrl(value)
+  if (direct) return direct
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const image = imageFromValue(item)
+      if (image) return image
+    }
+    return undefined
+  }
+  const record = asRecord(value)
+  if (!record) return undefined
+  for (const key of ['original_url', 'originalUrl', 'image_url', 'imageUrl', 'url', 'src', 'thumbnail']) {
+    const image = safeImageUrl(record[key])
+    if (image) return image
+  }
+  return undefined
+}
+
+function imageFromHtml(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const tag = value.match(/<img\b[^>]*>/i)?.[0]
+  if (!tag) return undefined
+  for (const attribute of ['data-original-src', 'data-original', 'data-actualsrc', 'src']) {
+    const match = new RegExp(`${attribute}\\s*=\\s*(["'])(.*?)\\1`, 'i').exec(tag)
+    const image = safeImageUrl(match?.[2])
+    if (image) return image
+  }
+  return undefined
+}
+
+function summaryImage(object: JsonRecord): string | undefined {
+  for (const key of ['thumbnail', 'thumbnail_info', 'image_url', 'imageUrl', 'cover', 'cover_url']) {
+    const image = imageFromValue(object[key])
+    if (image) return image
+  }
+  for (const key of ['images', 'image_list']) {
+    const image = imageFromValue(object[key])
+    if (image) return image
+  }
+  if (Array.isArray(object.content)) {
+    const image = object.content
+      .map(asRecord)
+      .filter((item): item is JsonRecord => Boolean(item) && item?.type === 'image')
+      .map(imageFromValue)
+      .find((item): item is string => Boolean(item))
+    if (image) return image
+  }
+  return imageFromHtml(object.content) ?? imageFromHtml(object.content_html) ?? imageFromHtml(object.excerpt)
+}
+
 export function decodeZhihuAuthor(value: unknown): ZhihuAuthor | undefined {
   const author = asRecord(value)
   if (!author) return undefined
@@ -150,6 +212,7 @@ function decodeHotListFeed(card: JsonRecord): ZhihuContentSummary | null {
     title,
     excerpt,
     url: rawUrl ?? canonicalUrl(ref, {}),
+    imageUrl: imageFromValue(target.image_area) ?? summaryImage(target),
     recommendationReason: [tag, metrics].filter(Boolean).join(' · ') || undefined,
   }
 }
@@ -178,6 +241,17 @@ function decodeComponentCard(card: JsonRecord): ZhihuContentSummary | null {
     name: authorName,
     avatarUrl: stringValue(user?.avatarUrl),
   } : undefined
+  const imageRecord = records.find((record) => {
+    const testId = stringValue(record.test_id)?.toLowerCase()
+    const style = stringValue(record.style)?.toLowerCase()
+    if (testId && /(?:author|avatar|feedback|badge|icon)/.test(testId)) return false
+    return Boolean(
+      testId?.endsWith('.image')
+      || testId?.endsWith('.thumbnail')
+      || testId?.endsWith('.cover')
+      || (style && /(?:content|feed|cover|thumbnail).*image|image.*(?:content|feed|cover|thumbnail)/.test(style)),
+    )
+  })
 
   return {
     ref,
@@ -185,6 +259,7 @@ function decodeComponentCard(card: JsonRecord): ZhihuContentSummary | null {
     excerpt,
     url: routeUrl ?? canonicalUrl(ref, {}),
     author,
+    imageUrl: imageRecord ? imageFromValue(imageRecord) : undefined,
   }
 }
 
@@ -215,6 +290,7 @@ export function decodeZhihuSummary(value: unknown): ZhihuContentSummary | null {
     voteupCount: numberValue(object.voteup_count),
     commentCount: numberValue(object.comment_count),
     createdAt: numberValue(object.created_time) ?? numberValue(object.created_at),
+    imageUrl: summaryImage(object),
   }
 }
 
@@ -311,6 +387,8 @@ export interface ZhihuContentDetail extends ZhihuContentSummary {
   /** 编辑器专用原始可编辑 HTML；不能用阅读 sanitizer 的结果覆盖。 */
   editableContentHtml?: string
   createdAt?: number
+  updatedAt?: number
+  ipLocation?: string
   questionId?: string
   previousAnswerIds?: string[]
   nextAnswerIds?: string[]
@@ -331,12 +409,15 @@ export function decodeZhihuContentDetail(value: unknown): ZhihuContentDetail {
   const relationship = asRecord(object.relationship)
   const pagination = asRecord(object.pagination_info) ?? asRecord(object.paginationInfo)
   const rawVote = stringValue(relation?.vote)?.toLowerCase()
+  const ipInfo = asRecord(object.ip_info)
   const voteState = rawVote === 'up' || rawVote === 'down' ? rawVote : 'neutral'
   return {
     ...summary,
     contentHtml,
     editableContentHtml: stringValue(object.editable_content) ?? contentHtml,
-    createdAt: numberValue(object.created_time),
+    createdAt: numberValue(object.created_time) ?? numberValue(object.created),
+    updatedAt: numberValue(object.updated_time) ?? numberValue(object.updated),
+    ipLocation: stringValue(object.ip_info) ?? stringValue(ipInfo?.text) ?? stringValue(ipInfo?.location),
     questionId: stringValue(question?.id),
     previousAnswerIds: stringArray(pagination?.prev_answer_ids ?? pagination?.prevAnswerIds),
     nextAnswerIds: stringArray(pagination?.next_answer_ids ?? pagination?.nextAnswerIds),
