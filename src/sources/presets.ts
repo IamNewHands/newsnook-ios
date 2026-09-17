@@ -267,7 +267,7 @@ export const BUILTIN_PRESETS: readonly LayoutPreset[] = [
     return builtinPreset(
       BUILTIN_DEFAULT_ID,
       '全景门户',
-      '中文要闻在前 · 外刊分栏靠后 · 无综合',
+      '全类型资讯总览 · 适合日常一站式阅读',
       {
         categoryOrder: visible,
         hiddenCategoryIds: hiddenExcept(visible),
@@ -363,7 +363,7 @@ export const BUILTIN_PRESETS: readonly LayoutPreset[] = [
     return builtinPreset(
       BUILTIN_TECH_ID,
       '极客与 AI',
-      '中文业界深读在前 · 外刊与官方实验室靠后',
+      'AI、科技与开发者资讯集中阅读',
       {
         categoryOrder: visible,
         hiddenCategoryIds: hiddenExcept(visible),
@@ -414,7 +414,7 @@ export const BUILTIN_PRESETS: readonly LayoutPreset[] = [
     return builtinPreset(
       BUILTIN_DEPTH_ID,
       '深度智识',
-      '中文深度叙事在前 · 思想外刊与专栏靠后',
+      '深度报道、思想评论与知识长文',
       {
         categoryOrder: visible,
         hiddenCategoryIds: hiddenExcept(visible),
@@ -463,7 +463,7 @@ export const BUILTIN_PRESETS: readonly LayoutPreset[] = [
     return builtinPreset(
       BUILTIN_BIZ_ID,
       '商业创投',
-      '中文创投产业在前 · 外刊靠后 · 无综合',
+      '商业、资本、创业与产业趋势',
       {
         categoryOrder: visible,
         hiddenCategoryIds: hiddenExcept(visible),
@@ -505,7 +505,7 @@ export const BUILTIN_PRESETS: readonly LayoutPreset[] = [
     return builtinPreset(
       BUILTIN_WORLD_ID,
       '全球视野',
-      '中文国际科普在前 · 外刊广电智库靠后 · 无综合',
+      '国际新闻、全球议题与世界观察',
       {
         categoryOrder: visible,
         hiddenCategoryIds: hiddenExcept(visible),
@@ -537,7 +537,7 @@ export const BUILTIN_PRESETS: readonly LayoutPreset[] = [
     return builtinPreset(
       BUILTIN_MINDFUL_ID,
       '慢读知性',
-      '科学人文 · 教育博客 · 全中文慢读',
+      '科学、人文、教育与优质博客',
       {
         categoryOrder: visible,
         hiddenCategoryIds: hiddenExcept(visible),
@@ -561,7 +561,7 @@ export const BUILTIN_PRESETS: readonly LayoutPreset[] = [
     return builtinPreset(
       BUILTIN_FUN_ID,
       '摸鱼消遣',
-      '轻松娱乐 · 游戏历史旅游 · 娱乐外刊靠后',
+      '娱乐、游戏、旅行与轻松内容',
       {
         categoryOrder: visible,
         hiddenCategoryIds: hiddenExcept(visible),

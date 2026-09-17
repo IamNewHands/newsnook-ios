@@ -125,7 +125,7 @@ export function PresetSwitcher({
             </button>
           </div>
 
-          <div className="scroll-hidden min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5 space-y-4">
+          <div className="scroll-hidden min-h-0 flex-1 overflow-y-auto overscroll-contain px-3.5 py-2.5 sm:px-5 sm:py-3 space-y-3">
             {builtins.length > 0 && (
               <section>
                 <div className="mb-2 flex items-center gap-2">
@@ -134,9 +134,9 @@ export function PresetSwitcher({
                   </span>
                   <span className="h-px flex-1 bg-haze/60" />
                 </div>
-                <ul className="space-y-2">
+                <ul className="grid grid-cols-2 gap-1.5 sm:gap-2">
                   {builtins.map((item) => (
-                    <PresetPickRow
+                    <PresetGridCard
                       key={item.id}
                       item={item}
                       onPick={() => {
@@ -378,6 +378,73 @@ export function PresetSwitcher({
     </>
   )
 }
+
+const PresetGridCard = memo(function PresetGridCard({
+  item,
+  onPick,
+}: {
+  item: PresetSwitcherItem
+  onPick: () => void
+}) {
+  return (
+    <li className="min-w-0">
+      <button
+        type="button"
+        onClick={onPick}
+        aria-pressed={item.active}
+        className={`group relative flex min-h-[78px] w-full flex-col overflow-hidden rounded-xl border px-2.5 py-2.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinnabar/45 ${
+          item.active
+            ? 'border-cinnabar/75 bg-cinnabar/12 shadow-[0_4px_12px_rgba(0,0,0,0.08)]'
+            : 'border-haze/80 bg-ink/55 hover:-translate-y-px hover:border-cinnabar/40 hover:bg-ink hover:shadow-sm active:translate-y-0'
+        }`}
+      >
+        <span className="flex w-full min-w-0 items-center gap-2">
+          <span
+            className={`flex size-7 shrink-0 items-center justify-center rounded-lg border transition-all duration-200 ${
+              item.active
+                ? 'border-cinnabar bg-cinnabar text-white shadow-xs'
+                : 'border-haze bg-ink-raised text-paper-muted group-hover:border-cinnabar/35 group-hover:text-cinnabar'
+            }`}
+          >
+            {item.active ? (
+              <Check size={14} strokeWidth={2.4} />
+            ) : (
+              <LayoutTemplate size={13.5} strokeWidth={1.7} />
+            )}
+          </span>
+
+          <span
+            className={`min-w-0 flex-1 truncate font-display text-[13.5px] font-semibold leading-none transition-colors ${
+              item.active ? 'text-cinnabar' : 'text-paper group-hover:text-cinnabar'
+            }`}
+          >
+            {item.name}
+          </span>
+
+          <span
+            className={`shrink-0 rounded-full px-1.5 py-0.5 font-mono text-[8.5px] font-semibold leading-none tracking-[0.06em] transition-colors ${
+              item.active
+                ? 'bg-cinnabar/15 text-cinnabar'
+                : 'border border-haze/80 bg-ink-raised/70 text-paper-faint group-hover:border-cinnabar/30 group-hover:text-cinnabar'
+            }`}
+          >
+            {item.active ? '当前' : '选用'}
+          </span>
+        </span>
+
+        {item.description && (
+          <span className="mt-1.5 block line-clamp-2 pl-9 text-[10px] leading-[1.35] text-paper-faint transition-colors group-hover:text-paper-muted">
+            {item.description}
+          </span>
+        )}
+
+        {item.active && (
+          <span className="pointer-events-none absolute inset-x-2.5 bottom-0 h-px bg-gradient-to-r from-transparent via-cinnabar/45 to-transparent" aria-hidden />
+        )}
+      </button>
+    </li>
+  )
+})
 
 const PresetPickRow = memo(function PresetPickRow({
   item,
