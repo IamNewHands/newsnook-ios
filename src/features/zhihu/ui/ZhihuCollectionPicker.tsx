@@ -10,9 +10,10 @@ interface Props {
   refValue: ZhihuEntityRef
   service: ZhihuInteractionService
   authenticated: boolean
+  onCollected?: () => void
 }
 
-export function ZhihuCollectionPicker({ refValue, service, authenticated }: Props) {
+export function ZhihuCollectionPicker({ refValue, service, authenticated, onCollected }: Props) {
   const supported = refValue.kind === 'answer' || refValue.kind === 'article'
   const membershipWritable = canExecuteZhihuOperation('collection.membership')
   const createWritable = canExecuteZhihuOperation('collection.create')
@@ -51,6 +52,7 @@ export function ZhihuCollectionPicker({ refValue, service, authenticated }: Prop
     try {
       await service.setCollectionMembership(refValue, collection.id, nextIncluded)
       setItems((prev) => prev.map((item) => item.id === collection.id ? { ...item, isFavorited: nextIncluded } : item))
+      if (nextIncluded) onCollected?.()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '收藏操作失败')
     } finally {
@@ -68,6 +70,7 @@ export function ZhihuCollectionPicker({ refValue, service, authenticated }: Prop
       await service.setCollectionMembership(refValue, created.id, true)
       setItems((prev) => [{ ...created, isFavorited: true }, ...prev.filter((item) => item.id !== created.id)])
       setNewTitle('')
+      onCollected?.()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '创建收藏夹失败')
     } finally {

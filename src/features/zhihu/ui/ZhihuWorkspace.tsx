@@ -12,6 +12,8 @@ import { parseExistingAnswerId } from '../editor/codec'
 import { ZhihuDraftStore } from '../editor/draftStore'
 import { ZhihuEditorService } from '../editor/service'
 import { ZhihuImageUploadService } from '../editor/upload'
+import { ZhihuRecommendationFeedbackService } from '../feed/feedback'
+import type { ZhihuRecommendationSignalItem } from '../feed/recommendation'
 import { createZhihuFeedService } from '../feed/service'
 import { useZhihuFeed } from '../feed/useZhihuFeed'
 import { ZhihuInteractionService } from '../interaction/service'
@@ -57,6 +59,11 @@ interface FeedRouteProps {
   feed: ReturnType<typeof useZhihuFeed>
   onModeChange: (mode: ZhihuFeedMode) => void
   onOpen: (item: ZhihuContentSummary) => void
+  onImpression: (item: ZhihuContentSummary) => void
+  onRecommendationFeedback: (
+    item: ZhihuContentSummary,
+    action: 'not-interested' | 'less-author',
+  ) => void
   authenticated: boolean
   scrollContainerRef: MutableRefObject<HTMLDivElement | null>
 }
@@ -70,6 +77,8 @@ function ZhihuFeedRoute({
   feed,
   onModeChange,
   onOpen,
+  onImpression,
+  onRecommendationFeedback,
   authenticated,
   scrollContainerRef,
 }: FeedRouteProps) {
@@ -92,6 +101,8 @@ function ZhihuFeedRoute({
       onRefresh={feed.refresh}
       onLoadMore={feed.loadMore}
       onOpen={openItem}
+      onImpression={onImpression}
+      onRecommendationFeedback={onRecommendationFeedback}
     />
   )
 }
@@ -108,6 +119,10 @@ function capabilityPlaceholder(title: string, description: string) {
 export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontScale, onFontScale, speedReadConfig }: Props) {
   const runtime = useMemo(() => createZhihuRuntime(), [])
   const feedService = useMemo(() => createZhihuFeedService(runtime.api), [runtime])
+  const recommendationFeedback = useMemo(
+    () => new ZhihuRecommendationFeedbackService(runtime.api, runtime.session),
+    [runtime],
+  )
   const collectionService = useMemo(() => new ZhihuCollectionService(runtime.api), [runtime])
   const contentService = useMemo(() => new ZhihuContentService(runtime.api), [runtime])
   const commentsService = useMemo(() => new ZhihuCommentsService(runtime.api), [runtime])
@@ -140,12 +155,13 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
   const feed = useZhihuFeed(
     feedService,
     homeFeedMode,
-    'android',
+    'smart',
     sessionSnapshot.account?.id,
     feedEnabled,
   )
 
   useEffect(() => runtime.session.subscribe(setSessionSnapshot), [runtime])
+  useEffect(() => () => recommendationFeedback.dispose(), [recommendationFeedback])
   useEffect(() => {
     let alive = true
     setSessionHydrated(false)
@@ -200,9 +216,28 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
   }, [saveScroll])
 
   const openFeedItem = useCallback((item: ZhihuContentSummary) => {
+    recommendationFeedback.recordRead(sessionSnapshot.account?.id, item)
     feedPreviewRef.current.set(`${item.ref.kind}:${item.ref.id}`, item)
     pushEntity(item.ref)
-  }, [pushEntity])
+  }, [pushEntity, recommendationFeedback, sessionSnapshot.account?.id])
+
+  const recordFeedImpression = useCallback((item: ZhihuContentSummary) => {
+    recommendationFeedback.recordImpression(sessionSnapshot.account?.id, item)
+  }, [recommendationFeedback, sessionSnapshot.account?.id])
+
+  const recordRecommendationSignal = useCallback((
+    item: ZhihuRecommendationSignalItem,
+    action: 'vote-up' | 'collect',
+  ) => {
+    recommendationFeedback.recordSignal(sessionSnapshot.account?.id, item, action)
+  }, [recommendationFeedback, sessionSnapshot.account?.id])
+
+  const recordFeedRecommendationFeedback = useCallback((
+    item: ZhihuContentSummary,
+    action: 'not-interested' | 'less-author',
+  ) => {
+    recommendationFeedback.recordSignal(sessionSnapshot.account?.id, item, action)
+  }, [recommendationFeedback, sessionSnapshot.account?.id])
 
   const pushSearch = useCallback((
     query = '',
@@ -358,6 +393,8 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
             feed={feed}
             onModeChange={setFeedMode}
             onOpen={openFeedItem}
+            onImpression={recordFeedImpression}
+            onRecommendationFeedback={recordFeedRecommendationFeedback}
             authenticated={sessionSnapshot.auth === 'authenticated'}
             scrollContainerRef={scrollRef}
           />
@@ -438,6 +475,7 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
             accountId={sessionSnapshot.account?.id}
             commentDraftStore={commentDraftStore}
             interaction={interactionService}
+            onRecommendationSignal={recordRecommendationSignal}
             onWriteAnswer={(questionId) => void openAnswerEditor(questionId)}
             scrollContainerRef={scrollRef}
             fontScale={fontScale}

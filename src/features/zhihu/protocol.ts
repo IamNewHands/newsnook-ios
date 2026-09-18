@@ -81,6 +81,11 @@ export const ZHIHU_OPERATIONS = [
     note: '未完成登录时禁用。',
   },
   {
+    operation: 'feed.lastread.touch', zIds: ['Z02', 'Z03'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/lastread/touch',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/feed/HomeFeedViewModel.kt`, note: '参考实现对已曝光内容批量提交 touch，对真正打开内容提交 read。' }],
+    note: '推荐反馈是 best-effort：只在已登录会话尝试，失败不能阻断阅读，也不伪装成 verified。',
+  },
+  {
     operation: 'search.query', zIds: ['Z04'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/search_v3',
     fixture: 'scripts/fixtures/zhihu/search.query.source.json',
     evidence: [

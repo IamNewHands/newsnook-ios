@@ -18,7 +18,7 @@
 
 ## 操作矩阵
 
-运行时权威定义位于 `src/features/zhihu/protocol.ts`；当前 contract 共 70 个 operation，`npm run test:zhihu-protocol` 会检查 Z01–Z18 覆盖、证据路径、fixture 元数据以及“未 verified 的 mutation 必须关闭”。下表是人工审查的关键摘要，不替代运行时完整矩阵。
+运行时权威定义位于 `src/features/zhihu/protocol.ts`；当前 contract 共 79 个 operation，`npm run test:zhihu-protocol` 会检查 Z01–Z18 覆盖、证据路径、fixture 元数据、verified 必须具备 live 证据，以及 blocked 操作不能穿透 API gate。`source-only` 仍不等于线上已验证；有明确 endpoint 的实现可受控尝试并以真实上游结果决定成功/失败。下表是人工审查的关键摘要，不替代运行时完整矩阵。
 
 | 操作 | Z | 方法 | 认证 | 状态 | Endpoint / 结论 |
 |---|---|---:|---|---|---|
@@ -27,6 +27,7 @@
 | `feed.recommended` | Z02/Z03 | GET | optional | source-only | `https://api.zhihu.com/topstory/recommend` |
 | `feed.hot` | Z02 | GET | optional | source-only | `/api/v3/feed/topstory/hot-lists/total` |
 | `feed.following` | Z02 | GET | required | source-only | `api.zhihu.com/moments_v3`，精确关注语义待证 |
+| `feed.lastread.touch` | Z02/Z03 | POST | required | source-only | `www.zhihu.com/lastread/touch`；Smart 推荐批量回传曝光 `touch` / 打开 `read`，best-effort、`retry=never`，失败不阻断阅读 |
 | `search.query` | Z04 | GET | optional | source-only | `/api/v4/search_v3` |
 | `question.read` | Z05/Z06 | GET | optional | source-only | `/api/v4/questions/:id` |
 | `question.answers` | Z05 | GET | optional | source-only | `/api/v4/questions/:id/feeds`，排序与翻页只跟随校验后的服务端 next URL |

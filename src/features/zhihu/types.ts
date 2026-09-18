@@ -20,7 +20,7 @@ export interface Page<T> {
 }
 
 export type ZhihuFeedMode = 'following' | 'recommended' | 'hot'
-export type ZhihuRecommendationMode = 'web' | 'android' | 'mixed' | 'local'
+export type ZhihuRecommendationMode = 'smart' | 'web' | 'android' | 'mixed' | 'local'
 
 export type ZhihuRoute =
   | { screen: 'feed'; mode: ZhihuFeedMode }
@@ -70,7 +70,7 @@ export interface ZhihuContentSummary {
   createdAt?: number
   imageUrl?: string
   /** 推荐子模式来源，仅用于 NewsNook 知乎工作区展示/本地排序。 */
-  recommendationSource?: 'web' | 'android' | 'local'
+  recommendationSource?: 'web' | 'android' | 'hot' | 'following' | 'local'
   /** 本地推荐必须解释“为什么看到它”，不能做黑箱排序。 */
   recommendationReason?: string
 }

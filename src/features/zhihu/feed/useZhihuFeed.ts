@@ -45,7 +45,7 @@ function initialPreviews(
 export function useZhihuFeed(
   service: ZhihuFeedService,
   mode: ZhihuFeedMode,
-  recommendationMode: ZhihuRecommendationMode = 'android',
+  recommendationMode: ZhihuRecommendationMode = 'smart',
   accountId?: string | null,
   enabled = true,
 ) {

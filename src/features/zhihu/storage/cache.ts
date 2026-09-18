@@ -31,8 +31,9 @@ function browserStorage(): ZhihuPublicCacheStorage | null {
 function keyFor(mode: ZhihuFeedMode, recommendationMode: ZhihuRecommendationMode): string | null {
   // 关注流属于账号作用域，绝不能进入公共 localStorage 缓存。
   if (mode === 'following') return null
-  // 本地模式包含用户行为画像衍生排序，不能作为“公共 feed cache”保存。
-  if (mode === 'recommended' && recommendationMode === 'local') return null
+  // 本地/智能模式都包含用户画像衍生排序；智能模式登录后还可能混入关注动态。
+  // 两者都不能进入不分账号的“公共 feed cache”。
+  if (mode === 'recommended' && (recommendationMode === 'local' || recommendationMode === 'smart')) return null
   return mode === 'recommended'
     ? `${CACHE_PREFIX}${mode}:${recommendationMode}`
     : `${CACHE_PREFIX}${mode}`
