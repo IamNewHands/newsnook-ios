@@ -190,6 +190,11 @@ function componentText(records: JsonRecord[], suffix: string): string | undefine
   return stringValue(match?.text)
 }
 
+function componentTextById(records: JsonRecord[], id: string): string | undefined {
+  const match = records.find((record) => stringValue(record.id) === id && typeof record.text === 'string')
+  return stringValue(match?.text)
+}
+
 function componentReactionCount(records: JsonRecord[], reaction: string): number | undefined {
   const match = records.find((record) => stringValue(record.reaction)?.toLowerCase() === reaction.toLowerCase())
   return numberValue(match?.count)
@@ -234,8 +239,20 @@ function decodeComponentCard(card: JsonRecord): ZhihuContentSummary | null {
   if (!ref) return null
 
   const records = collectRecords(card.children)
-  const title = htmlText(componentText(records, '.title')) || '知乎内容'
-  const excerpt = htmlText(componentText(records, '.description'))
+  const passthrough = asRecord(extra?.passthrough_info ?? extra?.passthroughInfo)
+  const passthroughContent = asRecord(passthrough?.content)
+  const title = htmlText(
+    componentText(records, '.title')
+    ?? componentTextById(records, 'Text')
+    ?? stringValue(passthroughContent?.title),
+  )
+  const excerpt = htmlText(
+    componentText(records, '.description')
+    ?? componentTextById(records, 'text_pin_summary'),
+  )
+  if (!title && !excerpt) return null
+  const displayTitle = title || excerpt
+  const displayExcerpt = title ? excerpt : ''
   const business = asRecord(extra?.business_ext_map)
   const user = asRecord(business?.userInfo)
   const authorName = stringValue(user?.userName)
@@ -262,8 +279,8 @@ function decodeComponentCard(card: JsonRecord): ZhihuContentSummary | null {
 
   return {
     ref,
-    title,
-    excerpt,
+    title: displayTitle,
+    excerpt: displayExcerpt,
     url: routeUrl ?? canonicalUrl(ref, {}),
     author,
     voteupCount,
@@ -288,12 +305,13 @@ export function decodeZhihuSummary(value: unknown): ZhihuContentSummary | null {
   if (!kind || !id) return null
   const ref: ZhihuEntityRef = { kind, id }
   const question = asRecord(object.question)
-  const title = htmlText(stringValue(object.title) ?? stringValue(question?.title) ?? stringValue(object.name)) || '知乎内容'
+  const title = htmlText(stringValue(object.title) ?? stringValue(question?.title) ?? stringValue(object.name))
   const excerpt = htmlText(stringValue(object.excerpt)) || htmlText(object.content) || ''
+  if (!title && !excerpt) return null
   return {
     ref,
-    title,
-    excerpt,
+    title: title || excerpt,
+    excerpt: title ? excerpt : '',
     url: canonicalUrl(ref, object),
     author: decodeZhihuAuthor(object.author),
     voteupCount: numberValue(object.voteup_count),

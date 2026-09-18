@@ -85,6 +85,39 @@ assert.equal(calls[2]?.operation, 'comment.list-child')
 assert.ok(calls[2]?.url.includes('/comment_v5/comment/comment-1/child_comment'))
 assert.equal(service.cachedChildren('comment-1')?.items[0]?.id, 'comment-1')
 
+const anchorCalls: Array<{ operation: string; url: string }> = []
+const anchorService = new ZhihuCommentsService({
+  async getJson(operation, url) {
+    anchorCalls.push({ operation, url })
+    if (operation !== 'comment.read') throw new Error(`unexpected ${operation}`)
+    if (url.endsWith('/comment/300')) {
+      return {
+        id: '300',
+        content: '<p>目标子评论</p>',
+        reply_root_comment_id: '200',
+        author: { id: 'child-user', name: '子评论用户' },
+      }
+    }
+    if (url.endsWith('/comment/200')) {
+      return {
+        id: '200',
+        content: '<p>对应根评论</p>',
+        child_comment_count: 3,
+        author: { id: 'root-user', name: '根评论用户' },
+      }
+    }
+    throw new Error(`unexpected url ${url}`)
+  },
+})
+const resolvedAnchor = await anchorService.resolveCommentAnchor('300')
+assert.equal(resolvedAnchor.target.id, '300')
+assert.equal(resolvedAnchor.root.id, '200')
+assert.equal(resolvedAnchor.root.children[0]?.id, '300', '评论通知指向子评论时必须把目标子评论挂到根评论下以便直接定位')
+assert.deepEqual(anchorCalls.map((call) => call.operation), ['comment.read', 'comment.read'])
+assert.match(anchorCalls[0]?.url ?? '', /\/comment\/300$/)
+assert.match(anchorCalls[1]?.url ?? '', /\/comment\/200$/)
+assert.equal(zhihuOperation('comment.read')?.retry, 'safe-read')
+
 await assert.rejects(
   service.listRoot({ kind: 'answer', id: 'answer-1' }, 'https://example.com/comments'),
   /非法分页地址/,
@@ -144,5 +177,6 @@ assert.match(commentsUiSource, /查看 \$\{comment\.author\.name\} 的主页/, '
 assert.match(commentsUiSource, /CommentMedia/, '评论图片、GIF 与贴纸必须走独立媒体组件')
 assert.match(commentsUiSource, /onOpenImage/, '评论媒体必须支持点击查看大图')
 assert.match(commentsUiSource, /IP属地/, '评论元信息应以低权重常显 IP 属地')
+assert.match(commentsUiSource, /resolveCommentAnchor/, '评论通知携带 anchor_comment_id 时必须主动解析目标评论，不能只依赖根评论第一页')
 
 console.log('zhihu comments/drafts contract ok')

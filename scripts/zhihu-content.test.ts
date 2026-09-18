@@ -10,7 +10,7 @@ import { zhihuEntityUrl } from '../src/features/zhihu/api/endpoints'
 import { parseZhihuJson } from '../src/features/zhihu/api/json'
 import { toNewsArticle } from '../src/features/zhihu/content/bridge'
 import { normalizeZhihuContentHtml } from '../src/features/zhihu/content/normalize'
-import { parseZhihuLink, parseZhihuVideoId } from '../src/features/zhihu/content/links'
+import { parseZhihuCommentDeepLink, parseZhihuLink, parseZhihuVideoId } from '../src/features/zhihu/content/links'
 import { ZhihuContentService } from '../src/features/zhihu/content/service'
 import { ZhihuAnswerMeta } from '../src/features/zhihu/ui/ZhihuUi'
 
@@ -24,6 +24,12 @@ assert.deepEqual(parseZhihuLink('https://www.zhihu.com/question/123'), { kind: '
 assert.deepEqual(parseZhihuLink('https://zhuanlan.zhihu.com/p/789'), { kind: 'article', id: '789' })
 assert.deepEqual(parseZhihuLink('https://www.zhihu.com/people/example-user'), { kind: 'people', id: 'example-user' })
 assert.equal(parseZhihuLink('https://example.com/question/123'), null)
+assert.deepEqual(
+  parseZhihuCommentDeepLink('zhihu://comment/list/answer/2?anchor_comment_id=3'),
+  { ref: { kind: 'answer', id: '2' }, commentId: '3' },
+  '评论通知的 zhihu:// deep link 必须在应用内解析，不能交给外部 Browser',
+)
+assert.equal(parseZhihuCommentDeepLink('zhihu://comment/list/answer/2'), null, '缺少 anchor_comment_id 的评论 deep link 不得伪造目标')
 assert.equal(parseZhihuVideoId('https://www.zhihu.com/video/2081068623192224666'), '2081068623192224666')
 assert.equal(parseZhihuVideoId('https://www.zhihu.com/question/123'), null)
 

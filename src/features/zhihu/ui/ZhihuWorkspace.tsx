@@ -208,6 +208,17 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
     })
   }, [saveScroll])
 
+  const pushEntityWithTargetAnchor = useCallback((ref: ZhihuEntityRef, targetAnchor?: string) => {
+    setFrames((prev) => reduceRoutes(saveScroll(prev), {
+      type: 'push',
+      frame: {
+        route: { screen: 'entity', ref },
+        anchor: targetAnchor,
+        scrollTop: 0,
+      },
+    }))
+  }, [saveScroll])
+
   // 上/下一个回答属于同一阅读上下文：替换当前实体而不是继续叠 route。
   const replaceEntity = useCallback((ref: ZhihuEntityRef) => {
     setFrames((prev) => reduceRoutes(saveScroll(prev), {
@@ -498,7 +509,7 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
         return sessionSnapshot.auth === 'authenticated' ? (
           <ZhihuNotificationScreen
             service={notificationService}
-            onOpen={pushEntity}
+            onOpen={pushEntityWithTargetAnchor}
             onMessage={(peerId) => navTo({ route: { screen: 'conversation', peerId }, scrollTop: 0 })}
           />
         ) : capabilityPlaceholder('请先登录知乎', '登录后即可查看评论、赞同、关注通知和私信。')

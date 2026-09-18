@@ -18,7 +18,7 @@
 
 ## 操作矩阵
 
-运行时权威定义位于 `src/features/zhihu/protocol.ts`；当前 contract 共 79 个 operation，`npm run test:zhihu-protocol` 会检查 Z01–Z18 覆盖、证据路径、fixture 元数据、verified 必须具备 live 证据，以及 blocked 操作不能穿透 API gate。`source-only` 仍不等于线上已验证；有明确 endpoint 的实现可受控尝试并以真实上游结果决定成功/失败。下表是人工审查的关键摘要，不替代运行时完整矩阵。
+运行时权威定义位于 `src/features/zhihu/protocol.ts`；当前 contract 共 80 个 operation，`npm run test:zhihu-protocol` 会检查 Z01–Z18 覆盖、证据路径、fixture 元数据、verified 必须具备 live 证据，以及 blocked 操作不能穿透 API gate。`source-only` 仍不等于线上已验证；有明确 endpoint 的实现可受控尝试并以真实上游结果决定成功/失败。下表是人工审查的关键摘要，不替代运行时完整矩阵。
 
 | 操作 | Z | 方法 | 认证 | 状态 | Endpoint / 结论 |
 |---|---|---:|---|---|---|
@@ -35,6 +35,7 @@
 | `article.read` | Z06/Z17 | GET | optional | source-only | `/api/v4/articles/:id` |
 | `pin.read` | Z06/Z17 | GET | optional | source-only | `/api/v4/pins/:id` |
 | `vote.set` | Z07 | POST | required | source-only | `/:contentType/:id/voters`；未验证写回，禁用 |
+| `comment.read` | Z08 | GET | optional | source-only | `/api/v4/comment_v5/comment/:id`；用于通知 `anchor_comment_id` 精准定位根/子评论 |
 | `comment.list-root` | Z08 | GET | optional | source-only | `/api/v4/comment_v5/:type/:id/root_comment` |
 | `comment.list-child` | Z08 | GET | optional | source-only | `/api/v4/comment_v5/comment/:id/child_comment` |
 | `comment.create` | Z08 | POST | required | source-only | 评论发送；未验证写回，禁用 |

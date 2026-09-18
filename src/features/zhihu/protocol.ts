@@ -163,6 +163,10 @@ export const ZHIHU_OPERATIONS = [
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/TopicScreen.kt`, note: '话题取消关注 DELETE endpoint。' }], note: '断线不重试。',
   },
   {
+    operation: 'comment.read', zIds: ['Z08'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/comment_v5/comment/:id',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/comment/RootCommentViewModel.kt`, note: '通知 deep link 的 anchor_comment_id 需要先读评论详情，并在必要时继续读取 reply_root_comment_id 对应根评论。' }], note: '只读；用于评论通知精准定位，不把自定义 zhihu:// scheme 交给外部 Browser。',
+  },
+  {
     operation: 'comment.list-root', zIds: ['Z08'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/comment_v5/:type/:id/root_comment',
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/comment/RootCommentViewModel.kt`, note: '根评论分页入口。' }], note: '只读候选。',
   },

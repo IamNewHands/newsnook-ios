@@ -111,6 +111,44 @@ const componentRow = renderToStaticMarkup(React.createElement(ZhihuContentRow, {
 }))
 assert.match(componentRow, /1\.2万 赞同/, 'Android 推荐卡必须展示解析后的真实赞同数量，而不是横线占位')
 
+const legacyComponentPage = decodeZhihuPage({
+  data: [{
+    type: 'ComponentCard',
+    action: {
+      type: 'Route',
+      parameter: 'route_url=https%3A%2F%2Fzhihu.com%2Fquestion%2F100%2Fanswer%2F200',
+    },
+    extra: { content_id: '200', content_type: 'answer' },
+    children: [
+      { type: 'Text', id: 'Text', text: '旧版 Android 卡片标题' },
+      { type: 'Text', id: 'text_pin_summary', text: '旧版 Android 卡片摘要' },
+    ],
+  }],
+  paging: { is_end: true },
+})
+assert.equal(legacyComponentPage.items[0]?.title, '旧版 Android 卡片标题', 'ComponentCard 必须兼容 children.id=Text 标题结构')
+assert.equal(legacyComponentPage.items[0]?.excerpt, '旧版 Android 卡片摘要', 'ComponentCard 必须兼容 text_pin_summary 摘要结构')
+
+const blankComponentPage = decodeZhihuPage({
+  data: [{
+    type: 'ComponentCard',
+    action: {
+      type: 'Route',
+      parameter: 'route_url=https%3A%2F%2Fzhihu.com%2Fquestion%2F100%2Fanswer%2F201',
+    },
+    extra: { content_id: '201', content_type: 'answer' },
+    children: [{ type: 'Image', style: 'ContentImage_default', url: 'https://pic.example/placeholder.png' }],
+  }],
+  paging: { is_end: true },
+})
+assert.equal(blankComponentPage.items.length, 0, '没有标题/摘要的占位 ComponentCard 必须跳过，不能渲染成“知乎内容”空卡')
+
+const blankGenericPage = decodeZhihuPage({
+  data: [{ target: { type: 'answer', id: 'blank-answer', question: { id: 'blank-question' } } }],
+  paging: { is_end: true },
+})
+assert.equal(blankGenericPage.items.length, 0, '普通 feed wrapper 缺少标题/摘要/正文时也必须跳过，不能伪造“知乎内容”')
+
 const hotListPayload = {
   data: [{
     type: 'hot_list_feed',
