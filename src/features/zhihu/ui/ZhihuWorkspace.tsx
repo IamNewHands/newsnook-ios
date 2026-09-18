@@ -83,9 +83,11 @@ function ZhihuFeedRoute({
       loadingMore={feed.loadingMore}
       hasMore={feed.hasMore}
       error={feed.error}
+      previews={feed.previews}
       authenticated={authenticated}
       scrollContainerRef={scrollContainerRef}
       onModeChange={onModeChange}
+      onPrefetchMode={feed.prefetch}
       onRefresh={feed.refresh}
       onLoadMore={feed.loadMore}
       onOpen={openItem}

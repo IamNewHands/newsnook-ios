@@ -1,222 +1,622 @@
 # NewsNook（有所闻）
 
-[![License](https://img.shields.io/github/license/t59688/newsnook)](./LICENSE)
-[![Release](https://img.shields.io/github/v/release/t59688/newsnook)](https://github.com/t59688/newsnook/releases)
-[![Issues](https://img.shields.io/github/issues/t59688/newsnook)](https://github.com/t59688/newsnook/issues)
-[![爱发电](https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E6%94%AF%E6%8C%81%E5%BC%80%E5%8F%91-946CE6)](https://ifdian.net/a/t59688)
+<p align="center">
+  <strong>一个本地优先、开箱即用、可自由扩展的信息聚合与阅读平台。</strong>
+</p>
 
-本地优先的 Android 新闻阅读客户端：不用账号也能完整使用，无云端推荐。订阅源由你配置，列表与正文由客户端直连上游获取，并在应用内阅读。想跨设备统一配置时，可以自愿登录，只同步订阅与设置。
+<p align="center">
+  新闻、RSS、Web / CMS 站点与独立内容社区，在一个干净、可控的阅读体验里汇合。
+</p>
 
-软件定位是**工具**，不是内容平台。不生产新闻，不做观点输出，不试图留住你的注意力。以 [GNU Affero General Public License v3.0 (AGPL-3.0)](./LICENSE) 开源。
+<p align="center">
+  <a href="https://github.com/t59688/newsnook/releases"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/t59688/newsnook?style=flat-square"></a>
+  <a href="./LICENSE"><img alt="License" src="https://img.shields.io/github/license/t59688/newsnook?style=flat-square"></a>
+  <a href="https://github.com/t59688/newsnook/issues"><img alt="GitHub Issues" src="https://img.shields.io/github/issues/t59688/newsnook?style=flat-square"></a>
+  <img alt="Android" src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square&logo=android&logoColor=white">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript&logoColor=white">
+  <img alt="PRs Welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square">
+</p>
 
-## 目录
+<p align="center">
+  <a href="#为什么是-newsnook">为什么是 NewsNook</a> ·
+  <a href="#功能">功能</a> ·
+  <a href="#安装">安装</a> ·
+  <a href="#开发">开发</a> ·
+  <a href="#架构">架构</a> ·
+  <a href="#贡献">贡献</a>
+</p>
 
-- [NewsNook（有所闻）](#newsnook有所闻)
-  - [目录](#目录)
-  - [界面预览](#界面预览)
-  - [特性](#特性)
-  - [安装](#安装)
-  - [快速开始](#快速开始)
-  - [理念](#理念)
-  - [功能详解](#功能详解)
-    - [源与类别](#源与类别)
-    - [场景预设](#场景预设)
-    - [站内阅读](#站内阅读)
-    - [翻译](#翻译)
-    - [稍后读与缓存](#稍后读与缓存)
-    - [阅读字体与外观](#阅读字体与外观)
-    - [网络与代理](#网络与代理)
-    - [关于与更新](#关于与更新)
-  - [架构](#架构)
-  - [贡献](#贡献)
-  - [支持项目](#支持项目)
-  - [许可与声明](#许可与声明)
-  - [致谢](#致谢)
+---
 
-## 界面预览
+## NewsNook 是什么
+
+NewsNook（有所闻）不是单一的 RSS 阅读器，也不是传统的新闻客户端。
+
+它希望成为一个**属于用户自己的信息入口**：安装后即可阅读内置新闻与专题，也可以继续加入自己的 RSS / Atom / JSON Feed，接入可识别的 Web / CMS 目录站点，并通过独立站点工作区使用知乎等内容社区。
+
+这些不同来源最终汇入同一套阅读能力：全文阅读、图片与视频、翻译、AI 速读、稍后读、历史、本地搜索、离线缓存、分享与可选同步。
+
+> NewsNook 不生产、不托管新闻正文，也不以广告、云端画像或停留时长驱动内容分发。  
+> 你决定看什么，应用负责把内容整理好、读顺、保存到自己的设备里。
+
+### 一眼看懂
+
+| 能力 | NewsNook |
+| --- | --- |
+| 安装后直接阅读 | 内置新闻源、主题分类与场景预设 |
+| 自建订阅 | RSS 2.0 / Atom / RDF / JSON Feed / OPML |
+| Web 站点 | 通用目录抽取与框架识别 |
+| CMS | MacCMS、WordPress、Hugo、Hexo、Ghost 等 |
+| 独立站点工作区 | 当前包含知乎工作区 |
+| 正文 | 站内全文、Readability 与站点定制抽取 |
+| 多媒体 | 图片、音频、Progressive / HLS / DASH、自定义播放器 |
+| 投屏 | DLNA |
+| 翻译 | 云端翻译、AI 翻译、Android 本地翻译、Bergamot |
+| AI | OpenAI-compatible Provider、AI 速读 |
+| 本地能力 | 稍后读、历史、搜索、推荐、缓存、阅读位置 |
+| 同步 | 可选账号，仅同步配置域；阅读数据保持本地 |
+| 当前主要平台 | Android |
+
+---
+
+## 为什么是 NewsNook
+
+今天的信息通常散落在新闻站、RSS、博客、独立网站、内容社区和视频页面里。问题往往不是“没有内容”，而是需要在大量 App、网页和算法信息流之间不断切换。
+
+NewsNook 尝试提供另一种方式。
+
+### 开箱即用，而不是从空白开始
+
+第一次安装不需要先找 RSS 地址。
+
+项目内置新闻、科技、AI、商业、国际、深度阅读等来源与场景预设，可以直接阅读；之后再逐步调整成自己的信息结构。
+
+### 开放订阅，而不是锁在一个内容池里
+
+标准 Feed 是一等公民。你可以添加 RSS / Atom / JSON Feed，也可以通过 OPML 从其它阅读器迁入或导出。
+
+NewsNook 不要求内容必须来自项目维护者预先登记的来源。
+
+### 不止 RSS
+
+很多网站没有 Feed，或者 Feed 只提供很少的信息。
+
+NewsNook 因此提供 Web Catalog 与 CMS 框架识别能力，可从网页目录中识别分类、分页、搜索和内容卡片。目前代码中包含 MacCMS、WordPress、Hugo、Hexo、Ghost 等框架适配，以及通用的目录提取路径。
+
+### 独立站点可以拥有真正的工作区
+
+复杂内容社区不适合强行塞进 RSS 模型。
+
+NewsNook 为此提供独立站点工作区架构。当前的知乎工作区拥有自己的导航、信息流、搜索、问题与回答、评论、用户、话题、收藏及账号相关模块，与普通新闻源互不污染。
+
+部分账号私有或写入能力依赖上游协议、登录状态和当前实网验证情况；不可用时会降级，而不会把未验证能力伪装成稳定功能。协议边界见 [知乎协议矩阵](./docs/zhihu-protocol.md)。
+
+### 本地优先，而不是云端优先
+
+阅读历史、正文缓存、稍后读、已读状态与阅读位置首先属于设备本身。
+
+账号不是使用门槛。云同步是可选能力，并与内容阅读解耦；即使不登录、云端不可用或网络中断，已经保存到本地的阅读能力仍然存在。
+
+### 推荐可以有，但不应该成为黑箱
+
+NewsNook 没有云端“猜你喜欢”信息流。
+
+项目包含可关闭的**本地推荐**：只在设备上根据用户自己的已读行为，对当前启用来源中的内容进行重排，不上传阅读画像，也不替代用户配置的分类与来源。
+
+实现说明见 [本地推荐](./docs/local-recommend.md)。
+
+---
+
+## 界面
 
 <table>
   <tr>
-    <td align="center" width="33%"><img src="docs/screenshots/home.jpg" alt="首页信息流" /><br/><sub>首页信息流</sub></td>
-    <td align="center" width="33%"><img src="docs/screenshots/bilingual.jpg" alt="对照翻译" /><br/><sub>对照翻译</sub></td>
-    <td align="center" width="33%"><img src="docs/screenshots/scenes.jpg" alt="切换场景" /><br/><sub>切换场景</sub></td>
+    <td align="center" width="33%">
+      <img src="docs/screenshots/home.jpg" alt="首页信息流" />
+      <br />
+      <sub>开箱即用的信息流</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/screenshots/bilingual.jpg" alt="双语阅读" />
+      <br />
+      <sub>正文翻译与双语阅读</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/screenshots/scenes.jpg" alt="场景预设" />
+      <br />
+      <sub>一键切换阅读场景</sub>
+    </td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/categories.jpg" alt="分类与信源" /><br/><sub>分类与信源</sub></td>
-    <td align="center"><img src="docs/screenshots/appearance.jpg" alt="外观" /><br/><sub>外观</sub></td>
-    <td align="center"><img src="docs/screenshots/home-dark.jpg" alt="夜读信息流" /><br/><sub>夜读信息流</sub></td>
+    <td align="center">
+      <img src="docs/screenshots/categories.jpg" alt="分类与信源" />
+      <br />
+      <sub>分类与信源管理</sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/appearance.jpg" alt="外观设置" />
+      <br />
+      <sub>外观与阅读偏好</sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/home-dark.jpg" alt="深色模式" />
+      <br />
+      <sub>夜间阅读</sub>
+    </td>
   </tr>
 </table>
 
-更多界面截图见 [`docs/screenshots`](./docs/screenshots)。
+> 截图会随版本演进；实际界面以当前 Release 为准。
 
-## 特性
+---
 
-- **本地优先**：不登录时，偏好、稍后读、阅读记录、场景预设与正文缓存只存在本机，不上传到任何服务器
-- **无云端推荐、无广告**：只展示你启用的源与类别；「本地推荐」栏在预设内读得足够多后才自动出现，仅在本机按已读习惯重排预设内信源，不抢默认焦点，不做热度或云端强推（见 [docs/local-recommend.md](./docs/local-recommend.md)）
-- **内置源 + 场景预设**：网易、知乎日报、BBC、财联社、晚点、煎蛋、Google News 聚合及科技/国际/AI 媒体等；支持分类组织与一键切换场景
-- **自建订阅 + OPML**：可添加标准 RSS / Atom / JSON Feed，并导入导出 OPML；不做网页爬虫规则编辑器
-- **配置备份**：偏好、自建订阅、场景预设、稍后读与阅读位置可导出为一个本地 JSON，换机时按分区选择性导入；不需要账号
-- **可选账户与云同步**：登录后可在多台设备间同步订阅源、分类排序与应用配置；正文、缓存、稍后读、已读与阅读位置**永远不上传**。不登录、断网或云端故障都不影响阅读（见 [docs/cloud-deploy.md](./docs/cloud-deploy.md)）
-- **本地离线搜索**：在已缓存的列表、稍后读与最近阅读里查标题 / 摘要 / 信源，零网络请求
-- **阅读位置记忆 + 站内分享**：长文重开回到上次读到的位置（分页模式同样适用）；阅读器「⋯」先给一张跟随主题的分享卡片，分享出去的是 `news.aizeek.com/a/...` 站内链接，对方点开在网页版里读全文，链接自带信息、不经服务端保存
-- **站内全文与媒体**：应用内渲染正文；通用媒体嗅探从静态内容及 Android 原页运行时发现 Progressive / HLS / DASH，交给自定义播放器；支持跟贴、图片放大 / 保存 / 分享
-- **翻译**：云端（Google / Azure / DeepL / DeepLX / OpenAI 兼容）两变体均可用；可翻译正文与列表外文标题；Android ML Kit 与 Bergamot 离线仅完整版（`local` 包）
-- **墨水屏模式**：关闭动画与装饰，文章改为左右点击分页阅读，音量键亦可翻页；配色仍跟随昼读/夜读主题
-- **网络与代理**：App 内支持智能分流、全局代理与直连；国际源可经用户自备代理访问
-- **应用内更新**：检测 GitHub Release；轻量版与完整版可覆盖安装切换
-- **双构建变体**：轻量版（cloud，~2 MB，无本地翻译引擎）与完整版（local，含 ML Kit / Bergamot）
+## 功能
+
+### 1. 开箱即用的新闻与信息流
+
+- 内置中文与国际新闻、科技、AI、商业、深度内容等来源
+- 分类化信息流
+- 场景预设，一键切换整套分类与信源组合
+- 单一信源浏览
+- 收藏信源与分类内快速筛选
+- 上拉加载、下拉刷新与分页
+- 本机阅读画像驱动的可选本地推荐
+- 列表外文标题翻译
+
+NewsNook 的内置源并不意味着封闭内容池。它们只是默认配置，你可以关闭、重组或用自己的来源替换。
+
+### 2. RSS / Atom / JSON Feed
+
+- RSS 2.0
+- Atom
+- RDF
+- JSON Feed
+- 自定义订阅
+- OPML 导入与导出
+- 自定义分类
+- 自定义源参与普通信息流、场景和本地能力
+- 通用正文抽取与失败降级
+
+对于付费墙、强反爬、登录后内容或只返回摘要的 Feed，NewsNook 不承诺绕过来源站限制。
+
+### 3. Web Catalog 与 CMS
+
+对于没有标准 Feed 的站点，NewsNook 可以探测网页目录并建立站点型来源。
+
+当前代码包含 MacCMS、SeaCMS、WordPress、Hugo、Hexo、Ghost 等框架探测与适配，同时保留通用目录解析路径。相关能力包括：
+
+- 目录卡片提取
+- 分类发现
+- 分页规则
+- 站内搜索模板
+- 排序能力
+- 详情页解析
+- 媒体发现
+
+框架识别只是帮助客户端理解公开页面结构，不代表绕过站点认证、授权、地区限制、付费机制或 DRM。
+
+### 4. 知乎工作区
+
+知乎不是被当成一个普通 RSS 源，而是独立工作区。
+
+当前架构包含：
+
+- 公共推荐 / 信息流
+- 问题与回答阅读
+- 回答间导航
+- 评论
+- 搜索
+- 用户页
+- 话题
+- 收藏相关界面
+- 通知与会话相关模块
+- 编辑器与本地草稿
+- Android 第一方 WebView 登录流程
+- 多账号本地状态隔离
+- 独立缓存、导航栈与存储域
+
+知乎上游协议可能变化，账号私有和写操作能力也需要对应授权与实网验证。NewsNook 会按能力矩阵启用或禁用相关操作，而不是假设所有接口永久可用。
+
+详细设计见 [知乎协议矩阵](./docs/zhihu-protocol.md)。
+
+### 5. 阅读器
+
+统一阅读器负责把不同来源变成一致的阅读体验：
+
+- 标题、来源、时间、正文和图片
+- Readability 与来源定制正文抽取
+- 阅读位置记忆
+- 字号、字体、行高、段距、首行缩进
+- 深色模式
+- 墨水屏模式
+- 分页阅读
+- 图片放大、保存与分享
+- 评论 / 跟贴入口
+- 原文核对
+- 正文重新抽取
+- 站内分享链接
+
+完整阅读过的正文可以保存在本机，在没有网络时继续回看。
+
+### 6. 视频、音频与媒体发现
+
+NewsNook 不把文章限制为纯文本。
+
+媒体能力包括：
+
+- Progressive Media
+- HLS
+- DASH
+- 页面静态媒体识别
+- Android 原页运行时媒体发现
+- 通用 Media Sniffer
+- 自定义视频播放器
+- 播放进度与倍速
+- 横竖屏全屏
+- 双击、长按、滑动、缩放等播放器手势
+- DLNA 投屏
+- 部分音频 / 播客内容
+
+媒体发现只使用当前页面会话能够公开产生的资源信息。DRM、会员、登录、地区限制和服务端授权仍由来源站决定。
+
+媒体实现和边界见 [媒体嗅探文档](./docs/sniffer.md)。
+
+### 7. 翻译
+
+支持正文和信息流标题翻译。
+
+在线能力：
+
+- Google
+- Azure
+- DeepL
+- DeepLX
+- OpenAI-compatible AI 翻译
+
+本地能力：
+
+- Android ML Kit
+- Bergamot Translator
+
+正文支持仅译文与原文 + 译文对照两种主要阅读方式。
+
+API Key 由用户自行配置并保存在本机，客户端直接访问用户选择的服务。
+
+### 8. AI 阅读能力
+
+NewsNook 将 AI 作为可选阅读工具，而不是内容入口的控制器。
+
+当前项目包含 OpenAI-compatible Provider 配置和 AI 速读等能力。用户可以使用自己的模型服务地址、Key 和模型，不需要把阅读体验绑定到某一家 AI 服务。
+
+### 9. 本地资料库
+
+- 稍后读
+- 最近阅读
+- 已读状态
+- 阅读位置
+- 正文缓存
+- 列表缓存
+- 本地搜索
+- 本地推荐
+- 配置备份与恢复
+
+本地搜索只搜索设备已经拥有的数据，不需要把私人阅读记录上传到搜索服务器。
+
+### 10. 可选账号与同步
+
+登录不是使用 NewsNook 的前提。
+
+云同步用于同步适合跨设备共享的配置，例如订阅、分类和应用设置。正文、缓存、稍后读、已读状态与阅读位置不作为普通云同步内容上传。
+
+云端实现见 [Cloud 部署说明](./docs/cloud-deploy.md)。
+
+---
+
+## 隐私与产品原则
+
+NewsNook 的设计遵循几个明确原则：
+
+1. **本地优先**  
+   阅读行为和缓存首先保存在设备上。
+
+2. **账号可选**  
+   不注册账号也能完成核心阅读流程。
+
+3. **用户选择来源**  
+   内置源、自定义 Feed、站点和场景都可以由用户控制。
+
+4. **无广告驱动**  
+   项目本身不依赖广告信息流来提高停留时长。
+
+5. **无云端阅读画像推荐**  
+   可选推荐在本机完成，不上传阅读画像。
+
+6. **不托管第三方内容库**  
+   内容来自原发布方，NewsNook 负责获取、解析和本地呈现。
+
+7. **尊重来源站权限边界**  
+   不承诺绕过登录、付费墙、DRM、地区限制或其它访问控制。
+
+更多法律与责任边界见 [法律与声明](./docs/legal.md)。
+
+---
 
 ## 安装
 
-发布文件见 [Releases](https://github.com/t59688/newsnook/releases)。两个变体**包名与签名相同**，同一设备安装其中一个即可。安装时可能需允许「安装未知应用」。当前仅提供 Android。
+### Android
 
-| 变体 | 大约体积（以 Releases 实际 APK 为准） | 说明 |
+当前正式面向用户的平台是 Android。
+
+前往 **[GitHub Releases](https://github.com/t59688/newsnook/releases)** 下载最新 APK 安装即可。
+
+项目提供两个构建变体：
+
+| 变体 | 适合谁 | 说明 |
 | --- | --- | --- |
-| 轻量版（cloud） | 约 2 MB | 不含 ML Kit / Bergamot；可使用云端 / AI 翻译 |
-| 完整版（local） | 约 60 MB | 含 ML Kit 与 Bergamot；语言模型仍按需下载；Bergamot 当前仅支持 `arm64-v8a` |
+| cloud | 大多数用户 | 体积更小；使用在线 / AI 翻译 |
+| local | 需要本地翻译的用户 | 包含 ML Kit / Bergamot 等本地翻译能力，安装包更大 |
 
-只需云端 / AI 翻译时安装轻量版即可。需要本地翻译引擎时安装完整版。
+两个变体使用相同应用身份，可以按需要覆盖切换。实际 APK 大小与 ABI 支持请以对应 Release 说明为准。
 
-## 快速开始
+> Android 安装第三方 APK 时，系统可能要求允许当前浏览器或文件管理器“安装未知应用”。
 
-技术栈：React 19 + Vite + TypeScript + Capacitor 8（Android）。
+### 应用内更新
 
-```bash
+Android 版本包含应用更新检测与下载安装流程。发布渠道和下载地址以项目当前 Release / 更新配置为准。
+
+---
+
+## 开发
+
+### 技术栈
+
+- React 19
+- TypeScript
+- Vite
+- Capacitor 8
+- Android
+- Tailwind CSS
+- Mozilla Readability
+
+建议准备 Node.js、npm；Android 开发还需要 Android Studio / Android SDK 与 JDK。
+
+### 本地运行
+
+~~~bash
 git clone https://github.com/t59688/newsnook.git
 cd newsnook
+
 npm install
-npm run dev                 # Web 开发
-npm run android:run         # 轻量 Android（需 Android SDK）
-# npm run android:run:local # 完整版（含 Bergamot 时需先 npm run bergamot:init）
-```
 
-环境要求、签名、CI 发版与调试说明见 [`docs/android-build.md`](./docs/android-build.md)。贡献流程见 [`CONTRIBUTING.md`](./CONTRIBUTING.md)。
+# Web 开发服务器
+npm run dev
+~~~
 
-## 理念
+### 构建
 
-多数新闻 App 以停留时长与点击为目标，用推荐把人留在信息流里。NewsNook 不做这件事。
+~~~bash
+# Web / 前端生产构建
+npm run build
 
-- **没有推荐**：不会根据阅读历史「猜你喜欢」，也不会按热度或算法排序强推内容
-- **账号是可选的，不是门槛**：不登录就能用全部阅读功能；登录只为跨设备统一订阅与配置，稍后读、已读与阅读记录始终只存在本机
-- **没有广告与信息流运营**：界面只展示你启用的源与类别
-- **你配置什么，就看什么**：源、类别、场景预设都是显式配置，而不是黑箱投喂
+# 静态检查
+npm run lint
+~~~
 
-如果你需要的是打开就有内容刷的平台体验，本项目可能不合适。如果你希望软件只负责把选定来源的文章读顺，合上就结束，那就是本项目的目标。
+### Android
 
-项目参考已长期停更的「卡片新闻」：简洁、专注阅读。旧版在新 Android 上难以稳定运行，因此重新实现，并补上多信源、站内全文、翻译、跟贴、代理、墨水屏分页与离线阅读等能力。
+~~~bash
+# 轻量版
+npm run android:run
 
-与 FreshRSS 等自建聚合器的定位差异见 [`docs/vs-freshrss.md`](./docs/vs-freshrss.md)。
+# 完整本地翻译版
+npm run android:run:local
+~~~
 
-## 功能详解
+如果需要 Bergamot 原生翻译能力，请先按 Android 构建文档准备对应依赖。
 
-### 源与类别
+完整说明见 [Android 构建与调试](./docs/android-build.md)。
 
-应用内置一批可用源，例如：网易各频道、知乎日报、BBC、德国之声、财联社、晚点、煎蛋、东财快讯，以及少数派、36氪、爱范儿、IT之家等科技媒体，部分 AI 公司官网动态、Google News 主题聚合，以及个人博客 RSS。源可以单独开启或关闭。列表由客户端直接拉取 RSS / Atom / 公开接口或站点定制协议，无自建业务后端。
+### 测试
 
-也可在「我的 → 自定义订阅与 OPML」中添加任意标准 **RSS / Atom / JSON Feed**，或通过 **OPML** 从其它阅读器批量导入、导出。自建源走通用解析与 Readability 抽取，体验通常不如针对反爬、UA、分页做过定制的内置源；遇付费墙或强反爬时可能只剩摘要，并引导在浏览器打开原文核对。应用不做 XPath / CSS 爬虫规则编辑器。
+仓库在 scripts/ 中维护大量按模块划分的回归测试，覆盖 Feed、缓存、翻译、媒体、分享、同步、CMS 框架识别、知乎等能力。
 
-源较多时用**类别**组织（如商业、政务、科技、国际等）。每个类别下挂若干源，主界面按类别横向切换；刷新按当前分类按需拉取，并限制并发，避免一次导入大量 OPML 后打满手机网络。类别顺序、是否显示、每个类别包含哪些源，均可在设置中调整；也可以进入某一个源单独浏览。
+可用测试命令以 package.json 中的 test:* scripts 为准。提交改动前，请至少运行与你修改模块对应的测试，并执行：
 
-### 场景预设
+~~~bash
+npm run lint
+npm run build
+~~~
 
-当前整套配置——分类顺序、显示开关、各类别下的源——可以保存为**场景预设**快照，之后一键切换。
-
-内置预设包括：全景门户、极客与 AI、深度智识、商业创投、全球视野、慢读知性、摸鱼消遣。也可以在任一预设基础上修改，另存为自己的版本。
-
-### 站内阅读
-
-点击条目后，在应用内渲染适合手机阅读的正文，包含标题、来源、时间、图片、表格等常见结构。顶栏「⋯」收纳了分享文章、复制链接、在浏览器核对原文与重新抽取正文；分享与复制给出的都是站内短链，只有「在浏览器核对原文」才会外跳出版社页面。长文中途退出后再打开会回到上次读到的位置，改过字号也按比例折算。
-
-**跟贴**（部分源）：网易、知乎、煎蛋、东财、Hacker News 等可在阅读器内查看评论；亦可从屏幕右侧边缘向左滑拉出。
-
-图片支持放大、缩放；长按可保存与分享。视频稿及正文内嵌视频统一使用自定义播放器：支持双击播放/暂停、长按临时倍速、进度与倍速控制、捏合缩放、平移和还原；全屏下半屏可横滑调进度，左下竖滑调亮度，右下竖滑调音量。Android 横向视频进入全屏时使用系统级横屏，播放器控件和系统导航区域一起换边；退出后恢复原方向。
-
-资源发现会保留来源页会话、必要请求头和原始签名 URL；地址过期时可重新探测。DRM、会员、地区与账号权限仍由原站授权，应用不绕过媒体保护。实现与边界见 [`docs/xiutan.md`](./docs/xiutan.md#二十newsnook-当前实现)。
-
-### 翻译
-
-支持将外文内容译为中文，有两种显示方式：
-
-- **全文替代**：界面只显示译文
-- **对比翻译**：保留原文，译文跟在对应段落下
-
-信息流中的**外文标题**也可在「我的 → 翻译」中开启自动翻译（仅列表标题，可单独清空缓存）。
-
-翻译能力分三路，可按需选用：
-
-- **Android 本地翻译（ML Kit）**：仅 `local` 包；语言包下载到设备，离线可用；需能访问 Google 下载语言包
-- **Bergamot 离线翻译**：仅 `local` 包；Mozilla/Marian 专用翻译模型，按语对下载（首版 en↔zh），适合无 GMS 场景；当前仅在 `arm64-v8a` 设备上可用
-- **云端翻译**：轻量版与完整版均支持 Google、Azure、DeepL、自建 DeepLX，以及 OpenAI 兼容的 **AI 翻译**（自备 Base URL / API Key / Model）。API Key 由用户自行填写并保存在本机；请求直连用户配置的服务地址。应用作者不中转这些请求，也无法查看你翻译了什么
-
-完整版（local）构建前若要启用 Bergamot 原生引擎，需先执行 `npm run bergamot:init` 拉取 `bergamot-translator`。该脚本会自动应用当前所需的 Android 兼容补丁。
-
-### 稍后读与缓存
-
-在阅读器顶栏点「收藏」可加入「稍后读」；加入后会预加载正文，便于无网时阅读。最近阅读过的条目有历史记录。完整打开过的正文会缓存在本机，断网后仍可回看；可在「我的 → 离线存储与备份」中按正文/列表分别清理，或一键清除全部可管理缓存。
-
-**本地搜索**（速闻右上角放大镜，或我的 → 本地搜索）：在上述本机数据里按标题、摘要与信源名查找，全程不发请求，断网可用。与框架站点的「站内搜索」（需联网请求该站）是两条独立路径。
-
-**配置备份**（我的 → 离线存储与备份 → 配置备份）：把偏好、自建订阅与分类、场景预设、启用信源、稍后读、已读标记与阅读位置导出为一个 JSON 文件；导入时会先展示这份备份里有什么，再逐分区勾选覆盖。缓存可再生，不进备份。只迁移订阅源时用 OPML 更通用。
-
-### 阅读字体与外观
-
-**阅读字体**（我的 → 阅读字体）：字号、正文字体、行高、段距、首行缩进。
-
-**外观**（我的 → 外观）：浅色 / 深色 / 跟随系统。
-
-**墨水屏模式**（我的 → 外观）：面向墨水屏设备或偏好分页阅读的用户。开启后关闭动画与装饰，文章改为左/中/右点击翻页（中间打开阅读菜单），Android 上音量键亦可翻页；颜色仍跟随上方主题。关闭后立即恢复上下滚动阅读。操作细节见 [`docs/user-guide.md`](./docs/user-guide.md#墨水屏模式)。
-
-### 网络与代理
-
-入口：**我的 → 网络与代理**。支持智能分流（国际源走代理、国内直连）、全局代理与直连关闭。填写代理地址后可测试连接。应用内 HTTP/SOCKS 隧道以 Android 应用为准；生产静态网页不支持同等隧道能力。
-
-### 关于与更新
-
-入口：**我的 → 关于有所闻**。可查看版本与更新说明；有新版本时会提示安装。轻量版与完整版包名与签名相同，可在关于页下载**当前版本号**对应的另一变体 APK 并覆盖安装。
+---
 
 ## 架构
 
-```text
-公开新闻源 → 客户端请求 → 列表解析 / 正文提取 → 分类 · 缓存 · 翻译 → 本地阅读
-                                                        ↕（可选、仅登录后）
-                                            订阅 / 分类 / 设置 ⇄ NewsNook Cloud
-```
+NewsNook 的核心不是某一种 Feed 协议，而是一条统一的“内容进入 → 规范化 → 阅读”管线。
 
-无自建内容服务器，部署简单，但也受上游接口、页面结构与反爬策略影响；源站改版后解析可能需同步更新。
-可选的 `cloud/` 服务只保存同步域里的配置，不抓取、不存储、不转发任何文章内容。
+~~~mermaid
+flowchart LR
+    A["内置新闻源"] --> F["获取 / 解析"]
+    B["RSS / Atom / JSON Feed"] --> F
+    C["Web / CMS Catalog"] --> F
+    D["独立站点工作区"] --> W["站点专属能力"]
 
-更细的分层与模块说明见 [`docs/architecture.md`](./docs/architecture.md)。菜单路径与操作步骤见 [`docs/user-guide.md`](./docs/user-guide.md)。
+    F --> N["统一 Article / Source 模型"]
+    N --> L["信息流 / 分类 / 场景"]
+    N --> R["统一阅读器"]
+
+    W --> R
+
+    R --> M["图片 / 视频 / 音频 / DLNA"]
+    R --> T["翻译 / AI 速读"]
+    R --> P["稍后读 / 历史 / 搜索 / 缓存"]
+
+    S["本地 Preferences"] --> L
+    S --> R
+
+    O["可选 Cloud Sync"] -. "仅配置域" .-> S
+~~~
+
+### 代码结构
+
+~~~text
+newsnook/
+├─ src/
+│  ├─ components/          通用 UI 与播放器组件
+│  ├─ features/            独立业务能力
+│  │  ├─ zhihu/            知乎工作区
+│  │  ├─ mediaSniffer/     媒体发现
+│  │  ├─ frameworkDetect/  CMS / 框架识别
+│  │  ├─ catalogEngine/    Web Catalog 提取
+│  │  ├─ translation/      翻译
+│  │  ├─ sync/             同步
+│  │  └─ ...
+│  ├─ lib/                 Feed、正文、缓存、分享等基础能力
+│  ├─ screens/             页面级 UI
+│  └─ sources/             Source / Category / Preset 注册与偏好
+├─ android/                Capacitor Android 工程
+├─ cloud/                  可选账号与配置同步服务
+├─ functions/              边缘函数 / Web 能力
+├─ scripts/                测试、构建和维护脚本
+└─ docs/                   设计、架构和开发文档
+~~~
+
+更完整的模块边界、数据流和状态模型见 [架构文档](./docs/architecture.md)。
+
+---
+
+## 文档
+
+| 文档 | 内容 |
+| --- | --- |
+| [用户指南](./docs/user-guide.md) | 面向使用者的功能说明 |
+| [架构](./docs/architecture.md) | 应用分层、数据流、状态模型 |
+| [新闻源](./docs/news-sources.md) | 内置来源与解析说明 |
+| [Android 构建](./docs/android-build.md) | Android 环境、签名、调试与发版 |
+| [Cloud 部署](./docs/cloud-deploy.md) | 可选同步服务 |
+| [本地推荐](./docs/local-recommend.md) | 本地推荐算法与隐私边界 |
+| [媒体嗅探](./docs/sniffer.md) | 媒体发现、播放器与能力边界 |
+| [知乎协议](./docs/zhihu-protocol.md) | 知乎能力矩阵与验证状态 |
+| [与 FreshRSS 的差异](./docs/vs-freshrss.md) | 产品定位比较 |
+| [安全策略](./SECURITY.md) | 安全问题报告方式 |
+| [贡献指南](./CONTRIBUTING.md) | 开发与提交约定 |
+| [法律与声明](./docs/legal.md) | 第三方内容、责任与许可说明 |
+
+---
+
+## NewsNook 不是什么
+
+为了避免误解，以下并不是项目目标：
+
+- 不是第三方内容的镜像站或托管平台
+- 不是靠广告和用户画像运营的信息流产品
+- 不是用于绕过付费、登录、DRM 或地区限制的工具
+- 不是保证任意网站永远可解析的通用爬虫
+- 不是必须部署服务端才能使用的阅读器
+- 不是只支持 RSS 的传统订阅器
+
+NewsNook 更像一层位于“信息来源”和“用户阅读”之间的个人阅读基础设施。
+
+---
+
+## 项目状态
+
+NewsNook 仍在持续演进。
+
+由于大量能力直接依赖第三方公开接口、Feed、网页结构或 WebView 行为，上游变化可能造成某个来源或站点功能暂时失效。项目会通过解析器、能力探测、缓存和降级路径尽量隔离单点故障，但不会对第三方长期可用性作保证。
+
+如果你发现某个来源失效，请提交 Issue，并尽量附上：
+
+- NewsNook 版本
+- Android 版本与设备型号
+- 来源 / 站点名称
+- 文章或页面 URL
+- 截图或日志
+- 可复现步骤
+
+---
 
 ## 贡献
 
-欢迎通过 [Issue](https://github.com/t59688/newsnook/issues) 反馈：源失效、正文提取错误、翻译问题、崩溃、新源建议、交互建议。
+欢迎 Issue 和 Pull Request。
 
-请尽量附上：Android 版本、应用版本、设备型号、信源名称、文章链接、截图或日志、复现步骤。
+你可以参与：
 
-开发与 PR 约定见 [`CONTRIBUTING.md`](./CONTRIBUTING.md)。安全问题见 [`SECURITY.md`](./SECURITY.md)。
+- 修复失效来源
+- 增加新的公开 Feed 或站点适配
+- 改进正文抽取
+- 提升 CMS / Catalog 兼容性
+- 完善知乎工作区
+- 改进视频与媒体体验
+- 改进翻译与 AI 阅读
+- 优化 Android / Web UI
+- 补充测试与文档
 
-## 支持项目
+开始之前请先阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
-NewsNook 是一个免费、开源并持续维护的个人项目。
+对于较大的功能，建议先创建 Issue 说明目标、交互和技术方向，避免重复实现或与现有架构冲突。
 
-如果 NewsNook 对你有帮助，欢迎通过爱发电支持项目的持续开发与维护。
+---
 
-[![爱发电](https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E6%94%AF%E6%8C%81_NewsNook-946CE6?style=for-the-badge)](https://ifdian.net/a/t59688)
+## 安全
 
-赞助完全自愿，不影响软件功能、版本获取，以及 Issue / PR 的处理优先级。
+请不要通过公开 Issue 披露敏感漏洞、凭据或可用于攻击真实服务的细节。
 
-## 许可与声明
+安全问题请按照 [SECURITY.md](./SECURITY.md) 中的流程报告。
 
-- 软件以 [GNU Affero General Public License v3.0 (AGPL-3.0)](./LICENSE) 授权；版权归属与署名见 [`NOTICE`](./NOTICE)
-- NewsNook 是阅读器，不主张第三方新闻正文的版权；商标与媒体名称归各自权利人
-- 偏好、缓存与用户自填的 API Key 仅保存在本机；维护者不收集、不托管
-- 软件按「现状」提供；上游可用性、解析完整性与翻译质量均不保证
+API Key、登录凭据、签名文件和其它秘密信息不应提交到 Git 仓库。
 
-完整权利声明与免责声明见 [`docs/legal.md`](./docs/legal.md)。
+---
+
+## 开源许可
+
+NewsNook 采用 **GNU Affero General Public License v3.0 or later（AGPL-3.0-or-later）** 开源。
+
+详见：
+
+- [LICENSE](./LICENSE)
+- [NOTICE](./NOTICE)
+
+NewsNook 的开源许可只覆盖本项目自身代码，不改变第三方文章、图片、视频、商标、网站或接口的权利归属。
+
+---
 
 ## 致谢
 
-感谢公开内容、开放接口与开源工具的提供者，尤其是 React、Vite、Capacitor、Mozilla Readability、Bergamot Translator、Tailwind CSS 等项目。
+NewsNook 建立在大量优秀的开源项目与开放标准之上，包括但不限于：
 
-感谢 [Linux.do](https://linux.do) 社区提供的平台与交流环境，讨论与分享对本项目帮助很大。
+- React
+- Vite
+- TypeScript
+- Capacitor
+- Tailwind CSS
+- Mozilla Readability
+- Bergamot Translator
+
+也感谢所有提供公开 Feed、开放接口、技术文档和兼容性反馈的社区与内容发布者。
+
+---
+
+## 支持项目
+
+NewsNook 是一个免费、开源的个人项目。
+
+如果它对你有帮助，可以：
+
+- 给仓库一个 Star
+- 提交 Bug 与兼容性反馈
+- 改进文档
+- 贡献代码
+- 向其他需要本地优先阅读工具的人推荐它
+
+也可以通过爱发电支持项目的持续维护：
+
+[![爱发电](https://img.shields.io/badge/爱发电-支持_NewsNook-946CE6?style=for-the-badge)](https://ifdian.net/a/t59688)
+
+赞助完全自愿，不影响软件功能、版本获取或社区参与。
+
+---
+
+<p align="center">
+  <strong>NewsNook · 有所闻</strong><br />
+  <sub>把分散的信息，带回自己的阅读空间。</sub>
+</p>

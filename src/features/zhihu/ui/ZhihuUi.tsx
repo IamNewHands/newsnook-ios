@@ -118,7 +118,7 @@ function formatZhihuDetailTime(value?: number): string | null {
   if (typeof value !== 'number' || !Number.isFinite(value)) return null
   const date = new Date(value * 1000)
   const pad = (part: number) => String(part).padStart(2, '0')
-  return `${date.getFullYear()}年${pad(date.getMonth() + 1)}月${pad(date.getDate())}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 export function ZhihuAnswerMeta({
@@ -138,11 +138,11 @@ export function ZhihuAnswerMeta({
     { label: 'IP 属地', value: ipLocation?.trim() || '未显示' },
   ]
   return (
-    <dl className="mt-10 grid grid-cols-1 gap-px overflow-hidden rounded-2xl border border-haze/65 bg-haze/65 sm:grid-cols-3" aria-label="回答信息">
+    <dl className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-haze/35 pt-3 text-[10.5px] leading-5 text-paper-faint/75" aria-label="回答信息">
       {entries.map((entry) => (
-        <div key={entry.label} className="bg-ink-raised/80 px-4 py-3.5">
-          <dt className="font-mono text-[9.5px] tracking-[0.12em] text-paper-faint">{entry.label}</dt>
-          <dd className="mt-1.5 text-[11.5px] leading-relaxed text-paper-muted">
+        <div key={entry.label} className="inline-flex min-w-0 items-baseline gap-1.5">
+          <dt className="shrink-0 text-paper-faint/55">{entry.label}</dt>
+          <dd className="min-w-0 text-paper-faint/90">
             {entry.timestamp && entry.value !== '时间未知'
               ? <time dateTime={new Date(entry.timestamp * 1000).toISOString()}>{entry.value}</time>
               : entry.value}

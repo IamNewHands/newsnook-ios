@@ -5,11 +5,13 @@ import { loadZhihuPublicFeedCache, saveZhihuPublicFeedCache } from '../storage/c
 import type { Page, ZhihuContentSummary, ZhihuFeedMode, ZhihuRecommendationMode } from '../types'
 import { mergeZhihuPages, type ZhihuFeedService } from './service'
 
-interface FeedState extends Page<ZhihuContentSummary> {
+export interface ZhihuFeedPreviewState extends Page<ZhihuContentSummary> {
   loading: boolean
   loadingMore: boolean
   error: ZhihuApiError | null
 }
+
+type FeedState = ZhihuFeedPreviewState
 
 const EMPTY: FeedState = { items: [], hasMore: false, loading: true, loadingMore: false, error: null }
 
@@ -19,6 +21,27 @@ function asApiError(error: unknown): ZhihuApiError {
     : new ZhihuApiError('network', error instanceof Error ? error.message : '知乎网络请求失败')
 }
 
+function cachedState(
+  mode: ZhihuFeedMode,
+  recommendationMode: ZhihuRecommendationMode,
+): FeedState | undefined {
+  const cached = loadZhihuPublicFeedCache(mode, undefined, Date.now(), recommendationMode)
+  return cached
+    ? { ...cached, loading: false, loadingMore: false, error: null }
+    : undefined
+}
+
+function initialPreviews(
+  recommendationMode: ZhihuRecommendationMode,
+): Partial<Record<ZhihuFeedMode, FeedState>> {
+  const recommended = cachedState('recommended', recommendationMode)
+  const hot = cachedState('hot', recommendationMode)
+  return {
+    ...(recommended ? { recommended } : {}),
+    ...(hot ? { hot } : {}),
+  }
+}
+
 export function useZhihuFeed(
   service: ZhihuFeedService,
   mode: ZhihuFeedMode,
@@ -26,38 +49,92 @@ export function useZhihuFeed(
   accountId?: string | null,
   enabled = true,
 ) {
-  const [state, setState] = useState<FeedState>(EMPTY)
+  const initialPreviewRef = useRef<Partial<Record<ZhihuFeedMode, FeedState>> | null>(null)
+  if (!initialPreviewRef.current) initialPreviewRef.current = initialPreviews(recommendationMode)
+
+  const [previews, setPreviews] = useState<Partial<Record<ZhihuFeedMode, FeedState>>>(
+    () => initialPreviewRef.current ?? {},
+  )
+  const previewsRef = useRef(previews)
+  previewsRef.current = previews
+
+  const [state, setState] = useState<FeedState>(() => {
+    const seeded = initialPreviewRef.current?.[mode] ?? cachedState(mode, recommendationMode)
+    return seeded ? { ...seeded, loading: true } : EMPTY
+  })
+
   const requestEpoch = useRef(0)
   const refreshControllerRef = useRef<AbortController | null>(null)
+  const prefetchControllersRef = useRef(new Map<string, AbortController>())
+  const prefetchedKeysRef = useRef(new Set<string>())
+  const activeModeRef = useRef(mode)
+  activeModeRef.current = mode
+  const previousAccountIdRef = useRef(accountId)
+
+  const putPreview = useCallback((targetMode: ZhihuFeedMode, next: FeedState) => {
+    previewsRef.current = { ...previewsRef.current, [targetMode]: next }
+    setPreviews((prev) => ({ ...prev, [targetMode]: next }))
+  }, [])
+
+  useEffect(() => {
+    if (previousAccountIdRef.current === accountId) return
+    previousAccountIdRef.current = accountId
+
+    // 关注流属于账号私有状态：账号变化时必须立即丢弃旧账号的内存预览。
+    const next = { ...previewsRef.current }
+    delete next.following
+    previewsRef.current = next
+    setPreviews(next)
+
+    for (const [key, controller] of prefetchControllersRef.current) {
+      if (key.startsWith('following:')) {
+        controller.abort()
+        prefetchControllersRef.current.delete(key)
+        prefetchedKeysRef.current.delete(key)
+      }
+    }
+  }, [accountId])
 
   const refresh = useCallback(async () => {
     if (!enabled) return
+
     requestEpoch.current += 1
     const epoch = requestEpoch.current
     refreshControllerRef.current?.abort()
     const controller = new AbortController()
     refreshControllerRef.current = controller
-    const cached = loadZhihuPublicFeedCache(mode, undefined, Date.now(), recommendationMode)
-    setState((prev) => ({
-      ...prev,
-      items: cached?.items ?? [],
-      nextCursor: cached?.nextCursor,
-      hasMore: cached?.hasMore ?? false,
-      loading: true,
-      error: null,
-    }))
+
+    const seeded = previewsRef.current[mode] ?? cachedState(mode, recommendationMode)
+    const seededState: FeedState = seeded
+      ? { ...seeded, loading: true, loadingMore: false, error: null }
+      : { ...EMPTY }
+
+    setState(seededState)
+    putPreview(mode, seededState)
+
     try {
       const page = await service.listFeed(mode, undefined, controller.signal, recommendationMode, accountId)
-      if (controller.signal.aborted || requestEpoch.current !== epoch) return
+      if (controller.signal.aborted || requestEpoch.current !== epoch || activeModeRef.current !== mode) return
+
       saveZhihuPublicFeedCache(mode, page, undefined, Date.now(), recommendationMode)
-      setState({ ...page, loading: false, loadingMore: false, error: null })
+      const next: FeedState = { ...page, loading: false, loadingMore: false, error: null }
+      setState(next)
+      putPreview(mode, next)
     } catch (error) {
-      if (controller.signal.aborted || requestEpoch.current !== epoch) return
-      setState((prev) => ({ ...prev, loading: false, loadingMore: false, error: asApiError(error) }))
+      if (controller.signal.aborted || requestEpoch.current !== epoch || activeModeRef.current !== mode) return
+
+      const next: FeedState = {
+        ...seededState,
+        loading: false,
+        loadingMore: false,
+        error: asApiError(error),
+      }
+      setState(next)
+      putPreview(mode, next)
     } finally {
       if (refreshControllerRef.current === controller) refreshControllerRef.current = null
     }
-  }, [accountId, enabled, mode, recommendationMode, service])
+  }, [accountId, enabled, mode, putPreview, recommendationMode, service])
 
   useEffect(() => {
     if (!enabled) return
@@ -68,26 +145,81 @@ export function useZhihuFeed(
     }
   }, [enabled, refresh])
 
-  const loadMore = useCallback(() => {
-    if (state.loading || state.loadingMore || !state.hasMore || !state.nextCursor) return
-    const epoch = requestEpoch.current
-    const cursor = state.nextCursor
-    setState((prev) => ({ ...prev, loadingMore: true, error: null }))
-    void service.listFeed(mode, cursor, undefined, recommendationMode, accountId).then(
+  const prefetch = useCallback((targetMode: ZhihuFeedMode) => {
+    if (!enabled || targetMode === activeModeRef.current) return
+    if (targetMode === 'following' && !accountId) return
+
+    const accountScope = targetMode === 'following' ? accountId ?? 'guest' : 'public'
+    const key = `${targetMode}:${recommendationMode}:${accountScope}`
+    if (prefetchedKeysRef.current.has(key) || prefetchControllersRef.current.has(key)) return
+
+    const cached = previewsRef.current[targetMode] ?? cachedState(targetMode, recommendationMode)
+    if (cached && previewsRef.current[targetMode] !== cached) putPreview(targetMode, cached)
+
+    const controller = new AbortController()
+    prefetchControllersRef.current.set(key, controller)
+    putPreview(targetMode, {
+      ...(cached ?? EMPTY),
+      loading: cached ? false : true,
+      loadingMore: false,
+      error: null,
+    })
+
+    void service.listFeed(targetMode, undefined, controller.signal, recommendationMode, accountId).then(
       (page) => {
-        if (requestEpoch.current !== epoch) return
-        setState((prev) => {
-          const merged = mergeZhihuPages(prev, page)
-          saveZhihuPublicFeedCache(mode, merged, undefined, Date.now(), recommendationMode)
-          return { ...merged, loading: false, loadingMore: false, error: null }
-        })
+        if (controller.signal.aborted) return
+        saveZhihuPublicFeedCache(targetMode, page, undefined, Date.now(), recommendationMode)
+        putPreview(targetMode, { ...page, loading: false, loadingMore: false, error: null })
+        prefetchedKeysRef.current.add(key)
       },
       (error) => {
-        if (requestEpoch.current !== epoch) return
-        setState((prev) => ({ ...prev, loadingMore: false, error: asApiError(error) }))
+        if (controller.signal.aborted) return
+        // 预取失败不能污染当前页；有缓存时继续保留缓存内容，下一次仍允许重试。
+        putPreview(targetMode, {
+          ...(cached ?? { items: [], hasMore: false }),
+          loading: false,
+          loadingMore: false,
+          error: asApiError(error),
+        })
+      },
+    ).finally(() => {
+      prefetchControllersRef.current.delete(key)
+    })
+  }, [accountId, enabled, putPreview, recommendationMode, service])
+
+  const loadMore = useCallback(() => {
+    if (state.loading || state.loadingMore || !state.hasMore || !state.nextCursor) return
+
+    const epoch = requestEpoch.current
+    const cursor = state.nextCursor
+    const baseState = state
+    const pending: FeedState = { ...state, loadingMore: true, error: null }
+    setState(pending)
+    putPreview(mode, pending)
+
+    void service.listFeed(mode, cursor, undefined, recommendationMode, accountId).then(
+      (page) => {
+        if (requestEpoch.current !== epoch || activeModeRef.current !== mode) return
+        const merged = mergeZhihuPages(baseState, page)
+        saveZhihuPublicFeedCache(mode, merged, undefined, Date.now(), recommendationMode)
+        const next: FeedState = { ...merged, loading: false, loadingMore: false, error: null }
+        setState(next)
+        putPreview(mode, next)
+      },
+      (error) => {
+        if (requestEpoch.current !== epoch || activeModeRef.current !== mode) return
+        const next: FeedState = { ...baseState, loadingMore: false, error: asApiError(error) }
+        setState(next)
+        putPreview(mode, next)
       },
     )
-  }, [accountId, mode, recommendationMode, service, state.hasMore, state.loading, state.loadingMore, state.nextCursor])
+  }, [accountId, mode, putPreview, recommendationMode, service, state])
 
-  return { ...state, refresh, loadMore }
+  useEffect(() => () => {
+    refreshControllerRef.current?.abort()
+    for (const controller of prefetchControllersRef.current.values()) controller.abort()
+    prefetchControllersRef.current.clear()
+  }, [])
+
+  return { ...state, previews, prefetch, refresh, loadMore }
 }
