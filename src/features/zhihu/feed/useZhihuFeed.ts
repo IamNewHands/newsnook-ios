@@ -45,7 +45,7 @@ function initialPreviews(
 export function useZhihuFeed(
   service: ZhihuFeedService,
   mode: ZhihuFeedMode,
-  recommendationMode: ZhihuRecommendationMode = 'android',
+  recommendationMode: ZhihuRecommendationMode = 'smart',
   accountId?: string | null,
   enabled = true,
 ) {
@@ -197,6 +197,22 @@ export function useZhihuFeed(
     })
   }, [accountId, enabled, putPreview, recommendationMode, service])
 
+  const dismiss = useCallback((item: Pick<ZhihuContentSummary, 'ref'>) => {
+    const key = `${item.ref.kind}:${item.ref.id}`
+    const withoutItem = (items: ZhihuContentSummary[]) =>
+      items.filter((candidate) => `${candidate.ref.kind}:${candidate.ref.id}` !== key)
+
+    setState((current) => {
+      if (!current.items.some((candidate) => `${candidate.ref.kind}:${candidate.ref.id}` === key)) return current
+      return { ...current, items: withoutItem(current.items) }
+    })
+
+    const preview = previewsRef.current[mode]
+    if (preview?.items.some((candidate) => `${candidate.ref.kind}:${candidate.ref.id}` === key)) {
+      putPreview(mode, { ...preview, items: withoutItem(preview.items) })
+    }
+  }, [mode, putPreview])
+
   const loadMore = useCallback(() => {
     if (state.loading || state.loadingMore || !state.hasMore || !state.nextCursor) return
 
@@ -231,5 +247,5 @@ export function useZhihuFeed(
     prefetchControllersRef.current.clear()
   }, [])
 
-  return { ...state, previews, prefetch, refresh, loadMore }
+  return { ...state, previews, prefetch, refresh, dismiss, loadMore }
 }

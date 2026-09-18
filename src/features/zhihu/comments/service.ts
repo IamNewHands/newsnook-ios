@@ -11,6 +11,11 @@ export type ZhihuCommentTarget = ZhihuEntityRef | ZhihuSegmentTarget
 export interface ZhihuCommentCacheEntry extends Page<ZhihuCommentNode> {}
 export type ZhihuCommentSort = 'score' | 'time'
 
+export interface ZhihuResolvedCommentAnchor {
+  target: ZhihuCommentNode
+  root: ZhihuCommentNode
+}
+
 interface ZhihuCommentApi extends ZhihuReadApi {
   postJson(operation: string, url: string, body?: unknown, signal?: AbortSignal): Promise<unknown>
   deleteJson(operation: string, url: string, body?: unknown, signal?: AbortSignal): Promise<unknown>
@@ -176,6 +181,34 @@ export class ZhihuCommentsService {
 
   cachedChildren(commentId: string): ZhihuCommentCacheEntry | undefined {
     return this.childCache.get(commentId)
+  }
+
+  async resolveCommentAnchor(commentId: string, signal?: AbortSignal): Promise<ZhihuResolvedCommentAnchor> {
+    const id = commentId.trim()
+    if (!/^\d+$/.test(id)) throw new ZhihuApiError('invalid-response', '评论 id 格式无效')
+
+    const read = async (targetId: string): Promise<{ node: ZhihuCommentNode; raw: Record<string, unknown> }> => {
+      const rawValue = await this.api.getJson(
+        'comment.read',
+        `https://www.zhihu.com/api/v4/comment_v5/comment/${encodeURIComponent(targetId)}`,
+        signal,
+      )
+      const raw = asRecord(rawValue)
+      const node = decodeZhihuComment(rawValue)
+      if (!raw || !node) throw new ZhihuApiError('invalid-response', `知乎评论 ${targetId} 详情缺少必要字段`)
+      return { node, raw }
+    }
+
+    const target = await read(id)
+    const rootId = stringValue(target.raw.reply_root_comment_id ?? target.raw.replyRootCommentId)
+    if (!rootId || rootId === target.node.id) return { target: target.node, root: target.node }
+
+    const root = await read(rootId)
+    if (!root.node.children.some((child) => child.id === target.node.id)) {
+      root.node.children = [target.node, ...root.node.children]
+      root.node.childCount = Math.max(root.node.childCount, root.node.children.length)
+    }
+    return { target: target.node, root: root.node }
   }
 
   async listRoot(

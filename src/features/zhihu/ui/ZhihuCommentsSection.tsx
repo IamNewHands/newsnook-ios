@@ -162,6 +162,17 @@ function mergeComments(current: ZhihuCommentNode[], incoming: ZhihuCommentNode[]
   return [...current, ...incoming.filter((item) => !seen.has(item.id))]
 }
 
+function commentIdFromAnchor(anchor?: string): string | undefined {
+  return /^zhihu-comment-(\d+)$/.exec(anchor ?? '')?.[1]
+}
+
+function containsComment(items: readonly ZhihuCommentNode[], commentId: string): boolean {
+  for (const item of items) {
+    if (item.id === commentId || containsComment(item.children, commentId)) return true
+  }
+  return false
+}
+
 function useCommentDraft(
   store: ZhihuCommentDraftStore,
   accountId: string | undefined,
@@ -520,40 +531,57 @@ export function ZhihuCommentsSection({ target, service, onNavigate, restoreAncho
   const commentWritable = canExecuteZhihuOperation(stableTarget.kind === 'segment' ? 'segment.comment.create' : 'comment.create')
   const sectionTitle = stableTarget.kind === 'segment' ? '段评' : '评论'
 
-  // 旧实现把 loading 放进自动加载 effect 的依赖：setLoading(true) 会立刻触发 cleanup，
-  // 把正在进行的请求标成 disposed，响应随后永远被丢掉，于是 UI 永久停在“正在读取评论”。
-  // 现在每个“内容 + 排序”只维护一个可取消请求；命中缓存则立即展示，不再二次起请求。
+  // 每个“内容 + 排序”只维护一个可取消请求。通知 deep link 额外携带 anchor_comment_id 时，
+  // 根评论列表接口并不会保证返回该评论，所以并行读取评论详情并把对应根评论置顶。
+  // 这样点击“评论转发@”不会把 zhihu:// 自定义 scheme 交给 Browser，也不会卡在无法定位的状态。
   useEffect(() => {
     const cached = service.cachedRoot(stableTarget, sort)
+    const anchorCommentId = commentIdFromAnchor(restoreAnchor)
+    const cachedHasAnchor = anchorCommentId
+      ? containsComment(cached?.items ?? [], anchorCommentId)
+      : true
+
     setItems(cached?.items ?? [])
     setNextCursor(cached?.nextCursor)
     setError(null)
-    if (cached) {
+    if (cached && cachedHasAnchor) {
       setLoadedOnce(true)
       setLoading(false)
       return
     }
 
     const controller = new AbortController()
-    setLoadedOnce(false)
+    setLoadedOnce(Boolean(cached))
     setLoading(true)
-    void service.listRoot(stableTarget, undefined, controller.signal, sort).then(
-      (page) => {
-        if (controller.signal.aborted) return
-        setItems(page.items)
-        setNextCursor(page.hasMore ? page.nextCursor : undefined)
-        setLoadedOnce(true)
-        setLoading(false)
-      },
-      (reason) => {
-        if (controller.signal.aborted) return
-        setError(reason instanceof Error ? reason.message : '评论读取失败')
-        setLoadedOnce(true)
-        setLoading(false)
-      },
-    )
+    void (async () => {
+      const rootPromise = cached
+        ? Promise.resolve(cached)
+        : service.listRoot(stableTarget, undefined, controller.signal, sort)
+      const anchorPromise = anchorCommentId && !cachedHasAnchor
+        ? service.resolveCommentAnchor(anchorCommentId, controller.signal)
+        : Promise.resolve(undefined)
+
+      const [rootResult, anchorResult] = await Promise.allSettled([rootPromise, anchorPromise])
+      if (controller.signal.aborted) return
+
+      const page = rootResult.status === 'fulfilled' ? rootResult.value : cached
+      const anchored = anchorResult.status === 'fulfilled' ? anchorResult.value : undefined
+      let nextItems = page?.items ?? []
+      if (anchored) nextItems = mergeComments([anchored.root], nextItems)
+
+      setItems(nextItems)
+      setNextCursor(page?.hasMore ? page.nextCursor : undefined)
+      setLoadedOnce(true)
+      setLoading(false)
+
+      if (rootResult.status === 'rejected' && !anchored) {
+        setError(rootResult.reason instanceof Error ? rootResult.reason.message : '评论读取失败')
+      } else if (anchorResult.status === 'rejected') {
+        setError('已打开评论区，但未能定位这条评论；可稍后重试。')
+      }
+    })()
     return () => controller.abort()
-  }, [service, sort, stableTarget])
+  }, [restoreAnchor, service, sort, stableTarget])
 
   useEffect(() => {
     if (!restoreAnchor || items.length === 0) return

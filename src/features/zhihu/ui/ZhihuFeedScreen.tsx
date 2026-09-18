@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { EyeOff, MoreHorizontal, RefreshCw, UserMinus } from 'lucide-react'
 
+import { ContextActionMenu, type ContextActionItem } from '../../../components/ContextActionMenu'
 import { PullIndicator } from '../../../components/PullIndicator'
+import { useLongPressAction } from '../../../hooks/useLongPressAction'
 import { usePullToRefresh } from '../../../hooks/usePullToRefresh'
 import { useReducedMotion } from '../../../hooks/useReducedMotion'
 import { useSwipeCategory, type SwipeDirection } from '../../../hooks/useSwipeCategory'
+import type { Point } from '../../../lib/contextActions'
 import type { ZhihuApiError } from '../api/errors'
 import type { ZhihuFeedPreviewState } from '../feed/useZhihuFeed'
 import type { ZhihuContentSummary, ZhihuFeedMode } from '../types'
@@ -31,6 +34,11 @@ interface Props {
   onRefresh: () => Promise<void> | void
   onLoadMore: () => void
   onOpen: (item: ZhihuContentSummary) => void
+  onImpression: (item: ZhihuContentSummary) => void
+  onRecommendationFeedback: (
+    item: ZhihuContentSummary,
+    action: 'not-interested' | 'less-author',
+  ) => void
 }
 
 function errorMessage(error: ZhihuApiError): string {
@@ -110,12 +118,48 @@ export function ZhihuFeedScreen({
   onRefresh,
   onLoadMore,
   onOpen,
+  onImpression,
+  onRecommendationFeedback,
 }: Props) {
   const pullSurfaceRef = useRef<HTMLDivElement>(null)
   const swipeTrackRef = useRef<HTMLDivElement>(null)
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null)
   const loadRequestKeyRef = useRef('')
+  const impressionTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  const impressedKeysRef = useRef(new Set<string>())
+  const [actionMenu, setActionMenu] = useState<{ key: string; anchor: Point } | null>(null)
   const reduced = useReducedMotion()
+  const longPress = useLongPressAction<string>((key, anchor) => {
+    if (mode === 'recommended') setActionMenu({ key, anchor })
+  })
+  const actionItem = actionMenu
+    ? items.find((item) => `${item.ref.kind}:${item.ref.id}` === actionMenu.key)
+    : undefined
+  const applyRecommendationFeedback = (
+    item: ZhihuContentSummary,
+    action: 'not-interested' | 'less-author',
+  ) => {
+    onRecommendationFeedback(item, action)
+  }
+  const actionItems: ContextActionItem[] = actionItem
+    ? [
+        {
+          id: 'not-interested',
+          label: '不感兴趣',
+          icon: EyeOff,
+          tone: 'accent',
+          onSelect: () => applyRecommendationFeedback(actionItem, 'not-interested'),
+        },
+        ...((actionItem.author?.token || actionItem.author?.id)
+          ? [{
+              id: 'less-author',
+              label: '少推荐此作者',
+              icon: UserMinus,
+              onSelect: () => applyRecommendationFeedback(actionItem, 'less-author'),
+            } satisfies ContextActionItem]
+          : []),
+      ]
+    : []
   const { indicatorRef, phase, cancel: cancelPull } = usePullToRefresh({
     onRefresh,
     containerRef: scrollContainerRef,
@@ -124,6 +168,7 @@ export function ZhihuFeedScreen({
 
   useEffect(() => {
     loadRequestKeyRef.current = ''
+    impressedKeysRef.current.clear()
   }, [mode])
 
   // 与新闻首页保持一致：sentinel 一进入底部预取区就续载。
@@ -144,6 +189,52 @@ export function ZhihuFeedScreen({
     observer.observe(target)
     return () => observer.disconnect()
   }, [hasMore, items, loading, loadingMore, mode, onLoadMore, scrollContainerRef])
+
+  // 只有卡片在真实滚动容器中至少 60% 可见并持续 850ms 才记一次曝光。
+  // 左右滑动的邻页预览没有 data 标记，因此不会污染推荐画像。
+  useEffect(() => {
+    const root = scrollContainerRef.current
+    const surface = pullSurfaceRef.current
+    if (!root || !surface || items.length === 0) return
+
+    const byKey = new Map(items.map((item) => [`${item.ref.kind}:${item.ref.id}`, item]))
+    const timers = impressionTimersRef.current
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const element = entry.target as HTMLElement
+        const key = element.dataset.zhihuFeedKey
+        if (!key) continue
+        const timer = timers.get(key)
+
+        if (!entry.isIntersecting || entry.intersectionRatio < 0.6) {
+          if (timer) {
+            clearTimeout(timer)
+            timers.delete(key)
+          }
+          continue
+        }
+
+        if (impressedKeysRef.current.has(key) || timer) continue
+        const item = byKey.get(key)
+        if (!item) continue
+        const nextTimer = setTimeout(() => {
+          timers.delete(key)
+          if (impressedKeysRef.current.has(key)) return
+          impressedKeysRef.current.add(key)
+          onImpression(item)
+        }, 850)
+        timers.set(key, nextTimer)
+      }
+    }, { root, threshold: [0, 0.6, 1] })
+
+    const nodes = surface.querySelectorAll<HTMLElement>('[data-zhihu-feed-key]')
+    nodes.forEach((node) => observer.observe(node))
+    return () => {
+      observer.disconnect()
+      timers.forEach((timer) => clearTimeout(timer))
+      timers.clear()
+    }
+  }, [items, mode, onImpression, scrollContainerRef])
 
   const modes = useMemo<Array<{ id: ZhihuFeedMode; label: string; enabled: boolean; hint?: string }>>(() => [
     { id: 'recommended', label: '推荐', enabled: true },
@@ -287,9 +378,53 @@ export function ZhihuFeedScreen({
               </div>
             ) : (
               <div className="space-y-3 px-3 sm:px-5">
-                {items.map((item) => (
-                  <ZhihuContentRow key={`${item.ref.kind}:${item.ref.id}`} item={item} onOpen={onOpen} compact showReason={false} />
-                ))}
+                {items.map((item) => {
+                  const key = `${item.ref.kind}:${item.ref.id}`
+                  const feedbackEnabled = mode === 'recommended'
+                  return (
+                    <div
+                      key={key}
+                      data-zhihu-feed-key={key}
+                      className="group/zhihu-card relative"
+                      onPointerDown={feedbackEnabled ? (event) => longPress.start(key, event) : undefined}
+                      onPointerMove={feedbackEnabled ? longPress.move : undefined}
+                      onPointerUp={feedbackEnabled ? longPress.cancel : undefined}
+                      onPointerCancel={feedbackEnabled ? longPress.cancel : undefined}
+                      onContextMenu={feedbackEnabled ? (event) => {
+                        event.preventDefault()
+                        setActionMenu({ key, anchor: { x: event.clientX, y: event.clientY } })
+                      } : undefined}
+                    >
+                      <ZhihuContentRow
+                        item={item}
+                        onOpen={(next) => {
+                          if (feedbackEnabled && longPress.consumeClick(key)) return
+                          onOpen(next)
+                        }}
+                        compact
+                        showReason={false}
+                      />
+                      {feedbackEnabled && (
+                        <button
+                          type="button"
+                          aria-label="调整推荐"
+                          title="调整推荐"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            const rect = event.currentTarget.getBoundingClientRect()
+                            const x = event.clientX || rect.left + rect.width / 2
+                            const y = event.clientY || rect.top + rect.height / 2
+                            setActionMenu({ key, anchor: { x, y } })
+                          }}
+                          className="absolute bottom-2.5 right-2.5 z-10 hidden size-7 items-center justify-center rounded-full border border-haze/65 bg-ink/82 text-paper-faint opacity-0 shadow-sm backdrop-blur-sm transition-[opacity,color,background-color] hover:bg-ink-raised hover:text-paper focus-visible:opacity-100 group-hover/zhihu-card:opacity-100 sm:flex"
+                        >
+                          <MoreHorizontal size={14} strokeWidth={1.7} />
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
 
@@ -330,6 +465,15 @@ export function ZhihuFeedScreen({
           )}
         </div>
       </div>
+
+      <ContextActionMenu
+        open={Boolean(actionMenu && actionItem)}
+        anchor={actionMenu?.anchor ?? { x: 0, y: 0 }}
+        title={actionItem?.title ?? '调整推荐'}
+        caption={actionItem?.author?.name ? `作者 · ${actionItem.author.name}` : '仅影响你的本地智能推荐'}
+        actions={actionItems}
+        onClose={() => setActionMenu(null)}
+      />
     </div>
   )
 }

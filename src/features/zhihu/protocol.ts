@@ -16,7 +16,7 @@ export type ZhihuAuthMode = 'guest' | 'optional' | 'required' | 'local-only'
 export type ZhihuRetryPolicy = 'safe-read' | 'never'
 
 export interface ZhihuProtocolEvidence {
-  /** repository-relative path，便于审计；不得放 Cookie/token/私信正文。 */
+  /** 仓库相对路径或固定 commit 的外部源码 URL，便于可复现审计；不得放 Cookie/token/私信正文。 */
   path: string
   /** source = 源码事实，corpus = 脱敏真实响应语料，live = 本项目授权实网记录，local-test = 本地行为测试。 */
   kind: 'source' | 'corpus' | 'live' | 'local-test'
@@ -38,7 +38,9 @@ export interface ZhihuOperationContract {
   note: string
 }
 
-const REF = 'third-party/zhihu-plus-plus-master/'
+// third-party/ 在 NewsNook 中明确被 gitignore；协议证据不能依赖某台开发机上的可选克隆。
+// 外部源码统一固定到审计时使用的上游 commit，避免 master 漂移后“同一路径、不同事实”。
+const REF = 'https://github.com/zly2006/zhihu-plus-plus/blob/313541192b925028f23410d61b959e6837534c24/'
 
 export const ZHIHU_OPERATIONS = [
   {
@@ -79,6 +81,11 @@ export const ZHIHU_OPERATIONS = [
     operation: 'feed.following', zIds: ['Z02'], status: 'source-only', method: 'GET', auth: 'required', retry: 'safe-read', endpoint: 'https://api.zhihu.com/moments_v3',
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/local/LocalRecommendationEngine.kt`, note: '参考代码存在 moments_v3 feed_type=recommend 路径；关注流精确语义仍需验证。' }],
     note: '未完成登录时禁用。',
+  },
+  {
+    operation: 'feed.lastread.touch', zIds: ['Z02', 'Z03'], status: 'source-only', method: 'POST', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/lastread/touch',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/feed/HomeFeedViewModel.kt`, note: '参考实现对已曝光内容批量提交 touch，对真正打开内容提交 read。' }],
+    note: '推荐反馈是 best-effort：只在已登录会话尝试，失败不能阻断阅读，也不伪装成 verified。',
   },
   {
     operation: 'search.query', zIds: ['Z04'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/search_v3',
@@ -154,6 +161,10 @@ export const ZHIHU_OPERATIONS = [
   {
     operation: 'follow.topic.clear', zIds: ['Z04', 'Z09'], status: 'source-only', method: 'DELETE', auth: 'required', retry: 'never', endpoint: 'https://www.zhihu.com/api/v4/topics/:id/followers',
     evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/ui/TopicScreen.kt`, note: '话题取消关注 DELETE endpoint。' }], note: '断线不重试。',
+  },
+  {
+    operation: 'comment.read', zIds: ['Z08'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/comment_v5/comment/:id',
+    evidence: [{ kind: 'source', path: `${REF}shared/src/commonMain/kotlin/com/github/zly2006/zhihu/viewmodel/comment/RootCommentViewModel.kt`, note: '通知 deep link 的 anchor_comment_id 需要先读评论详情，并在必要时继续读取 reply_root_comment_id 对应根评论。' }], note: '只读；用于评论通知精准定位，不把自定义 zhihu:// scheme 交给外部 Browser。',
   },
   {
     operation: 'comment.list-root', zIds: ['Z08'], status: 'source-only', method: 'GET', auth: 'optional', retry: 'safe-read', endpoint: 'https://www.zhihu.com/api/v4/comment_v5/:type/:id/root_comment',

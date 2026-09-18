@@ -12,6 +12,9 @@ import { parseExistingAnswerId } from '../editor/codec'
 import { ZhihuDraftStore } from '../editor/draftStore'
 import { ZhihuEditorService } from '../editor/service'
 import { ZhihuImageUploadService } from '../editor/upload'
+import { clearZhihuSmartCandidatePool } from '../feed/candidatePool'
+import { ZhihuRecommendationFeedbackService } from '../feed/feedback'
+import { clearZhihuRecommendationProfile, type ZhihuRecommendationSignalItem } from '../feed/recommendation'
 import { createZhihuFeedService } from '../feed/service'
 import { useZhihuFeed } from '../feed/useZhihuFeed'
 import { ZhihuInteractionService } from '../interaction/service'
@@ -57,6 +60,11 @@ interface FeedRouteProps {
   feed: ReturnType<typeof useZhihuFeed>
   onModeChange: (mode: ZhihuFeedMode) => void
   onOpen: (item: ZhihuContentSummary) => void
+  onImpression: (item: ZhihuContentSummary) => void
+  onRecommendationFeedback: (
+    item: ZhihuContentSummary,
+    action: 'not-interested' | 'less-author',
+  ) => void
   authenticated: boolean
   scrollContainerRef: MutableRefObject<HTMLDivElement | null>
 }
@@ -70,6 +78,8 @@ function ZhihuFeedRoute({
   feed,
   onModeChange,
   onOpen,
+  onImpression,
+  onRecommendationFeedback,
   authenticated,
   scrollContainerRef,
 }: FeedRouteProps) {
@@ -92,6 +102,8 @@ function ZhihuFeedRoute({
       onRefresh={feed.refresh}
       onLoadMore={feed.loadMore}
       onOpen={openItem}
+      onImpression={onImpression}
+      onRecommendationFeedback={onRecommendationFeedback}
     />
   )
 }
@@ -108,6 +120,10 @@ function capabilityPlaceholder(title: string, description: string) {
 export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontScale, onFontScale, speedReadConfig }: Props) {
   const runtime = useMemo(() => createZhihuRuntime(), [])
   const feedService = useMemo(() => createZhihuFeedService(runtime.api), [runtime])
+  const recommendationFeedback = useMemo(
+    () => new ZhihuRecommendationFeedbackService(runtime.api, runtime.session),
+    [runtime],
+  )
   const collectionService = useMemo(() => new ZhihuCollectionService(runtime.api), [runtime])
   const contentService = useMemo(() => new ZhihuContentService(runtime.api), [runtime])
   const commentsService = useMemo(() => new ZhihuCommentsService(runtime.api), [runtime])
@@ -140,12 +156,13 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
   const feed = useZhihuFeed(
     feedService,
     homeFeedMode,
-    'android',
+    'smart',
     sessionSnapshot.account?.id,
     feedEnabled,
   )
 
   useEffect(() => runtime.session.subscribe(setSessionSnapshot), [runtime])
+  useEffect(() => () => recommendationFeedback.dispose(), [recommendationFeedback])
   useEffect(() => {
     let alive = true
     setSessionHydrated(false)
@@ -191,6 +208,17 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
     })
   }, [saveScroll])
 
+  const pushEntityWithTargetAnchor = useCallback((ref: ZhihuEntityRef, targetAnchor?: string) => {
+    setFrames((prev) => reduceRoutes(saveScroll(prev), {
+      type: 'push',
+      frame: {
+        route: { screen: 'entity', ref },
+        anchor: targetAnchor,
+        scrollTop: 0,
+      },
+    }))
+  }, [saveScroll])
+
   // 上/下一个回答属于同一阅读上下文：替换当前实体而不是继续叠 route。
   const replaceEntity = useCallback((ref: ZhihuEntityRef) => {
     setFrames((prev) => reduceRoutes(saveScroll(prev), {
@@ -200,9 +228,37 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
   }, [saveScroll])
 
   const openFeedItem = useCallback((item: ZhihuContentSummary) => {
+    recommendationFeedback.recordRead(sessionSnapshot.account?.id, item)
     feedPreviewRef.current.set(`${item.ref.kind}:${item.ref.id}`, item)
     pushEntity(item.ref)
-  }, [pushEntity])
+  }, [pushEntity, recommendationFeedback, sessionSnapshot.account?.id])
+
+  const recordFeedImpression = useCallback((item: ZhihuContentSummary) => {
+    recommendationFeedback.recordImpression(sessionSnapshot.account?.id, item)
+  }, [recommendationFeedback, sessionSnapshot.account?.id])
+
+  const recordRecommendationSignal = useCallback((
+    item: ZhihuRecommendationSignalItem,
+    action: 'vote-up' | 'collect',
+  ) => {
+    recommendationFeedback.recordSignal(sessionSnapshot.account?.id, item, action)
+  }, [recommendationFeedback, sessionSnapshot.account?.id])
+
+  const recordFeedRecommendationFeedback = useCallback((
+    item: ZhihuContentSummary,
+    action: 'not-interested' | 'less-author',
+  ) => {
+    feed.dismiss(item)
+    recommendationFeedback.recordSignal(sessionSnapshot.account?.id, item, action)
+  }, [feed, recommendationFeedback, sessionSnapshot.account?.id])
+
+  const resetSmartRecommendation = useCallback(async () => {
+    const accountId = sessionSnapshot.account?.id
+    clearZhihuRecommendationProfile(accountId)
+    clearZhihuSmartCandidatePool()
+    feedService.resetSmartRecommendation(accountId)
+    await feed.refresh()
+  }, [feed, feedService, sessionSnapshot.account?.id])
 
   const pushSearch = useCallback((
     query = '',
@@ -358,6 +414,8 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
             feed={feed}
             onModeChange={setFeedMode}
             onOpen={openFeedItem}
+            onImpression={recordFeedImpression}
+            onRecommendationFeedback={recordFeedRecommendationFeedback}
             authenticated={sessionSnapshot.auth === 'authenticated'}
             scrollContainerRef={scrollRef}
           />
@@ -438,6 +496,7 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
             accountId={sessionSnapshot.account?.id}
             commentDraftStore={commentDraftStore}
             interaction={interactionService}
+            onRecommendationSignal={recordRecommendationSignal}
             onWriteAnswer={(questionId) => void openAnswerEditor(questionId)}
             scrollContainerRef={scrollRef}
             fontScale={fontScale}
@@ -450,7 +509,7 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
         return sessionSnapshot.auth === 'authenticated' ? (
           <ZhihuNotificationScreen
             service={notificationService}
-            onOpen={pushEntity}
+            onOpen={pushEntityWithTargetAnchor}
             onMessage={(peerId) => navTo({ route: { screen: 'conversation', peerId }, scrollTop: 0 })}
           />
         ) : capabilityPlaceholder('请先登录知乎', '登录后即可查看评论、赞同、关注通知和私信。')
@@ -461,6 +520,7 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
             onOpenEditor={() => navTo({ route: { screen: 'editor', localDraftId: 'new' }, scrollTop: 0 })}
             onOpenProfile={(urlToken) => pushEntity({ kind: 'people', id: urlToken })}
             onOpenCollections={(urlToken) => navTo({ route: { screen: 'collections', urlToken }, scrollTop: 0 })}
+            onResetRecommendation={resetSmartRecommendation}
           />
         )
       case 'collections':

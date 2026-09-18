@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Browser } from '@capacitor/browser'
 import { AtSign, Bell, Bookmark, CheckCheck, CircleHelp, Heart, Loader2, UserPlus } from 'lucide-react'
 
-import { parseZhihuLink, parseZhihuMessagePeerId } from '../content/links'
+import { parseZhihuCommentDeepLink, parseZhihuLink, parseZhihuMessagePeerId } from '../content/links'
 import type {
   ZhihuNotificationCategory,
   ZhihuNotificationInvitation,
@@ -18,7 +18,7 @@ import { formatZhihuCount } from './ZhihuUiUtils'
 
 interface Props {
   service: ZhihuNotificationService
-  onOpen: (ref: ZhihuEntityRef) => void
+  onOpen: (ref: ZhihuEntityRef, sourceAnchor?: string) => void
   onMessage: (peerId: string) => void
 }
 
@@ -138,6 +138,11 @@ export function ZhihuNotificationScreen({ service, onOpen, onMessage }: Props) {
   }
 
   const openItem = (item: ZhihuNotificationItem) => {
+    const commentTarget = item.targetUrl ? parseZhihuCommentDeepLink(item.targetUrl) : null
+    if (commentTarget) {
+      onOpen(commentTarget.ref, `zhihu-comment-${commentTarget.commentId}`)
+      return
+    }
     const peerId = item.targetUrl ? parseZhihuMessagePeerId(item.targetUrl) : null
     if (peerId) {
       onMessage(peerId)
@@ -152,7 +157,18 @@ export function ZhihuNotificationScreen({ service, onOpen, onMessage }: Props) {
       onOpen({ kind: 'people', id: item.author.token || item.author.id })
       return
     }
-    if (item.targetUrl) void Browser.open({ url: item.targetUrl }).catch(() => undefined)
+    if (item.targetUrl) {
+      try {
+        const target = new URL(item.targetUrl, 'https://www.zhihu.com')
+        if (target.protocol === 'http:' || target.protocol === 'https:') {
+          void Browser.open({ url: target.href }).catch(() => undefined)
+        } else {
+          setError('这条知乎消息使用了暂未支持的内部链接，已阻止跳转以避免应用卡住。')
+        }
+      } catch {
+        setError('这条知乎消息的跳转地址无效。')
+      }
+    }
   }
 
   const categoryIcon = (category: ZhihuNotificationCategory) => {

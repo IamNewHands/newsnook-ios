@@ -1,5 +1,10 @@
 import type { ZhihuEntityRef } from '../types'
 
+export interface ZhihuCommentDeepLink {
+  ref: ZhihuEntityRef
+  commentId: string
+}
+
 export function parseZhihuMessagePeerId(input: string): string | null {
   let url: URL
   try {
@@ -11,6 +16,29 @@ export function parseZhihuMessagePeerId(input: string): string | null {
   if (host !== 'www.zhihu.com' && host !== 'zhihu.com') return null
   const inbox = url.pathname.match(/^\/inbox\/([^/?#]+)/)
   return inbox?.[1] ? decodeURIComponent(inbox[1]) : null
+}
+
+export function parseZhihuCommentDeepLink(input: string): ZhihuCommentDeepLink | null {
+  let url: URL
+  try {
+    url = new URL(input, 'https://www.zhihu.com')
+  } catch {
+    return null
+  }
+
+  if (url.protocol === 'zhihu:' && url.hostname.toLowerCase() === 'comment') {
+    const match = /^\/list\/(answer|article|pin|question)\/([^/?#]+)/.exec(url.pathname)
+    const commentId = url.searchParams.get('anchor_comment_id')?.trim()
+    if (!match?.[1] || !match[2] || !commentId || !/^\d+$/.test(commentId)) return null
+    const kind = match[1] as ZhihuEntityRef['kind']
+    return { ref: { kind, id: decodeURIComponent(match[2]) }, commentId }
+  }
+
+  const ref = parseZhihuLink(input)
+  const commentId = url.searchParams.get('anchor_comment_id')?.trim()
+    ?? url.searchParams.get('comment_id')?.trim()
+  if (!ref || !commentId || !/^\d+$/.test(commentId)) return null
+  return { ref, commentId }
 }
 
 export function parseZhihuVideoId(input: string): string | null {

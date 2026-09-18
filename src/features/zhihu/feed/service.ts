@@ -3,7 +3,6 @@ import {
   validateZhihuCursor,
   zhihuHotUrl,
   zhihuQuestionAnswersUrl,
-  zhihuRecommendedUrl,
   zhihuSearchUrl,
 } from '../api/endpoints'
 import type { ZhihuQuestionAnswerOrder, ZhihuSearchOptions } from '../api/endpoints'
@@ -16,6 +15,7 @@ import type {
   ZhihuRecommendationMode,
 } from '../types'
 import { rankZhihuLocalRecommendations } from './recommendation'
+import { ZhihuSmartRecommendationCoordinator, type ZhihuSmartRecallSource } from './smart'
 
 export interface ZhihuReadApi {
   getJson(operation: string, url: string, signal?: AbortSignal): Promise<unknown>
@@ -69,7 +69,10 @@ function localOffset(cursor?: string): number {
   return Math.max(0, Number(match[1]))
 }
 
-function markSource(items: ZhihuContentSummary[], source: 'web' | 'android'): ZhihuContentSummary[] {
+function markSource(
+  items: ZhihuContentSummary[],
+  source: 'web' | 'android' | 'hot' | 'following',
+): ZhihuContentSummary[] {
   return items.map((item) => ({ ...item, recommendationSource: source }))
 }
 
@@ -116,9 +119,17 @@ export function mergeZhihuPages(
 
 export class ZhihuFeedService {
   private readonly api: ZhihuReadApi
+  private readonly smart: ZhihuSmartRecommendationCoordinator
 
   constructor(api: ZhihuReadApi) {
     this.api = api
+    this.smart = new ZhihuSmartRecommendationCoordinator({
+      fetch: (source, cursor, signal) => this.readSmartSource(source, cursor, signal),
+    })
+  }
+
+  resetSmartRecommendation(accountId?: string | null): void {
+    this.smart.reset(accountId)
   }
 
   private async readAndroidRecommendation(url: string, signal?: AbortSignal): Promise<Page<ZhihuContentSummary>> {
@@ -149,12 +160,74 @@ export class ZhihuFeedService {
     }
   }
 
+  private async readHotRecommendation(
+    url = `${zhihuHotUrl()}?limit=50&mobile=true`,
+    signal?: AbortSignal,
+  ): Promise<Page<ZhihuContentSummary>> {
+    const raw = this.api.getJsonWithHeaders
+      ? await this.api.getJsonWithHeaders(
+          'feed.hot',
+          url,
+          ANDROID_PUBLIC_HEADERS,
+          signal,
+          { signing: 'none' },
+        )
+      : await this.api.getJson('feed.hot', url, signal)
+    const decoded = decodeZhihuPage(raw)
+    return {
+      items: markSource(decoded.items, 'hot'),
+      nextCursor: decoded.nextCursor,
+      hasMore: decoded.hasMore,
+    }
+  }
+
+  private async readFollowingRecommendation(
+    url = 'https://api.zhihu.com/moments_v3?feed_type=recommend',
+    signal?: AbortSignal,
+  ): Promise<Page<ZhihuContentSummary>> {
+    const raw = this.api.getJsonWithHeaders
+      ? await this.api.getJsonWithHeaders(
+          'feed.following',
+          url,
+          ANDROID_PUBLIC_HEADERS,
+          signal,
+          { signing: 'none' },
+        )
+      : await this.api.getJson('feed.following', url, signal)
+    const decoded = decodeZhihuPage(raw)
+    return {
+      items: markSource(decoded.items, 'following'),
+      nextCursor: decoded.nextCursor,
+      hasMore: decoded.hasMore,
+    }
+  }
+
+  private readSmartSource(
+    source: ZhihuSmartRecallSource,
+    cursor: string | undefined,
+    signal?: AbortSignal,
+  ): Promise<Page<ZhihuContentSummary>> {
+    switch (source) {
+      case 'android':
+        return this.readAndroidRecommendation(cursor ? validateZhihuCursor(cursor) : ANDROID_RECOMMEND_URL, signal)
+      case 'web':
+        return this.readWebRecommendation(cursor ? validateZhihuCursor(cursor) : WEB_RECOMMEND_URL, signal)
+      case 'hot':
+        return this.readHotRecommendation(cursor ? validateZhihuCursor(cursor) : undefined, signal)
+      case 'following':
+        return this.readFollowingRecommendation(cursor ? validateZhihuCursor(cursor) : undefined, signal)
+    }
+  }
+
   private async listRecommended(
     recommendationMode: ZhihuRecommendationMode,
     cursor: string | undefined,
     signal: AbortSignal | undefined,
     accountId: string | null | undefined,
   ): Promise<Page<ZhihuContentSummary>> {
+    if (recommendationMode === 'smart') {
+      return this.smart.list(cursor, signal, accountId)
+    }
     if (recommendationMode === 'android') {
       return this.readAndroidRecommendation(cursor ? validateZhihuCursor(cursor) : ANDROID_RECOMMEND_URL, signal)
     }
@@ -213,39 +286,16 @@ export class ZhihuFeedService {
     mode: ZhihuFeedMode,
     cursor?: string,
     signal?: AbortSignal,
-    recommendationMode: ZhihuRecommendationMode = 'android',
+    recommendationMode: ZhihuRecommendationMode = 'smart',
     accountId?: string | null,
   ): Promise<Page<ZhihuContentSummary>> {
     if (mode === 'recommended') {
       return this.listRecommended(recommendationMode, cursor, signal, accountId)
     }
-    let operation: string
-    let url: string
-    if (cursor) {
-      url = validateZhihuCursor(cursor)
-      operation = mode === 'hot' ? 'feed.hot' : 'feed.following'
-    } else if (mode === 'hot') {
-      operation = 'feed.hot'
-      url = `${zhihuHotUrl()}?limit=50&mobile=true`
-    } else if (mode === 'following') {
-      operation = 'feed.following'
-      url = 'https://api.zhihu.com/moments_v3?feed_type=recommend'
-    } else {
-      operation = 'feed.recommended'
-      url = zhihuRecommendedUrl()
+    if (mode === 'hot') {
+      return this.readHotRecommendation(cursor ? validateZhihuCursor(cursor) : undefined, signal)
     }
-
-    const raw = mode === 'hot' && this.api.getJsonWithHeaders
-      ? await this.api.getJsonWithHeaders(
-          operation,
-          url,
-          ANDROID_PUBLIC_HEADERS,
-          signal,
-          { signing: 'none' },
-        )
-      : await this.api.getJson(operation, url, signal)
-    const decoded = decodeZhihuPage(raw)
-    return { items: decoded.items, nextCursor: decoded.nextCursor, hasMore: decoded.hasMore }
+    return this.readFollowingRecommendation(cursor ? validateZhihuCursor(cursor) : undefined, signal)
   }
 
   async search(

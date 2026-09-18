@@ -74,7 +74,15 @@ class NotificationTransport implements ZhihuTransport {
             unique_id: 'comment-1',
             created: 1785743001,
             is_read: false,
-            content: { title: '评论', text: '分类通知' },
+            content: {
+              title: '评论',
+              text: '分类通知',
+              target_link: 'zhihu://comment/list/answer/2?anchor_comment_id=3',
+            },
+            target_source: {
+              text: '被评论的回答',
+              target_link: 'https://www.zhihu.com/question/1/answer/2',
+            },
           }],
           paging: { is_end: true, next: '' },
         }),
@@ -116,6 +124,11 @@ assert.equal(transport.calls.at(-1)?.signing, 'none', '移动通知读取不能�
 const timeline = await service.timeline('comment')
 assert.equal(timeline.items[0]?.id, 'comment-1')
 assert.equal(timeline.items[0]?.unread, true)
+assert.equal(
+  timeline.items[0]?.targetUrl,
+  'zhihu://comment/list/answer/2?anchor_comment_id=3',
+  '评论通知必须保留官方 zhihu:// comment deep link，由应用内评论定位器处理',
+)
 assert.equal(
   transport.calls.at(-1)?.url,
   'https://api.zhihu.com/notifications/v3/timeline/entry/comment?limit=20',

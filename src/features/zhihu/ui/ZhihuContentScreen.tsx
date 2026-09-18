@@ -10,6 +10,7 @@ import { parseZhihuLink, parseZhihuVideoId } from '../content/links'
 import { normalizeZhihuContentHtml } from '../content/normalize'
 import { ZhihuAnswerNavigator, type ZhihuAnswerNeighbors } from '../content/answerNavigation'
 import type { ZhihuContentService } from '../content/service'
+import type { ZhihuRecommendationSignalItem } from '../feed/recommendation'
 import type { ZhihuFeedService } from '../feed/service'
 import type { ZhihuInteractionService, ZhihuVoteState } from '../interaction/service'
 import { canExecuteZhihuOperation } from '../protocol'
@@ -56,6 +57,10 @@ interface Props {
   accountId?: string
   commentDraftStore: ZhihuCommentDraftStore
   interaction: ZhihuInteractionService
+  onRecommendationSignal?: (
+    item: ZhihuRecommendationSignalItem,
+    action: 'vote-up' | 'collect',
+  ) => void
   onWriteAnswer: (questionId: string) => void
   scrollContainerRef: RefObject<HTMLElement | null>
   fontScale: number
@@ -294,7 +299,7 @@ export function ZhihuAnswerCommentsDialog({ open, onClose, children }: ZhihuAnsw
   )
 }
 
-export function ZhihuContentScreen({ refValue, preview, contentService, feedService, commentsService, onNavigate, onReplaceNavigate, overlayCloserRef, restoreAnchor, authenticated, accountId, commentDraftStore, interaction, onWriteAnswer, scrollContainerRef, fontScale, onFontScale, speedReadConfig, onSpeedReadHeaderActionChange }: Props) {
+export function ZhihuContentScreen({ refValue, preview, contentService, feedService, commentsService, onNavigate, onReplaceNavigate, overlayCloserRef, restoreAnchor, authenticated, accountId, commentDraftStore, interaction, onRecommendationSignal, onWriteAnswer, scrollContainerRef, fontScale, onFontScale, speedReadConfig, onSpeedReadHeaderActionChange }: Props) {
   const [detail, setDetail] = useState<ZhihuContentDetail | null>(null)
   const [answers, setAnswers] = useState<ZhihuContentSummary[]>([])
   const [answerOrder, setAnswerOrder] = useState<ZhihuQuestionAnswerOrder>('default')
@@ -316,6 +321,15 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
   const [actionBusy, setActionBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [guestLimited, setGuestLimited] = useState(false)
+  const recommendationSignalItem = useMemo<ZhihuRecommendationSignalItem>(
+    () => ({
+      ref: refValue,
+      author: detail?.author ?? preview?.author,
+      title: detail?.title ?? preview?.title,
+      excerpt: detail?.excerpt ?? preview?.excerpt,
+    }),
+    [detail?.author, detail?.excerpt, detail?.title, preview?.author, preview?.excerpt, preview?.title, refValue],
+  )
   const proseRef = useRef<HTMLDivElement | null>(null)
   const questionDetailRef = useRef<HTMLDivElement | null>(null)
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
@@ -575,6 +589,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
       setVoteState(result.state)
       if (typeof result.voteupCount === 'number') setVoteCount(result.voteupCount)
       else setVoteCount((count) => typeof count === 'number' ? Math.max(0, count + (target === 'up' ? 1 : -1)) : count)
+      if (target === 'up') onRecommendationSignal?.(recommendationSignalItem, 'vote-up')
     } catch (reason) {
       setActionError(reason instanceof Error ? reason.message : '赞同操作失败')
     } finally {
@@ -899,7 +914,14 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
           commentCountLabel={commentCountLabel}
           commentsDisabled={guestLimited}
           actionError={actionError}
-          collectionAction={<ZhihuCollectionPicker refValue={refValue} service={interaction} authenticated={authenticated} />}
+          collectionAction={(
+            <ZhihuCollectionPicker
+              refValue={refValue}
+              service={interaction}
+              authenticated={authenticated}
+              onCollected={() => onRecommendationSignal?.(recommendationSignalItem, 'collect')}
+            />
+          )}
           onUpVote={() => void toggleVote()}
           onDownVote={() => void toggleDownVote()}
           onOpenComments={() => setCommentsOpen(true)}
