@@ -50,6 +50,7 @@ interface Props {
 }
 
 let retainedFrames: RouteFrame[] | null = null
+let retainedFeedScrolls: Partial<Record<ZhihuFeedMode, number>> = {}
 
 interface FeedRouteProps {
   mode: ZhihuFeedMode
@@ -135,12 +136,13 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
     : 'recommended'
   // Feed hook 固定在 workspace 生命周期内。回答页只是切换视图，不能把 feed hook 一起卸载，
   // 否则返回首页会再次触发 useZhihuFeed 的首屏请求，看起来像“无操作自动刷新”。
+  const feedEnabled = sessionHydrated || homeFeedMode !== 'following'
   const feed = useZhihuFeed(
     feedService,
     homeFeedMode,
     'android',
     sessionSnapshot.account?.id,
-    sessionHydrated,
+    feedEnabled,
   )
 
   useEffect(() => runtime.session.subscribe(setSessionSnapshot), [runtime])
@@ -172,7 +174,9 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
     if (!source.length) return source
     const next = source.slice()
     const top = next.at(-1)!
-    next[next.length - 1] = { ...top, scrollTop: scrollRef.current?.scrollTop ?? top.scrollTop }
+    const scrollTop = scrollRef.current?.scrollTop ?? top.scrollTop
+    next[next.length - 1] = { ...top, scrollTop }
+    if (top.route.screen === 'feed') retainedFeedScrolls[top.route.mode] = scrollTop
     return next
   }, [])
 
@@ -233,13 +237,12 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
     return true
   }, [homeFeedMode, saveScroll])
 
-  const answerRoute = current.route.screen === 'entity' && current.route.ref.kind === 'answer'
+  const primaryRoute = current.route.screen === 'feed' || current.route.screen === 'notifications' || current.route.screen === 'profile'
   const handleWorkspaceBack = useCallback(() => {
     if (contentOverlayCloserRef.current?.()) return true
-    // 回答页的左上角/系统返回都回知乎首页；上下回答已经采用 replace，不再制造回答历史栈。
-    if (answerRoute) return goHome()
+    // 上/下回答使用 replace，不制造回答历史；因此返回应忠实回到真正的来源页。
     return goBack()
-  }, [answerRoute, goBack, goHome])
+  }, [goBack])
 
   useEffect(() => {
     backHandlerRef.current = handleWorkspaceBack
@@ -249,8 +252,22 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
   }, [backHandlerRef, handleWorkspaceBack])
 
   const setFeedMode = useCallback((mode: ZhihuFeedMode) => {
-    setFrames((prev) => reduceRoutes(saveScroll(prev), { type: 'reset', frame: createZhihuRootFrame(mode) }))
-  }, [saveScroll])
+    if (mode === homeFeedMode) return
+    setFrames((prev) => {
+      saveScroll(prev)
+      const next = createZhihuRootFrame(mode)
+      next.scrollTop = retainedFeedScrolls[mode] ?? 0
+      return [next]
+    })
+  }, [homeFeedMode, saveScroll])
+
+  const openPrimaryRoute = useCallback((screen: 'notifications' | 'profile') => {
+    setFrames((prev) => {
+      const saved = saveScroll(prev)
+      const root = saved.find((frame) => frame.route.screen === 'feed') ?? createZhihuRootFrame(homeFeedMode)
+      return [root, { route: { screen }, scrollTop: 0 }]
+    })
+  }, [homeFeedMode, saveScroll])
 
   const navTo = useCallback((frame: RouteFrame) => {
     setFrames((prev) => reduceRoutes(saveScroll(prev), { type: 'push', frame }))
@@ -323,7 +340,14 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
               ? '创作'
             : '知乎'
 
-  const body = !sessionHydrated ? (
+  const sessionCriticalRoute = current.route.screen === 'notifications'
+    || current.route.screen === 'profile'
+    || current.route.screen === 'collections'
+    || current.route.screen === 'editor'
+    || current.route.screen === 'conversation'
+    || (current.route.screen === 'feed' && current.route.mode === 'following')
+
+  const body = !sessionHydrated && sessionCriticalRoute ? (
     <div role="status" className="flex min-h-48 items-center justify-center font-mono text-[11px] text-paper-faint">正在恢复知乎会话…</div>
   ) : (() => {
     switch (current.route.screen) {
@@ -475,16 +499,16 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
   return (
     <section className="relative flex h-full min-h-0 flex-1 flex-col bg-ink" aria-label="知乎工作区">
       {/* AppShell 已经统一吃掉顶部 safe-area；工作区再次加 --sat 会在打孔/刘海机型上形成双倍顶部留白。 */}
-      <header className="relative z-20 flex min-h-[56px] shrink-0 items-center gap-2 border-b border-haze/50 bg-ink/92 px-3 backdrop-blur-xl sm:px-5">
+      <header className={`relative z-20 flex shrink-0 items-center gap-2 border-b border-haze/50 bg-ink/92 px-3 backdrop-blur-xl sm:px-5 ${primaryRoute ? 'min-h-[56px]' : 'min-h-[50px]'}`}>
         <button
           type="button"
           onClick={() => (handleWorkspaceBack() ? undefined : onExit())}
-          aria-label={answerRoute ? '返回知乎首页' : frames.length > 1 ? '返回' : '返回 NewsNook'}
+          aria-label={frames.length > 1 ? '返回上一页' : '返回 NewsNook'}
           className="flex size-9 shrink-0 items-center justify-center rounded-lg text-paper-muted/80 transition-colors hover:bg-paper/5 hover:text-cinnabar"
         >
           <ArrowLeft size={18} strokeWidth={1.6} />
         </button>
-        <div className="min-w-0 flex-1 truncate font-display text-[18px] font-medium tracking-[0.01em] text-paper">{currentTitle}</div>
+        <div className={`min-w-0 flex-1 truncate font-display font-medium tracking-[0.01em] text-paper ${primaryRoute ? 'text-[18px]' : 'text-[15px] text-paper-muted'}`}>{currentTitle}</div>
         {speedReadHeaderAction && (
           <button
             type="button"
@@ -500,15 +524,17 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
             {speedReadHeaderAction.state === 'ready' && <span className="size-1 rounded-full bg-cinnabar" aria-hidden />}
           </button>
         )}
-        <button
-          type="button"
-          onClick={() => pushSearch('')}
-          aria-label="搜索知乎"
-          className="flex size-9 shrink-0 items-center justify-center rounded-lg text-paper-muted/80 transition-colors hover:bg-paper/5 hover:text-cinnabar sm:hidden"
-        >
-          <Search size={17} strokeWidth={1.6} />
-        </button>
-        <PresetSwitcher {...presetSwitcher} />
+        {current.route.screen === 'feed' && (
+          <button
+            type="button"
+            onClick={() => pushSearch('')}
+            aria-label="搜索知乎"
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg text-paper-muted/80 transition-colors hover:bg-paper/5 hover:text-cinnabar sm:hidden"
+          >
+            <Search size={17} strokeWidth={1.6} />
+          </button>
+        )}
+        {primaryRoute && <PresetSwitcher {...presetSwitcher} />}
       </header>
 
       <div ref={scrollRef} className="reader-font-pinch-surface scroll-hidden min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -525,6 +551,7 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
         {body}
       </div>
 
+      {primaryRoute && (
       <nav className="absolute inset-x-0 bottom-0 z-20 grid grid-cols-3 border-t border-haze/50 bg-ink/92 backdrop-blur-xl" style={{ paddingBottom: 'var(--sab)' }} aria-label="知乎主导航">
         <button
           type="button"
@@ -535,19 +562,20 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
         </button>
         <button
           type="button"
-          onClick={() => navTo({ route: { screen: 'notifications' }, scrollTop: 0 })}
+          onClick={() => openPrimaryRoute('notifications')}
           className={`group flex min-h-13 flex-col items-center justify-center gap-0.5 font-mono text-[10.5px] tracking-[0.12em] transition-colors ${current.route.screen === 'notifications' ? 'font-medium text-cinnabar' : 'text-paper-muted/75 hover:text-paper'}`}
         >
           <Bell size={20} strokeWidth={current.route.screen === 'notifications' ? 2 : 1.5} className={current.route.screen === 'notifications' ? 'scale-105' : ''} /><span>消息</span>
         </button>
         <button
           type="button"
-          onClick={() => navTo({ route: { screen: 'profile' }, scrollTop: 0 })}
+          onClick={() => openPrimaryRoute('profile')}
           className={`group flex min-h-13 flex-col items-center justify-center gap-0.5 font-mono text-[10.5px] tracking-[0.12em] transition-colors ${current.route.screen === 'profile' ? 'font-medium text-cinnabar' : 'text-paper-muted/75 hover:text-paper'}`}
         >
           <UserRound size={20} strokeWidth={current.route.screen === 'profile' ? 2 : 1.5} className={current.route.screen === 'profile' ? 'scale-105' : ''} /><span>我的</span>
         </button>
       </nav>
+      )}
     </section>
   )
 }

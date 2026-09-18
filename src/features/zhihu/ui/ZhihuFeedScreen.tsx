@@ -82,7 +82,7 @@ function ZhihuFeedPeek({
 
   return (
     <div className="space-y-3 px-3 sm:px-5" aria-hidden>
-      {items.slice(0, 24).map((item) => (
+      {items.slice(0, 60).map((item) => (
         <ZhihuContentRow
           key={`${mode}:${item.ref.kind}:${item.ref.id}`}
           item={item}
@@ -195,18 +195,19 @@ export function ZhihuFeedScreen({
     <div className="relative mx-auto w-full max-w-3xl">
       <PullIndicator indicatorRef={indicatorRef} phase={phase} />
 
-      <div className="sticky top-0 z-30 border-b border-haze/45 bg-ink/94 px-4 py-2.5 backdrop-blur-xl sm:px-6">
+      <div className="sticky top-0 z-30 border-b border-haze/45 bg-ink/94 px-3 backdrop-blur-xl sm:px-5">
         <div className="flex items-center gap-2">
-          <div className="relative flex min-w-0 flex-1 overflow-hidden rounded-xl border border-haze/75 bg-ink-raised/30 p-1">
+          <div className="relative grid min-w-0 flex-1 grid-cols-3">
             <span
               aria-hidden
-              className="pointer-events-none absolute inset-y-1 left-1 rounded-lg bg-cinnabar/16 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.025)]"
+              className="pointer-events-none absolute bottom-0 left-0 flex h-0.5 w-1/3 justify-center"
               style={{
-                width: 'calc((100% - 0.5rem) / 3)',
                 transform: `translate3d(calc(${activeIndex * 100}% + ${indicatorDragPct}%), 0, 0)`,
                 transition: swipeTransition,
               }}
-            />
+            >
+              <span className="h-0.5 w-7 rounded-full bg-cinnabar" />
+            </span>
             {modes.map((item) => {
               const active = mode === item.id
               return (
@@ -217,12 +218,12 @@ export function ZhihuFeedScreen({
                   title={item.hint}
                   aria-pressed={active}
                   onClick={() => item.enabled && onModeChange(item.id)}
-                  className={`relative z-10 flex-1 rounded-lg py-2 text-[12.5px] transition-colors duration-200 ${
+                  className={`relative z-10 min-h-12 px-2 text-[13px] transition-colors duration-200 ${
                     active
                       ? 'font-medium text-paper'
                       : item.enabled
                         ? 'text-paper-faint hover:text-paper-muted'
-                        : 'cursor-not-allowed text-paper-faint/35'
+                        : 'cursor-not-allowed text-paper-faint/30'
                   }`}
                 >
                   {item.label}
@@ -236,9 +237,9 @@ export function ZhihuFeedScreen({
             disabled={loading}
             aria-label="刷新信息流"
             title="刷新"
-            className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-haze/65 bg-ink-raised/35 text-paper-muted transition-colors hover:border-paper-faint/35 hover:bg-ink-raised/70 hover:text-paper disabled:opacity-35"
+            className="hidden size-9 shrink-0 items-center justify-center rounded-lg text-paper-faint transition-colors hover:bg-paper/5 hover:text-paper disabled:opacity-35 sm:flex"
           >
-            <RefreshCw size={16} strokeWidth={1.6} className={loading ? 'animate-spin text-cinnabar-soft' : ''} />
+            <RefreshCw size={15} strokeWidth={1.6} className={loading ? 'animate-spin text-cinnabar-soft' : ''} />
           </button>
         </div>
       </div>

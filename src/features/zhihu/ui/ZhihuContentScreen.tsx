@@ -119,6 +119,8 @@ interface ZhihuAnswerActionBarProps {
   onUpVote: () => void
   onDownVote: () => void
   onOpenComments: () => void
+  onPreviousAnswer?: () => void
+  onNextAnswer?: () => void
 }
 
 export function ZhihuAnswerActionBar({
@@ -134,16 +136,18 @@ export function ZhihuAnswerActionBar({
   onUpVote,
   onDownVote,
   onOpenComments,
+  onPreviousAnswer,
+  onNextAnswer,
 }: ZhihuAnswerActionBarProps) {
   const voteDisabled = !authenticated || !voteWritable || actionBusy
 
   return (
     <nav
       className="pointer-events-none fixed inset-x-0 z-40 flex justify-center px-3 sm:px-4"
-      style={{ bottom: 'calc(var(--sab) + 4.1rem)' }}
+      style={{ bottom: 'calc(var(--sab) + 0.65rem)' }}
       aria-label="回答操作"
     >
-      <div className="relative w-auto max-w-[calc(100vw-1.5rem)]">
+      <div className="relative w-full max-w-lg">
         {actionError && (
           <div role="alert" className="absolute bottom-full left-1/2 mb-2.5 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-2xl border border-cinnabar/35 bg-ink/98 px-3.5 py-2.5 text-[11px] text-cinnabar-soft shadow-2xl">
             {actionError}
@@ -184,11 +188,37 @@ export function ZhihuAnswerActionBar({
             onClick={onOpenComments}
             aria-label={commentCountLabel ? `查看 ${commentCountLabel} 条评论` : '查看评论'}
             title={commentsDisabled ? '当前内容暂无法读取评论' : '查看评论'}
-            className="flex h-10 min-w-0 items-center justify-center gap-1.5 rounded-xl px-3 text-paper-muted/85 transition-[background-color,color,transform] duration-200 hover:bg-paper/5 hover:text-paper active:scale-[0.96] disabled:opacity-35 disabled:active:scale-100"
+            className="flex h-10 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl px-2.5 text-paper-muted/85 transition-[background-color,color,transform] duration-200 hover:bg-paper/5 hover:text-paper active:scale-[0.96] disabled:opacity-35 disabled:active:scale-100"
           >
             <MessageCircle size={17.5} strokeWidth={1.7} />
             {commentCountLabel && <span className="max-w-14 truncate text-[11px] font-medium tabular-nums">{commentCountLabel}</span>}
           </button>
+
+          {(onPreviousAnswer || onNextAnswer) && <span className="mx-0.5 h-5 w-px shrink-0 bg-haze/70" aria-hidden />}
+          {(onPreviousAnswer || onNextAnswer) && (
+            <div className="flex shrink-0 items-center gap-0.5" aria-label="此问题的回答导航">
+              <button
+                type="button"
+                disabled={!onPreviousAnswer}
+                onClick={onPreviousAnswer}
+                aria-label="上一个回答"
+                title="上一个回答"
+                className="flex size-9 items-center justify-center rounded-xl text-paper-muted/75 transition-[background-color,color,transform] hover:bg-paper/5 hover:text-cinnabar-soft active:scale-[0.94] disabled:opacity-25"
+              >
+                <ChevronUp size={17} strokeWidth={1.8} />
+              </button>
+              <button
+                type="button"
+                disabled={!onNextAnswer}
+                onClick={onNextAnswer}
+                aria-label="下一个回答"
+                title="下一个回答"
+                className="flex size-9 items-center justify-center rounded-xl text-paper-muted/75 transition-[background-color,color,transform] hover:bg-paper/5 hover:text-cinnabar-soft active:scale-[0.94] disabled:opacity-25"
+              >
+                <ChevronDown size={17} strokeWidth={1.8} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </nav>
@@ -202,15 +232,63 @@ interface ZhihuAnswerCommentsDialogProps {
 }
 
 export function ZhihuAnswerCommentsDialog({ open, onClose, children }: ZhihuAnswerCommentsDialogProps) {
+  const [dragY, setDragY] = useState(0)
+  const dragStartYRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!open) {
+      dragStartYRef.current = null
+      setDragY(0)
+    }
+  }, [open])
+
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-[74] flex min-h-0 flex-col bg-ink/98" role="dialog" aria-modal="true" aria-label="知乎回答评论">
-      <button type="button" onClick={onClose} aria-label="关闭评论" title="关闭评论" className="absolute right-3 top-[calc(var(--sat)+0.5rem)] z-10 flex size-10 items-center justify-center rounded-xl border border-haze/60 bg-ink/90 text-paper-muted shadow-lg backdrop-blur-xl transition-colors hover:bg-ink-raised hover:text-paper">
-        <X size={18} />
-      </button>
-      <div className="scroll-hidden min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(var(--sab)+1rem)] sm:px-6">
-        <div className="mx-auto w-full max-w-3xl">{children}</div>
+    <div
+      className="fixed inset-0 z-[74] flex min-h-0 items-end justify-center bg-black/40 backdrop-blur-[2px] sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="知乎回答评论"
+        className="flex h-[88dvh] min-h-0 w-full max-w-3xl flex-col overflow-hidden rounded-t-[1.75rem] border-t border-haze/80 bg-ink/98 shadow-2xl sm:h-[86dvh] sm:rounded-[1.5rem] sm:border"
+        style={{
+          transform: dragY ? `translate3d(0, ${dragY}px, 0)` : undefined,
+          transition: dragStartYRef.current === null ? 'transform 180ms var(--ease-ink)' : 'none',
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div
+          className="relative shrink-0 touch-none py-2.5"
+          onTouchStart={(event) => {
+            dragStartYRef.current = event.touches[0]?.clientY ?? null
+          }}
+          onTouchMove={(event) => {
+            const start = dragStartYRef.current
+            const currentY = event.touches[0]?.clientY
+            if (start === null || currentY === undefined) return
+            setDragY(Math.min(180, Math.max(0, currentY - start)))
+          }}
+          onTouchEnd={() => {
+            dragStartYRef.current = null
+            if (dragY > 72) onClose()
+            setDragY(0)
+          }}
+        >
+          <div className="mx-auto h-1 w-10 rounded-full bg-paper-faint/30" aria-hidden />
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="关闭评论"
+            title="关闭评论"
+            className="absolute right-2 top-1/2 flex size-9 -translate-y-1/2 items-center justify-center rounded-full text-paper-faint transition-colors hover:bg-paper/5 hover:text-paper"
+          >
+            <X size={17} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1">{children}</div>
       </div>
     </div>
   )
@@ -627,7 +705,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
   const activeActionClass = 'border-cinnabar/45 bg-cinnabar/12 text-cinnabar-soft'
 
   return (
-    <article className={`mx-auto w-full max-w-3xl px-4 pt-5 sm:px-6 ${refValue.kind === 'answer' ? 'pb-44' : 'pb-28'}`}>
+    <article className={`mx-auto w-full max-w-3xl px-4 pt-5 sm:px-6 ${refValue.kind === 'answer' ? 'pb-28' : 'pb-24'}`}>
       {hudLabel && (
         <div
           className="pointer-events-none fixed left-1/2 top-[40%] z-[70] -translate-x-1/2 rounded-full border border-haze bg-ink/92 px-3.5 py-1.5 font-mono text-[12px] text-paper shadow-lg backdrop-blur-md"
@@ -638,11 +716,13 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
         </div>
       )}
       <header className="border-b border-haze/55 pb-5">
-        <div className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.12em] text-cinnabar-soft">
-          <ZhihuEntityIcon kind={refValue.kind} size={12} />
-          <span>{zhihuEntityLabel(refValue.kind)}</span>
-        </div>
-        <h1 className="mt-2 font-display text-[27px] font-medium leading-[1.34] tracking-[0.003em] text-paper sm:text-[31px]">
+        {refValue.kind !== 'answer' && (
+          <div className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.12em] text-cinnabar-soft">
+            <ZhihuEntityIcon kind={refValue.kind} size={12} />
+            <span>{zhihuEntityLabel(refValue.kind)}</span>
+          </div>
+        )}
+        <h1 className={`${refValue.kind === 'answer' ? 'mt-0' : 'mt-2'} font-display text-[27px] font-medium leading-[1.34] tracking-[0.003em] text-paper sm:text-[31px]`}>
           {refValue.kind === 'answer' && detail.questionId ? (
             <button
               type="button"
@@ -809,35 +889,6 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
         />
       )}
 
-      {refValue.kind === 'answer' && detail.questionId && (previousAnswerRef || nextAnswerRef) && (
-        <nav
-          className="pointer-events-none fixed right-3 z-30 flex flex-col gap-2.5 sm:right-5"
-          style={{ bottom: 'calc(var(--sab) + 8.75rem)' }}
-          aria-label="此问题的回答导航"
-        >
-          <button
-            type="button"
-            disabled={!previousAnswerRef}
-            onClick={() => previousAnswerRef && onReplaceNavigate(previousAnswerRef)}
-            aria-label="上一个回答"
-            title="上一个回答"
-            className="group pointer-events-auto relative flex size-10 items-center justify-center overflow-hidden rounded-full border border-haze/65 bg-ink/84 text-paper-muted/75 shadow-[0_8px_22px_-14px_rgba(0,0,0,0.62)] backdrop-blur-xl transition-[transform,border-color,color] duration-200 hover:-translate-y-0.5 hover:border-cinnabar/35 hover:text-cinnabar-soft active:translate-y-0 active:scale-[0.94] disabled:translate-y-0 disabled:border-haze/45 disabled:text-paper-faint disabled:opacity-25 disabled:shadow-none"
-          >
-            <ChevronUp size={18} strokeWidth={1.8} />
-          </button>
-          <button
-            type="button"
-            disabled={!nextAnswerRef}
-            onClick={() => nextAnswerRef && onReplaceNavigate(nextAnswerRef)}
-            aria-label="下一个回答"
-            title="下一个回答"
-            className="group pointer-events-auto relative flex size-10 items-center justify-center overflow-hidden rounded-full border border-haze/65 bg-ink/84 text-paper-muted/75 shadow-[0_8px_22px_-14px_rgba(0,0,0,0.62)] backdrop-blur-xl transition-[transform,border-color,color] duration-200 hover:translate-y-0.5 hover:border-cinnabar/35 hover:text-cinnabar-soft active:translate-y-0 active:scale-[0.94] disabled:translate-y-0 disabled:border-haze/45 disabled:text-paper-faint disabled:opacity-25 disabled:shadow-none"
-          >
-            <ChevronDown size={18} strokeWidth={1.8} />
-          </button>
-        </nav>
-      )}
-
       {refValue.kind === 'answer' && (
         <ZhihuAnswerActionBar
           authenticated={authenticated}
@@ -852,6 +903,8 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
           onUpVote={() => void toggleVote()}
           onDownVote={() => void toggleDownVote()}
           onOpenComments={() => setCommentsOpen(true)}
+          onPreviousAnswer={previousAnswerRef ? () => onReplaceNavigate(previousAnswerRef) : undefined}
+          onNextAnswer={nextAnswerRef ? () => onReplaceNavigate(nextAnswerRef) : undefined}
         />
       )}
 

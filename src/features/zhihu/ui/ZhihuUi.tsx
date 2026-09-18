@@ -132,24 +132,36 @@ export function ZhihuAnswerMeta({
 }) {
   const created = formatZhihuDetailTime(createdAt)
   const updated = formatZhihuDetailTime(updatedAt)
+  const primaryTime = updated ?? created
+  const primaryTimestamp = updated ? updatedAt : createdAt
   const entries = [
     { label: '发布于', value: created ?? '时间未知', timestamp: createdAt },
     { label: '编辑于', value: updated ?? '时间未知', timestamp: updatedAt },
     { label: 'IP 属地', value: ipLocation?.trim() || '未显示' },
   ]
   return (
-    <dl className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-haze/35 pt-3 text-[10.5px] leading-5 text-paper-faint/75" aria-label="回答信息">
-      {entries.map((entry) => (
-        <div key={entry.label} className="inline-flex min-w-0 items-baseline gap-1.5">
-          <dt className="shrink-0 text-paper-faint/55">{entry.label}</dt>
-          <dd className="min-w-0 text-paper-faint/90">
-            {entry.timestamp && entry.value !== '时间未知'
-              ? <time dateTime={new Date(entry.timestamp * 1000).toISOString()}>{entry.value}</time>
-              : entry.value}
-          </dd>
-        </div>
-      ))}
-    </dl>
+    <details className="group mt-8 border-t border-haze/30 pt-3 text-[10.5px] text-paper-faint/65">
+      <summary className="inline-flex min-h-7 cursor-pointer list-none items-center gap-1.5 rounded-md pr-2 transition-colors hover:text-paper-muted [&::-webkit-details-marker]:hidden">
+        <span>{updated ? '编辑于' : '发布于'}</span>
+        {primaryTime && primaryTimestamp
+          ? <time dateTime={new Date(primaryTimestamp * 1000).toISOString()}>{primaryTime}</time>
+          : <span>时间未知</span>}
+        <span aria-hidden>·</span>
+        <span className="text-paper-faint/50 group-open:text-paper-faint">回答信息</span>
+      </summary>
+      <dl className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 pb-1 leading-5" aria-label="回答信息">
+        {entries.map((entry) => (
+          <div key={entry.label} className="inline-flex min-w-0 items-baseline gap-1.5">
+            <dt className="shrink-0 text-paper-faint/45">{entry.label}</dt>
+            <dd className="min-w-0 text-paper-faint/75">
+              {entry.timestamp && entry.value !== '时间未知'
+                ? <time dateTime={new Date(entry.timestamp * 1000).toISOString()}>{entry.value}</time>
+                : entry.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </details>
   )
 }
 

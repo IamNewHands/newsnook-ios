@@ -166,10 +166,20 @@ export function useZhihuFeed(
     })
 
     void service.listFeed(targetMode, undefined, controller.signal, recommendationMode, accountId).then(
-      (page) => {
+      async (page) => {
         if (controller.signal.aborted) return
-        saveZhihuPublicFeedCache(targetMode, page, undefined, Date.now(), recommendationMode)
-        putPreview(targetMode, { ...page, loading: false, loadingMore: false, error: null })
+        let previewPage = page
+        if (page.hasMore && page.nextCursor) {
+          try {
+            const secondPage = await service.listFeed(targetMode, page.nextCursor, controller.signal, recommendationMode, accountId)
+            if (!controller.signal.aborted) previewPage = mergeZhihuPages(page, secondPage)
+          } catch {
+            // 邻页预取的第二屏失败时保留第一屏；不让预取错误影响当前阅读页。
+          }
+        }
+        if (controller.signal.aborted) return
+        saveZhihuPublicFeedCache(targetMode, previewPage, undefined, Date.now(), recommendationMode)
+        putPreview(targetMode, { ...previewPage, loading: false, loadingMore: false, error: null })
         prefetchedKeysRef.current.add(key)
       },
       (error) => {

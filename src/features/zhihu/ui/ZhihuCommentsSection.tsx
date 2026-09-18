@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, Clock3, Flame, Heart, Loader2, MessageCircle, RefreshCw, Reply, Send, Trash2 } from 'lucide-react'
+import { ChevronDown, Heart, Loader2, MessageCircle, Reply, Send, Trash2 } from 'lucide-react'
 
 import { normalizeZhihuContentHtml } from '../content/normalize'
 import {
@@ -392,22 +392,6 @@ export function ZhihuCommentsSection({ target, service, onNavigate, restoreAncho
     return () => window.cancelAnimationFrame(frame)
   }, [items, restoreAnchor])
 
-  const refresh = async () => {
-    if (loading) return
-    setLoading(true)
-    setError(null)
-    try {
-      const page = await service.listRoot(stableTarget, undefined, undefined, sort)
-      setItems(page.items)
-      setNextCursor(page.hasMore ? page.nextCursor : undefined)
-      setLoadedOnce(true)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '评论读取失败')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   const loadMore = async () => {
     if (loading || !nextCursor) return
     setLoading(true)
@@ -440,83 +424,58 @@ export function ZhihuCommentsSection({ target, service, onNavigate, restoreAncho
   }
 
   const sortControl = (
-    <div className="flex items-center gap-0.5 rounded-lg border border-haze/70 bg-ink-raised/45 p-0.5" aria-label="评论排序">
+    <div className="inline-flex items-center rounded-full bg-ink-raised/55 p-0.5" aria-label="评论排序">
       <button
         type="button"
         disabled={loading}
         onClick={() => setSort('score')}
-        aria-label="按热度排序"
-        title="按热度排序"
-        className={`flex size-8 items-center justify-center rounded-md transition-colors disabled:opacity-40 ${sort === 'score' ? 'bg-cinnabar/18 text-cinnabar-soft' : 'text-paper-faint hover:bg-paper/5 hover:text-paper-muted'}`}
+        aria-pressed={sort === 'score'}
+        className={`min-h-8 rounded-full px-3 text-[11px] font-medium transition-colors disabled:opacity-40 ${sort === 'score' ? 'bg-paper/8 text-paper' : 'text-paper-faint hover:text-paper-muted'}`}
       >
-        <Flame size={14} strokeWidth={1.65} />
+        热度
       </button>
       <button
         type="button"
         disabled={loading}
         onClick={() => setSort('time')}
-        aria-label="按时间排序"
-        title="按时间排序"
-        className={`flex size-8 items-center justify-center rounded-md transition-colors disabled:opacity-40 ${sort === 'time' ? 'bg-cinnabar/18 text-cinnabar-soft' : 'text-paper-faint hover:bg-paper/5 hover:text-paper-muted'}`}
+        aria-pressed={sort === 'time'}
+        className={`min-h-8 rounded-full px-3 text-[11px] font-medium transition-colors disabled:opacity-40 ${sort === 'time' ? 'bg-paper/8 text-paper' : 'text-paper-faint hover:text-paper-muted'}`}
       >
-        <Clock3 size={14} strokeWidth={1.65} />
+        最新
       </button>
     </div>
   )
 
-  return (
-    <section className={variant === 'dialog' ? 'pt-[calc(var(--sat)+0.75rem)]' : 'mt-9 border-t border-haze/55 pt-5'} aria-label="知乎评论">
-      <div className={variant === 'dialog' ? 'pr-12' : undefined}>
-        <ZhihuSectionHeader
-          icon={<MessageCircle size={17} />}
-          title={sectionTitle}
-          detail={items.length > 0 ? `${items.length} 条已载入` : undefined}
-          action={(
-            <div className="flex items-center gap-1.5">
-              {sortControl}
-              <button
-                type="button"
-                onClick={() => void refresh()}
-                disabled={loading}
-                aria-label="刷新评论"
-                title="刷新评论"
-                className="flex size-9 items-center justify-center rounded-lg border border-haze/70 bg-ink-raised/45 text-paper-faint transition-colors hover:bg-ink-raised hover:text-paper-muted disabled:opacity-35"
-              >
-                <RefreshCw size={14} strokeWidth={1.65} className={loading ? 'animate-spin text-cinnabar-soft' : ''} />
-              </button>
-            </div>
-          )}
-        />
-      </div>
+  const composer = authenticated && commentWritable ? (
+    <div className={`flex items-end gap-2 rounded-2xl border border-haze/70 bg-ink-raised/40 shadow-[var(--shadow-lift)] transition-colors focus-within:border-cinnabar/35 ${variant === 'dialog' ? 'p-2.5' : 'p-3'}`}>
+      <textarea
+        value={rootDraft.value}
+        onChange={(event) => rootDraft.setValue(event.target.value)}
+        rows={variant === 'dialog' ? 1 : 2}
+        maxLength={5000}
+        placeholder={stableTarget.kind === 'segment' ? '评论这段文字…' : '写下你的评论…'}
+        className={`${variant === 'dialog' ? 'min-h-10 resize-none' : 'min-h-16 resize-y'} min-w-0 flex-1 bg-transparent text-[13px] leading-[1.6] text-paper outline-none placeholder:text-paper-faint/65`}
+      />
+      <button
+        type="button"
+        disabled={sending || !rootDraft.ready || !rootDraft.value.trim()}
+        onClick={() => void submitRoot()}
+        className="flex size-9 shrink-0 items-center justify-center rounded-full bg-cinnabar/14 text-cinnabar-soft transition-colors hover:bg-cinnabar/22 disabled:opacity-30"
+        aria-label="发送评论"
+        title="发送评论"
+      >
+        {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} strokeWidth={1.8} />}
+      </button>
+    </div>
+  ) : (
+    <div className="rounded-xl border border-haze/55 bg-ink-raised/30 px-3.5 py-2.5 text-[11px] leading-relaxed text-paper-faint">
+      {!authenticated ? `登录知乎后可发表${stableTarget.kind === 'segment' ? '段评' : '评论'}、回复和点赞。` : `当前会话暂不可发表${stableTarget.kind === 'segment' ? '段评' : '评论'}。`}
+    </div>
+  )
 
-      {authenticated && commentWritable ? (
-        <div className="flex items-end gap-2 rounded-2xl border border-haze/70 bg-ink-raised/35 p-3 shadow-[var(--shadow-lift)] transition-colors focus-within:border-cinnabar/35">
-          <textarea
-            value={rootDraft.value}
-            onChange={(event) => rootDraft.setValue(event.target.value)}
-            rows={2}
-            maxLength={5000}
-            placeholder={stableTarget.kind === 'segment' ? '评论这段文字…' : '写下你的评论…'}
-            className="min-h-16 min-w-0 flex-1 resize-y bg-transparent text-[13px] leading-[1.65] text-paper outline-none placeholder:text-paper-faint/65"
-          />
-          <button
-            type="button"
-            disabled={sending || !rootDraft.ready || !rootDraft.value.trim()}
-            onClick={() => void submitRoot()}
-            className="flex size-10 shrink-0 items-center justify-center rounded-full border border-cinnabar/50 bg-cinnabar/12 text-cinnabar-soft transition-colors hover:bg-cinnabar/20 disabled:opacity-35"
-            aria-label="发送评论"
-            title="发送评论"
-          >
-            {sending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} strokeWidth={1.7} />}
-          </button>
-        </div>
-      ) : (
-        <div className="rounded-xl border border-haze/60 bg-ink-raised/35 px-3.5 py-2.5 text-[11px] leading-relaxed text-paper-faint">
-          {!authenticated ? `登录知乎后可发表${stableTarget.kind === 'segment' ? '段评' : '评论'}、回复和点赞。` : `当前会话暂不可发表${stableTarget.kind === 'segment' ? '段评' : '评论'}。`}
-        </div>
-      )}
-
-      {error && <div className="mt-3"><ZhihuErrorBanner>{error}</ZhihuErrorBanner></div>}
+  const commentList = (
+    <>
+      {error && <div className="mb-3"><ZhihuErrorBanner>{error}</ZhihuErrorBanner></div>}
       {loading && items.length === 0 && (
         <div className="flex min-h-28 items-center justify-center gap-2 font-mono text-[10.5px] text-paper-faint">
           <Loader2 size={14} className="animate-spin text-cinnabar-soft" />
@@ -526,9 +485,8 @@ export function ZhihuCommentsSection({ target, service, onNavigate, restoreAncho
       {!loading && loadedOnce && !error && items.length === 0 && (
         <ZhihuEmptyState icon={<MessageCircle size={26} />} title={stableTarget.kind === 'segment' ? '还没有段评' : '还没有评论'} description={stableTarget.kind === 'segment' ? '这里会显示围绕这段文字的讨论。' : '这里会显示这条内容下的讨论。'} />
       )}
-
       {items.length > 0 && (
-        <div className="mt-1 border-y border-haze/55 bg-ink-raised/15 px-2.5 sm:px-3">
+        <div className="divide-y divide-haze/45">
           {items.map((comment) => (
             <CommentItem
               key={comment.id}
@@ -544,19 +502,51 @@ export function ZhihuCommentsSection({ target, service, onNavigate, restoreAncho
           ))}
         </div>
       )}
-
       {nextCursor && (
         <button
           type="button"
           onClick={() => void loadMore()}
           disabled={loading}
-          aria-label="加载更多评论"
-          title="加载更多评论"
-          className="mx-auto mt-3 flex size-10 items-center justify-center rounded-xl border border-haze/70 bg-ink-raised/40 text-paper-faint transition-colors hover:border-cinnabar/30 hover:bg-paper/5 hover:text-cinnabar-soft disabled:opacity-45"
+          className="mx-auto mt-3 flex min-h-9 items-center gap-1.5 rounded-full px-3 text-[11px] text-paper-faint transition-colors hover:bg-paper/5 hover:text-cinnabar-soft disabled:opacity-45"
         >
-          {loading ? <Loader2 size={14} className="animate-spin" /> : <ChevronDown size={15} strokeWidth={1.6} />}
+          {loading ? <Loader2 size={13} className="animate-spin" /> : <ChevronDown size={14} strokeWidth={1.7} />}
+          <span>{loading ? '正在加载' : '加载更多'}</span>
         </button>
       )}
+    </>
+  )
+
+  if (variant === 'dialog') {
+    return (
+      <section className="flex h-full min-h-0 flex-col" aria-label="知乎评论">
+        <div className="shrink-0 px-4 pt-1 sm:px-6">
+          <ZhihuSectionHeader
+            icon={<MessageCircle size={17} />}
+            title={sectionTitle}
+            detail={items.length > 0 ? `${items.length} 条已载入` : undefined}
+            action={sortControl}
+          />
+        </div>
+        <div className="scroll-hidden min-h-0 flex-1 overflow-y-auto px-4 pb-3 sm:px-6">
+          {commentList}
+        </div>
+        <div className="shrink-0 border-t border-haze/50 bg-ink/96 px-4 pb-[calc(var(--sab)+0.65rem)] pt-2.5 backdrop-blur-xl sm:px-6 sm:pb-3">
+          {composer}
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section className="mt-9 border-t border-haze/55 pt-5" aria-label="知乎评论">
+      <ZhihuSectionHeader
+        icon={<MessageCircle size={17} />}
+        title={sectionTitle}
+        detail={items.length > 0 ? `${items.length} 条已载入` : undefined}
+        action={sortControl}
+      />
+      {composer}
+      <div className="mt-3">{commentList}</div>
     </section>
   )
 }
