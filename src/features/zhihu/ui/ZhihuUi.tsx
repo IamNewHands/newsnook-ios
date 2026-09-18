@@ -190,10 +190,12 @@ export function ZhihuContentRow({
                 {item.excerpt}
               </span>
             )}
-            <span className="mt-auto flex items-center gap-1.5 pt-2.5 font-mono text-[10.5px] text-paper-faint">
-              <ThumbsUp size={12.5} strokeWidth={1.65} className="text-cinnabar-soft/75" />
-              <span>{vote ?? '—'} 赞同</span>
-            </span>
+            {vote && (
+              <span className="mt-auto flex items-center gap-1.5 pt-2.5 font-mono text-[10.5px] text-paper-faint">
+                <ThumbsUp size={12.5} strokeWidth={1.65} className="text-cinnabar-soft/75" />
+                <span>{vote} 赞同</span>
+              </span>
+            )}
           </span>
           {item.imageUrl && (
             <span className="relative aspect-[4/3] w-[34%] max-w-32 shrink-0 overflow-hidden rounded-xl border border-haze/60 bg-ink-deep sm:max-w-36">

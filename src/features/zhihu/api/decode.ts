@@ -190,6 +190,11 @@ function componentText(records: JsonRecord[], suffix: string): string | undefine
   return stringValue(match?.text)
 }
 
+function componentReactionCount(records: JsonRecord[], reaction: string): number | undefined {
+  const match = records.find((record) => stringValue(record.reaction)?.toLowerCase() === reaction.toLowerCase())
+  return numberValue(match?.count)
+}
+
 function decodeHotListFeed(card: JsonRecord): ZhihuContentSummary | null {
   if (card.type !== 'hot_list_feed') return null
   const target = asRecord(card.target)
@@ -241,6 +246,8 @@ function decodeComponentCard(card: JsonRecord): ZhihuContentSummary | null {
     name: authorName,
     avatarUrl: stringValue(user?.avatarUrl),
   } : undefined
+  const voteupCount = componentReactionCount(records, 'Vote')
+  const commentCount = componentReactionCount(records, 'Comment')
   const imageRecord = records.find((record) => {
     const testId = stringValue(record.test_id)?.toLowerCase()
     const style = stringValue(record.style)?.toLowerCase()
@@ -259,6 +266,8 @@ function decodeComponentCard(card: JsonRecord): ZhihuContentSummary | null {
     excerpt,
     url: routeUrl ?? canonicalUrl(ref, {}),
     author,
+    voteupCount,
+    commentCount,
     imageUrl: imageRecord ? imageFromValue(imageRecord) : undefined,
   }
 }

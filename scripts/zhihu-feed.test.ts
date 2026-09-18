@@ -82,6 +82,14 @@ const componentCard = {
       { type: 'Text', test_id: 'answer.2027676063409484209.title', text: '现阶段的时代红利是什么？' },
       { type: 'Text', test_id: 'answer.2027676063409484209.description', text: '这是新版 ComponentCard 摘要' },
       { type: 'Image', test_id: 'answer.2027676063409484209.thumbnail', url: 'https://pic.example/content-cover.jpg' },
+      {
+        type: 'Line',
+        elements: [
+          { type: 'Reaction', reaction: 'Vote', count: 12345 },
+          { type: 'Reaction', reaction: 'Comment', count: '678' },
+          { type: 'Reaction', reaction: 'Collect', count: 90 },
+        ],
+      },
     ],
   }],
   paging: { is_end: true },
@@ -91,8 +99,17 @@ assert.equal(componentPage.items.length, 1, '新版 Android ComponentCard 信息
 assert.equal(componentPage.items[0]?.ref.id, '2027676063409484209')
 assert.equal(componentPage.items[0]?.title, '现阶段的时代红利是什么？')
 assert.equal(componentPage.items[0]?.author?.name, '示例作者')
+assert.equal(componentPage.items[0]?.voteupCount, 12345, 'Android ComponentCard 必须从 footer reaction=Vote 读取真实赞同数')
+assert.equal(componentPage.items[0]?.commentCount, 678, 'Android ComponentCard 必须从 footer reaction=Comment 读取真实评论数')
 assert.equal(componentPage.items[0]?.imageUrl, 'https://pic.example/content-cover.jpg', 'ComponentCard 必须跳过作者头像并提取正文缩略图')
 assert.match(componentPage.items[0]?.url ?? '', /question\/423780782\/answer\/2027676063409484209/)
+const componentRow = renderToStaticMarkup(React.createElement(ZhihuContentRow, {
+  item: componentPage.items[0]!,
+  onOpen: () => undefined,
+  compact: true,
+  showReason: false,
+}))
+assert.match(componentRow, /1\.2万 赞同/, 'Android 推荐卡必须展示解析后的真实赞同数量，而不是横线占位')
 
 const hotListPayload = {
   data: [{
