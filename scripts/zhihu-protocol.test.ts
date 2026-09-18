@@ -15,6 +15,19 @@ import type { ZhihuRequest, ZhihuResponse, ZhihuTransport } from '../src/feature
 
 const expectedZIds = Array.from({ length: 18 }, (_, index) => `Z${String(index + 1).padStart(2, '0')}`)
 const covered = new Set(ZHIHU_OPERATIONS.flatMap((item) => item.zIds))
+const PINNED_GITHUB_EVIDENCE = /^https:\/\/github\.com\/[^/]+\/[^/]+\/blob\/[0-9a-f]{40}\/.+/
+
+function assertEvidenceLocation(operation: string, path: string): void {
+  if (/^https:\/\//.test(path)) {
+    assert.match(
+      path,
+      PINNED_GITHUB_EVIDENCE,
+      `${operation} 的外部证据必须固定到 GitHub 40 位 commit，不能引用漂移分支：${path}`,
+    )
+    return
+  }
+  assert.ok(existsSync(path), `${operation} 的仓库内证据路径不存在：${path}`)
+}
 
 assert.deepEqual(
   expectedZIds.filter((id) => !covered.has(id)),
@@ -37,7 +50,7 @@ for (const operation of ZHIHU_OPERATIONS) {
 
   for (const evidence of operation.evidence) {
     if (evidence.kind === 'source' || evidence.kind === 'corpus' || evidence.kind === 'local-test') {
-      assert.ok(existsSync(evidence.path), `${operation.operation} 的证据路径不存在：${evidence.path}`)
+      assertEvidenceLocation(operation.operation, evidence.path)
     }
   }
 

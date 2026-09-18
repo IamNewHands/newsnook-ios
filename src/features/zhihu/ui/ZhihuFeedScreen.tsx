@@ -127,16 +127,11 @@ export function ZhihuFeedScreen({
   const loadRequestKeyRef = useRef('')
   const impressionTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   const impressedKeysRef = useRef(new Set<string>())
-  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(() => new Set())
   const [actionMenu, setActionMenu] = useState<{ key: string; anchor: Point } | null>(null)
   const reduced = useReducedMotion()
   const longPress = useLongPressAction<string>((key, anchor) => {
     if (mode === 'recommended') setActionMenu({ key, anchor })
   })
-  const visibleItems = useMemo(
-    () => items.filter((item) => !dismissedKeys.has(`${item.ref.kind}:${item.ref.id}`)),
-    [dismissedKeys, items],
-  )
   const actionItem = actionMenu
     ? items.find((item) => `${item.ref.kind}:${item.ref.id}` === actionMenu.key)
     : undefined
@@ -144,13 +139,7 @@ export function ZhihuFeedScreen({
     item: ZhihuContentSummary,
     action: 'not-interested' | 'less-author',
   ) => {
-    const key = `${item.ref.kind}:${item.ref.id}`
     onRecommendationFeedback(item, action)
-    setDismissedKeys((current) => {
-      const next = new Set(current)
-      next.add(key)
-      return next
-    })
   }
   const actionItems: ContextActionItem[] = actionItem
     ? [
@@ -161,7 +150,7 @@ export function ZhihuFeedScreen({
           tone: 'accent',
           onSelect: () => applyRecommendationFeedback(actionItem, 'not-interested'),
         },
-        ...(actionItem.author
+        ...((actionItem.author?.token || actionItem.author?.id)
           ? [{
               id: 'less-author',
               label: '少推荐此作者',
@@ -206,9 +195,9 @@ export function ZhihuFeedScreen({
   useEffect(() => {
     const root = scrollContainerRef.current
     const surface = pullSurfaceRef.current
-    if (!root || !surface || visibleItems.length === 0) return
+    if (!root || !surface || items.length === 0) return
 
-    const byKey = new Map(visibleItems.map((item) => [`${item.ref.kind}:${item.ref.id}`, item]))
+    const byKey = new Map(items.map((item) => [`${item.ref.kind}:${item.ref.id}`, item]))
     const timers = impressionTimersRef.current
     const observer = new IntersectionObserver((entries) => {
       for (const entry of entries) {
@@ -245,7 +234,7 @@ export function ZhihuFeedScreen({
       timers.forEach((timer) => clearTimeout(timer))
       timers.clear()
     }
-  }, [mode, onImpression, scrollContainerRef, visibleItems])
+  }, [items, mode, onImpression, scrollContainerRef])
 
   const modes = useMemo<Array<{ id: ZhihuFeedMode; label: string; enabled: boolean; hint?: string }>>(() => [
     { id: 'recommended', label: '推荐', enabled: true },
@@ -389,7 +378,7 @@ export function ZhihuFeedScreen({
               </div>
             ) : (
               <div className="space-y-3 px-3 sm:px-5">
-                {visibleItems.map((item) => {
+                {items.map((item) => {
                   const key = `${item.ref.kind}:${item.ref.id}`
                   const feedbackEnabled = mode === 'recommended'
                   return (

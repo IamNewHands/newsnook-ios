@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Bookmark, ChevronRight, FilePenLine, LogIn, RefreshCw, ShieldCheck, Trash2, UserRound, UserRoundPlus } from 'lucide-react'
+import { Bookmark, ChevronRight, FilePenLine, LogIn, RefreshCw, RotateCcw, ShieldCheck, Trash2, UserRound, UserRoundPlus } from 'lucide-react'
 
 import { ConfirmDialog } from '../../../components/ConfirmDialog'
 
@@ -11,14 +11,17 @@ interface Props {
   onOpenEditor: () => void
   onOpenProfile: (urlToken: string) => void
   onOpenCollections: (urlToken: string) => void
+  onResetRecommendation: () => Promise<void> | void
 }
 
-export function ZhihuAccountScreen({ runtime, onOpenEditor, onOpenProfile, onOpenCollections }: Props) {
+export function ZhihuAccountScreen({ runtime, onOpenEditor, onOpenProfile, onOpenCollections, onResetRecommendation }: Props) {
   const [snapshot, setSnapshot] = useState<ZhihuSessionSnapshot>(() => runtime.session.getSnapshot())
   const [accounts, setAccounts] = useState<ZhihuStoredAccount[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmRemove, setConfirmRemove] = useState(false)
+  const [confirmResetRecommendation, setConfirmResetRecommendation] = useState(false)
+  const [recommendationReset, setRecommendationReset] = useState(false)
 
   const reloadAccounts = useCallback(async () => {
     setAccounts(await runtime.account.listAccounts())
@@ -71,6 +74,19 @@ export function ZhihuAccountScreen({ runtime, onOpenEditor, onOpenProfile, onOpe
       await runtime.account.switchAccount(accountId)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '账号切换失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const resetRecommendation = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await onResetRecommendation()
+      setRecommendationReset(true)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '重置智能推荐失败')
     } finally {
       setBusy(false)
     }
@@ -166,6 +182,27 @@ export function ZhihuAccountScreen({ runtime, onOpenEditor, onOpenProfile, onOpe
         </section>
       )}
 
+      <section className="mt-4 overflow-hidden rounded-2xl border border-haze/70 bg-ink-raised/35">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => setConfirmResetRecommendation(true)}
+          className="flex min-h-14 w-full items-center gap-3 px-4 text-left transition-colors hover:bg-paper/5 disabled:opacity-45"
+        >
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-paper/5 text-paper-muted">
+            <RotateCcw size={16} strokeWidth={1.6} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[13px] font-medium text-paper">重置智能推荐</span>
+            <span className="mt-0.5 block text-[10.5px] leading-relaxed text-paper-faint">只清除本机知乎兴趣、曝光与反馈画像，并立即重新生成推荐</span>
+          </span>
+          <ChevronRight size={15} strokeWidth={1.5} className="text-paper-faint" />
+        </button>
+      </section>
+      {recommendationReset && (
+        <p role="status" className="mt-2 px-1 text-[10.5px] leading-relaxed text-paper-faint">智能推荐画像已重置；知乎账号、收藏、草稿与 NewsNook 新闻阅读记录均未改变。</p>
+      )}
+
       {accounts.length > 0 && (
         <section className="mt-4">
           <div className="mb-2 flex items-center justify-between px-1">
@@ -222,6 +259,16 @@ export function ZhihuAccountScreen({ runtime, onOpenEditor, onOpenProfile, onOpe
       {!runtime.account.isNativeAuthAvailable() && (
         <p className="mt-4 text-center font-mono text-[10px] leading-relaxed text-paper-faint">知乎账号登录仅在 NewsNook Android 应用中提供。</p>
       )}
+
+      <ConfirmDialog
+        open={confirmResetRecommendation}
+        title="重置智能推荐"
+        message="将清除当前知乎账号（未登录时为访客）的本机推荐画像，包括阅读偏好、曝光记录和“不感兴趣”反馈。不会删除知乎账号、收藏、草稿或 NewsNook 的新闻阅读数据。"
+        confirmLabel="重置"
+        cancelLabel="取消"
+        onCancel={() => setConfirmResetRecommendation(false)}
+        onConfirm={() => { setConfirmResetRecommendation(false); void resetRecommendation() }}
+      />
 
       <ConfirmDialog
         open={confirmRemove}

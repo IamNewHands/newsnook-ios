@@ -221,6 +221,13 @@ const similarFootball: ZhihuContentSummary = {
   author: { id: 'other-football-author', name: '另一位足球作者' },
 }
 recordZhihuRecommendationSignal('negative-account', dislikedFootball, 'not-interested', negativeStorage, 1_786_100_000_000)
+const excludedRanked = rankZhihuSmartRecommendations(
+  [dislikedFootball, topicUnrelated],
+  'negative-account',
+  negativeStorage,
+  1_786_100_100_000,
+)
+assert.ok(!excludedRanked.some((item) => item.ref.id === 'football-disliked'), '30 天内明确“不感兴趣”的同一实体必须硬排除')
 const negativeRanked = rankZhihuSmartRecommendations(
   [similarFootball, topicUnrelated],
   'negative-account',

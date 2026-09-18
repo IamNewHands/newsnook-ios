@@ -128,6 +128,10 @@ export class ZhihuFeedService {
     })
   }
 
+  resetSmartRecommendation(accountId?: string | null): void {
+    this.smart.reset(accountId)
+  }
+
   private async readAndroidRecommendation(url: string, signal?: AbortSignal): Promise<Page<ZhihuContentSummary>> {
     const raw = this.api.getJsonWithHeaders
       ? await this.api.getJsonWithHeaders(

@@ -12,8 +12,9 @@ import { parseExistingAnswerId } from '../editor/codec'
 import { ZhihuDraftStore } from '../editor/draftStore'
 import { ZhihuEditorService } from '../editor/service'
 import { ZhihuImageUploadService } from '../editor/upload'
+import { clearZhihuSmartCandidatePool } from '../feed/candidatePool'
 import { ZhihuRecommendationFeedbackService } from '../feed/feedback'
-import type { ZhihuRecommendationSignalItem } from '../feed/recommendation'
+import { clearZhihuRecommendationProfile, type ZhihuRecommendationSignalItem } from '../feed/recommendation'
 import { createZhihuFeedService } from '../feed/service'
 import { useZhihuFeed } from '../feed/useZhihuFeed'
 import { ZhihuInteractionService } from '../interaction/service'
@@ -236,8 +237,17 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
     item: ZhihuContentSummary,
     action: 'not-interested' | 'less-author',
   ) => {
+    feed.dismiss(item)
     recommendationFeedback.recordSignal(sessionSnapshot.account?.id, item, action)
-  }, [recommendationFeedback, sessionSnapshot.account?.id])
+  }, [feed, recommendationFeedback, sessionSnapshot.account?.id])
+
+  const resetSmartRecommendation = useCallback(async () => {
+    const accountId = sessionSnapshot.account?.id
+    clearZhihuRecommendationProfile(accountId)
+    clearZhihuSmartCandidatePool()
+    feedService.resetSmartRecommendation(accountId)
+    await feed.refresh()
+  }, [feed, feedService, sessionSnapshot.account?.id])
 
   const pushSearch = useCallback((
     query = '',
@@ -499,6 +509,7 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
             onOpenEditor={() => navTo({ route: { screen: 'editor', localDraftId: 'new' }, scrollTop: 0 })}
             onOpenProfile={(urlToken) => pushEntity({ kind: 'people', id: urlToken })}
             onOpenCollections={(urlToken) => navTo({ route: { screen: 'collections', urlToken }, scrollTop: 0 })}
+            onResetRecommendation={resetSmartRecommendation}
           />
         )
       case 'collections':

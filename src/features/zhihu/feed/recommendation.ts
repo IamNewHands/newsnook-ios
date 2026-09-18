@@ -359,7 +359,6 @@ function exposurePenalty(
 function explicitDislikePenalty(dislikedAt: number | undefined, now: number): number {
   if (!dislikedAt) return 1
   const age = now - dislikedAt
-  if (age < 30 * 24 * 60 * 60 * 1000) return 0.02
   if (age < 90 * 24 * 60 * 60 * 1000) return 0.18
   return 0.6
 }
@@ -429,8 +428,12 @@ function scoreCandidates(
   const nowSeconds = now / 1000
   const deduped = new Map<string, ZhihuContentSummary>()
   for (const item of candidates) if (!deduped.has(entityKey(item))) deduped.set(entityKey(item), item)
+  const eligible = [...deduped.values()].filter((item) => {
+    const dislikedAt = profile.dislikes[entityKey(item)]
+    return !dislikedAt || now - dislikedAt >= 30 * 24 * 60 * 60 * 1000
+  })
 
-  return [...deduped.values()].map((item, index) => {
+  return eligible.map((item, index) => {
     const kindAffinity = (profile.kindScores[item.ref.kind] ?? 0) / maxKind
     const authorId = item.author?.token ?? item.author?.id
     const authorAffinity = authorId ? (profile.authorScores[authorId] ?? 0) / maxAuthor : 0

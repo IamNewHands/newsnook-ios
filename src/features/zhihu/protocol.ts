@@ -16,7 +16,7 @@ export type ZhihuAuthMode = 'guest' | 'optional' | 'required' | 'local-only'
 export type ZhihuRetryPolicy = 'safe-read' | 'never'
 
 export interface ZhihuProtocolEvidence {
-  /** repository-relative path，便于审计；不得放 Cookie/token/私信正文。 */
+  /** 仓库相对路径或固定 commit 的外部源码 URL，便于可复现审计；不得放 Cookie/token/私信正文。 */
   path: string
   /** source = 源码事实，corpus = 脱敏真实响应语料，live = 本项目授权实网记录，local-test = 本地行为测试。 */
   kind: 'source' | 'corpus' | 'live' | 'local-test'
@@ -38,7 +38,9 @@ export interface ZhihuOperationContract {
   note: string
 }
 
-const REF = 'third-party/zhihu-plus-plus-master/'
+// third-party/ 在 NewsNook 中明确被 gitignore；协议证据不能依赖某台开发机上的可选克隆。
+// 外部源码统一固定到审计时使用的上游 commit，避免 master 漂移后“同一路径、不同事实”。
+const REF = 'https://github.com/zly2006/zhihu-plus-plus/blob/313541192b925028f23410d61b959e6837534c24/'
 
 export const ZHIHU_OPERATIONS = [
   {
