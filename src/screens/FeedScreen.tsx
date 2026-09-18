@@ -21,6 +21,7 @@ import type { TranslationPrefs } from '../features/translation/types'
 import { extractCatalog } from '../features/catalogEngine/engine'
 import { catalogHtmlToArticles } from '../features/catalogEngine/toArticles'
 import { RECOMMEND_CATEGORY_ID, type CategoryId, type NewsCategory } from '../sources/categories'
+import type { HomeFeedLayout } from '../sources/preferences'
 import { findSource, type NewsSource } from '../sources/registry'
 import { fetchAbsoluteText } from '../lib/http'
 
@@ -41,6 +42,8 @@ interface Props {
   /** 持久预存正文 ID；仅用于低权重云朵状态标记 */
   prestoredIds?: ReadonlySet<string>
   showLead: boolean
+  /** 主首页信息流版式；未传时保持历史经典列表。 */
+  homeFeedLayout?: HomeFeedLayout
   /** 内容全部来自本地缓存，尚未拿到本次联网结果 */
   offline?: boolean
   categories?: NewsCategory[]
@@ -85,6 +88,7 @@ function CategoryPeek({
   readIds,
   laterIds,
   prestoredIds,
+  homeFeedLayout,
   scrollTop = 0,
   onOpen,
 }: {
@@ -93,6 +97,7 @@ function CategoryPeek({
   readIds: Set<string>
   laterIds: Set<string>
   prestoredIds: ReadonlySet<string>
+  homeFeedLayout: HomeFeedLayout
   scrollTop?: number
   onOpen: (article: Article) => void
 }) {
@@ -142,16 +147,23 @@ function CategoryPeek({
             prestored={prestoredIds.has(lead.id)}
             onOpen={onOpen}
             revealed
+            framed={homeFeedLayout === 'cards'}
             variant="lead"
           />
         )}
         {grouped.map(([bucket, items]) => (
           <div key={bucket}>
-            <div className="page-x flex items-center gap-2.5 pt-5 pb-1.5">
-              <span className="font-mono text-[11px] tracking-[0.16em] text-paper-muted font-medium">{bucket}</span>
+            <div className={homeFeedLayout === 'cards'
+              ? 'flex items-center gap-2.5 px-3.5 pt-4 pb-1.5 min-[430px]:px-4'
+              : 'page-x flex items-center gap-2.5 pt-5 pb-1.5'}>
+              <span className={homeFeedLayout === 'cards'
+                ? 'font-display text-[13px] font-medium tracking-[0.08em] text-paper-muted'
+                : 'font-mono text-[11px] font-medium tracking-[0.16em] text-paper-muted'}>{bucket}</span>
               <span className="h-px flex-1 bg-haze" aria-hidden />
             </div>
-            <ul className="divide-y divide-haze">
+            <ul className={homeFeedLayout === 'cards'
+              ? 'grid grid-cols-1 items-start gap-2.5 px-3.5 py-1.5 min-[360px]:grid-cols-2 min-[430px]:gap-3 min-[430px]:px-4'
+              : 'divide-y divide-haze'}>
               {items.map((article) => (
                 <ArticleRow
                   key={article.id}
@@ -161,7 +173,7 @@ function CategoryPeek({
                   prestored={prestoredIds.has(article.id)}
                   onOpen={onOpen}
                   revealed
-                  variant="row"
+                  variant={homeFeedLayout === 'cards' ? 'compact-card' : 'row'}
                 />
               ))}
             </ul>
@@ -186,6 +198,7 @@ export const FeedScreen = memo(function FeedScreen({
   laterIds,
   prestoredIds = EMPTY_ARTICLE_IDS,
   showLead,
+  homeFeedLayout = 'classic',
   offline,
   categories,
   categoryId,
@@ -214,6 +227,7 @@ export const FeedScreen = memo(function FeedScreen({
   const isDesktop = useIsDesktop()
   const reduced = useReducedMotion()
   const isBrandedHome = title === '有所闻' && Boolean(onBrandTap)
+  const useCompactCards = !isDesktop && homeFeedLayout === 'cards'
   const listRef = useRef<HTMLDivElement>(null)
   const pulseRef = useRef<HTMLSpanElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
@@ -520,6 +534,7 @@ export const FeedScreen = memo(function FeedScreen({
           displayMode={activeTranslationPrefs.displayMode}
           onOpen={onOpen}
           onSourceClick={onSelectSource}
+          framed={useCompactCards}
           variant={isDesktop ? 'banner' : 'lead'}
         />
       )}
@@ -653,7 +668,9 @@ export const FeedScreen = memo(function FeedScreen({
         </div>
       ) : (
         <>
-          {articles.length === 0 && refreshing && <FeedSkeleton showLead={showLead} />}
+          {articles.length === 0 && refreshing && (
+            <FeedSkeleton showLead={showLead} layout={homeFeedLayout} />
+          )}
 
           {articles.length === 0 && !refreshing && (
             <div className="page-x py-16 text-center text-[13px] leading-relaxed text-paper-faint">
@@ -686,14 +703,20 @@ export const FeedScreen = memo(function FeedScreen({
 
           {grouped.map(([bucket, items]) => (
             <div key={bucket}>
-              <div className="page-x lg:px-6 xl:px-8 2xl:px-10 flex items-center gap-2.5 pt-4 pb-1.5">
-                <span className="font-mono text-[11px] tracking-[0.16em] text-paper-muted font-medium">{bucket}</span>
+              <div className={useCompactCards
+                ? 'flex items-center gap-2.5 px-3.5 pt-4 pb-1.5 min-[430px]:px-4'
+                : 'page-x flex items-center gap-2.5 pt-4 pb-1.5 lg:px-6 xl:px-8 2xl:px-10'}>
+                <span className={useCompactCards
+                  ? 'font-display text-[13px] font-medium tracking-[0.08em] text-paper-muted'
+                  : 'font-mono text-[11px] font-medium tracking-[0.16em] text-paper-muted'}>{bucket}</span>
                 <span className="h-px flex-1 bg-haze" aria-hidden />
               </div>
 
-              {/* 按平台只渲染一种列表布局，减少 50% DOM 节点与 React Diff 开销 */}
+              {/* 新版手机双栏与经典单栏都保留；桌面继续规则网格。 */}
               {!isDesktop ? (
-                <ul className="divide-y divide-haze">
+                <ul className={useCompactCards
+                  ? 'grid grid-cols-1 items-start gap-2.5 px-3.5 py-1.5 min-[360px]:grid-cols-2 min-[430px]:gap-3 min-[430px]:px-4'
+                  : 'divide-y divide-haze'}>
                   {items.map((article) => (
                     <ArticleRow
                       key={article.id}
@@ -705,7 +728,7 @@ export const FeedScreen = memo(function FeedScreen({
                       displayMode={activeTranslationPrefs.displayMode}
                       onOpen={onOpen}
                       onSourceClick={onSelectSource}
-                      variant="row"
+                      variant={useCompactCards ? 'compact-card' : 'row'}
                     />
                   ))}
                 </ul>
@@ -820,7 +843,11 @@ export const FeedScreen = memo(function FeedScreen({
               <button
                 type="button"
                 onClick={onBrandTap}
-                className="shrink-0 font-display text-[18px] leading-tight text-paper md:text-[20px] lg:text-[22px]"
+                className={`shrink-0 font-display text-paper ${
+                  useCompactCards
+                    ? 'text-[23px] leading-none tracking-[0.015em]'
+                    : 'text-[18px] leading-tight'
+                } md:text-[20px] lg:text-[22px]`}
               >
                 {title}
               </button>
@@ -828,6 +855,11 @@ export const FeedScreen = memo(function FeedScreen({
               <h1 className="shrink-0 font-display text-[18px] leading-tight text-paper md:text-[20px] lg:text-[22px]">
                 {title}
               </h1>
+            )}
+            {isBrandedHome && useCompactCards && (
+              <span className="hidden min-[390px]:inline-block max-w-[9.5rem] truncate font-mono text-[9px] tracking-[0.08em] text-paper-faint md:hidden">
+                更大的世界，更好的判断
+              </span>
             )}
             <p className="hidden md:inline-block min-w-0 truncate font-mono text-[11px] lg:text-[11.5px] tracking-[0.12em] text-paper-faint">
               {activeCategory?.caption || caption}
@@ -857,7 +889,9 @@ export const FeedScreen = memo(function FeedScreen({
               type="button"
               onClick={() => void onRefresh()}
               aria-label="刷新"
-              className={`relative h-7.5 w-7.5 lg:h-8 lg:w-8 lg:px-2.5 lg:w-auto shrink-0 items-center justify-center gap-1.5 rounded-lg border border-transparent lg:border-haze/70 lg:bg-ink-raised/50 lg:hover:bg-ink-raised lg:hover:border-paper-faint/30 transition-all text-paper-muted hover:text-paper ${isBrandedHome ? 'hidden lg:flex' : 'flex'}`}
+              className={`relative h-7.5 w-7.5 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-transparent text-paper-muted transition-all hover:text-paper active:scale-95 lg:h-8 lg:w-auto lg:border-haze/70 lg:bg-ink-raised/50 lg:px-2.5 lg:hover:border-paper-faint/30 lg:hover:bg-ink-raised ${
+                isBrandedHome && !useCompactCards ? 'hidden lg:flex' : 'flex'
+              }`}
             >
               <RotateCw
                 size={14}
@@ -979,6 +1013,7 @@ export const FeedScreen = memo(function FeedScreen({
                 readIds={readIds}
                 laterIds={laterIds}
                 prestoredIds={prestoredIds}
+                homeFeedLayout={homeFeedLayout}
                 scrollTop={scrollByCategory.current[prevCategory.id] ?? 0}
                 onOpen={onOpen}
               />
@@ -1022,6 +1057,7 @@ export const FeedScreen = memo(function FeedScreen({
                 readIds={readIds}
                 laterIds={laterIds}
                 prestoredIds={prestoredIds}
+                homeFeedLayout={homeFeedLayout}
                 scrollTop={scrollByCategory.current[nextCategory.id] ?? 0}
                 onOpen={onOpen}
               />

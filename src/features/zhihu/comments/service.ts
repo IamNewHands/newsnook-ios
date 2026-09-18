@@ -3,6 +3,7 @@ import { ZhihuApiError } from '../api/errors'
 import type { ZhihuReadApi } from '../feed/service'
 import type { Page, ZhihuAuthor, ZhihuEntityRef } from '../types'
 import type { ZhihuSegmentTarget } from '../segments/normalize'
+import { normalizeZhihuCommentContent } from './content'
 import type { ZhihuCommentNode } from './types'
 
 export type ZhihuCommentTarget = ZhihuEntityRef | ZhihuSegmentTarget
@@ -73,6 +74,17 @@ function booleanValue(value: unknown): boolean {
   return value === true
 }
 
+function commentIpLocation(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return undefined
+  for (const item of value) {
+    const tag = asRecord(item)
+    if (!tag || stringValue(tag.type) !== 'ip_info') continue
+    const text = stringValue(tag.text)?.trim()
+    if (text) return text
+  }
+  return undefined
+}
+
 function decodeAuthor(value: unknown): ZhihuAuthor | undefined {
   const root = asRecord(value)
   if (!root) return undefined
@@ -100,10 +112,13 @@ export function decodeZhihuComment(value: unknown): ZhihuCommentNode | null {
       ? root.childComments
       : []
   const children = rawChildren.map(decodeZhihuComment).filter((item): item is ZhihuCommentNode => Boolean(item))
+  const content = normalizeZhihuCommentContent(stringValue(root.content) ?? '')
   return {
     id,
-    contentHtml: stringValue(root.content) ?? '',
+    contentHtml: content.contentHtml,
+    media: content.media,
     createdAt: numberValue(root.created_time) ?? numberValue(root.createdTime),
+    ipLocation: commentIpLocation(root.comment_tag ?? root.commentTag),
     author,
     replyToAuthor: decodeAuthor(root.reply_to_author ?? root.replyToAuthor),
     likeCount: numberValue(root.like_count) ?? numberValue(root.likeCount) ?? 0,

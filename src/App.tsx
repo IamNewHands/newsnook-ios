@@ -131,6 +131,7 @@ import {
   setAutoRefreshOnCategorySwitch,
   setCategoryOrder,
   setEinkMode,
+  setHomeFeedLayout,
   setPrestoreEnabled,
   setPrestorePerSourceLimit,
   setRecommendEnabled,
@@ -1089,8 +1090,9 @@ export default function App() {
       prefs.theme === 'system'
         ? `跟随系统 · 当前${current}`
         : `${mode?.label ?? '夜读'} · ${mode?.caption ?? ''}`
-    return `${scheme?.label ?? '墨问'} · ${themeSummary}`
-  }, [prefs.scheme, prefs.theme, resolvedTheme])
+    const layoutSummary = prefs.homeFeedLayout === 'cards' ? '双栏卡片' : '经典列表'
+    return `${scheme?.label ?? '墨问'} · ${themeSummary} · ${layoutSummary}`
+  }, [prefs.homeFeedLayout, prefs.scheme, prefs.theme, resolvedTheme])
 
   const translationSummary = useMemo(
     () =>
@@ -1134,10 +1136,12 @@ export default function App() {
           resolved={resolvedTheme}
           scheme={prefs.scheme}
           customScheme={prefs.customScheme}
+          homeFeedLayout={prefs.homeFeedLayout}
           einkMode={Boolean(prefs.einkMode)}
           onChange={(theme) => update((prev) => setThemeMode(prev, theme))}
           onSchemeChange={(scheme) => update((prev) => selectThemeScheme(prev, scheme))}
           onEditCustomScheme={() => setSettingsRoute({ name: 'custom-scheme' })}
+          onHomeFeedLayoutChange={(layout) => update((prev) => setHomeFeedLayout(prev, layout))}
           onEinkModeChange={(enabled) => update((prev) => setEinkMode(prev, enabled))}
           onBack={() => setSettingsRoute(null)}
         />
@@ -1550,6 +1554,7 @@ export default function App() {
         laterIds={laterIds}
         prestoredIds={prestore.articleIds}
         showLead
+        homeFeedLayout={prefs.homeFeedLayout}
         offline={offline}
         categories={categories}
         categoryId={categoryId}

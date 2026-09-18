@@ -27,6 +27,9 @@ import type { NewsSource } from '../registry'
 
 export type FontFamilyId = 'sans' | 'serif' | 'system'
 
+/** 首页信息流版式：经典单栏保持旧版阅读节奏，cards 为新版双栏编辑卡片。 */
+export type HomeFeedLayout = 'classic' | 'cards'
+
 export interface TypographyPrefs {
   /** 正文字号倍率，基准 15.5px */
   fontScale: number
@@ -89,6 +92,8 @@ export interface Preferences {
   scheme: ThemeScheme
   /** 自定义配色（scheme === 'custom' 时生效）：昼/夜各一组底色与强调色 */
   customScheme?: CustomSchemePrefs
+  /** 首页信息流版式。新安装默认 cards；历史偏好缺字段时迁移为 classic。 */
+  homeFeedLayout: HomeFeedLayout
   translation: TranslationPrefs
   proxy: ProxyPrefs
   /** 切换/滑动到分类页时是否自动刷新（关闭时保留滚动阅读位置） */
@@ -140,6 +145,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   typography: DEFAULT_TYPOGRAPHY,
   theme: DEFAULT_THEME_MODE,
   scheme: DEFAULT_THEME_SCHEME,
+  homeFeedLayout: 'cards',
   translation: DEFAULT_TRANSLATION_PREFS,
   proxy: DEFAULT_PROXY_PREFS,
   autoRefreshOnCategorySwitch: true,

@@ -9,6 +9,7 @@ import type { ProxyPrefs } from '../../features/proxy/types'
 import {
   DEFAULT_TYPOGRAPHY,
   normalizePrestoreLimit,
+  type HomeFeedLayout,
   type Preferences,
   type TypographyPrefs,
 } from './model'
@@ -49,6 +50,10 @@ export function setCustomSchemeColors(
 
 export function setEinkMode(prefs: Preferences, enabled: boolean): Preferences {
   return prefs.einkMode === enabled ? prefs : { ...prefs, einkMode: enabled }
+}
+
+export function setHomeFeedLayout(prefs: Preferences, layout: HomeFeedLayout): Preferences {
+  return prefs.homeFeedLayout === layout ? prefs : { ...prefs, homeFeedLayout: layout }
 }
 
 export function setWifiOnlyAutoLoadMedia(prefs: Preferences, enabled: boolean): Preferences {

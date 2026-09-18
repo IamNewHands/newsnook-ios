@@ -672,13 +672,21 @@ html[data-eink='1'] .preset-switcher-sheet {
     mask-image: linear-gradient(to bottom, #000 62%, transparent 100%);
   }
 
-  /* 头条：全宽沉浸 + 固定透明暗色遮罩（不跟主题底色走，避免昼读变成宣纸罩） */
+  /* 经典头条保持原来的全宽沉浸；新版双栏仅通过 is-framed 叠加卡片外观。 */
   .lead-hero {
     position: relative;
     display: block;
     width: 100%;
     overflow: hidden;
     background-color: #0e0f12;
+  }
+
+  .lead-hero.is-framed {
+    width: calc(100% - 1.75rem);
+    margin: 0.5rem 0.875rem 0;
+    border: 1px solid var(--color-haze);
+    border-radius: 0.9rem;
+    box-shadow: 0 10px 28px -24px rgb(0 0 0 / 0.72);
   }
 
   .lead-cover-veil {

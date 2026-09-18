@@ -961,6 +961,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
           authenticated={authenticated}
           accountId={accountId}
           draftStore={commentDraftStore}
+          onOpenImage={(src, alt) => setLightbox({ src, alt })}
         />
       )}
 
@@ -976,6 +977,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
           authenticated={authenticated}
           accountId={accountId}
           draftStore={commentDraftStore}
+          onOpenImage={(src, alt) => setLightbox({ src, alt })}
           variant="dialog"
         />
       </ZhihuAnswerCommentsDialog>
@@ -1070,6 +1072,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
                 authenticated={authenticated}
                 accountId={accountId}
                 draftStore={commentDraftStore}
+                onOpenImage={(src, alt) => setLightbox({ src, alt })}
               />
             </div>
           </div>

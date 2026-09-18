@@ -24,6 +24,31 @@ assert.equal(decoded?.author.token, 'person-token')
 assert.equal(decoded?.author.avatarUrl, 'https://pic.example/comment-avatar.jpg')
 assert.equal(decoded?.childCount, 1)
 assert.equal(decoded?.children[0]?.id, 'comment-2')
+assert.deepEqual(decoded?.media, [])
+
+const mediaDecoded = decodeZhihuComment({
+  id: 'comment-media',
+  content: '<p>这张图说明得很清楚 <a class="comment_img" href="https://picx.zhimg.com/example.jpg">&lt;图片&gt;</a></p><p><a class="comment_gif" href="//picx.zhimg.com/example.gif">&lt;图片&gt;</a></p><p><a class="comment_sticker" href="https://picx.zhimg.com/sticker.webp">&lt;图片&gt;</a></p>',
+  created_time: 1700000000,
+  comment_tag: [{ type: 'ip_info', text: '上海' }],
+  author: { id: 'person-media', name: '图片用户' },
+})
+assert.ok(mediaDecoded)
+assert.doesNotMatch(mediaDecoded?.contentHtml ?? '', /<图片>|&lt;图片&gt;/, '媒体占位文字不得泄漏到评论正文')
+assert.match(mediaDecoded?.contentHtml ?? '', /这张图说明得很清楚/, '媒体前后的评论文字必须保留')
+assert.deepEqual(mediaDecoded?.media.map((item) => item.kind), ['image', 'gif', 'sticker'])
+assert.equal(mediaDecoded?.media[0]?.url, 'https://picx.zhimg.com/example.jpg')
+assert.equal(mediaDecoded?.media[1]?.url, 'https://picx.zhimg.com/example.gif')
+assert.equal(mediaDecoded?.ipLocation, '上海')
+
+const inlineImageDecoded = decodeZhihuComment({
+  id: 'comment-inline-image',
+  content: '<p>直接图片</p><img data-actualsrc="https://picx.zhimg.com/inline.webp" alt="现场照片">',
+  author: { id: 'person-inline', name: '内嵌图片用户' },
+})
+assert.equal(inlineImageDecoded?.media[0]?.url, 'https://picx.zhimg.com/inline.webp')
+assert.equal(inlineImageDecoded?.media[0]?.alt, '现场照片')
+assert.doesNotMatch(inlineImageDecoded?.contentHtml ?? '', /<img/i, '评论媒体必须由 React 独立渲染，不留 Reader 图片节点')
 
 const calls: Array<{ operation: string; url: string }> = []
 const service = new ZhihuCommentsService({
@@ -116,5 +141,8 @@ assert.doesNotMatch(
 assert.match(commentsUiSource, /const controller = new AbortController\(\)/, '评论首屏请求必须可取消而不是用 disposed + loading 自相取消')
 assert.match(commentsUiSource, /ZhihuAuthorAvatar author=\{comment\.author\}/, '评论必须显示服务端返回的用户头像，不能只显示姓名首字')
 assert.match(commentsUiSource, /查看 \$\{comment\.author\.name\} 的主页/, '评论头像必须保留进入用户主页的点击语义')
+assert.match(commentsUiSource, /CommentMedia/, '评论图片、GIF 与贴纸必须走独立媒体组件')
+assert.match(commentsUiSource, /onOpenImage/, '评论媒体必须支持点击查看大图')
+assert.match(commentsUiSource, /IP属地/, '评论元信息应以低权重常显 IP 属地')
 
 console.log('zhihu comments/drafts contract ok')

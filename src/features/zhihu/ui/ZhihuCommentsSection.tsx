@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, Heart, Loader2, MessageCircle, Reply, Send, Trash2 } from 'lucide-react'
+import { ChevronDown, Heart, ImageOff, Loader2, MessageCircle, Reply, Send, Trash2 } from 'lucide-react'
 
-import { normalizeZhihuContentHtml } from '../content/normalize'
+import { resolvePlayableImageSrc, revokeBlobUrl } from '../../proxy/hydrateImages'
 import {
   type ZhihuCommentSort,
   type ZhihuCommentTarget,
@@ -10,7 +10,7 @@ import {
   zhihuCommentTargetKey,
 } from '../comments/service'
 import type { ZhihuCommentDraftStore } from '../comments/draftStore'
-import type { ZhihuCommentNode } from '../comments/types'
+import type { ZhihuCommentMedia, ZhihuCommentNode } from '../comments/types'
 import type { ZhihuEntityRef } from '../types'
 import { canExecuteZhihuOperation } from '../protocol'
 import { ZhihuAuthorAvatar, ZhihuEmptyState, ZhihuErrorBanner, ZhihuSectionHeader } from './ZhihuUi'
@@ -24,7 +24,137 @@ interface Props {
   authenticated: boolean
   accountId?: string
   draftStore: ZhihuCommentDraftStore
+  onOpenImage?: (src: string, alt: string) => void
   variant?: 'inline' | 'dialog'
+}
+
+function formatCommentTime(createdAt?: number): string {
+  if (!createdAt) return ''
+  const timestamp = createdAt < 10_000_000_000 ? createdAt * 1000 : createdAt
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return ''
+  const now = new Date()
+  const diff = Math.max(0, now.getTime() - date.getTime())
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+  }
+  if (date.getFullYear() === now.getFullYear()) return `${date.getMonth() + 1}月${date.getDate()}日`
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`
+}
+
+function CommentMedia({
+  media,
+  onOpen,
+}: {
+  media: ZhihuCommentMedia
+  onOpen?: (src: string, alt: string) => void
+}) {
+  const [src, setSrc] = useState(media.url)
+  const [phase, setPhase] = useState<'loading' | 'loaded' | 'error'>('loading')
+  const fallbackTried = useRef(false)
+  const ownedBlob = useRef<string | null>(null)
+  const disposed = useRef(false)
+
+  useEffect(() => {
+    disposed.current = false
+    fallbackTried.current = false
+    setSrc(media.url)
+    setPhase('loading')
+    return () => {
+      disposed.current = true
+      revokeBlobUrl(ownedBlob.current)
+      ownedBlob.current = null
+    }
+  }, [media.url])
+
+  const recover = () => {
+    if (fallbackTried.current) {
+      setPhase('error')
+      return
+    }
+    fallbackTried.current = true
+    setPhase('loading')
+    void resolvePlayableImageSrc(media.url, {
+      forceNative: true,
+      referer: 'https://www.zhihu.com/',
+    }).then((resolved) => {
+      if (disposed.current) {
+        revokeBlobUrl(resolved)
+        return
+      }
+      if (resolved === media.url) {
+        setPhase('error')
+        return
+      }
+      revokeBlobUrl(ownedBlob.current)
+      ownedBlob.current = resolved.startsWith('blob:') ? resolved : null
+      setSrc(resolved)
+    }, () => {
+      if (!disposed.current) setPhase('error')
+    })
+  }
+
+  const retry = () => {
+    fallbackTried.current = false
+    setSrc(media.url)
+    setPhase('loading')
+  }
+
+  const sticker = media.kind === 'sticker'
+  return (
+    <span
+      className={`relative inline-flex max-w-full overflow-hidden ${
+        sticker
+          ? 'min-h-20 min-w-20 rounded-xl bg-transparent'
+          : 'min-h-24 min-w-32 rounded-xl border border-haze/70 bg-ink-deep/35 shadow-2xs'
+      }`}
+    >
+      {phase === 'loading' && (
+        <span className={`ink-shimmer block ${sticker ? 'size-20' : 'h-28 w-44 max-w-full'}`} aria-hidden />
+      )}
+      {phase === 'error' ? (
+        <button
+          type="button"
+          onClick={retry}
+          className="flex min-h-24 min-w-32 max-w-full flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-haze px-3 py-2 text-center text-paper-faint transition-colors hover:border-cinnabar/35 hover:text-paper-muted active:scale-[0.98]"
+          aria-label="图片加载失败，点击重试"
+        >
+          <ImageOff size={16} strokeWidth={1.5} />
+          <span className="font-mono text-[9.5px]">加载失败 · 点按重试</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          disabled={phase !== 'loaded' || !onOpen}
+          onClick={() => onOpen?.(src, media.alt)}
+          className={`relative max-w-full overflow-hidden text-left ${onOpen ? 'cursor-zoom-in' : ''} disabled:cursor-default`}
+          aria-label={onOpen ? `查看${media.alt}` : undefined}
+        >
+          <img
+            src={src}
+            alt={media.alt}
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onLoad={() => setPhase('loaded')}
+            onError={recover}
+            className={`${
+              sticker
+                ? 'max-h-28 max-w-28 object-contain'
+                : 'max-h-56 w-auto max-w-full object-contain'
+            } ${phase === 'loaded' ? 'opacity-100' : 'absolute inset-0 opacity-0'} transition-opacity duration-200`}
+          />
+          {phase === 'loaded' && media.kind === 'gif' && (
+            <span className="pointer-events-none absolute bottom-1.5 right-1.5 rounded-md bg-black/60 px-1.5 py-0.5 font-mono text-[8.5px] tracking-[0.08em] text-white/85 backdrop-blur-sm">
+              GIF
+            </span>
+          )}
+        </button>
+      )}
+    </span>
+  )
 }
 
 function mergeComments(current: ZhihuCommentNode[], incoming: ZhihuCommentNode[]): ZhihuCommentNode[] {
@@ -97,6 +227,7 @@ function CommentItem({
   draftStore,
   rootTarget,
   onDeleted,
+  onOpenImage,
   depth = 0,
 }: {
   comment: ZhihuCommentNode
@@ -107,6 +238,7 @@ function CommentItem({
   draftStore: ZhihuCommentDraftStore
   rootTarget: ZhihuCommentTarget
   onDeleted: (commentId: string) => void
+  onOpenImage?: Props['onOpenImage']
   depth?: number
 }) {
   const likeWritable = canExecuteZhihuOperation(comment.liked ? 'comment.like.clear' : 'comment.like.set')
@@ -194,78 +326,116 @@ function CommentItem({
     }
   }
 
+  const createdTime = formatCommentTime(comment.createdAt)
+
   return (
     <article
       id={`zhihu-comment-${comment.id}`}
-      className={`scroll-mt-20 ${depth === 0 ? 'border-b border-haze/45 py-1.5 first:pt-0.5 last:border-b-0' : 'py-1'}`}
+      className={`scroll-mt-20 ${
+        depth === 0
+          ? 'border-b border-haze/45 py-3 first:pt-1 last:border-b-0'
+          : 'py-2'
+      }`}
     >
-      <div className="flex items-start gap-2">
+      <div className="flex items-start gap-2.5">
         <button
           type="button"
           onClick={() => onNavigate(
             { kind: 'people', id: comment.author.token ?? comment.author.id },
             `zhihu-comment-${comment.id}`,
           )}
-          className="flex size-6 shrink-0 items-center justify-center rounded-full transition-[transform,box-shadow] hover:scale-[1.04] hover:shadow-[0_5px_14px_-7px_rgba(0,0,0,0.55)] active:scale-[0.96]"
+          className={`flex shrink-0 items-center justify-center rounded-full transition-[transform,box-shadow] hover:scale-[1.03] hover:shadow-[0_5px_14px_-7px_rgba(0,0,0,0.55)] active:scale-[0.96] ${
+            depth === 0 ? 'size-8' : 'size-7'
+          }`}
           aria-label={`查看 ${comment.author.name} 的主页`}
         >
-          <ZhihuAuthorAvatar author={comment.author} className="size-6" />
+          <ZhihuAuthorAvatar author={comment.author} className={depth === 0 ? 'size-8' : 'size-7'} />
         </button>
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 items-center gap-1.5 leading-none">
             <button
               type="button"
               onClick={() => onNavigate(
                 { kind: 'people', id: comment.author.token ?? comment.author.id },
                 `zhihu-comment-${comment.id}`,
               )}
-              className="min-w-0 truncate text-left text-[12.5px] font-medium text-paper transition-colors hover:text-cinnabar-soft"
+              className="min-w-0 truncate text-left text-[13px] font-medium text-paper transition-colors hover:text-cinnabar-soft"
             >
               {comment.author.name}
             </button>
             {comment.replyToAuthor && (
-              <span className="truncate text-[10.5px] text-paper-faint">回复 {comment.replyToAuthor.name}</span>
+              <>
+                <span className="shrink-0 text-[10px] text-paper-faint/70">回复</span>
+                <span className="min-w-0 truncate text-[11px] text-paper-muted">{comment.replyToAuthor.name}</span>
+              </>
             )}
           </div>
-          <div
-            className="zhihu-comment-body mt-0.5 text-[13px] leading-[1.42] text-paper-muted"
-            dangerouslySetInnerHTML={{ __html: normalizeZhihuContentHtml(comment.contentHtml) }}
-          />
 
-          <div className="mt-0.5 flex min-h-6 items-center gap-0.5">
-            <button
-              type="button"
-              disabled={!authenticated || mutationBusy || !likeWritable}
-              onClick={() => void toggleLike()}
-              title={!authenticated ? '登录后可点赞' : liked ? '取消点赞' : '点赞'}
-              aria-label={liked ? '取消点赞' : '点赞'}
-              className={`inline-flex min-h-6 items-center gap-1 rounded-md px-1 font-mono text-[10px] transition-colors disabled:opacity-35 ${liked ? 'text-cinnabar-soft' : 'text-paper-faint hover:bg-paper/5 hover:text-paper-muted'}`}
-            >
-              <Heart size={12} strokeWidth={1.6} fill={liked ? 'currentColor' : 'none'} />
-              {likeCount > 0 && <span>{formatZhihuCount(likeCount)}</span>}
-            </button>
-            <button
-              type="button"
-              disabled={!authenticated || mutationBusy || !replyWritable}
-              onClick={() => setReplying((value) => !value)}
-              title={!authenticated ? '登录后可回复' : '回复'}
-              aria-label="回复"
-              className="flex size-6 items-center justify-center rounded-md text-paper-faint transition-colors hover:bg-paper/5 hover:text-paper-muted disabled:opacity-35"
-            >
-              <Reply size={12} strokeWidth={1.6} />
-            </button>
-            {comment.canDelete && (
+          {comment.contentHtml && (
+            <div
+              className="zhihu-comment-body mt-1.5 text-[13.5px] leading-[1.55] text-paper-muted"
+              dangerouslySetInnerHTML={{ __html: comment.contentHtml }}
+            />
+          )}
+
+          {comment.media.length > 0 && (
+            <div className="mt-2 flex max-w-full flex-wrap items-start gap-2">
+              {comment.media.map((media, index) => (
+                <CommentMedia
+                  key={`${media.kind}:${media.url}:${index}`}
+                  media={media}
+                  onOpen={onOpenImage}
+                />
+              ))}
+            </div>
+          )}
+
+          <div className="mt-1.5 flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1">
+            <div className="flex min-w-0 items-center gap-1.5 font-mono text-[9.5px] tracking-[0.02em] text-paper-faint/85">
+              {createdTime && <span>{createdTime}</span>}
+              {createdTime && comment.ipLocation && <span aria-hidden className="text-paper-faint/45">·</span>}
+              {comment.ipLocation && <span className="truncate">IP属地 {comment.ipLocation}</span>}
+            </div>
+            <div className="ml-auto flex items-center gap-0.5">
               <button
                 type="button"
-                disabled={!authenticated || mutationBusy || !deleteWritable}
-                onClick={() => void remove()}
-                title="删除评论"
-                aria-label="删除评论"
-                className="flex size-6 items-center justify-center rounded-md text-paper-faint transition-colors hover:bg-cinnabar/8 hover:text-cinnabar-soft disabled:opacity-35"
+                disabled={!authenticated || mutationBusy || !replyWritable}
+                onClick={() => setReplying((value) => !value)}
+                title={!authenticated ? '登录后可回复' : '回复'}
+                aria-label="回复"
+                className={`inline-flex min-h-7 items-center gap-1 rounded-lg px-1.5 text-[10.5px] transition-colors disabled:opacity-35 ${
+                  replying ? 'bg-cinnabar/10 text-cinnabar-soft' : 'text-paper-faint hover:bg-paper/5 hover:text-paper-muted'
+                }`}
               >
-                <Trash2 size={12} strokeWidth={1.6} />
+                <Reply size={12.5} strokeWidth={1.6} />
+                <span>回复</span>
               </button>
-            )}
+              <button
+                type="button"
+                disabled={!authenticated || mutationBusy || !likeWritable}
+                onClick={() => void toggleLike()}
+                title={!authenticated ? '登录后可点赞' : liked ? '取消点赞' : '点赞'}
+                aria-label={liked ? '取消点赞' : '点赞'}
+                className={`inline-flex min-h-7 items-center gap-1 rounded-lg px-1.5 font-mono text-[10px] transition-colors disabled:opacity-35 ${
+                  liked ? 'bg-cinnabar/10 text-cinnabar-soft' : 'text-paper-faint hover:bg-paper/5 hover:text-paper-muted'
+                }`}
+              >
+                <Heart size={12.5} strokeWidth={1.6} fill={liked ? 'currentColor' : 'none'} />
+                {likeCount > 0 && <span>{formatZhihuCount(likeCount)}</span>}
+              </button>
+              {comment.canDelete && (
+                <button
+                  type="button"
+                  disabled={!authenticated || mutationBusy || !deleteWritable}
+                  onClick={() => void remove()}
+                  title="删除评论"
+                  aria-label="删除评论"
+                  className="flex size-7 items-center justify-center rounded-lg text-paper-faint transition-colors hover:bg-cinnabar/8 hover:text-cinnabar-soft disabled:opacity-35"
+                >
+                  <Trash2 size={12.5} strokeWidth={1.6} />
+                </button>
+              )}
+            </div>
           </div>
 
           {replying && (
@@ -317,6 +487,7 @@ function CommentItem({
                       draftStore={draftStore}
                       rootTarget={rootTarget}
                       onDeleted={(id) => setChildren((prev) => prev.filter((item) => item.id !== id))}
+                      onOpenImage={onOpenImage}
                       depth={depth + 1}
                     />
                   ))}
@@ -330,7 +501,7 @@ function CommentItem({
   )
 }
 
-export function ZhihuCommentsSection({ target, service, onNavigate, restoreAnchor, authenticated, accountId, draftStore, variant = 'inline' }: Props) {
+export function ZhihuCommentsSection({ target, service, onNavigate, restoreAnchor, authenticated, accountId, draftStore, onOpenImage, variant = 'inline' }: Props) {
   const [sort, setSort] = useState<ZhihuCommentSort>('score')
   const targetKey = zhihuCommentTargetKey(target)
   const stableTarget = useMemo<ZhihuCommentTarget>(
@@ -486,7 +657,7 @@ export function ZhihuCommentsSection({ target, service, onNavigate, restoreAncho
         <ZhihuEmptyState icon={<MessageCircle size={26} />} title={stableTarget.kind === 'segment' ? '还没有段评' : '还没有评论'} description={stableTarget.kind === 'segment' ? '这里会显示围绕这段文字的讨论。' : '这里会显示这条内容下的讨论。'} />
       )}
       {items.length > 0 && (
-        <div className="divide-y divide-haze/45">
+        <div>
           {items.map((comment) => (
             <CommentItem
               key={comment.id}
@@ -498,6 +669,7 @@ export function ZhihuCommentsSection({ target, service, onNavigate, restoreAncho
               draftStore={draftStore}
               rootTarget={stableTarget}
               onDeleted={(id) => setItems((prev) => prev.filter((item) => item.id !== id))}
+              onOpenImage={onOpenImage}
             />
           ))}
         </div>

@@ -42,6 +42,7 @@ import { describeSources } from './categoryPrefs'
 
 /** 读入持久化数据时剔除已下线的分类与信源，避免脏配置导致空列表 */
 export function normalizePreferences(raw: unknown): Preferences {
+  const isFreshInstall = raw == null
   const input = (raw ?? {}) as Partial<Preferences>
   const typography = (input.typography ?? {}) as Partial<TypographyPrefs>
 
@@ -178,6 +179,13 @@ export function normalizePreferences(raw: unknown): Preferences {
     theme: isThemeMode(input.theme) ? input.theme : DEFAULT_THEME_MODE,
     scheme,
     customScheme,
+    // 新装没有任何持久化偏好时启用新版双栏；旧安装/旧备份缺字段时保持经典单栏，避免升级后突变。
+    homeFeedLayout:
+      input.homeFeedLayout === 'classic' || input.homeFeedLayout === 'cards'
+        ? input.homeFeedLayout
+        : isFreshInstall
+          ? 'cards'
+          : 'classic',
     translation: normalizeTranslationPrefs(input.translation),
     proxy: normalizeProxyPrefs(input.proxy),
     autoRefreshOnCategorySwitch:

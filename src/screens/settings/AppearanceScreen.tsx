@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Monitor, Moon, Pencil, Play, Sun } from 'lucide-react'
+import { Check, LayoutGrid, List, Monitor, Moon, Pencil, Play, Sun } from 'lucide-react'
 
 // 自定义主题高度依赖现代 CSS（如支持 rgb 拆分甚至 color-mix），低版本下显示不全且容易跑偏
 const isModernWebView = () => {
@@ -18,6 +18,7 @@ import {
   clearStartupSplashSeen,
   hasSeenStartupSplash,
 } from '../../lib/storage'
+import type { HomeFeedLayout } from '../../sources/preferences'
 import {
   THEME_MODES,
   THEME_SCHEMES,
@@ -32,10 +33,12 @@ interface Props {
   resolved: ResolvedTheme
   scheme: ThemeScheme
   customScheme?: CustomSchemePrefs
+  homeFeedLayout: HomeFeedLayout
   einkMode: boolean
   onChange: (theme: ThemeMode) => void
   onSchemeChange: (scheme: ThemeScheme) => void
   onEditCustomScheme: () => void
+  onHomeFeedLayoutChange: (layout: HomeFeedLayout) => void
   onEinkModeChange: (enabled: boolean) => void
   onBack: () => void
 }
@@ -87,10 +90,12 @@ export function AppearanceScreen({
   resolved,
   scheme,
   customScheme,
+  homeFeedLayout,
   einkMode,
   onChange,
   onSchemeChange,
   onEditCustomScheme,
+  onHomeFeedLayoutChange,
   onEinkModeChange,
   onBack,
 }: Props) {
@@ -248,6 +253,94 @@ export function AppearanceScreen({
             )
           })}
         </ul>
+      </SettingsSection>
+
+      <SettingsSection title="首页布局">
+        <div className="page-x grid grid-cols-2 gap-3">
+          {([
+            {
+              id: 'classic' as const,
+              label: '经典列表',
+              caption: '单栏图文列表，延续原来的阅读节奏',
+              Icon: List,
+            },
+            {
+              id: 'cards' as const,
+              label: '双栏卡片',
+              caption: '新版杂志式双栏，更适合浏览与发现',
+              Icon: LayoutGrid,
+            },
+          ] satisfies Array<{ id: HomeFeedLayout; label: string; caption: string; Icon: typeof List }>).map((item) => {
+            const checked = homeFeedLayout === item.id
+            const Icon = item.Icon
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-pressed={checked}
+                onClick={() => onHomeFeedLayoutChange(item.id)}
+                className={`relative overflow-hidden rounded-2xl border p-3 text-left transition-all duration-200 ${
+                  checked
+                    ? 'border-cinnabar/60 bg-ink-raised shadow-sm'
+                    : 'border-haze bg-ink-raised/45 hover:border-cinnabar/35 hover:bg-ink-raised/70'
+                }`}
+              >
+                <span className="mb-3 block h-20 rounded-xl border border-haze/80 bg-ink p-2" aria-hidden>
+                  {item.id === 'classic' ? (
+                    <span className="flex h-full flex-col gap-1.5">
+                      {[0, 1, 2].map((row) => (
+                        <span key={row} className="flex flex-1 items-center gap-2 rounded-md bg-ink-raised/70 px-1.5">
+                          <span className="flex-1">
+                            <span className="block h-1.5 w-4/5 rounded-full bg-paper/20" />
+                            <span className="mt-1 block h-1 w-2/3 rounded-full bg-paper/10" />
+                          </span>
+                          <span className="h-6 w-6 rounded bg-paper/10" />
+                        </span>
+                      ))}
+                    </span>
+                  ) : (
+                    <span className="grid h-full grid-cols-2 gap-1.5">
+                      {[0, 1, 2, 3].map((card) => (
+                        <span key={card} className="overflow-hidden rounded-md border border-haze/60 bg-ink-raised/70">
+                          {card !== 2 && <span className="block h-5 bg-paper/10" />}
+                          <span className="block p-1">
+                            <span className="block h-1.5 w-4/5 rounded-full bg-paper/20" />
+                            <span className="mt-1 block h-1 w-3/5 rounded-full bg-paper/10" />
+                          </span>
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </span>
+
+                <span className="flex items-start gap-2.5">
+                  <span className={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg border ${
+                    checked ? 'border-cinnabar/45 bg-cinnabar/12 text-cinnabar' : 'border-haze text-paper-muted'
+                  }`}>
+                    <Icon size={14} strokeWidth={1.7} aria-hidden />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5 text-[14px] font-medium text-paper">
+                      {item.label}
+                      {item.id === 'cards' && (
+                        <span className="rounded-full bg-cinnabar/12 px-1.5 py-0.5 font-mono text-[8.5px] font-normal tracking-[0.08em] text-cinnabar-soft">
+                          新版
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-1 block text-[11px] leading-[1.55] text-paper-faint">
+                      {item.caption}
+                    </span>
+                  </span>
+                  {checked && <Check size={15} strokeWidth={2.2} className="mt-1 shrink-0 text-cinnabar" aria-hidden />}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+        <p className="page-x mt-2 font-mono text-[9.5px] leading-relaxed text-paper-faint">
+          新安装默认使用双栏卡片；从旧版本升级的用户继续保持经典列表，除非在这里手动切换。
+        </p>
       </SettingsSection>
 
       <SettingsSection title="墨水屏">
