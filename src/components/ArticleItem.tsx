@@ -3,6 +3,7 @@ import { BookmarkCheck, Cloud } from 'lucide-react'
 
 import { InkImage } from './InkImage'
 import { articleCoverUrl } from '../lib/articleAudio'
+import { feedDisplayTitle } from '../lib/articleTitle'
 import { cleanSummaryText } from '../lib/cleanSummary'
 import type { Article } from '../lib/types'
 import { articleRelativeTime } from '../lib/time'
@@ -41,8 +42,13 @@ export const ArticleRow = memo(function ArticleRow({
   const showCard = variant === 'card' || variant === 'auto'
   const hasTranslation = Boolean(translated?.title)
   const isTranslated = hasTranslation && !showOriginal
-  const activeTitle = isTranslated ? (translated?.title || article.title) : article.title
-  const displaySummary = cleanSummaryText(article.summary, activeTitle)
+  const activeSummary = isTranslated ? (translated?.summary || article.summary) : article.summary
+  const activeTitle = feedDisplayTitle(
+    isTranslated ? (translated?.title || article.title) : article.title,
+    activeSummary,
+  )
+  const originalDisplayTitle = feedDisplayTitle(article.title, article.summary)
+  const displaySummary = cleanSummaryText(activeSummary, activeTitle)
   const cover = articleCoverUrl(article.image)
 
   const renderTranslateBadge = () => {
@@ -139,7 +145,7 @@ export const ArticleRow = memo(function ArticleRow({
 
             {/* 文章标题 */}
             <span
-              className={`row-title mt-1.5 block text-[17px] leading-[1.46] tracking-[0.005em] transition-colors ${
+              className={`row-title mt-1.5 line-clamp-2 text-[17px] leading-[1.46] tracking-[0.005em] transition-colors ${
                 read
                   ? 'font-normal text-paper-muted/75'
                   : 'font-medium text-paper group-hover:text-cinnabar'
@@ -150,8 +156,8 @@ export const ArticleRow = memo(function ArticleRow({
 
             {/* 双语对照模式下的外文原标题 */}
             {isTranslated && displayMode === 'compare' && (
-              <span className="mt-0.5 block font-sans text-[12px] leading-snug text-paper-faint/85 line-clamp-1 italic">
-                {article.title}
+              <span className="mt-0.5 font-sans text-[12px] leading-snug text-paper-faint/85 line-clamp-1 italic">
+                {originalDisplayTitle}
               </span>
             )}
 
@@ -226,7 +232,7 @@ export const ArticleRow = memo(function ArticleRow({
             )}
 
             <span
-              className={`row-title line-clamp-3 block text-[15px] leading-[1.42] tracking-[0.005em] transition-colors min-[430px]:text-[15.5px] ${
+              className={`row-title line-clamp-3 text-[15px] leading-[1.42] tracking-[0.005em] transition-colors min-[430px]:text-[15.5px] ${
                 read ? 'font-normal text-paper-muted/78' : 'font-medium text-paper'
               }`}
             >
@@ -234,8 +240,8 @@ export const ArticleRow = memo(function ArticleRow({
             </span>
 
             {isTranslated && displayMode === 'compare' && (
-              <span className="mt-1 line-clamp-1 block font-sans text-[10.5px] leading-snug text-paper-faint/80 italic">
-                {article.title}
+              <span className="mt-1 line-clamp-1 font-sans text-[10.5px] leading-snug text-paper-faint/80 italic">
+                {originalDisplayTitle}
               </span>
             )}
 
@@ -352,7 +358,7 @@ export const ArticleRow = memo(function ArticleRow({
 
             {/* 文章标题 */}
             <h2
-              className={`row-title mt-2 text-[18px] xl:text-[19px] leading-[1.42] tracking-[0.005em] transition-colors duration-200 ${
+              className={`row-title mt-2 line-clamp-3 text-[18px] xl:text-[19px] leading-[1.42] tracking-[0.005em] transition-colors duration-200 ${
                 read
                   ? 'font-normal text-paper-muted/80'
                   : 'font-medium text-paper group-hover:text-cinnabar'
@@ -364,7 +370,7 @@ export const ArticleRow = memo(function ArticleRow({
             {/* 双语对照模式下的外文原标题 */}
             {isTranslated && displayMode === 'compare' && (
               <p className="mt-1 font-sans text-[12px] leading-snug text-paper-faint/85 line-clamp-1 italic">
-                {article.title}
+                {originalDisplayTitle}
               </p>
             )}
 
@@ -431,8 +437,13 @@ export const LeadStory = memo(function LeadStory({
   const showBanner = variant === 'banner' || variant === 'auto'
   const hasTranslation = Boolean(translated?.title)
   const isTranslated = hasTranslation && !showOriginal
-  const activeTitle = isTranslated ? (translated?.title || article.title) : article.title
-  const displaySummary = cleanSummaryText(article.summary, activeTitle)
+  const activeSummary = isTranslated ? (translated?.summary || article.summary) : article.summary
+  const activeTitle = feedDisplayTitle(
+    isTranslated ? (translated?.title || article.title) : article.title,
+    activeSummary,
+  )
+  const originalDisplayTitle = feedDisplayTitle(article.title, article.summary)
+  const displaySummary = cleanSummaryText(activeSummary, activeTitle)
   const cover = articleCoverUrl(article.image)
 
   const renderTranslateBadge = () => {
@@ -505,12 +516,12 @@ export const LeadStory = memo(function LeadStory({
               )}
               {renderTranslateBadge()}
             </span>
-            <span className="lead-title mt-1.5 block text-[20px] font-medium leading-[1.32] sm:text-[22px]">
+            <span className="lead-title mt-1.5 line-clamp-3 text-[20px] font-medium leading-[1.32] sm:text-[22px]">
               {activeTitle}
             </span>
             {isTranslated && displayMode === 'compare' && (
-              <span className="lead-hero-summary mt-1 block font-sans text-[12px] leading-snug line-clamp-1 italic">
-                {article.title}
+              <span className="lead-hero-summary mt-1 font-sans text-[12px] leading-snug line-clamp-1 italic">
+                {originalDisplayTitle}
               </span>
             )}
             {displaySummary && (
@@ -587,7 +598,7 @@ export const LeadStory = memo(function LeadStory({
                 </div>
 
                 <h1
-                  className={`lead-title mt-4 text-[26px] xl:text-[30px] leading-[1.32] font-medium transition-colors duration-200 ${
+                  className={`lead-title mt-4 line-clamp-3 text-[26px] xl:text-[30px] leading-[1.32] font-medium transition-colors duration-200 ${
                     read
                       ? 'text-paper-muted/90'
                       : 'text-paper group-hover:text-cinnabar'
@@ -598,7 +609,7 @@ export const LeadStory = memo(function LeadStory({
 
                 {isTranslated && displayMode === 'compare' && (
                   <p className="mt-1.5 font-sans text-[13px] leading-snug text-paper-faint/85 line-clamp-1 italic">
-                    {article.title}
+                    {originalDisplayTitle}
                   </p>
                 )}
 

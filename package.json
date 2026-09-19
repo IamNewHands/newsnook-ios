@@ -31,6 +31,7 @@
     "test:async-pool": "npx tsx scripts/async-pool.test.ts",
     "test:feed-refresh-concurrency": "npx tsx scripts/feed-refresh-concurrency.test.ts",
     "test:json-feed": "npx tsx scripts/json-feed.test.ts",
+    "test:article-title": "npx tsx scripts/article-title.test.ts",
     "test:feed-status": "npx tsx scripts/feed-status-custom-sources.test.ts",
     "test:feed-payload": "npx tsx scripts/feed-payload.test.ts",
     "test:resolve-body-custom": "npx tsx scripts/resolve-body-custom-source.test.ts",

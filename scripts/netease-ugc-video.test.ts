@@ -65,6 +65,14 @@ const payload = JSON.stringify({
       },
     },
     {
+      title: '这个仿真鱼其实是一个水下机器人。它还会扑腾溅水，差点溅了我一身。#东博会# #平陆运河# #世纪工程#'.repeat(3),
+      docid: 'YDJ0937UPNM44YXY',
+      skipType: 'rec',
+      skipID: 'YDJ0937UPNM44YXY',
+      boardid: 'app_bbs',
+      ptime: '2026-09-19 10:15:20',
+    },
+    {
       title: '图集应继续跳过',
       skipType: 'photoset',
       skipID: '00AN0001',
@@ -85,7 +93,8 @@ assert.ok(!titles.some((title) => title.includes('KTV')))
 assert.ok(!titles.some((title) => title.includes('歌厅')))
 assert.ok(titles.includes('央视记录片：现场画面'))
 assert.equal(articles.find((item) => item.title.includes('央视'))?.contentType, 'video')
+assert.ok(!titles.some((title) => title.includes('仿真鱼')), 'App 社区 rec 卡不能混入媒体信源')
 assert.equal(articles.length, 2)
-assert.equal(neteasePageEntryCount(payload), 5, '分页仍按原始条目数，避免滤掉短视频后提前耗尽')
+assert.equal(neteasePageEntryCount(payload), 6, '分页仍按原始条目数，避免滤掉不支持卡片后提前耗尽')
 
 console.log('netease ugc video filter: ok')

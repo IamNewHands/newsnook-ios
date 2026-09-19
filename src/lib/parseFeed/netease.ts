@@ -33,6 +33,15 @@ function isNeteaseHaoShortVideoCard(entry: Unknown, videoinfo: Unknown | undefin
   return videosource === '新媒体' || videosource === '其他'
 }
 
+/**
+ * 网易频道接口会把 App 社区推荐卡混入媒体频道列表。
+ * 这类记录常见 skipType=rec + boardid=app_bbs，title 实际是整段动态正文，
+ * 而且并不属于当前媒体源。不能把它伪装成该源的新闻条目。
+ */
+function isNeteaseAppCommunityRecommendation(entry: Unknown): boolean {
+  return text(entry.boardid).toLowerCase() === 'app_bbs'
+}
+
 export function parseNetease(source: NewsSource, payload: string, fetchedAt: number): Article[] {
   const data = JSON.parse(payload) as Record<string, unknown>
   // 汽车等频道顶层为 list；普通频道为动态 TID 数组键
@@ -46,6 +55,9 @@ export function parseNetease(source: NewsSource, payload: string, fetchedAt: num
   return entries.flatMap((entry) => {
     const title = text(entry.title)
     if (!title) return []
+
+    // 媒体频道里的 App 社区推荐不是该信源文章；其 title 往往就是整段正文。
+    if (isNeteaseAppCommunityRecommendation(entry)) return []
 
     const skipType = text(entry.skipType)
     // 图集 / 专题本期不做站内展开，避免点开后必失败

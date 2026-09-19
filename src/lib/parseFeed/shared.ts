@@ -6,6 +6,7 @@
 
 import { collectAudioSrc, isAudioMediaUrl } from '../articleAudio'
 import { feedArticleId } from '../articleId'
+import { normalizeArticleTitle } from '../articleTitle'
 import { cleanSummaryText } from '../cleanSummary'
 import type { NewsSource } from '../../sources/registry'
 import type { Article } from '../types'
@@ -206,7 +207,8 @@ export function buildArticle(
   },
   fetchedAt: number,
 ): Article | undefined {
-  const title = stripTags(raw.title)
+  const fallbackTitleText = raw.summaryText || stripTags(raw.html)
+  const title = normalizeArticleTitle(raw.title, fallbackTitleText)
   if (!title) return undefined
 
   const published = parseDate(raw.dateRaw)
