@@ -160,6 +160,23 @@ export const CATEGORIES: NewsCategory[] = [
     sourceIds: ['bbc-zh', 'bbc-zh-world', 'dw-top', 'theinitium'],
   },
   {
+    id: 'cn-depth',
+    label: '中文深读',
+    short: '深读',
+    caption: '澎湃上海书评/人物/研究所/思想市场/科学湃 · 南方周末深度/特稿/对话/智库',
+    sourceIds: [
+      'thepaper-bookreview',
+      'thepaper-people',
+      'thepaper-research',
+      'thepaper-ideas',
+      'thepaper-science',
+      'infzm-depth',
+      'infzm-feature',
+      'infzm-interview',
+      'infzm-thinktank',
+    ],
+  },
+  {
     id: 'health',
     label: '健康',
     short: '健康',

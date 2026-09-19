@@ -1,7 +1,7 @@
 {
   "name": "web",
   "private": true,
-  "version": "1.8.7",
+  "version": "1.8.8-beta.1",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "workspaces": [
@@ -34,6 +34,7 @@
     "test:article-title": "npx tsx scripts/article-title.test.ts",
     "test:feed-status": "npx tsx scripts/feed-status-custom-sources.test.ts",
     "test:feed-payload": "npx tsx scripts/feed-payload.test.ts",
+    "test:feed-pagination": "npx tsx scripts/feed-pagination.test.ts",
     "test:resolve-body-custom": "npx tsx scripts/resolve-body-custom-source.test.ts",
     "test:resolve-body-blocked": "npx tsx scripts/resolve-body-blocked.test.ts",
     "test:source-picker": "npx tsx scripts/source-picker.test.ts",
@@ -72,6 +73,7 @@
     "test:paulgraham-dates": "npx tsx scripts/paulgraham-dates.test.ts",
     "test:finance-sources": "npx tsx scripts/finance-sources.test.ts",
     "test:high-signal": "npx tsx scripts/high-signal-sources.test.ts",
+    "test:deep-cn-sources": "npx tsx scripts/deep-cn-sources.test.ts",
     "test:ai-firstparty": "npx tsx scripts/ai-firstparty-sources.test.ts",
     "test:community-sources": "npx tsx scripts/community-wechat-sources.test.ts",
     "test:eink": "npx tsx scripts/eink-mode.test.ts",

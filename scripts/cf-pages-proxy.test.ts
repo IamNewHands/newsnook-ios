@@ -101,6 +101,55 @@ console.log('--- 测试 3: /api/feed/:id 路由与信源匹配 ---')
     assert.equal(resLatepost.status, 200)
     assert.equal(capturedInit?.method, 'POST')
     assert.match(String(capturedInit?.body), /limit=/)
+
+    // JSON POST 信源（澎湃）：代理必须保留 application/json 与结构化 body。
+    const reqThePaper = new Request('https://news.aizeek.com/api/feed/thepaper-bookreview?page=0', {
+      method: 'POST',
+    })
+    const resThePaper = await onRequest({
+      request: reqThePaper,
+      params: { path: ['feed', 'thepaper-bookreview'] },
+      functionPath: '/api/feed/thepaper-bookreview',
+      waitUntil: () => {},
+      next: async () => new Response(),
+      env: {},
+      data: {},
+    })
+    assert.equal(resThePaper.status, 200)
+    assert.equal(capturedInit?.method, 'POST')
+    const paperHeaders = capturedInit?.headers as Record<string, string>
+    assert.match(paperHeaders['Content-Type'] ?? '', /application\/json/i)
+    assert.deepEqual(JSON.parse(String(capturedInit?.body)), {
+      nodeId: 26878,
+      pageNum: 1,
+      pageSize: 20,
+    })
+
+    const paperCursorBody = {
+      nodeId: 26878,
+      pageNum: 2,
+      pageSize: 20,
+      startTime: 1788837532062,
+      excludeContIds: ['34000000'],
+    }
+    const reqThePaperPage2 = new Request(
+      'https://news.aizeek.com/api/feed/thepaper-bookreview',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(paperCursorBody),
+      },
+    )
+    await onRequest({
+      request: reqThePaperPage2,
+      params: { path: ['feed', 'thepaper-bookreview'] },
+      functionPath: '/api/feed/thepaper-bookreview',
+      waitUntil: () => {},
+      next: async () => new Response(),
+      env: {},
+      data: {},
+    })
+    assert.deepEqual(JSON.parse(String(capturedInit?.body)), paperCursorBody)
   } finally {
     globalThis.fetch = originalFetch
   }

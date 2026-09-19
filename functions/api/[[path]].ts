@@ -40,7 +40,9 @@ function feedRequestHeaders(
     ...(source.requestHeaders ?? {}),
   }
   if (method === 'POST') {
-    headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'
+    headers['Content-Type'] = source.requestBodyType === 'json'
+      ? 'application/json; charset=UTF-8'
+      : 'application/x-www-form-urlencoded; charset=UTF-8'
   }
   return headers
 }
@@ -82,7 +84,7 @@ export const onRequest: PagesFunction = async (context) => {
       const page = pageRaw != null && pageRaw !== '' ? Number(pageRaw) : 0
       const paged = Number.isFinite(page)
         ? offsetPageRequest(source, page)
-        : { url: source.url, requestForm: source.requestForm }
+        : { url: source.url, requestForm: source.requestForm, requestJson: source.requestJson }
 
       const method = (request.method || 'GET').toUpperCase()
       const wantPost = method === 'POST' || source.requestMethod === 'POST'
@@ -92,7 +94,11 @@ export const onRequest: PagesFunction = async (context) => {
         if (method === 'POST') {
           body = await request.text()
         }
-        if (!body) body = encodeFormBody(paged.requestForm ?? source.requestForm)
+        if (!body) {
+          body = source.requestBodyType === 'json'
+            ? JSON.stringify(paged.requestJson ?? source.requestJson ?? {})
+            : encodeFormBody(paged.requestForm ?? source.requestForm)
+        }
       }
 
       const headers = feedRequestHeaders(source, wantPost ? 'POST' : 'GET')

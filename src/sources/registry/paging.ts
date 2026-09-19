@@ -25,6 +25,7 @@ export function neteasePageUrl(source: NewsSource, page: number): string {
 export type OffsetPageRequest = {
   url: string
   requestForm?: Record<string, string | number>
+  requestJson?: Record<string, unknown>
 }
 
 function searchParamsFromRecord(params: Record<string, string | number>): URLSearchParams {
@@ -80,6 +81,12 @@ export function offsetPageRequest(source: NewsSource, page: number): OffsetPageR
     }
   }
 
+  if (source.kind === 'infzm') {
+    const url = new URL(source.url)
+    url.searchParams.set('page', String(safePage + 1))
+    return { url: url.href }
+  }
+
   if (source.kind === 'cls') {
     // 财联社电报靠 last_time 游标翻页；页码路径尚未接入，暂始终拉首页
     return { url: clsSignedListUrl({ rn: 20, lastTime: 0 }) }
@@ -119,7 +126,7 @@ export function offsetPageRequest(source: NewsSource, page: number): OffsetPageR
     return { url: buildCatalogPageUrl(source.url, safePage) }
   }
 
-  return { url: source.url, requestForm: source.requestForm }
+  return { url: source.url, requestForm: source.requestForm, requestJson: source.requestJson }
 }
 
 export function maxOffsetPages(source: NewsSource): number {
@@ -141,6 +148,8 @@ export function pagingStrategyOf(source: NewsSource): PagingStrategy {
   if (source.kind === 'eastmoney-kx') return 'upstream-offset'
   if (source.kind === 'uisdc') return 'upstream-offset'
   if (source.kind === 'jandan') return 'upstream-offset'
+  if (source.kind === 'infzm') return 'upstream-offset'
+  if (source.kind === 'thepaper') return 'upstream-cursor'
   if (source.kind === 'zhihu') return 'upstream-cursor'
   if (source.kind === 'web-catalog') {
     if (source.frameworkHint) return 'upstream-offset'

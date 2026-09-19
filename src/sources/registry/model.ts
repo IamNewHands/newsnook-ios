@@ -26,6 +26,8 @@ export type SourceKind =
   | 'paulgraham'
   | 'wechat'
   | 'uisdc'
+  | 'thepaper'
+  | 'infzm'
   | 'claude-webflow'
   | 'claude-academy'
   | 'openai-cookbook'
@@ -53,8 +55,12 @@ export interface NewsSource {
   userAgent?: string
   /** 列表请求方法；晚点等接口要求 POST */
   requestMethod?: 'GET' | 'POST'
+  /** POST 请求体编码；默认 form，结构化媒体接口可显式使用 json */
+  requestBodyType?: 'form' | 'json'
   /** POST 时 application/x-www-form-urlencoded 字段 */
   requestForm?: Record<string, string | number>
+  /** POST JSON 字段 */
+  requestJson?: Record<string, unknown>
   /** 额外上游请求头（Referer 等） */
   requestHeaders?: Record<string, string>
   /** 默认是否出现在「综合」启用列表 */
@@ -113,4 +119,6 @@ export const OFFSET_MAX_PAGES: Partial<Record<SourceKind, number>> = {
   'eastmoney-kx': 40,
   uisdc: 20,
   jandan: 10,
+  thepaper: 30,
+  infzm: 30,
 }

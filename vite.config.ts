@@ -221,7 +221,9 @@ function feedRequestHeaders(
     ...(source.requestHeaders ?? {}),
   }
   if (method === 'POST') {
-    headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'
+    headers['Content-Type'] = source.requestBodyType === 'json'
+      ? 'application/json; charset=UTF-8'
+      : 'application/x-www-form-urlencoded; charset=UTF-8'
   }
   return headers
 }
@@ -250,7 +252,11 @@ function feedProxyPlugin(): Plugin {
             offsetPageRequest: (
               source: NewsSource,
               page: number,
-            ) => { url: string; requestForm?: Record<string, string | number> }
+            ) => {
+              url: string
+              requestForm?: Record<string, string | number>
+              requestJson?: Record<string, unknown>
+            }
           }
           const source = registry.findSource(match[1])
           if (!source) {
@@ -264,7 +270,7 @@ function feedProxyPlugin(): Plugin {
           const page = pageRaw != null && pageRaw !== '' ? Number(pageRaw) : 0
           const paged = Number.isFinite(page)
             ? registry.offsetPageRequest(source, page)
-            : { url: source.url, requestForm: source.requestForm }
+            : { url: source.url, requestForm: source.requestForm, requestJson: source.requestJson }
 
           const method = (req.method ?? 'GET').toUpperCase()
           const wantPost = method === 'POST' || source.requestMethod === 'POST'
@@ -274,7 +280,11 @@ function feedProxyPlugin(): Plugin {
             if (method === 'POST') {
               body = await readRequestBody(req)
             }
-            if (!body) body = encodeFormBody(paged.requestForm ?? source.requestForm)
+            if (!body) {
+              body = source.requestBodyType === 'json'
+                ? JSON.stringify(paged.requestJson ?? source.requestJson ?? {})
+                : encodeFormBody(paged.requestForm ?? source.requestForm)
+            }
           }
 
           const headers = feedRequestHeaders(source, wantPost ? 'POST' : 'GET', registry.userAgentFor)

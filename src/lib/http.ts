@@ -66,6 +66,7 @@ export type FetchSourceOptions = {
   /** 0-based 上游页码；开发态走 `/api/feed/{id}?page=`，原生直连 offsetPageRequest */
   page?: number
   requestForm?: Record<string, string | number>
+  requestJson?: Record<string, unknown>
 }
 
 function transportFor(
@@ -89,6 +90,8 @@ export async function fetchSourceText(
   const transport = transportFor(rawUrl, { id: source.id, group: source.group })
   const method = source.requestMethod ?? 'GET'
   const form = options?.requestForm ?? paged.requestForm
+  const json = options?.requestJson ?? paged.requestJson ?? source.requestJson
+  const bodyType = source.requestBodyType ?? 'form'
   const extraHeaders = source.requestHeaders
   const ua = userAgentFor(source)
 
@@ -96,7 +99,7 @@ export async function fetchSourceText(
     const url = transport.kind === 'web-wrap' ? transport.requestUrl : rawUrl
     const tunnel = transport.kind === 'native-tunnel' ? transport.tunnel : undefined
     if (method === 'POST') {
-      return nativePost(url, ua, form, extraHeaders, signal, tunnel)
+      return nativePost(url, ua, bodyType, form, json, extraHeaders, signal, tunnel)
     }
     return nativeGet(url, ua, signal, extraHeaders, tunnel)
   }
@@ -108,11 +111,11 @@ export async function fetchSourceText(
         method: 'POST',
         signal,
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'Content-Type': bodyType === 'json' ? 'application/json; charset=UTF-8' : 'application/x-www-form-urlencoded; charset=UTF-8',
           'User-Agent': ua,
           ...(extraHeaders ?? {}),
         },
-        body: encodeFormBody(form),
+        body: bodyType === 'json' ? JSON.stringify(json ?? {}) : encodeFormBody(form),
       })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       return decodeBrowserResponse(response)
@@ -131,10 +134,10 @@ export async function fetchSourceText(
     if (method === 'POST') {
       init.method = 'POST'
       init.headers = {
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'Content-Type': bodyType === 'json' ? 'application/json; charset=UTF-8' : 'application/x-www-form-urlencoded; charset=UTF-8',
         ...(extraHeaders ?? {}),
       }
-      init.body = encodeFormBody(form)
+      init.body = bodyType === 'json' ? JSON.stringify(json ?? {}) : encodeFormBody(form)
     }
     const response = await fetch(`${proxyPathFor(source.id)}?page=${page}`, init)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -158,10 +161,10 @@ export async function fetchSourceText(
   if (method === 'POST') {
     init.method = 'POST'
     init.headers = {
-      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'Content-Type': bodyType === 'json' ? 'application/json; charset=UTF-8' : 'application/x-www-form-urlencoded; charset=UTF-8',
       ...(extraHeaders ?? {}),
     }
-    init.body = encodeFormBody(form)
+    init.body = bodyType === 'json' ? JSON.stringify(json ?? {}) : encodeFormBody(form)
   }
 
   const response = await fetch(proxyPathFor(source.id), init)
@@ -250,7 +253,7 @@ export async function fetchAbsoluteFormPost(
   if (Capacitor.isNativePlatform()) {
     const targetUrl = transport.kind === 'web-wrap' ? transport.requestUrl : url
     const tunnel = transport.kind === 'native-tunnel' ? transport.tunnel : undefined
-    return nativePost(targetUrl, ua, form, extra, options?.signal, tunnel)
+    return nativePost(targetUrl, ua, 'form', form, undefined, extra, options?.signal, tunnel)
   }
 
   if (transport.kind === 'web-wrap') {
@@ -342,7 +345,9 @@ async function nativeGet(
 async function nativePost(
   url: string,
   userAgent: string,
+  bodyType: 'form' | 'json',
   form: Record<string, string | number> | undefined,
+  json: Record<string, unknown> | undefined,
   extraHeaders: Record<string, string> | undefined,
   signal?: AbortSignal,
   tunnel?: NativeTunnelProxy,
@@ -353,10 +358,10 @@ async function nativePost(
     'User-Agent': userAgent,
     Accept: 'application/json, text/javascript, */*; q=0.01',
     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+    'Content-Type': bodyType === 'json' ? 'application/json; charset=UTF-8' : 'application/x-www-form-urlencoded; charset=UTF-8',
     ...(extraHeaders ?? {}),
   }
-  const body = encodeFormBody(form)
+  const body = bodyType === 'json' ? JSON.stringify(json ?? {}) : encodeFormBody(form)
 
   const response = tunnel
     ? await abortable(
