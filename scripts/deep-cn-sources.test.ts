@@ -10,7 +10,7 @@ import {
 } from '../src/lib/parseFeed'
 import { DEFAULT_PREFERENCES } from '../src/sources/preferences'
 import { BUILTIN_DEPTH_ID, findBuiltinPreset } from '../src/sources/presets'
-import { findSource, offsetPageRequest, pagingStrategyOf } from '../src/sources/registry'
+import { findSource, offsetPageRequest, pagingStrategyOf, userAgentFor } from '../src/sources/registry'
 
 const THEPAPER_IDS = [
   'thepaper-bookreview',
@@ -48,6 +48,8 @@ for (const id of INFZM_IDS) {
   assert.equal(source.group, 'cn')
   assert.equal(source.enabled, false)
   assert.match(source.url, /infzm\.com\/contents\?term_id=/)
+  assert.match(userAgentFor(source), /Windows NT 10\.0/)
+  assert.doesNotMatch(userAgentFor(source), /Mobile|Android/i)
 }
 
 // 已确认停更的思想湃不应进入当前产品信源。

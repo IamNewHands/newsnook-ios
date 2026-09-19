@@ -68,6 +68,10 @@ function infzmChannel(id: string, name: string, termId: number): NewsSource {
     kind: 'infzm',
     url: `https://www.infzm.com/contents?term_id=${termId}&page=1`,
     siteUrl: `https://www.infzm.com/contents?term_id=${termId}`,
+    // 南周会把 Android / Mobile UA 302 到旧版 /wap/#/... 路由；服务端随后把
+    // hash 编码进路径并返回 404，导致 App 四个频道全部抓取失败。固定桌面 UA，
+    // 让原生 CapacitorHttp、Vite 与 Cloudflare feed 代理都命中可解析的公开 HTML 列表。
+    userAgent: DESKTOP_UA,
     requestHeaders: { Referer: 'https://www.infzm.com/' },
     enabled: false,
   }

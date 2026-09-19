@@ -150,6 +150,23 @@ console.log('--- 测试 3: /api/feed/:id 路由与信源匹配 ---')
       data: {},
     })
     assert.deepEqual(JSON.parse(String(capturedInit?.body)), paperCursorBody)
+
+    // 南方周末：移动 UA 会被官网 302 到失效的 /wap/#/... 路由，代理必须使用桌面 UA。
+    const reqInfzm = new Request('https://news.aizeek.com/api/feed/infzm-depth')
+    const resInfzm = await onRequest({
+      request: reqInfzm,
+      params: { path: ['feed', 'infzm-depth'] },
+      functionPath: '/api/feed/infzm-depth',
+      waitUntil: () => {},
+      next: async () => new Response(),
+      env: {},
+      data: {},
+    })
+    assert.equal(resInfzm.status, 200)
+    assert.match(capturedUrl, /infzm\.com\/contents\?term_id=202/)
+    const infzmHeaders = capturedInit?.headers as Record<string, string>
+    assert.match(infzmHeaders['User-Agent'] ?? '', /Windows NT 10\.0/)
+    assert.doesNotMatch(infzmHeaders['User-Agent'] ?? '', /Mobile|Android/i)
   } finally {
     globalThis.fetch = originalFetch
   }
