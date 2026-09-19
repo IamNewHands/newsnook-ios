@@ -237,7 +237,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: ${{ steps.release_contract.outputs.track == 'beta' && 'Beta' || 'Stable' }} · ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
           draft: false
           prerelease: ${{ steps.release_contract.outputs.track == 'beta' }}
           generate_release_notes: true
