@@ -1,10 +1,21 @@
-export type AppUpdateChannel = 'cloud' | 'local'
+export type PackageFlavor = 'cloud' | 'local'
 
-export type AppUpdatePrefs = {
+/**
+ * 更新订阅通道只属于发布基础设施。
+ * 业务功能不得根据该值做功能开关；stable/main 与 beta/beta 分支的代码差异由 Git 分支承载。
+ */
+export type UpdateTrack = 'stable' | 'beta'
+
+export type UpdateTrackPrefs = {
   skippedVersion?: string
   snoozeUntil?: number
   lastCheckAt?: number
   availableVersion?: string
+}
+
+export type AppUpdatePrefs = {
+  track: UpdateTrack
+  tracks: Record<UpdateTrack, UpdateTrackPrefs>
 }
 
 export type LatestReleaseInfo = {
@@ -15,18 +26,28 @@ export type LatestReleaseInfo = {
   apkFileName: string
   sha256?: string
   size?: number
-  channel: AppUpdateChannel
+  flavor: PackageFlavor
+  /** APK 实际来自哪个发布通道。 */
+  track: UpdateTrack
+  /** 用户订阅的更新通道；Beta 订阅也有资格接收更新的 Stable。 */
+  subscriptionTrack: UpdateTrack
 }
 
 export type UpdateCheckResult =
-  | { status: 'up-to-date'; localVersion: string; remoteVersion: string }
+  | { status: 'up-to-date'; localVersion: string; remoteVersion: string; track: UpdateTrack }
   | { status: 'available'; localVersion: string; release: LatestReleaseInfo }
-  | { status: 'no-asset'; localVersion: string; remoteVersion: string; channel: AppUpdateChannel }
+  | {
+      status: 'no-asset'
+      localVersion: string
+      remoteVersion: string
+      flavor: PackageFlavor
+      track: UpdateTrack
+    }
   | { status: 'error'; message: string }
 
 export type FetchReleaseApkResult =
   | { status: 'ok'; release: LatestReleaseInfo }
-  | { status: 'no-asset'; version: string; channel: AppUpdateChannel }
+  | { status: 'no-asset'; version: string; flavor: PackageFlavor; track: UpdateTrack }
   | { status: 'error'; message: string }
 
 export type ReleaseNotesResult =

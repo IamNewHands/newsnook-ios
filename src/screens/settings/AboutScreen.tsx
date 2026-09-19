@@ -5,6 +5,7 @@ import {
   Compass,
   Copy,
   ExternalLink,
+  GitBranch,
   HardDrive,
   Languages,
   Layers,
@@ -27,12 +28,14 @@ interface Props {
   hasUpdate?: boolean
   availableVersion?: string
   onCheckUpdate?: () => void
+  updateTrack?: 'stable' | 'beta'
+  onOpenUpdateTrack?: () => void
   onOpenChangelog?: () => void
   onOpenLicenses?: () => void
   /** 重新播放功能引导（回到「速闻」页开播，不清「看过」标记） */
   onReplayTour?: () => void
   flavorSwitchSupported?: boolean
-  currentChannelLabel?: string
+  currentFlavorLabel?: string
   flavorSwitchTitle?: string
   flavorSwitchCaption?: string
   onSwitchFlavor?: () => void
@@ -85,11 +88,13 @@ export function AboutScreen({
   hasUpdate = false,
   availableVersion: _availableVersion,
   onCheckUpdate,
+  updateTrack = 'stable',
+  onOpenUpdateTrack,
   onOpenChangelog,
   onOpenLicenses,
   onReplayTour,
   flavorSwitchSupported = false,
-  currentChannelLabel,
+  currentFlavorLabel,
   flavorSwitchTitle,
   flavorSwitchCaption,
   onSwitchFlavor,
@@ -169,6 +174,27 @@ export function AboutScreen({
               </button>
             </li>
           ) : null}
+          {updateSupported && onOpenUpdateTrack ? (
+            <li className="transition-colors hover:bg-ink-raised/30 active:bg-ink-raised/50">
+              <button
+                type="button"
+                onClick={onOpenUpdateTrack}
+                className="page-x flex w-full items-center gap-3.5 py-4 text-left"
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ink-raised/60 text-paper">
+                  <GitBranch size={18} strokeWidth={1.75} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <span className="text-[14px] font-medium text-paper">更新通道</span>
+                  <p className="mt-0.5 truncate font-mono text-[11px] text-paper-faint">
+                    {updateTrack === 'beta'
+                      ? '内测版 · 提前体验开发中的版本'
+                      : '正式版 · 稳定更新，推荐日常使用'}
+                  </p>
+                </div>
+              </button>
+            </li>
+          ) : null}
           {flavorSwitchSupported ? (
             <li className="transition-colors hover:bg-ink-raised/30 active:bg-ink-raised/50">
               <button
@@ -181,11 +207,11 @@ export function AboutScreen({
                 </div>
                 <div className="min-w-0 flex-1">
                   <span className="text-[14px] font-medium text-paper">
-                    {flavorSwitchTitle ?? '切换安装包'}
+                    {flavorSwitchTitle ?? '安装包类型'}
                   </span>
                   <p className="mt-0.5 truncate font-mono text-[11px] text-paper-faint">
                     {flavorSwitchCaption ??
-                      `当前${currentChannelLabel ?? '本版'} · 将下载 v${ABOUT_CONFIG.version} 对应安装包`}
+                      `当前${currentFlavorLabel ?? '本版'} · 点按切换同版本安装包`}
                   </p>
                 </div>
               </button>

@@ -100,13 +100,31 @@ artifacts/android/newsnook-<version>-local-release.aab
 
 只构建其中一种时使用 `npm run android:apk:cloud`、`npm run android:apk:local`、`npm run android:aab:cloud` 或 `npm run android:aab:local`。两个变体使用相同包名和签名，面向同一应用渠道，不能在同一设备上并存。
 
-版本号只改一处：`package.json` 的 `"version"`（semver，如 `1.1.0`）。
+版本号只改一处：`package.json` 的 `"version"`，同时必须让 `package-lock.json` 根版本保持一致。
+
+NewsNook 只接受两种发布版本：
+
+- Stable：`X.Y.Z`，例如 `1.8.7`
+- Beta：`X.Y.Z-beta.N`，例如 `1.8.8-beta.3`（`N` 为 `1..998`）
 
 - 产物文件名：`newsnook-<version>-<cloud|local>-release.apk|aab`
-- 包内 `versionName`：同一字符串
-- 包内 `versionCode`：由 `X.Y.Z` 推导为 `X*10000 + Y*100 + Z`（例如 `1.2.3` → `10203`）
+- 包内 `versionName`：同一版本字符串
+- 包内 `versionCode`：`core * 1000 + stage`，其中 `core = X*10000 + Y*100 + Z`；Beta 的 `stage=N`，Stable 的 `stage=999`
 
-发版时把 `package.json` 的 version 调高即可，再跑 `npm run android:apk` / `android:aab`。上架 Google Play 时 `versionCode` 必须严格递增；正常升 semver 已满足。仅在极少数「不改 versionName、只再提一次 code」时才覆盖：
+例如：
+
+```text
+1.8.7-beta.1 -> 10807001
+1.8.7-beta.2 -> 10807002
+1.8.7        -> 10807999
+1.8.8-beta.1 -> 10808001
+```
+
+因此 Android 覆盖安装顺序天然满足 `beta.1 < beta.N < stable < 下一版本 beta.1`。
+
+**发布不是单纯修改 version 后打任意 tag。** Stable 必须从 `main` 发布，Beta 必须从 `beta` 发布；tag、分支、package/package-lock 版本、APK `versionName/versionCode` 都会由 CI 强校验。完整流程见 [`release-channels.md`](./release-channels.md)。
+
+上架 Google Play 时 `versionCode` 必须严格递增。仅在已有商店版本迁移等特殊场景才允许本地覆盖：
 
 ```powershell
 $env:NEWSNOOK_VERSION_CODE = "10204"
@@ -152,9 +170,13 @@ npm run android:open
 ## 发布前检查
 
 1. 确认包名 `com.aizeek.newsnook`。首次上架后不要修改。
-2. 递增 `package.json` 的 `"version"`（会同步推导 `versionName` / `versionCode`）。
-3. 执行 `npm run lint` 和 `npm run android:aab`。
-4. 在至少一台真实 Android 设备上验证启动、新闻加载、正文阅读、外链打开、返回键和持久化设置。
-5. 将 AAB 上传 Google Play，并启用 Play App Signing。
+2. 根据目标通道更新版本：`main` 使用 `X.Y.Z`，`beta` 使用 `X.Y.Z-beta.N`；通过 npm 修改版本以同步 `package.json` / `package-lock.json`。
+3. 执行 `npm run test:app-update`、`npm run test:app-deep-link`、`npm run lint` 和 `npm run build`。
+4. 需要验证安装包时执行 `npm run android:apk` / `npm run android:aab`，并在至少一台真实 Android 设备上验证覆盖安装、启动、新闻加载、正文阅读、外链打开、返回键和持久化设置。
+5. 仅在对应长期分支创建匹配 tag；CI 会拒绝错误分支、版本回退以及 APK 元数据不一致。
+6. Stable 发布后确认 GitHub 正式 Release、R2 Stable 清单与旧客户端兼容入口均更新；Beta 发布后确认 GitHub Pre-release 与 R2 Beta 清单更新，且 Stable 入口未变化。
+7. 需要上架 Google Play 时上传对应 Stable AAB，并遵循 Play App Signing。
+
+分支、tag、R2 路径、旧客户端迁移和 Beta → Stable 流程以 [`release-channels.md`](./release-channels.md) 为唯一现行发布规范。
 
 原生工程位于 `android/`，应与 Web 代码一同纳入版本控制；构建产物、本机 SDK 配置和签名材料不得提交。

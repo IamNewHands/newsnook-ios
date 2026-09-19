@@ -3,12 +3,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { shouldShowUpdateBadge } from './gate'
 import {
+  getUpdateTrackPrefs,
   loadAppUpdatePrefsNormalized,
   saveSkippedVersion,
   saveSnooze,
+  saveUpdateTrack,
 } from './prefs'
 import { isNewerVersion } from './semver'
-import { fetchReleaseApkForChannel } from './github'
+import { fetchReleaseApkForFlavor } from './github'
 import {
   beginUpdate,
   checkForAutoUpdate,
@@ -18,12 +20,12 @@ import {
   getAppUpdateUiState,
   isAppUpdateSupported,
   openInstallSettings,
-  resolveChannel,
-  resolveOppositeChannel,
+  resolveOppositeFlavor,
+  resolvePackageFlavor,
   setManualMessage,
   subscribeAppUpdateUi,
 } from './service'
-import type { AppUpdateChannel, LatestReleaseInfo } from './types'
+import type { LatestReleaseInfo, PackageFlavor, UpdateTrack } from './types'
 
 export type ManualUpdateStatus = 'idle' | 'checking' | 'downloading' | 'latest' | 'error'
 
@@ -37,6 +39,10 @@ const SUPPRESS_AUTO_CHECK_MS = 2500
 
 export function useAppUpdate({ settingsOpen }: Options) {
   const supported = isAppUpdateSupported()
+  const initialPrefs = useMemo(() => loadAppUpdatePrefsNormalized(), [])
+  const [updateTrack, setUpdateTrackState] = useState<UpdateTrack>(initialPrefs.track)
+  const [trackPickerOpen, setTrackPickerOpen] = useState(false)
+  const [betaConfirmOpen, setBetaConfirmOpen] = useState(false)
   const [dialogRelease, setDialogRelease] = useState<LatestReleaseInfo | null>(null)
   const [installPermissionOpen, setInstallPermissionOpen] = useState(false)
   const [pendingAfterPermission, setPendingAfterPermission] = useState<LatestReleaseInfo | null>(
@@ -51,17 +57,18 @@ export function useAppUpdate({ settingsOpen }: Options) {
   const [flavorBusy, setFlavorBusy] = useState(false)
   const [flavorHint, setFlavorHint] = useState<string | undefined>()
 
-  const currentChannel: AppUpdateChannel = resolveChannel()
-  const oppositeChannel = resolveOppositeChannel(currentChannel)
+  const currentFlavor: PackageFlavor = resolvePackageFlavor()
+  const oppositeFlavor = resolveOppositeFlavor(currentFlavor)
 
   const [availableVersion, setAvailableVersion] = useState<string | undefined>(() => {
     const prefs = loadAppUpdatePrefsNormalized()
+    const trackPrefs = getUpdateTrackPrefs(prefs)
     if (
-      prefs.availableVersion &&
-      isNewerVersion(prefs.availableVersion, __APP_VERSION__) &&
-      shouldShowUpdateBadge({ remoteVersion: prefs.availableVersion, prefs })
+      trackPrefs.availableVersion &&
+      isNewerVersion(trackPrefs.availableVersion, __APP_VERSION__) &&
+      shouldShowUpdateBadge({ remoteVersion: trackPrefs.availableVersion, prefs: trackPrefs })
     ) {
-      return prefs.availableVersion
+      return trackPrefs.availableVersion
     }
     return undefined
   })
@@ -72,19 +79,23 @@ export function useAppUpdate({ settingsOpen }: Options) {
   const suppressAutoCheckUntil = useRef(0)
   const settingsOpenRef = useRef(settingsOpen)
   const downloadingRef = useRef(downloading)
+  const updateTrackRef = useRef(updateTrack)
+  const checkGenerationRef = useRef(0)
   const showReleaseRef = useRef<(release: LatestReleaseInfo, options?: { force?: boolean }) => void>(
     () => {},
   )
 
   settingsOpenRef.current = settingsOpen
   downloadingRef.current = downloading
+  updateTrackRef.current = updateTrack
 
   const hasUpdate = useMemo(() => {
     if (!supported || !availableVersion) return false
     if (!isNewerVersion(availableVersion, __APP_VERSION__)) return false
     const prefs = loadAppUpdatePrefsNormalized()
-    return shouldShowUpdateBadge({ remoteVersion: availableVersion, prefs })
-  }, [supported, availableVersion])
+    const trackPrefs = getUpdateTrackPrefs(prefs, updateTrack)
+    return shouldShowUpdateBadge({ remoteVersion: availableVersion, prefs: trackPrefs })
+  }, [supported, availableVersion, updateTrack])
 
   useEffect(() => {
     if (!supported) return
@@ -126,22 +137,27 @@ export function useAppUpdate({ settingsOpen }: Options) {
       if (downloadingRef.current || getActiveDownloadId() != null) return false
       if (awaitingSettingsReturn.current) return false
       try {
+        const generation = ++checkGenerationRef.current
         const outcome = await checkForAutoUpdate({ isColdStart })
         if (!outcome) return false
-        const { result, shouldPrompt } = outcome
-        if (result.status === 'error') {
+        if (
+          generation !== checkGenerationRef.current ||
+          outcome.subscriptionTrack !== updateTrackRef.current
+        ) {
           return false
         }
+        const { result, shouldPrompt, subscriptionTrack } = outcome
+        if (result.status === 'error') return false
+
         if (result.status === 'available') {
           const prefs = loadAppUpdatePrefsNormalized()
-          if (shouldShowUpdateBadge({ remoteVersion: result.release.version, prefs })) {
+          const trackPrefs = getUpdateTrackPrefs(prefs, subscriptionTrack)
+          if (shouldShowUpdateBadge({ remoteVersion: result.release.version, prefs: trackPrefs })) {
             setAvailableVersion(result.release.version)
           } else {
             setAvailableVersion(undefined)
           }
-          if (shouldPrompt) {
-            showReleaseRef.current(result.release)
-          }
+          if (shouldPrompt) showReleaseRef.current(result.release)
         } else if (result.status === 'up-to-date') {
           setAvailableVersion(undefined)
         }
@@ -153,7 +169,6 @@ export function useAppUpdate({ settingsOpen }: Options) {
     [supported],
   )
 
-  // 冷启动检查与阶梯失败重试机制（支持断网恢复立即补充检查）
   useEffect(() => {
     if (!supported) return
     let retryTimer: ReturnType<typeof setTimeout> | null = null
@@ -181,9 +196,7 @@ export function useAppUpdate({ settingsOpen }: Options) {
     }, AUTO_CHECK_DELAY_MS)
 
     const handleOnline = () => {
-      if (!isSuccess) {
-        void triggerColdStartCheck()
-      }
+      if (!isSuccess) void triggerColdStartCheck()
     }
     window.addEventListener('online', handleOnline)
 
@@ -232,18 +245,16 @@ export function useAppUpdate({ settingsOpen }: Options) {
     }
   }, [supported, pendingAfterPermission, runAutoCheck])
 
-  const closeDialog = useCallback(() => {
-    setDialogRelease(null)
-  }, [])
+  const closeDialog = useCallback(() => setDialogRelease(null), [])
 
   const onLater = useCallback(() => {
-    saveSnooze(Date.now())
+    if (dialogRelease) saveSnooze(Date.now(), dialogRelease.subscriptionTrack)
     closeDialog()
-  }, [closeDialog])
+  }, [closeDialog, dialogRelease])
 
   const onSkip = useCallback(() => {
     if (dialogRelease) {
-      saveSkippedVersion(dialogRelease.version)
+      saveSkippedVersion(dialogRelease.version, dialogRelease.subscriptionTrack)
       setAvailableVersion(undefined)
     }
     closeDialog()
@@ -270,8 +281,7 @@ export function useAppUpdate({ settingsOpen }: Options) {
   )
 
   const onUpdate = useCallback(() => {
-    if (!dialogRelease) return
-    void startDownload(dialogRelease)
+    if (dialogRelease) void startDownload(dialogRelease)
   }, [dialogRelease, startDownload])
 
   const onConfirmInstallPermission = useCallback(() => {
@@ -287,6 +297,43 @@ export function useAppUpdate({ settingsOpen }: Options) {
     awaitingSettingsReturn.current = false
   }, [])
 
+  const runManualCheck = useCallback(
+    async (track: UpdateTrack) => {
+      const generation = ++checkGenerationRef.current
+      if (latestPromptRef.current) {
+        window.clearTimeout(latestPromptRef.current)
+        latestPromptRef.current = null
+      }
+      setManualStatus('checking')
+      setManualHint(undefined)
+      setManualMessage(undefined)
+      const result = await checkForUpdate(track)
+      if (generation !== checkGenerationRef.current || track !== updateTrackRef.current) return
+
+      if (result.status === 'available') {
+        setManualStatus('idle')
+        setAvailableVersion(result.release.version)
+        showRelease(result.release, { force: true })
+        return
+      }
+      if (result.status === 'up-to-date') {
+        setAvailableVersion(undefined)
+        setManualStatus('latest')
+        if (latestPromptRef.current) window.clearTimeout(latestPromptRef.current)
+        latestPromptRef.current = window.setTimeout(() => setManualStatus('idle'), 2500)
+        return
+      }
+      if (result.status === 'no-asset') {
+        setManualStatus('error')
+        setManualHint('未找到适合当前安装包的更新文件')
+        return
+      }
+      setManualStatus('error')
+      setManualHint(result.message || '检查失败，点按重试')
+    },
+    [showRelease],
+  )
+
   const promptManualCheck = useCallback(async () => {
     if (!supported) return
     if (downloading || getAppUpdateUiState().downloading || getActiveDownloadId() != null) {
@@ -294,33 +341,73 @@ export function useAppUpdate({ settingsOpen }: Options) {
       setManualHint('下载进行中')
       return
     }
-    setManualStatus('checking')
-    setManualHint(undefined)
-    setManualMessage(undefined)
-    const result = await checkForUpdate()
-    if (result.status === 'available') {
+    await runManualCheck(updateTrackRef.current)
+  }, [supported, downloading, runManualCheck])
+
+  const onOpenTrackPicker = useCallback(() => {
+    if (!supported) return
+    if (downloading || getAppUpdateUiState().downloading || getActiveDownloadId() != null) {
+      setManualStatus('downloading')
+      setManualHint('更新下载进行中，完成后再切换更新通道')
+      return
+    }
+    setTrackPickerOpen(true)
+  }, [supported, downloading])
+
+  const onCloseTrackPicker = useCallback(() => setTrackPickerOpen(false), [])
+
+  const applyUpdateTrack = useCallback(
+    (track: UpdateTrack) => {
+      if (track === updateTrackRef.current) return
+
+      ++checkGenerationRef.current
+      if (latestPromptRef.current) {
+        window.clearTimeout(latestPromptRef.current)
+        latestPromptRef.current = null
+      }
+      saveUpdateTrack(track)
+      updateTrackRef.current = track
+      setUpdateTrackState(track)
+      pendingWhileSettings.current = null
+      setDialogRelease(null)
       setManualStatus('idle')
-      setAvailableVersion(result.release.version)
-      showRelease(result.release, { force: true })
+      setManualHint(undefined)
+
+      const prefs = loadAppUpdatePrefsNormalized()
+      const targetPrefs = getUpdateTrackPrefs(prefs, track)
+      const cached =
+        targetPrefs.availableVersion &&
+        isNewerVersion(targetPrefs.availableVersion, __APP_VERSION__) &&
+        shouldShowUpdateBadge({
+          remoteVersion: targetPrefs.availableVersion,
+          prefs: targetPrefs,
+        })
+          ? targetPrefs.availableVersion
+          : undefined
+      setAvailableVersion(cached)
+
+      // 用户主动切换发布通道后立即检查；不等待下一次冷启动/前台恢复。
+      void runManualCheck(track)
+    },
+    [runManualCheck],
+  )
+
+  const onChangeUpdateTrack = useCallback((track: UpdateTrack) => {
+    setTrackPickerOpen(false)
+    if (track === updateTrackRef.current) return
+    if (track === 'beta') {
+      setBetaConfirmOpen(true)
       return
     }
-    if (result.status === 'up-to-date') {
-      setAvailableVersion(undefined)
-      setManualStatus('latest')
-      if (latestPromptRef.current) window.clearTimeout(latestPromptRef.current)
-      latestPromptRef.current = window.setTimeout(() => {
-        setManualStatus('idle')
-      }, 2500)
-      return
-    }
-    if (result.status === 'no-asset') {
-      setManualStatus('error')
-      setManualHint('未找到适合当前版本的安装包')
-      return
-    }
-    setManualStatus('error')
-    setManualHint(result.message || '检查失败，点按重试')
-  }, [supported, downloading, showRelease])
+    applyUpdateTrack(track)
+  }, [applyUpdateTrack])
+
+  const onConfirmBetaTrack = useCallback(() => {
+    setBetaConfirmOpen(false)
+    applyUpdateTrack('beta')
+  }, [applyUpdateTrack])
+
+  const onCancelBetaTrack = useCallback(() => setBetaConfirmOpen(false), [])
 
   const onPromptFlavorSwitch = useCallback(() => {
     if (!supported) return
@@ -333,9 +420,7 @@ export function useAppUpdate({ settingsOpen }: Options) {
     setFlavorConfirmOpen(true)
   }, [supported, downloading])
 
-  const onCancelFlavorSwitch = useCallback(() => {
-    setFlavorConfirmOpen(false)
-  }, [])
+  const onCancelFlavorSwitch = useCallback(() => setFlavorConfirmOpen(false), [])
 
   const onDismissFlavorError = useCallback(() => {
     setFlavorErrorOpen(false)
@@ -350,10 +435,10 @@ export function useAppUpdate({ settingsOpen }: Options) {
       setFlavorErrorOpen(true)
       return
     }
-    const target = resolveOppositeChannel(resolveChannel())
+    const target = resolveOppositeFlavor(resolvePackageFlavor())
     setFlavorBusy(true)
     setFlavorHint('正在查找安装包…')
-    const result = await fetchReleaseApkForChannel(__APP_VERSION__, target)
+    const result = await fetchReleaseApkForFlavor(__APP_VERSION__, target)
     setFlavorBusy(false)
     if (result.status === 'no-asset') {
       setFlavorHint('当前版本暂无对应安装包')
@@ -379,20 +464,20 @@ export function useAppUpdate({ settingsOpen }: Options) {
 
   const flavorConfirmMessage = useMemo(() => {
     const ver = __APP_VERSION__
-    if (oppositeChannel === 'local') {
+    if (oppositeFlavor === 'local') {
       return `将下载并安装当前版本（v${ver}）的离线翻译版安装包。离线版体积更大，支持本地翻译引擎。覆盖安装后设置与数据通常保留。`
     }
     return `将下载并安装当前版本（v${ver}）的云端版安装包。云端版更轻量，不含本地翻译引擎。覆盖安装后设置与数据通常保留。`
-  }, [oppositeChannel])
+  }, [oppositeFlavor])
 
   const manualCaption = useMemo(() => {
     if (manualStatus === 'checking') return '检查中…'
     if (manualStatus === 'downloading' || downloading) return '正在下载…'
-    if (manualStatus === 'latest') return '已是最新'
+    if (manualStatus === 'latest') return `已是${updateTrack === 'beta' ? '内测' : '正式'}通道最新`
     if (manualStatus === 'error') return manualHint || '检查失败，点按重试'
     if (hasUpdate && availableVersion) return `发现新版本 v${availableVersion} · 点按更新`
     return `当前 v${__APP_VERSION__}`
-  }, [manualStatus, manualHint, downloading, hasUpdate, availableVersion])
+  }, [manualStatus, manualHint, downloading, hasUpdate, availableVersion, updateTrack])
 
   return {
     supported,
@@ -410,8 +495,16 @@ export function useAppUpdate({ settingsOpen }: Options) {
     promptManualCheck,
     manualCaption,
     manualStatus,
-    currentChannel,
-    oppositeChannel,
+    updateTrack,
+    trackPickerOpen,
+    betaConfirmOpen,
+    onOpenTrackPicker,
+    onCloseTrackPicker,
+    onChangeUpdateTrack,
+    onConfirmBetaTrack,
+    onCancelBetaTrack,
+    currentFlavor,
+    oppositeFlavor,
     flavorSwitchCaption,
     flavorConfirmOpen,
     flavorConfirmMessage,

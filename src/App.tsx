@@ -89,7 +89,7 @@ import { TypographyScreen } from './screens/settings/TypographyScreen'
 import { TranslationScreen } from './screens/settings/TranslationScreen'
 import { AiSettingsScreen } from './screens/settings/AiSettingsScreen'
 import { ProxyScreen } from './screens/settings/ProxyScreen'
-import { ConfirmDialog } from './components/ConfirmDialog'
+import { ConfirmDialog, OptionPickerDialog } from './components/ConfirmDialog'
 import {
   BRAND_TITLE,
   CurrentEasterEgg,
@@ -1384,14 +1384,13 @@ export default function App() {
           hasUpdate={appUpdate.hasUpdate}
           availableVersion={appUpdate.availableVersion}
           onCheckUpdate={() => void appUpdate.promptManualCheck()}
+          updateTrack={appUpdate.updateTrack}
+          onOpenUpdateTrack={appUpdate.onOpenTrackPicker}
           onOpenChangelog={() => setSettingsRoute({ name: 'changelog' })}
           onOpenLicenses={() => setSettingsRoute({ name: 'licenses' })}
           onReplayTour={replayProductTour}
           flavorSwitchSupported={appUpdate.supported}
-          currentChannelLabel={appUpdate.currentChannel === 'local' ? '离线翻译版' : '云端版'}
-          flavorSwitchTitle={
-            appUpdate.oppositeChannel === 'local' ? '切换到离线翻译版' : '切换到云端版'
-          }
+          currentFlavorLabel={appUpdate.currentFlavor === 'local' ? '离线翻译版' : '云端版'}
           flavorSwitchCaption={appUpdate.flavorSwitchCaption}
           onSwitchFlavor={appUpdate.onPromptFlavorSwitch}
         />
@@ -1776,6 +1775,26 @@ export default function App() {
         onUpdate={appUpdate.onUpdate}
         onLater={appUpdate.onLater}
         onSkip={appUpdate.onSkip}
+      />
+      <OptionPickerDialog
+        open={appUpdate.trackPickerOpen}
+        title="更新通道"
+        value={appUpdate.updateTrack}
+        options={[
+          { id: 'stable', label: '正式版 · 稳定更新，推荐日常使用' },
+          { id: 'beta', label: '内测版 · 提前体验开发中的版本' },
+        ]}
+        onChange={appUpdate.onChangeUpdateTrack}
+        onCancel={appUpdate.onCloseTrackPicker}
+      />
+      <ConfirmDialog
+        open={appUpdate.betaConfirmOpen}
+        title="加入内测版"
+        message="内测版会更早收到开发中的新版本，更新更频繁，也可能存在尚未发现的稳定性问题。加入后只改变更新订阅，不会在当前正式版中提前开启任何业务功能。"
+        confirmLabel="加入内测"
+        cancelLabel="取消"
+        onConfirm={appUpdate.onConfirmBetaTrack}
+        onCancel={appUpdate.onCancelBetaTrack}
       />
       <ConfirmDialog
         open={appUpdate.installPermissionOpen}

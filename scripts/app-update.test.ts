@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
+
 import {
+  androidVersionCode,
   compareSemver,
   isNewerVersion,
   normalizeTagVersion,
   parseVersion,
+  releaseTrackForVersion,
 } from '../src/features/appUpdate/semver'
 import {
   buildApkFileName,
@@ -13,12 +16,16 @@ import {
   truncateReleaseNotes,
 } from '../src/features/appUpdate/github'
 import {
+  manifestUrl,
   parseUpdateManifest,
   releaseFromUpdateManifest,
-  UPDATE_MANIFEST_URL,
   updateCheckFromManifest,
 } from '../src/features/appUpdate/cdn'
-import { resolveOppositeChannel } from '../src/features/appUpdate/service'
+import {
+  resolveOppositeFlavor,
+  selectEligibleUpdateResult,
+} from '../src/features/appUpdate/service'
+import { normalizeAppUpdatePrefs } from '../src/features/appUpdate/prefs'
 import {
   shouldAutoPrompt,
   shouldFetchForAutoCheck,
@@ -26,65 +33,105 @@ import {
   SNOOZE_MS,
   RESUME_CHECK_INTERVAL_MS,
 } from '../src/features/appUpdate/gate'
+import {
+  androidVersionCodeForRelease,
+  parseReleaseVersion,
+  compareReleaseVersions,
+  releaseContract,
+} from './release-contract.mjs'
 
-console.log('--- app-update semver ---')
+console.log('--- app-update semver / release contract ---')
 
-assert.deepEqual(parseVersion('1.3.8'), [1, 3, 8])
-assert.deepEqual(parseVersion('v1.3.8'), [1, 3, 8])
-assert.equal(parseVersion('1.3'), null)
-assert.equal(normalizeTagVersion('v1.3.8'), '1.3.8')
-assert.equal(normalizeTagVersion('V2.0.0'), '2.0.0')
-assert.ok(compareSemver('1.3.8', '1.3.7') > 0)
-assert.equal(compareSemver('1.3.8', '1.3.8'), 0)
-assert.ok(compareSemver('1.3.7', '1.3.8') < 0)
-assert.equal(isNewerVersion('1.3.8', '1.3.7'), true)
-assert.equal(isNewerVersion('1.3.7', '1.3.8'), false)
-assert.equal(isNewerVersion('1.3.8', '1.3.8'), false)
-assert.equal(isNewerVersion('nope', '1.3.8'), false)
+assert.deepEqual(parseVersion('1.8.7'), { major: 1, minor: 8, patch: 7 })
+assert.deepEqual(parseVersion('v1.8.7-beta.3'), { major: 1, minor: 8, patch: 7, beta: 3 })
+assert.equal(parseVersion('1.8'), null)
+assert.equal(parseVersion('1.8.7-beta.0'), null)
+assert.equal(parseVersion('1.8.7-beta.999'), null)
+assert.equal(normalizeTagVersion('V2.0.0-beta.2'), '2.0.0-beta.2')
+assert.equal(releaseTrackForVersion('1.8.7'), 'stable')
+assert.equal(releaseTrackForVersion('1.8.7-beta.1'), 'beta')
+assert.equal(releaseTrackForVersion('1.8.7-rc.1'), null)
 
-console.log('✓ semver ok')
+assert.ok(compareSemver('1.8.7-beta.2', '1.8.7-beta.1') > 0)
+assert.ok(compareSemver('1.8.7', '1.8.7-beta.998') > 0)
+assert.ok(compareSemver('1.8.8-beta.1', '1.8.7') > 0)
+assert.equal(isNewerVersion('1.8.7-beta.2', '1.8.7-beta.1'), true)
+assert.equal(isNewerVersion('1.8.7-beta.3', '1.8.7'), false)
+assert.equal(isNewerVersion('1.8.8-beta.1', '1.8.7'), true)
+assert.equal(isNewerVersion('1.8.8', '1.8.8-beta.998'), true)
+
+// Android 安装顺序必须严格单调：beta.N < stable < 下一 core beta.1。
+const beta1 = androidVersionCode('1.8.7-beta.1')!
+const beta2 = androidVersionCode('1.8.7-beta.2')!
+const stable = androidVersionCode('1.8.7')!
+const nextBeta = androidVersionCode('1.8.8-beta.1')!
+assert.ok(beta1 < beta2)
+assert.ok(beta2 < stable)
+assert.ok(stable < nextBeta)
+assert.equal(beta1, androidVersionCodeForRelease('1.8.7-beta.1'))
+assert.equal(stable, androidVersionCodeForRelease('1.8.7'))
+
+assert.deepEqual(parseReleaseVersion('v1.8.7-beta.3'), {
+  version: '1.8.7-beta.3',
+  major: 1,
+  minor: 8,
+  patch: 7,
+  beta: 3,
+  track: 'beta',
+  branch: 'beta',
+})
+assert.equal(releaseContract('1.8.7')?.branch, 'main')
+assert.equal(releaseContract('1.8.7')?.track, 'stable')
+assert.equal(releaseContract('1.8.7-beta.1')?.branch, 'beta')
+assert.ok(compareReleaseVersions('1.8.7', '1.8.7-beta.998') > 0)
+assert.ok(compareReleaseVersions('1.8.8-beta.1', '1.8.7') > 0)
+
+console.log('✓ semver / release contract ok')
 
 console.log('--- app-update asset / gate ---')
 
-assert.equal(buildApkFileName('1.3.9', 'cloud'), 'newsnook-1.3.9-cloud-release.apk')
-assert.equal(buildApkFileName('1.3.9', 'local'), 'newsnook-1.3.9-local-release.apk')
+assert.equal(
+  buildApkFileName('1.8.7-beta.2', 'cloud'),
+  'newsnook-1.8.7-beta.2-cloud-release.apk',
+)
+assert.equal(buildApkFileName('1.8.7', 'local'), 'newsnook-1.8.7-local-release.apk')
 
 const assets = [
-  { name: 'newsnook-1.3.9-cloud-release.apk', browser_download_url: 'https://github.com/x/cloud.apk' },
-  { name: 'newsnook-1.3.9-local-release.apk', browser_download_url: 'https://github.com/x/local.apk' },
+  {
+    name: 'newsnook-1.8.7-beta.2-cloud-release.apk',
+    browser_download_url: 'https://github.com/x/cloud.apk',
+  },
+  {
+    name: 'newsnook-1.8.7-beta.2-local-release.apk',
+    browser_download_url: 'https://github.com/x/local.apk',
+  },
 ]
-assert.deepEqual(pickReleaseAsset(assets, '1.3.9', 'local'), {
-  url: 'https://github.com/x/local.apk',
-  fileName: 'newsnook-1.3.9-local-release.apk',
-})
-assert.equal(pickReleaseAsset(assets, '1.3.9', 'cloud')?.fileName, 'newsnook-1.3.9-cloud-release.apk')
-assert.equal(pickReleaseAsset([], '1.3.9', 'cloud'), null)
+assert.equal(pickReleaseAsset(assets, '1.8.7-beta.2', 'local')?.fileName, assets[1]!.name)
+assert.equal(pickReleaseAsset([], '1.8.7-beta.2', 'cloud'), null)
 
 const githubHash = 'a'.repeat(64)
 assert.deepEqual(
   pickReleaseAsset(
     [
       {
-        name: 'newsnook-1.3.9-cloud-release.apk',
+        name: 'newsnook-1.8.7-cloud-release.apk',
         browser_download_url: 'https://github.com/x/cloud.apk',
         digest: `sha256:${githubHash}`,
         size: 1234,
       },
     ],
-    '1.3.9',
+    '1.8.7',
     'cloud',
   ),
   {
     url: 'https://github.com/x/cloud.apk',
-    fileName: 'newsnook-1.3.9-cloud-release.apk',
+    fileName: 'newsnook-1.8.7-cloud-release.apk',
     sha256: githubHash,
     size: 1234,
   },
 )
 
-assert.equal(releaseTagUrl('1.3.9'), 'https://github.com/t59688/newsnook/releases/tag/v1.3.9')
-assert.equal(releaseTagUrl('v1.3.9'), 'https://github.com/t59688/newsnook/releases/tag/v1.3.9')
-
+assert.equal(releaseTagUrl('1.8.7-beta.2'), 'https://github.com/t59688/newsnook/releases/tag/v1.8.7-beta.2')
 const notes = truncateReleaseNotes('a\nb\nc\nd\ne\nf\ng\nh\ni\nj')
 assert.equal(notes.split('\n').length, 9)
 assert.ok(notes.endsWith('…'))
@@ -94,8 +141,6 @@ assert.equal(RESUME_CHECK_INTERVAL_MS, 15 * 60 * 1000)
 
 const now = 1_000_000
 assert.equal(shouldFetchForAutoCheck({ prefs: {}, now, downloading: false }), true)
-
-// 冷启动：即便刚刚检查过，也必须放行检查
 assert.equal(
   shouldFetchForAutoCheck({
     prefs: { lastCheckAt: now - 1000 },
@@ -105,8 +150,6 @@ assert.equal(
   }),
   true,
 )
-
-// 前台切回（非冷启动）：在 15 分钟内拦截
 assert.equal(
   shouldFetchForAutoCheck({
     prefs: { lastCheckAt: now - 1000 },
@@ -116,8 +159,6 @@ assert.equal(
   }),
   false,
 )
-
-// 前台切回：超过 15 分钟放行
 assert.equal(
   shouldFetchForAutoCheck({
     prefs: { lastCheckAt: now - RESUME_CHECK_INTERVAL_MS - 1 },
@@ -130,139 +171,339 @@ assert.equal(
 assert.equal(shouldFetchForAutoCheck({ prefs: {}, now, downloading: true }), false)
 
 assert.equal(
-  shouldAutoPrompt({ remoteVersion: '1.3.9', prefs: {}, now, downloading: false }),
+  shouldAutoPrompt({ remoteVersion: '1.8.7-beta.2', prefs: {}, now, downloading: false }),
   true,
 )
 assert.equal(
   shouldAutoPrompt({
-    remoteVersion: '1.3.9',
-    prefs: { skippedVersion: '1.3.9' },
+    remoteVersion: '1.8.7-beta.2',
+    prefs: { skippedVersion: '1.8.7-beta.2' },
     now,
     downloading: false,
   }),
   false,
 )
 assert.equal(
-  shouldAutoPrompt({
-    remoteVersion: '1.3.9',
-    prefs: { snoozeUntil: now + 1000 },
-    now,
-    downloading: false,
-  }),
-  false,
-)
-assert.equal(
-  shouldAutoPrompt({ remoteVersion: '1.3.9', prefs: {}, now, downloading: true }),
-  false,
-)
-
-// 红点逻辑：只要没跳过，即便稍后中也应该显示红点
-assert.equal(
   shouldShowUpdateBadge({
-    remoteVersion: '1.3.9',
-    prefs: { snoozeUntil: now + 1000 },
-  }),
-  true,
-)
-assert.equal(
-  shouldShowUpdateBadge({
-    remoteVersion: '1.3.9',
-    prefs: { skippedVersion: '1.3.9' },
+    remoteVersion: '1.8.7',
+    prefs: { skippedVersion: '1.8.7' },
   }),
   false,
 )
 
 console.log('✓ asset / gate ok')
 
-console.log('--- app-update R2 manifest ---')
+console.log('--- app-update R2 channel manifests ---')
 
-assert.equal(UPDATE_MANIFEST_URL, 'https://news-update.aizeek.com/newsnook/latest.json')
-const cdnHash = 'b'.repeat(64)
-const manifest = parseUpdateManifest({
-  schemaVersion: 1,
-  version: '1.4.0',
-  tagName: 'v1.4.0',
-  publishedAt: '2026-09-15T00:00:00Z',
-  notes: 'release notes',
-  channels: {
-    cloud: {
-      fileName: 'newsnook-1.4.0-cloud-release.apk',
-      url: 'https://news-update.aizeek.com/newsnook/newsnook-1.4.0-cloud-release.apk',
-      sha256: cdnHash,
-      size: 123,
-    },
-    local: {
-      fileName: 'newsnook-1.4.0-local-release.apk',
-      url: 'https://news-update.aizeek.com/newsnook/newsnook-1.4.0-local-release.apk',
-      sha256: cdnHash,
-      size: 456,
-    },
-  },
-})
-assert.ok(manifest)
-if (manifest) {
-  const release = releaseFromUpdateManifest(manifest, 'local')
-  assert.equal(release.apkFileName, 'newsnook-1.4.0-local-release.apk')
-  assert.equal(release.sha256, cdnHash)
-  assert.equal(release.size, 456)
-  assert.equal(updateCheckFromManifest(manifest, '1.3.9', 'cloud').status, 'available')
-  assert.equal(updateCheckFromManifest(manifest, '1.4.0', 'cloud').status, 'up-to-date')
-}
 assert.equal(
-  parseUpdateManifest({
-    schemaVersion: 1,
-    version: '1.4.0',
-    tagName: 'v1.4.0',
-    notes: '',
-    channels: {
+  manifestUrl('stable'),
+  'https://news-update.aizeek.com/newsnook/stable/latest.json',
+)
+assert.equal(manifestUrl('beta'), 'https://news-update.aizeek.com/newsnook/beta/latest.json')
+
+const cdnHash = 'b'.repeat(64)
+const stableManifest = parseUpdateManifest(
+  {
+    schemaVersion: 2,
+    track: 'stable',
+    version: '1.8.7',
+    versionCode: androidVersionCode('1.8.7'),
+    tagName: 'v1.8.7',
+    publishedAt: '2026-09-19T00:00:00Z',
+    notes: 'stable notes',
+    packages: {
       cloud: {
-        fileName: 'newsnook-1.4.0-cloud-release.apk',
-        url: 'https://evil.example/newsnook/newsnook-1.4.0-cloud-release.apk',
+        fileName: 'newsnook-1.8.7-cloud-release.apk',
+        url: 'https://news-update.aizeek.com/newsnook/stable/newsnook-1.8.7-cloud-release.apk',
         sha256: cdnHash,
         size: 123,
       },
       local: {
-        fileName: 'newsnook-1.4.0-local-release.apk',
-        url: 'https://news-update.aizeek.com/newsnook/newsnook-1.4.0-local-release.apk',
+        fileName: 'newsnook-1.8.7-local-release.apk',
+        url: 'https://news-update.aizeek.com/newsnook/stable/newsnook-1.8.7-local-release.apk',
         sha256: cdnHash,
         size: 456,
       },
     },
-  }),
+  },
+  'stable',
+)
+assert.ok(stableManifest)
+if (stableManifest) {
+  const release = releaseFromUpdateManifest(stableManifest, 'local')
+  assert.equal(release.apkFileName, 'newsnook-1.8.7-local-release.apk')
+  assert.equal(release.flavor, 'local')
+  assert.equal(release.track, 'stable')
+  assert.equal(release.subscriptionTrack, 'stable')
+  assert.equal(updateCheckFromManifest(stableManifest, '1.8.6', 'cloud').status, 'available')
+  assert.equal(updateCheckFromManifest(stableManifest, '1.8.7-beta.4', 'cloud').status, 'available')
+}
+
+const betaManifest = parseUpdateManifest(
+  {
+    schemaVersion: 2,
+    track: 'beta',
+    version: '1.8.8-beta.2',
+    versionCode: androidVersionCode('1.8.8-beta.2'),
+    tagName: 'v1.8.8-beta.2',
+    notes: 'beta notes',
+    packages: {
+      cloud: {
+        fileName: 'newsnook-1.8.8-beta.2-cloud-release.apk',
+        url: 'https://news-update.aizeek.com/newsnook/beta/newsnook-1.8.8-beta.2-cloud-release.apk',
+        sha256: cdnHash,
+        size: 123,
+      },
+      local: {
+        fileName: 'newsnook-1.8.8-beta.2-local-release.apk',
+        url: 'https://news-update.aizeek.com/newsnook/beta/newsnook-1.8.8-beta.2-local-release.apk',
+        sha256: cdnHash,
+        size: 456,
+      },
+    },
+  },
+  'beta',
+)
+assert.ok(betaManifest)
+assert.equal(parseUpdateManifest(betaManifest, 'stable'), null)
+assert.equal(
+  parseUpdateManifest(
+    {
+      ...(stableManifest ?? {}),
+      versionCode: androidVersionCode('1.8.7-beta.1'),
+    },
+    'stable',
+  ),
+  null,
+  'manifest versionCode 必须与 version 严格一致',
+)
+
+// manifest track 与版本/URL 必须一致，防止 beta 清单误指向 stable 或反之。
+assert.equal(
+  parseUpdateManifest(
+    {
+      ...betaManifest,
+      track: 'stable',
+    },
+    'stable',
+  ),
   null,
 )
 
-console.log('✓ R2 manifest ok')
+console.log('✓ R2 channel manifests ok')
 
-console.log('--- app-update flavor switch ---')
+console.log('--- app-update flavor switch / GitHub release semantics ---')
 
-assert.equal(resolveOppositeChannel('cloud'), 'local')
-assert.equal(resolveOppositeChannel('local'), 'cloud')
+assert.equal(resolveOppositeFlavor('cloud'), 'local')
+assert.equal(resolveOppositeFlavor('local'), 'cloud')
 
-const payload = {
-  tag_name: 'v1.4.6',
+const stablePayload = {
+  tag_name: 'v1.8.7',
   body: 'x',
+  prerelease: false,
+  draft: false,
   assets: [
     {
-      name: 'newsnook-1.4.6-cloud-release.apk',
+      name: 'newsnook-1.8.7-cloud-release.apk',
       browser_download_url: 'https://example.com/cloud.apk',
     },
   ],
 }
-const noLocal = releaseApkFromTagPayload(payload, '1.4.6', 'local')
+const noLocal = releaseApkFromTagPayload(stablePayload, '1.8.7', 'local')
 assert.equal(noLocal.status, 'no-asset')
 if (noLocal.status === 'no-asset') {
-  assert.equal(noLocal.version, '1.4.6')
-  assert.equal(noLocal.channel, 'local')
+  assert.equal(noLocal.flavor, 'local')
+  assert.equal(noLocal.track, 'stable')
 }
-const cloud = releaseApkFromTagPayload(payload, '1.4.6', 'cloud')
+
+const cloud = releaseApkFromTagPayload(stablePayload, '1.8.7', 'cloud')
 assert.equal(cloud.status, 'ok')
 if (cloud.status === 'ok') {
-  assert.equal(cloud.release.apkFileName, 'newsnook-1.4.6-cloud-release.apk')
-  assert.equal(cloud.release.channel, 'cloud')
-  assert.equal(cloud.release.apkUrl, 'https://example.com/cloud.apk')
+  assert.equal(cloud.release.flavor, 'cloud')
+  assert.equal(cloud.release.track, 'stable')
+  assert.equal(cloud.release.subscriptionTrack, 'stable')
 }
-const badVer = releaseApkFromTagPayload(payload, '', 'cloud')
-assert.equal(badVer.status, 'error')
 
-console.log('✓ flavor switch api ok')
+const betaPayload = {
+  tag_name: 'v1.8.8-beta.1',
+  body: 'beta',
+  prerelease: true,
+  draft: false,
+  assets: [
+    {
+      name: 'newsnook-1.8.8-beta.1-cloud-release.apk',
+      browser_download_url: 'https://example.com/beta.apk',
+    },
+  ],
+}
+const beta = releaseApkFromTagPayload(betaPayload, '1.8.8-beta.1', 'cloud')
+assert.equal(beta.status, 'ok')
+if (beta.status === 'ok') {
+  assert.equal(beta.release.track, 'beta')
+  assert.equal(beta.release.subscriptionTrack, 'beta')
+}
+
+// beta tag 不能伪装成正式 Release，stable tag 也不能标成 prerelease。
+assert.equal(
+  releaseApkFromTagPayload({ ...betaPayload, prerelease: false }, '1.8.8-beta.1', 'cloud').status,
+  'error',
+)
+assert.equal(
+  releaseApkFromTagPayload({ ...stablePayload, prerelease: true }, '1.8.7', 'cloud').status,
+  'error',
+)
+
+console.log('✓ flavor / GitHub release semantics ok')
+
+console.log('--- update subscription eligibility / prefs migration ---')
+
+const stableAvailable = {
+  status: 'available' as const,
+  localVersion: '1.8.7-beta.3',
+  release: {
+    version: '1.8.7',
+    tagName: 'v1.8.7',
+    notes: '',
+    apkUrl: 'https://example.com/stable.apk',
+    apkFileName: 'newsnook-1.8.7-cloud-release.apk',
+    flavor: 'cloud' as const,
+    track: 'stable' as const,
+    subscriptionTrack: 'stable' as const,
+  },
+}
+const newerBetaAvailable = {
+  status: 'available' as const,
+  localVersion: '1.8.7',
+  release: {
+    version: '1.8.8-beta.1',
+    tagName: 'v1.8.8-beta.1',
+    notes: '',
+    apkUrl: 'https://example.com/beta.apk',
+    apkFileName: 'newsnook-1.8.8-beta.1-cloud-release.apk',
+    flavor: 'cloud' as const,
+    track: 'beta' as const,
+    subscriptionTrack: 'beta' as const,
+  },
+}
+
+const betaGetsStableFinal = selectEligibleUpdateResult('1.8.7-beta.3', 'beta', [
+  stableAvailable,
+  {
+    status: 'up-to-date',
+    localVersion: '1.8.7-beta.3',
+    remoteVersion: '1.8.7-beta.3',
+    track: 'beta',
+  },
+])
+assert.equal(betaGetsStableFinal.status, 'available')
+if (betaGetsStableFinal.status === 'available') {
+  assert.equal(betaGetsStableFinal.release.version, '1.8.7')
+  assert.equal(betaGetsStableFinal.release.track, 'stable')
+  assert.equal(betaGetsStableFinal.release.subscriptionTrack, 'beta')
+}
+
+const stableNeverGetsBeta = selectEligibleUpdateResult('1.8.7', 'stable', [
+  {
+    status: 'up-to-date',
+    localVersion: '1.8.7',
+    remoteVersion: '1.8.7',
+    track: 'stable',
+  },
+  newerBetaAvailable,
+])
+assert.equal(stableNeverGetsBeta.status, 'up-to-date')
+if (stableNeverGetsBeta.status === 'up-to-date') {
+  assert.equal(stableNeverGetsBeta.remoteVersion, '1.8.7')
+  assert.equal(stableNeverGetsBeta.track, 'stable')
+}
+
+const betaGetsNewerBeta = selectEligibleUpdateResult('1.8.7', 'beta', [
+  {
+    status: 'up-to-date',
+    localVersion: '1.8.7',
+    remoteVersion: '1.8.7',
+    track: 'stable',
+  },
+  newerBetaAvailable,
+])
+assert.equal(betaGetsNewerBeta.status, 'available')
+if (betaGetsNewerBeta.status === 'available') {
+  assert.equal(betaGetsNewerBeta.release.version, '1.8.8-beta.1')
+  assert.equal(betaGetsNewerBeta.release.subscriptionTrack, 'beta')
+}
+
+const betaSurvivesOneTrackFailure = selectEligibleUpdateResult('1.8.6', 'beta', [
+  {
+    ...stableAvailable,
+    localVersion: '1.8.6',
+  },
+  { status: 'error', message: 'beta CDN temporary failure' },
+])
+assert.equal(betaSurvivesOneTrackFailure.status, 'available')
+if (betaSurvivesOneTrackFailure.status === 'available') {
+  assert.equal(betaSurvivesOneTrackFailure.release.track, 'stable')
+  assert.equal(betaSurvivesOneTrackFailure.release.subscriptionTrack, 'beta')
+}
+
+const betaFallsBackToStableWhenBetaAssetMissing = selectEligibleUpdateResult('1.8.6', 'beta', [
+  {
+    ...stableAvailable,
+    localVersion: '1.8.6',
+    release: { ...stableAvailable.release, version: '1.8.7' },
+  },
+  {
+    status: 'no-asset',
+    localVersion: '1.8.6',
+    remoteVersion: '1.8.8-beta.1',
+    flavor: 'cloud',
+    track: 'beta',
+  },
+])
+assert.equal(betaFallsBackToStableWhenBetaAssetMissing.status, 'available')
+if (betaFallsBackToStableWhenBetaAssetMissing.status === 'available') {
+  assert.equal(betaFallsBackToStableWhenBetaAssetMissing.release.version, '1.8.7')
+}
+
+assert.deepEqual(normalizeAppUpdatePrefs(null), {
+  track: 'stable',
+  tracks: { stable: {}, beta: {} },
+})
+assert.deepEqual(
+  normalizeAppUpdatePrefs({
+    skippedVersion: '1.8.5',
+    snoozeUntil: 123,
+    lastCheckAt: 456,
+    availableVersion: '1.8.6',
+  }),
+  {
+    track: 'stable',
+    tracks: {
+      stable: {
+        skippedVersion: '1.8.5',
+        snoozeUntil: 123,
+        lastCheckAt: 456,
+        availableVersion: '1.8.6',
+      },
+      beta: {},
+    },
+  },
+  '旧版扁平偏好必须迁移到 stable，不得让老用户自动加入 beta',
+)
+assert.deepEqual(
+  normalizeAppUpdatePrefs({
+    track: 'beta',
+    tracks: {
+      stable: { availableVersion: '1.8.7' },
+      beta: { availableVersion: '1.8.8-beta.2' },
+    },
+  }),
+  {
+    track: 'beta',
+    tracks: {
+      stable: { availableVersion: '1.8.7' },
+      beta: { availableVersion: '1.8.8-beta.2' },
+    },
+  },
+)
+
+console.log('✓ subscription eligibility / prefs migration ok')

@@ -5,16 +5,22 @@ import {
   releaseFromUpdateManifest,
   updateCheckFromManifest,
 } from './cdn'
-import { isNewerVersion, normalizeTagVersion } from './semver'
+import {
+  isNewerVersion,
+  isValidVersion,
+  normalizeTagVersion,
+  releaseTrackForVersion,
+} from './semver'
 import type {
-  AppUpdateChannel,
   FetchReleaseApkResult,
+  PackageFlavor,
   ReleaseNotesResult,
   UpdateCheckResult,
+  UpdateTrack,
 } from './types'
 
-export function buildApkFileName(version: string, channel: AppUpdateChannel): string {
-  return `newsnook-${version}-${channel}-release.apk`
+export function buildApkFileName(version: string, flavor: PackageFlavor): string {
+  return `newsnook-${version}-${flavor}-release.apk`
 }
 
 type GitHubAsset = {
@@ -22,6 +28,14 @@ type GitHubAsset = {
   browser_download_url: string
   digest?: string | null
   size?: number
+}
+
+type GitHubRelease = {
+  tag_name?: unknown
+  body?: unknown
+  prerelease?: unknown
+  draft?: unknown
+  assets?: GitHubAsset[]
 }
 
 type PickedReleaseAsset = {
@@ -40,9 +54,9 @@ function githubSha256(digest: string | null | undefined): string | undefined {
 export function pickReleaseAsset(
   assets: GitHubAsset[],
   version: string,
-  channel: AppUpdateChannel,
+  flavor: PackageFlavor,
 ): PickedReleaseAsset | null {
-  const fileName = buildApkFileName(version, channel)
+  const fileName = buildApkFileName(version, flavor)
   const hit = assets.find((a) => a.name === fileName)
   if (!hit?.browser_download_url) return null
 
@@ -64,6 +78,7 @@ export function truncateReleaseNotes(body: string | null | undefined, maxLines =
 }
 
 const RELEASES_LATEST = 'https://api.github.com/repos/t59688/newsnook/releases/latest'
+const RELEASES_LIST = 'https://api.github.com/repos/t59688/newsnook/releases?per_page=100'
 const RELEASES_TAG_PREFIX = 'https://api.github.com/repos/t59688/newsnook/releases/tags/'
 
 const GITHUB_HEADERS = {
@@ -101,14 +116,13 @@ async function fetchReleaseNotesFromGitHub(version: string): Promise<ReleaseNote
   }
 }
 
-/** 优先从 R2 最新清单读取当前版本说明；历史版本或 R2 不可用时回退 GitHub。 */
+/** 当前版本说明优先读取其所属发布通道的 R2 manifest，历史版本回退 GitHub tag。 */
 export async function fetchReleaseNotes(version: string): Promise<ReleaseNotesResult> {
   const normalized = normalizeTagVersion(version)
-  if (!normalized || !/^\d+\.\d+\.\d+$/.test(normalized)) {
-    return { status: 'error', message: '版本号无效' }
-  }
+  const track = releaseTrackForVersion(normalized)
+  if (!track) return { status: 'error', message: '版本号无效' }
 
-  const cdn = await fetchUpdateManifest()
+  const cdn = await fetchUpdateManifest(track)
   if (cdn.status === 'ok' && cdn.manifest.version === normalized) {
     const body = cdn.manifest.notes.trim()
     if (!body) {
@@ -120,42 +134,92 @@ export async function fetchReleaseNotes(version: string): Promise<ReleaseNotesRe
   return fetchReleaseNotesFromGitHub(normalized)
 }
 
+function normalizeRelease(data: GitHubRelease): {
+  version: string
+  track: UpdateTrack
+  prerelease: boolean
+  assets: GitHubAsset[]
+  body: string
+  tagName: string
+} | null {
+  if (data.draft === true) return null
+  const version = normalizeTagVersion(String(data.tag_name ?? ''))
+  const track = releaseTrackForVersion(version)
+  if (!track) return null
+
+  const prerelease = data.prerelease === true
+  if ((track === 'beta') !== prerelease) return null
+
+  return {
+    version,
+    track,
+    prerelease,
+    assets: Array.isArray(data.assets) ? data.assets : [],
+    body: typeof data.body === 'string' ? data.body : '',
+    tagName: String(data.tag_name ?? `v${version}`),
+  }
+}
+
 async function fetchLatestReleaseFromGitHub(
   localVersion: string,
-  channel: AppUpdateChannel,
+  flavor: PackageFlavor,
+  track: UpdateTrack,
 ): Promise<UpdateCheckResult> {
   try {
-    const response = await CapacitorHttp.get({
-      url: RELEASES_LATEST,
-      headers: GITHUB_HEADERS,
-    })
+    const url = track === 'stable' ? RELEASES_LATEST : RELEASES_LIST
+    const response = await CapacitorHttp.get({ url, headers: GITHUB_HEADERS })
     if (response.status < 200 || response.status >= 300) {
       return { status: 'error', message: `GitHub HTTP ${response.status}` }
     }
-    const data = typeof response.data === 'string' ? JSON.parse(response.data) : response.data
-    const remoteVersion = normalizeTagVersion(String(data.tag_name ?? ''))
-    if (!remoteVersion || !/^\d+\.\d+\.\d+$/.test(remoteVersion)) {
-      return { status: 'error', message: 'GitHub Release 版本号无效' }
+
+    const payload = typeof response.data === 'string' ? JSON.parse(response.data) : response.data
+    const candidates = (track === 'stable' ? [payload] : Array.isArray(payload) ? payload : [])
+      .map((item) => normalizeRelease(item ?? {}))
+      .filter((item): item is NonNullable<ReturnType<typeof normalizeRelease>> => item != null)
+      .filter((item) => item.track === track)
+      .sort((a, b) => {
+        if (isNewerVersion(a.version, b.version)) return -1
+        if (isNewerVersion(b.version, a.version)) return 1
+        return 0
+      })
+
+    const release = candidates[0]
+    if (!release) return { status: 'error', message: 'GitHub 未找到有效发布版本' }
+
+    if (!isNewerVersion(release.version, localVersion)) {
+      return {
+        status: 'up-to-date',
+        localVersion,
+        remoteVersion: release.version,
+        track,
+      }
     }
-    if (!isNewerVersion(remoteVersion, localVersion)) {
-      return { status: 'up-to-date', localVersion, remoteVersion }
-    }
-    const picked = pickReleaseAsset(data.assets ?? [], remoteVersion, channel)
+
+    const picked = pickReleaseAsset(release.assets, release.version, flavor)
     if (!picked) {
-      return { status: 'no-asset', localVersion, remoteVersion, channel }
+      return {
+        status: 'no-asset',
+        localVersion,
+        remoteVersion: release.version,
+        flavor,
+        track,
+      }
     }
+
     return {
       status: 'available',
       localVersion,
       release: {
-        version: remoteVersion,
-        tagName: String(data.tag_name ?? ''),
-        notes: truncateReleaseNotes(data.body),
+        version: release.version,
+        tagName: release.tagName,
+        notes: truncateReleaseNotes(release.body),
         apkUrl: picked.url,
         apkFileName: picked.fileName,
         ...(picked.sha256 ? { sha256: picked.sha256 } : {}),
         ...(picked.size ? { size: picked.size } : {}),
-        channel,
+        flavor,
+        track,
+        subscriptionTrack: track,
       },
     }
   } catch (error) {
@@ -166,38 +230,37 @@ async function fetchLatestReleaseFromGitHub(
   }
 }
 
-/** R2 是权威主源；只有主源连接/格式失败时才回退 GitHub。 */
+/** R2 是权威主源；主源不可用时按同一发布通道回退 GitHub。 */
 export async function fetchLatestRelease(
   localVersion: string,
-  channel: AppUpdateChannel,
+  flavor: PackageFlavor,
+  track: UpdateTrack,
 ): Promise<UpdateCheckResult> {
-  const cdn = await fetchUpdateManifest()
+  const cdn = await fetchUpdateManifest(track)
   if (cdn.status === 'ok') {
-    return updateCheckFromManifest(cdn.manifest, localVersion, channel)
+    return updateCheckFromManifest(cdn.manifest, localVersion, flavor)
   }
-  return fetchLatestReleaseFromGitHub(localVersion, channel)
+  return fetchLatestReleaseFromGitHub(localVersion, flavor, track)
 }
 
-/** 从 tag Release JSON 解析指定渠道 APK（不发起网络请求） */
+/** 从 tag Release JSON 解析指定安装包（不发起网络请求）。 */
 export function releaseApkFromTagPayload(
-  data: {
-    tag_name?: unknown
-    body?: unknown
-    assets?: {
-      name?: string
-      browser_download_url?: string
-      digest?: string | null
-      size?: number
-    }[]
-  },
+  data: GitHubRelease,
   version: string,
-  channel: AppUpdateChannel,
+  flavor: PackageFlavor,
 ): FetchReleaseApkResult {
   const normalized = normalizeTagVersion(version)
-  if (!normalized || !/^\d+\.\d+\.\d+$/.test(normalized)) {
+  const track = releaseTrackForVersion(normalized)
+  if (!track || !isValidVersion(normalized)) {
     return { status: 'error', message: '版本号无效' }
   }
-  const assets = (data.assets ?? [])
+
+  const release = normalizeRelease(data)
+  if (!release || release.version !== normalized || release.track !== track) {
+    return { status: 'error', message: 'Release 与请求版本不匹配' }
+  }
+
+  const assets = release.assets
     .map((a) => ({
       name: String(a.name ?? ''),
       browser_download_url: String(a.browser_download_url ?? ''),
@@ -205,26 +268,30 @@ export function releaseApkFromTagPayload(
       size: typeof a.size === 'number' ? a.size : undefined,
     }))
     .filter((a) => a.name && a.browser_download_url)
-  const picked = pickReleaseAsset(assets, normalized, channel)
-  if (!picked) return { status: 'no-asset', version: normalized, channel }
+
+  const picked = pickReleaseAsset(assets, normalized, flavor)
+  if (!picked) return { status: 'no-asset', version: normalized, flavor, track }
+
   return {
     status: 'ok',
     release: {
       version: normalized,
-      tagName: String(data.tag_name ?? `v${normalized}`),
-      notes: truncateReleaseNotes(typeof data.body === 'string' ? data.body : ''),
+      tagName: release.tagName,
+      notes: truncateReleaseNotes(release.body),
       apkUrl: picked.url,
       apkFileName: picked.fileName,
       ...(picked.sha256 ? { sha256: picked.sha256 } : {}),
       ...(picked.size ? { size: picked.size } : {}),
-      channel,
+      flavor,
+      track,
+      subscriptionTrack: track,
     },
   }
 }
 
-async function fetchReleaseApkForChannelFromGitHub(
+async function fetchReleaseApkForFlavorFromGitHub(
   version: string,
-  channel: AppUpdateChannel,
+  flavor: PackageFlavor,
 ): Promise<FetchReleaseApkResult> {
   try {
     const response = await CapacitorHttp.get({
@@ -238,7 +305,7 @@ async function fetchReleaseApkForChannelFromGitHub(
       return { status: 'error', message: `GitHub HTTP ${response.status}` }
     }
     const data = typeof response.data === 'string' ? JSON.parse(response.data) : response.data
-    return releaseApkFromTagPayload(data ?? {}, version, channel)
+    return releaseApkFromTagPayload(data ?? {}, version, flavor)
   } catch (error) {
     return {
       status: 'error',
@@ -247,20 +314,19 @@ async function fetchReleaseApkForChannelFromGitHub(
   }
 }
 
-/** 当前最新版本优先走 R2；R2 不保留历史，因此旧版本切换继续回退 GitHub。 */
-export async function fetchReleaseApkForChannel(
+/** 当前通道最新版本优先走 R2；R2 不保留历史，历史包切换回退 GitHub。 */
+export async function fetchReleaseApkForFlavor(
   version: string,
-  channel: AppUpdateChannel,
+  flavor: PackageFlavor,
 ): Promise<FetchReleaseApkResult> {
   const normalized = normalizeTagVersion(version)
-  if (!normalized || !/^\d+\.\d+\.\d+$/.test(normalized)) {
-    return { status: 'error', message: '版本号无效' }
-  }
+  const track = releaseTrackForVersion(normalized)
+  if (!track) return { status: 'error', message: '版本号无效' }
 
-  const cdn = await fetchUpdateManifest()
+  const cdn = await fetchUpdateManifest(track)
   if (cdn.status === 'ok' && cdn.manifest.version === normalized) {
-    return { status: 'ok', release: releaseFromUpdateManifest(cdn.manifest, channel) }
+    return { status: 'ok', release: releaseFromUpdateManifest(cdn.manifest, flavor) }
   }
 
-  return fetchReleaseApkForChannelFromGitHub(normalized, channel)
+  return fetchReleaseApkForFlavorFromGitHub(normalized, flavor)
 }

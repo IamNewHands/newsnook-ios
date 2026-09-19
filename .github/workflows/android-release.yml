@@ -1,4 +1,5 @@
 name: Android Release
+run-name: Android ${{ contains(github.ref_name, '-beta.') && 'Beta' || 'Stable' }} Release · ${{ github.ref_name }}
 
 on:
   push:
@@ -6,14 +7,16 @@ on:
       - 'v*'
 
 concurrency:
-  group: android-release-${{ github.ref }}
-  cancel-in-progress: true
+  # 所有 Release 串行，避免两个 tag 并发完成顺序相反导致 latest.json 回退。
+  group: android-release
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
   release:
+    name: Publish ${{ contains(github.ref_name, '-beta.') && 'Beta' || 'Stable' }} · ${{ github.ref_name }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -21,7 +24,6 @@ jobs:
       NEWSNOOK_KEYSTORE_PASSWORD: ${{ secrets.NEWSNOOK_KEYSTORE_PASSWORD }}
       NEWSNOOK_KEY_ALIAS: ${{ secrets.NEWSNOOK_KEY_ALIAS }}
       NEWSNOOK_KEY_PASSWORD: ${{ secrets.NEWSNOOK_KEY_PASSWORD }}
-      # Optional; unset → client falls back to DEFAULT_CLOUD_BASE_URL placeholder
       VITE_CLOUD_BASE_URL: ${{ vars.VITE_CLOUD_BASE_URL }}
 
       R2_BUCKET: newsnook-update
@@ -37,14 +39,65 @@ jobs:
       AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
 
     steps:
-      - name: Checkout
+      - name: Checkout tagged commit
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
+
+      - name: Resolve and validate release contract
+        id: release_contract
+        run: |
+          set -euo pipefail
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          LOCK_VERSION="$(node -p "require('./package-lock.json').version")"
+          LOCK_ROOT_VERSION="$(node -p "require('./package-lock.json').packages[''].version")"
+
+          node scripts/release-contract.mjs "$TAG_VERSION" > "$RUNNER_TEMP/release-contract.json"
+          RELEASE_TRACK="$(jq -r '.track' "$RUNNER_TEMP/release-contract.json")"
+          RELEASE_BRANCH="$(jq -r '.branch' "$RUNNER_TEMP/release-contract.json")"
+          VERSION_CODE="$(jq -r '.versionCode' "$RUNNER_TEMP/release-contract.json")"
+
+          echo "tag=${GITHUB_REF_NAME}"
+          echo "package.json=${PKG_VERSION}"
+          echo "track=${RELEASE_TRACK}"
+          echo "required-branch=${RELEASE_BRANCH}"
+          echo "android-version-code=${VERSION_CODE}"
+
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} must match package.json version ${PKG_VERSION}."
+            exit 1
+          fi
+          if [ "$LOCK_VERSION" != "$PKG_VERSION" ] || [ "$LOCK_ROOT_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::package.json/package-lock.json versions must match before release."
+            echo "::error::package=${PKG_VERSION} lock=${LOCK_VERSION} lock-root=${LOCK_ROOT_VERSION}"
+            exit 1
+          fi
+
+          git fetch --no-tags origin "${RELEASE_BRANCH}:refs/remotes/origin/${RELEASE_BRANCH}"
+          BRANCH_HEAD="$(git rev-parse "refs/remotes/origin/${RELEASE_BRANCH}")"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "$BRANCH_HEAD"; then
+            echo "::error::${GITHUB_REF_NAME} is a ${RELEASE_TRACK} release and its tagged commit must belong to ${RELEASE_BRANCH}."
+            echo "::error::tag commit=$GITHUB_SHA branch head=$BRANCH_HEAD"
+            exit 1
+          fi
+
+          echo "VERSION=$TAG_VERSION" >> "$GITHUB_ENV"
+          echo "RELEASE_TRACK=$RELEASE_TRACK" >> "$GITHUB_ENV"
+          echo "RELEASE_BRANCH=$RELEASE_BRANCH" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "R2_TRACK_PREFIX=newsnook/$RELEASE_TRACK" >> "$GITHUB_ENV"
+
+          echo "track=$RELEASE_TRACK" >> "$GITHUB_OUTPUT"
+          echo "branch=$RELEASE_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -70,21 +123,53 @@ jobs:
           aws --version
           jq --version
           curl --version
-          aws s3api list-objects-v2 \
-            --bucket "$R2_BUCKET" \
-            --max-keys 1 \
-            --endpoint-url "$R2_ENDPOINT" \
-            --output json > /dev/null
+          aws s3api list-objects-v2             --bucket "$R2_BUCKET"             --max-keys 1             --endpoint-url "$R2_ENDPOINT"             --output json > /dev/null
 
-      - name: Verify tag matches package.json version
+      - name: Reject release-channel rollback
         run: |
           set -euo pipefail
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          PKG_VERSION="$(node -p "require('./package.json').version")"
-          echo "tag=${GITHUB_REF_NAME} package.json=${PKG_VERSION}"
-          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} must match package.json version ${PKG_VERSION} (got ${TAG_VERSION})."
-            exit 1
+          CURRENT_MANIFEST="${RUNNER_TEMP}/current-release.json"
+          CURRENT_VERSION=''
+          TRACK_KEY="${R2_TRACK_PREFIX}/latest.json"
+          ROOT_KEY='newsnook/latest.json'
+          OBJECTS="${RUNNER_TEMP}/release-baseline-objects.json"
+
+          aws s3api list-objects-v2 \
+            --bucket "$R2_BUCKET" \
+            --prefix 'newsnook/' \
+            --endpoint-url "$R2_ENDPOINT" \
+            --output json > "$OBJECTS"
+
+          if jq -e --arg key "$TRACK_KEY" '[.Contents[]?.Key] | index($key) != null' "$OBJECTS" > /dev/null; then
+            aws s3 cp "s3://${R2_BUCKET}/${TRACK_KEY}" "$CURRENT_MANIFEST" \
+              --endpoint-url "$R2_ENDPOINT" --no-progress
+            CURRENT_VERSION="$(jq -r '.version // empty' "$CURRENT_MANIFEST")"
+          elif [ "$RELEASE_TRACK" = 'stable' ] && \
+            jq -e --arg key "$ROOT_KEY" '[.Contents[]?.Key] | index($key) != null' "$OBJECTS" > /dev/null; then
+            # 双通道首次正式发布前，旧 schema v1 根目录清单仍是当前 Stable 基线。
+            aws s3 cp "s3://${R2_BUCKET}/${ROOT_KEY}" "$CURRENT_MANIFEST" \
+              --endpoint-url "$R2_ENDPOINT" --no-progress
+            CURRENT_VERSION="$(jq -r '.version // empty' "$CURRENT_MANIFEST")"
+          fi
+
+          if [ -n "$CURRENT_VERSION" ]; then
+            node --input-type=module - "$VERSION" "$CURRENT_VERSION" <<'NODE'
+          import { compareReleaseVersions } from './scripts/release-contract.mjs'
+          const candidate = process.argv[2]
+          const current = process.argv[3]
+          const cmp = compareReleaseVersions(candidate, current)
+          if (!Number.isFinite(cmp)) {
+            console.error(`::error::Unable to compare candidate ${candidate} with current ${current}.`)
+            process.exit(1)
+          }
+          if (cmp < 0) {
+            console.error(`::error::Refusing rollback: candidate ${candidate} is older than current ${current}.`)
+            process.exit(1)
+          }
+          console.log(`release monotonicity ok: current=${current} candidate=${candidate}`)
+          NODE
+          else
+            echo "No current ${RELEASE_TRACK} manifest found; treating this as first publication for the track."
           fi
 
       - name: Restore release keystore
@@ -105,19 +190,45 @@ jobs:
           KEYSTORE_PATH="${RUNNER_TEMP}/newsnook-release.jks"
           printf '%s' "$NEWSNOOK_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
           echo "NEWSNOOK_KEYSTORE_FILE=${KEYSTORE_PATH}" >> "$GITHUB_ENV"
-          echo "Restored keystore to ${KEYSTORE_PATH}"
 
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Verify release/update contract
+        run: npm run test:app-update
+
       - name: Initialize Bergamot native engine
         run: npm run bergamot:init
 
-      - name: Build signed APKs (cloud + local)
+      - name: Build signed APKs
         run: npm run android:apk
 
-      - name: Build signed AABs (cloud + local)
+      - name: Build signed AABs
         run: npm run android:aab
+
+      - name: Verify Android version metadata
+        run: |
+          set -euo pipefail
+          AAPT2="${ANDROID_HOME}/build-tools/36.0.0/aapt2"
+          if [ ! -x "$AAPT2" ]; then
+            echo "::error::aapt2 not found at ${AAPT2}."
+            exit 1
+          fi
+
+          for flavor in cloud local; do
+            APK="artifacts/android/newsnook-${VERSION}-${flavor}-release.apk"
+            BADGING="$("$AAPT2" dump badging "$APK" | head -n 1)"
+            APK_VERSION_NAME="$(printf '%s\n' "$BADGING" | sed -n "s/.*versionName='\\([^']*\\)'.*/\\1/p")"
+            APK_VERSION_CODE="$(printf '%s\n' "$BADGING" | sed -n "s/.*versionCode='\\([^']*\\)'.*/\\1/p")"
+            if [ "$APK_VERSION_NAME" != "$VERSION" ]; then
+              echo "::error::${flavor} APK versionName ${APK_VERSION_NAME} does not match ${VERSION}."
+              exit 1
+            fi
+            if [ "$APK_VERSION_CODE" != "$VERSION_CODE" ]; then
+              echo "::error::${flavor} APK versionCode ${APK_VERSION_CODE} does not match ${VERSION_CODE}."
+              exit 1
+            fi
+          done
 
       - name: List artifacts
         run: ls -lh artifacts/android/
@@ -126,9 +237,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
+          name: ${{ steps.release_contract.outputs.track == 'beta' && 'Beta' || 'Stable' }} · ${{ github.ref_name }}
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.release_contract.outputs.track == 'beta' }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
@@ -137,12 +248,11 @@ jobs:
             artifacts/android/newsnook-*-cloud-release.aab
             artifacts/android/newsnook-*-local-release.aab
 
-      - name: Prepare R2 latest manifest
+      - name: Prepare R2 manifests
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
           CLOUD_NAME="newsnook-${VERSION}-cloud-release.apk"
           LOCAL_NAME="newsnook-${VERSION}-local-release.apk"
           CLOUD_APK="artifacts/android/${CLOUD_NAME}"
@@ -156,9 +266,10 @@ jobs:
           RELEASE_JSON="${PAYLOAD_DIR}/github-release.json"
           NOTES_FILE="${PAYLOAD_DIR}/release-notes.md"
           MANIFEST_FILE="${PAYLOAD_DIR}/latest.json"
+          LEGACY_MANIFEST_FILE="${PAYLOAD_DIR}/legacy-latest.json"
+
           gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" > "$RELEASE_JSON"
           jq -r '.body // ""' "$RELEASE_JSON" > "$NOTES_FILE"
-
           PUBLISHED_AT="$(jq -r '.published_at // empty' "$RELEASE_JSON")"
           if [ -z "$PUBLISHED_AT" ]; then
             PUBLISHED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
@@ -169,27 +280,17 @@ jobs:
           CLOUD_SIZE="$(stat -c%s "$CLOUD_APK")"
           LOCAL_SIZE="$(stat -c%s "$LOCAL_APK")"
           BASE_URL="${UPDATE_BASE_URL%/}"
+          TRACK_URL="${BASE_URL}/newsnook/${RELEASE_TRACK}"
 
-          jq -n \
-            --arg version "$VERSION" \
-            --arg tagName "$GITHUB_REF_NAME" \
-            --arg publishedAt "$PUBLISHED_AT" \
-            --rawfile notes "$NOTES_FILE" \
-            --arg cloudFileName "$CLOUD_NAME" \
-            --arg cloudUrl "${BASE_URL}/newsnook/${CLOUD_NAME}" \
-            --arg cloudSha256 "$CLOUD_SHA256" \
-            --argjson cloudSize "$CLOUD_SIZE" \
-            --arg localFileName "$LOCAL_NAME" \
-            --arg localUrl "${BASE_URL}/newsnook/${LOCAL_NAME}" \
-            --arg localSha256 "$LOCAL_SHA256" \
-            --argjson localSize "$LOCAL_SIZE" \
-            '{
-              schemaVersion: 1,
+          jq -n             --arg track "$RELEASE_TRACK"             --arg version "$VERSION"             --argjson versionCode "$VERSION_CODE"             --arg tagName "$GITHUB_REF_NAME"             --arg publishedAt "$PUBLISHED_AT"             --rawfile notes "$NOTES_FILE"             --arg cloudFileName "$CLOUD_NAME"             --arg cloudUrl "${TRACK_URL}/${CLOUD_NAME}"             --arg cloudSha256 "$CLOUD_SHA256"             --argjson cloudSize "$CLOUD_SIZE"             --arg localFileName "$LOCAL_NAME"             --arg localUrl "${TRACK_URL}/${LOCAL_NAME}"             --arg localSha256 "$LOCAL_SHA256"             --argjson localSize "$LOCAL_SIZE"             '{
+              schemaVersion: 2,
+              track: $track,
               version: $version,
+              versionCode: $versionCode,
               tagName: $tagName,
               publishedAt: $publishedAt,
               notes: $notes,
-              channels: {
+              packages: {
                 cloud: {
                   fileName: $cloudFileName,
                   url: $cloudUrl,
@@ -205,119 +306,148 @@ jobs:
               }
             }' > "$MANIFEST_FILE"
 
-          jq -e --arg version "$VERSION" \
-            '.schemaVersion == 1 and .version == $version' "$MANIFEST_FILE" > /dev/null
+          jq -e --arg track "$RELEASE_TRACK" --arg version "$VERSION"             '.schemaVersion == 2 and .track == $track and .version == $version'             "$MANIFEST_FILE" > /dev/null
 
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "CLOUD_NAME=$CLOUD_NAME" >> "$GITHUB_ENV"
-          echo "LOCAL_NAME=$LOCAL_NAME" >> "$GITHUB_ENV"
-          echo "CLOUD_APK=$CLOUD_APK" >> "$GITHUB_ENV"
-          echo "LOCAL_APK=$LOCAL_APK" >> "$GITHUB_ENV"
-          echo "R2_MANIFEST=$MANIFEST_FILE" >> "$GITHUB_ENV"
+          # 1.8.6 及更早客户端只理解根目录 schemaVersion=1。
+          # 仅 stable 发布该兼容清单，beta 从不触碰旧客户端更新入口。
+          if [ "$RELEASE_TRACK" = 'stable' ]; then
+            jq -n               --arg version "$VERSION"               --arg tagName "$GITHUB_REF_NAME"               --arg publishedAt "$PUBLISHED_AT"               --rawfile notes "$NOTES_FILE"               --arg cloudFileName "$CLOUD_NAME"               --arg cloudUrl "${BASE_URL}/newsnook/${CLOUD_NAME}"               --arg cloudSha256 "$CLOUD_SHA256"               --argjson cloudSize "$CLOUD_SIZE"               --arg localFileName "$LOCAL_NAME"               --arg localUrl "${BASE_URL}/newsnook/${LOCAL_NAME}"               --arg localSha256 "$LOCAL_SHA256"               --argjson localSize "$LOCAL_SIZE"               '{
+                schemaVersion: 1,
+                version: $version,
+                tagName: $tagName,
+                publishedAt: $publishedAt,
+                notes: $notes,
+                channels: {
+                  cloud: {
+                    fileName: $cloudFileName,
+                    url: $cloudUrl,
+                    sha256: $cloudSha256,
+                    size: $cloudSize
+                  },
+                  local: {
+                    fileName: $localFileName,
+                    url: $localUrl,
+                    sha256: $localSha256,
+                    size: $localSize
+                  }
+                }
+              }' > "$LEGACY_MANIFEST_FILE"
+          fi
 
-      - name: Upload new APKs to R2
+          {
+            echo "CLOUD_NAME=$CLOUD_NAME"
+            echo "LOCAL_NAME=$LOCAL_NAME"
+            echo "CLOUD_APK=$CLOUD_APK"
+            echo "LOCAL_APK=$LOCAL_APK"
+            echo "R2_MANIFEST=$MANIFEST_FILE"
+            echo "R2_LEGACY_MANIFEST=$LEGACY_MANIFEST_FILE"
+          } >> "$GITHUB_ENV"
+
+      - name: Upload release channel to R2
         run: |
           set -euo pipefail
-          aws s3 cp "$CLOUD_APK" "s3://${R2_BUCKET}/newsnook/${CLOUD_NAME}" \
-            --endpoint-url "$R2_ENDPOINT" \
-            --content-type 'application/vnd.android.package-archive' \
-            --cache-control 'public,max-age=604800,immutable' \
-            --no-progress
-          aws s3 cp "$LOCAL_APK" "s3://${R2_BUCKET}/newsnook/${LOCAL_NAME}" \
-            --endpoint-url "$R2_ENDPOINT" \
-            --content-type 'application/vnd.android.package-archive' \
-            --cache-control 'public,max-age=604800,immutable' \
-            --no-progress
-
-          # Web 顶部下载提示使用固定 URL。每次 Release 覆盖该对象，避免用户先跳 GitHub
-          # 或在浏览器端额外请求 latest.json；no-store 确保始终拿到最新 APK。
-          aws s3 cp "$CLOUD_APK" "s3://${R2_BUCKET}/newsnook/latest-cloud.apk" \
-            --endpoint-url "$R2_ENDPOINT" \
-            --content-type 'application/vnd.android.package-archive' \
-            --content-disposition "attachment; filename=\"${CLOUD_NAME}\"" \
-            --cache-control 'no-store,max-age=0' \
-            --no-progress
-
-      - name: Verify new APKs through public R2 domain
-        run: |
-          set -euo pipefail
-          for name in "$CLOUD_NAME" "$LOCAL_NAME" 'latest-cloud.apk'; do
-            curl --fail --silent --show-error --location \
-              --retry 5 --retry-delay 3 --head \
-              "${UPDATE_BASE_URL}/newsnook/${name}" > /dev/null
+          PREFIX="s3://${R2_BUCKET}/${R2_TRACK_PREFIX}"
+          for spec in "$CLOUD_APK:$CLOUD_NAME" "$LOCAL_APK:$LOCAL_NAME"; do
+            file="${spec%%:*}"
+            name="${spec#*:}"
+            aws s3 cp "$file" "${PREFIX}/${name}"               --endpoint-url "$R2_ENDPOINT"               --content-type 'application/vnd.android.package-archive'               --cache-control 'public,max-age=604800,immutable'               --no-progress
           done
 
-      - name: Publish latest.json
-        run: |
-          set -euo pipefail
-          aws s3 cp "$R2_MANIFEST" "s3://${R2_BUCKET}/newsnook/latest.json" \
-            --endpoint-url "$R2_ENDPOINT" \
-            --content-type 'application/json; charset=utf-8' \
-            --cache-control 'no-store,max-age=0' \
-            --no-progress
+          aws s3 cp "$CLOUD_APK" "${PREFIX}/latest-cloud.apk"             --endpoint-url "$R2_ENDPOINT"             --content-type 'application/vnd.android.package-archive'             --content-disposition "attachment; filename=\"${CLOUD_NAME}\""             --cache-control 'no-store,max-age=0'             --no-progress
 
-      - name: Verify published manifest
+          aws s3 cp "$LOCAL_APK" "${PREFIX}/latest-local.apk"             --endpoint-url "$R2_ENDPOINT"             --content-type 'application/vnd.android.package-archive'             --content-disposition "attachment; filename=\"${LOCAL_NAME}\""             --cache-control 'no-store,max-age=0'             --no-progress
+
+          aws s3 cp "$R2_MANIFEST" "${PREFIX}/latest.json"             --endpoint-url "$R2_ENDPOINT"             --content-type 'application/json; charset=utf-8'             --cache-control 'no-store,max-age=0'             --no-progress
+
+      - name: Publish legacy stable compatibility endpoint
+        if: steps.release_contract.outputs.track == 'stable'
         run: |
           set -euo pipefail
+          ROOT="s3://${R2_BUCKET}/newsnook"
+
+          aws s3 cp "$CLOUD_APK" "${ROOT}/${CLOUD_NAME}"             --endpoint-url "$R2_ENDPOINT"             --content-type 'application/vnd.android.package-archive'             --cache-control 'public,max-age=604800,immutable'             --no-progress
+          aws s3 cp "$LOCAL_APK" "${ROOT}/${LOCAL_NAME}"             --endpoint-url "$R2_ENDPOINT"             --content-type 'application/vnd.android.package-archive'             --cache-control 'public,max-age=604800,immutable'             --no-progress
+          aws s3 cp "$CLOUD_APK" "${ROOT}/latest-cloud.apk"             --endpoint-url "$R2_ENDPOINT"             --content-type 'application/vnd.android.package-archive'             --content-disposition "attachment; filename=\"${CLOUD_NAME}\""             --cache-control 'no-store,max-age=0'             --no-progress
+          aws s3 cp "$R2_LEGACY_MANIFEST" "${ROOT}/latest.json"             --endpoint-url "$R2_ENDPOINT"             --content-type 'application/json; charset=utf-8'             --cache-control 'no-store,max-age=0'             --no-progress
+
+      - name: Verify published release channel
+        run: |
+          set -euo pipefail
+          BASE="${UPDATE_BASE_URL}/newsnook/${RELEASE_TRACK}"
+          for name in "$CLOUD_NAME" "$LOCAL_NAME" 'latest-cloud.apk' 'latest-local.apk'; do
+            curl --fail --silent --show-error --location               --retry 5 --retry-delay 3 --head "${BASE}/${name}" > /dev/null
+          done
+
           PUBLISHED="${RUNNER_TEMP}/published-latest.json"
-          curl --fail --silent --show-error --location \
-            --retry 5 --retry-delay 3 \
-            "${UPDATE_BASE_URL}/newsnook/latest.json?t=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
-            > "$PUBLISHED"
-          jq -e \
-            --arg version "$VERSION" \
-            --arg cloud "$CLOUD_NAME" \
-            --arg local "$LOCAL_NAME" \
-            '.schemaVersion == 1
-              and .version == $version
-              and .channels.cloud.fileName == $cloud
-              and .channels.local.fileName == $local' \
-            "$PUBLISHED" > /dev/null
+          curl --fail --silent --show-error --location             --retry 5 --retry-delay 3             "${BASE}/latest.json?t=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" > "$PUBLISHED"
 
-      - name: Remove previous R2 release objects
+          jq -e             --arg track "$RELEASE_TRACK"             --arg version "$VERSION"             --arg cloud "$CLOUD_NAME"             --arg local "$LOCAL_NAME"             '.schemaVersion == 2
+              and .track == $track
+              and .version == $version
+              and .packages.cloud.fileName == $cloud
+              and .packages.local.fileName == $local'             "$PUBLISHED" > /dev/null
+
+      - name: Verify legacy stable endpoint
+        if: steps.release_contract.outputs.track == 'stable'
         run: |
           set -euo pipefail
-          OBJECTS="${RUNNER_TEMP}/r2-objects.json"
-          aws s3api list-objects-v2 \
-            --bucket "$R2_BUCKET" \
-            --prefix 'newsnook/' \
-            --endpoint-url "$R2_ENDPOINT" \
-            --output json > "$OBJECTS"
+          PUBLISHED="${RUNNER_TEMP}/published-legacy-latest.json"
+          curl --fail --silent --show-error --location             --retry 5 --retry-delay 3             "${UPDATE_BASE_URL}/newsnook/latest.json?t=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"             > "$PUBLISHED"
+          jq -e --arg version "$VERSION"             '.schemaVersion == 1 and .version == $version' "$PUBLISHED" > /dev/null
+          curl --fail --silent --show-error --location --head             "${UPDATE_BASE_URL}/newsnook/latest-cloud.apk" > /dev/null
+
+      - name: Remove previous objects from this release channel
+        run: |
+          set -euo pipefail
+          OBJECTS="${RUNNER_TEMP}/r2-track-objects.json"
+          PREFIX="${R2_TRACK_PREFIX}/"
+          aws s3api list-objects-v2             --bucket "$R2_BUCKET"             --prefix "$PREFIX"             --endpoint-url "$R2_ENDPOINT"             --output json > "$OBJECTS"
 
           while IFS= read -r key; do
             case "$key" in
-              'newsnook/latest.json'|'newsnook/latest-cloud.apk'|"newsnook/${CLOUD_NAME}"|"newsnook/${LOCAL_NAME}")
+              "${PREFIX}latest.json"|"${PREFIX}latest-cloud.apk"|"${PREFIX}latest-local.apk"|"${PREFIX}${CLOUD_NAME}"|"${PREFIX}${LOCAL_NAME}")
                 ;;
               *)
-                echo "Deleting old R2 object: $key"
-                aws s3api delete-object \
-                  --bucket "$R2_BUCKET" \
-                  --key "$key" \
-                  --endpoint-url "$R2_ENDPOINT" \
-                  > /dev/null
+                echo "Deleting old ${RELEASE_TRACK} object: $key"
+                aws s3api delete-object                   --bucket "$R2_BUCKET"                   --key "$key"                   --endpoint-url "$R2_ENDPOINT" > /dev/null
                 ;;
             esac
           done < <(jq -r '.Contents[]?.Key' "$OBJECTS")
 
-      - name: Verify R2 retains only the current release
+      - name: Remove previous legacy stable root objects
+        if: steps.release_contract.outputs.track == 'stable'
         run: |
           set -euo pipefail
-          FINAL="${RUNNER_TEMP}/r2-final.json"
-          aws s3api list-objects-v2 \
-            --bucket "$R2_BUCKET" \
-            --prefix 'newsnook/' \
-            --endpoint-url "$R2_ENDPOINT" \
-            --output json > "$FINAL"
+          OBJECTS="${RUNNER_TEMP}/r2-root-objects.json"
+          aws s3api list-objects-v2             --bucket "$R2_BUCKET"             --prefix 'newsnook/'             --endpoint-url "$R2_ENDPOINT"             --output json > "$OBJECTS"
 
-          jq -r '.Contents[]?.Key' "$FINAL"
+          while IFS= read -r key; do
+            # 只处理根目录对象；stable/ 与 beta/ 子目录绝不参与兼容清理。
+            if ! printf '%s' "$key" | grep -Eq '^newsnook/[^/]+$'; then
+              continue
+            fi
+            case "$key" in
+              'newsnook/latest.json'|'newsnook/latest-cloud.apk'|"newsnook/${CLOUD_NAME}"|"newsnook/${LOCAL_NAME}")
+                ;;
+              *)
+                echo "Deleting old legacy stable object: $key"
+                aws s3api delete-object                   --bucket "$R2_BUCKET"                   --key "$key"                   --endpoint-url "$R2_ENDPOINT" > /dev/null
+                ;;
+            esac
+          done < <(jq -r '.Contents[]?.Key' "$OBJECTS")
+
+      - name: Verify channel isolation
+        run: |
+          set -euo pipefail
+          FINAL="${RUNNER_TEMP}/r2-track-final.json"
+          PREFIX="${R2_TRACK_PREFIX}/"
+          aws s3api list-objects-v2             --bucket "$R2_BUCKET"             --prefix "$PREFIX"             --endpoint-url "$R2_ENDPOINT"             --output json > "$FINAL"
+
           COUNT="$(jq '[.Contents[]?] | length' "$FINAL")"
-          if [ "$COUNT" -ne 4 ]; then
-            echo "::error::Expected exactly 4 NewsNook R2 objects, got ${COUNT}."
+          if [ "$COUNT" -ne 5 ]; then
+            echo "::error::Expected exactly 5 objects under ${PREFIX}, got ${COUNT}."
+            jq -r '.Contents[]?.Key' "$FINAL"
             exit 1
           fi
 
-          jq -e \
-            --arg cloud "newsnook/${CLOUD_NAME}" \
-            --arg local "newsnook/${LOCAL_NAME}" \
-            '[.Contents[]?.Key] | sort == (["newsnook/latest.json", "newsnook/latest-cloud.apk", $cloud, $local] | sort)' \
-            "$FINAL" > /dev/null
+          jq -e             --arg manifest "${PREFIX}latest.json"             --arg latestCloud "${PREFIX}latest-cloud.apk"             --arg latestLocal "${PREFIX}latest-local.apk"             --arg cloud "${PREFIX}${CLOUD_NAME}"             --arg local "${PREFIX}${LOCAL_NAME}"             '[.Contents[]?.Key] | sort == ([$manifest, $latestCloud, $latestLocal, $cloud, $local] | sort)'             "$FINAL" > /dev/null

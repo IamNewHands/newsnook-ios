@@ -82,6 +82,19 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Verify version and update contract
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          LOCK_VERSION="$(node -p "require('./package-lock.json').version")"
+          LOCK_ROOT_VERSION="$(node -p "require('./package-lock.json').packages[''].version")"
+          node scripts/release-contract.mjs "$VERSION"
+          if [ "$LOCK_VERSION" != "$VERSION" ] || [ "$LOCK_ROOT_VERSION" != "$VERSION" ]; then
+            echo "::error::package.json/package-lock.json versions must match before Android build."
+            exit 1
+          fi
+          npm run test:app-update
+
       - name: Initialize Bergamot native engine
         if: ${{ inputs.flavor == 'all' || inputs.flavor == 'local' }}
         run: npm run bergamot:init

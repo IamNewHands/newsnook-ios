@@ -13,20 +13,33 @@ if (isReleaseBuild && !hasReleaseSigning) {
     )
 }
 
-// 唯一版本源：web/package.json 的 "version"（与产物文件名 newsnook-<ver>-release.* 一致）
+// 唯一版本源：package.json。支持正式版 X.Y.Z 与内测版 X.Y.Z-beta.N。
+// versionCode 规则必须与 src/features/appUpdate/semver.ts 保持一致：
+//   beta.N = core*1000 + N；stable = core*1000 + 999。
+// 因此 beta.1 -> beta.N -> stable -> 下一 core beta 始终是 Android 可覆盖安装的升级。
 def packageJsonFile = file("../../package.json")
 if (!packageJsonFile.exists()) {
     throw new GradleException("package.json not found at ${packageJsonFile.canonicalPath}")
 }
 def packageJson = new groovy.json.JsonSlurper().parseText(packageJsonFile.getText('UTF-8'))
 def packageVersion = (packageJson.version ?: '').toString().trim()
-if (!(packageVersion ==~ /^\d+\.\d+\.\d+/)) {
-    throw new GradleException("package.json version must start with semver X.Y.Z, got: ${packageVersion}")
+def versionMatch = packageVersion =~ /^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/
+if (!versionMatch.matches()) {
+    throw new GradleException("package.json version must be X.Y.Z or X.Y.Z-beta.N, got: ${packageVersion}")
 }
-def semverCore = (packageVersion =~ /^(\d+)\.(\d+)\.(\d+)/)[0]
-def derivedVersionCode =
-    (semverCore[1] as int) * 10000 + (semverCore[2] as int) * 100 + (semverCore[3] as int)
-// 仅当 Play 需要「同名 versionName 再提一次 versionCode」时才用环境变量覆盖
+def major = versionMatch[0][1] as int
+def minor = versionMatch[0][2] as int
+def patch = versionMatch[0][3] as int
+def betaNumber = versionMatch[0][4] ? (versionMatch[0][4] as int) : null
+if (minor > 99 || patch > 99 || (betaNumber != null && (betaNumber < 1 || betaNumber > 998))) {
+    throw new GradleException("Version components out of supported range: ${packageVersion}")
+}
+def versionCore = major * 10000 + minor * 100 + patch
+def derivedVersionCode = versionCore * 1000 + (betaNumber != null ? betaNumber : 999)
+if (derivedVersionCode <= 0 || derivedVersionCode > 2100000000) {
+    throw new GradleException("Derived Android versionCode out of range: ${derivedVersionCode}")
+}
+// 仅当 Play/商店迁移确有需要时允许显式覆盖；正常发布不得使用覆盖值。
 def appVersionCode = Integer.parseInt(System.getenv("NEWSNOOK_VERSION_CODE") ?: "${derivedVersionCode}")
 def appVersionName = System.getenv("NEWSNOOK_VERSION_NAME") ?: packageVersion
 

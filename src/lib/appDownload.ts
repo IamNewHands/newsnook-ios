@@ -1,4 +1,4 @@
-/** Web 端直接下载 R2 上始终覆盖为最新云端版的 APK，不再绕 GitHub Release。 */
+/** Web 公开下载入口使用 Stable-only 的根目录兼容对象，避免双通道首发前出现 404。 */
 export const ANDROID_APP_DOWNLOAD_URL =
   'https://news-update.aizeek.com/newsnook/latest-cloud.apk'
 

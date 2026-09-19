@@ -1,11 +1,11 @@
-import type { AppUpdatePrefs } from './types'
+import type { UpdateTrackPrefs } from './types'
 
 export const SNOOZE_MS = 2 * 60 * 60 * 1000
 export const RESUME_CHECK_INTERVAL_MS = 15 * 60 * 1000
 export const CHECK_INTERVAL_MS = RESUME_CHECK_INTERVAL_MS
 
 export function shouldFetchForAutoCheck(input: {
-  prefs: AppUpdatePrefs
+  prefs: UpdateTrackPrefs
   now: number
   downloading: boolean
   isColdStart?: boolean
@@ -23,7 +23,7 @@ export function shouldFetchForAutoCheck(input: {
 
 export function shouldAutoPrompt(input: {
   remoteVersion: string
-  prefs: AppUpdatePrefs
+  prefs: UpdateTrackPrefs
   now: number
   downloading: boolean
 }): boolean {
@@ -35,7 +35,7 @@ export function shouldAutoPrompt(input: {
 
 export function shouldShowUpdateBadge(input: {
   remoteVersion: string
-  prefs: AppUpdatePrefs
+  prefs: UpdateTrackPrefs
 }): boolean {
   if (input.prefs.skippedVersion === input.remoteVersion) return false
   return true
