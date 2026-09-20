@@ -1,4 +1,5 @@
 import { MarkdownBody } from '../../components/MarkdownBody'
+import { useHardwareBackLayer } from '../../hooks/useHardwareBackLayer'
 
 import type { LatestReleaseInfo } from './types'
 
@@ -19,6 +20,10 @@ type Props = {
 
 /** 发现新版本弹框：立即更新 / 稍后 / 跳过此版本 */
 export function UpdateDialog({ open, release, localVersion, onUpdate, onLater, onSkip }: Props) {
+  useHardwareBackLayer(open && Boolean(release), () => {
+    onLater()
+    return true
+  })
   if (!open || !release) return null
 
   return (

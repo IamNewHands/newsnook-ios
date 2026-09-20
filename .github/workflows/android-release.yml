@@ -200,6 +200,9 @@ jobs:
       - name: Verify Chrome 69 runtime compatibility
         run: npm run test:webview-runtime-compat
 
+      - name: Verify Android hardware back contract
+        run: npm run test:hardware-back
+
       - name: Initialize Bergamot native engine
         run: npm run bergamot:init
 

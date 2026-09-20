@@ -2,6 +2,8 @@ import { memo, useEffect, useId, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown, Globe, LayoutTemplate, Settings2 } from 'lucide-react'
 
+import { useHardwareBackLayer } from '../hooks/useHardwareBackLayer'
+
 export interface PresetSwitcherItem {
   id: string
   name: string
@@ -54,6 +56,11 @@ export function PresetSwitcher({
 }: PresetSwitcherProps) {
   const [open, setOpen] = useState(false)
   const titleId = useId()
+
+  useHardwareBackLayer(open, () => {
+    setOpen(false)
+    return true
+  })
 
   useEffect(() => {
     if (!open) return

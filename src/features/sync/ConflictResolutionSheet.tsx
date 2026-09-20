@@ -32,6 +32,7 @@ import {
 } from './conflictView'
 import { describeSyncError } from './notifier'
 import { lockBodyScroll } from '../../lib/bodyScrollLock'
+import { useHardwareBackLayer } from '../../hooks/useHardwareBackLayer'
 
 const ENTITY_ICON: Record<SyncEntityType, typeof Rss> = {
   subscription: Rss,
@@ -86,6 +87,11 @@ export function ConflictResolutionSheet({ open, conflicts, onApply, onClose }: P
   }, [open])
 
   const applying = phase === 'applying'
+  useHardwareBackLayer(open, () => {
+    if (applying) return true
+    onClose()
+    return true
+  })
 
   useEffect(() => {
     if (!open) return

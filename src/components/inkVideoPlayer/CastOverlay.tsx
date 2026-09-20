@@ -22,6 +22,7 @@ import type {
   DlnaCastStatus,
 } from '../../lib/dlnaCast'
 import { formatTime } from './playback'
+import { useHardwareBackLayer } from '../../hooks/useHardwareBackLayer'
 
 export function CastOverlay({
   open,
@@ -54,6 +55,10 @@ export function CastOverlay({
 }) {
   const [seekDraft, setSeekDraft] = useState<number | null>(null)
   const [volumeDraft, setVolumeDraft] = useState<number | null>(null)
+  useHardwareBackLayer(open, () => {
+    onClose()
+    return true
+  })
 
   useEffect(() => {
     if (!open) {

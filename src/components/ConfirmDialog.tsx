@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Check } from 'lucide-react'
 
 import { lockBodyScroll } from '../lib/bodyScrollLock'
+import { useHardwareBackLayer } from '../hooks/useHardwareBackLayer'
 
 /** 弹窗次要操作：描边取消钮 */
 const DIALOG_CANCEL_CLASS =
@@ -36,6 +37,10 @@ export function OptionPickerDialog<T extends string>({
   onCancel,
 }: OptionPickerDialogProps<T>) {
   const titleId = useId()
+  useHardwareBackLayer(open, () => {
+    onCancel()
+    return true
+  })
 
   useEffect(() => {
     if (!open) return
@@ -132,6 +137,10 @@ export function AlertDialog({
   onClose,
 }: AlertDialogProps) {
   const titleId = useId()
+  useHardwareBackLayer(open, () => {
+    onClose()
+    return true
+  })
 
   useEffect(() => {
     if (!open) return
@@ -185,6 +194,10 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  useHardwareBackLayer(open, () => {
+    onCancel()
+    return true
+  })
   if (!open) return null
 
   return (
@@ -242,6 +255,10 @@ export function PromptDialog({
   onCancel,
 }: PromptDialogProps) {
   const inputId = useId()
+  useHardwareBackLayer(open, () => {
+    onCancel()
+    return true
+  })
   const inputRef = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState(defaultValue)
 

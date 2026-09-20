@@ -27,6 +27,7 @@ import {
 } from './lib/bodyCache'
 import { sortArticles } from './lib/feedPagination'
 import { recoverAppScrollAfterNavigation } from './lib/gestureStyles'
+import { dismissTopHardwareBackLayer } from './lib/hardwareBackStack'
 import { log } from './lib/logger'
 import {
   buildReadingProfile,
@@ -572,6 +573,9 @@ export default function App() {
     let removeListener: (() => Promise<void>) | undefined
 
     void CapacitorApp.addListener('backButton', () => {
+      if (dismissTopHardwareBackLayer()) {
+        return
+      }
       if (schemeOnboardingCloserRef.current?.()) {
         return
       }

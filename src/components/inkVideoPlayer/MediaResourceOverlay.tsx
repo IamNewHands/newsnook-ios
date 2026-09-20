@@ -8,6 +8,7 @@ import { ChevronLeft, ListVideo } from 'lucide-react'
 
 import type { MediaResourceDescriptor } from '../../features/mediaSniffer/types'
 import { lockBodyScroll } from '../../lib/bodyScrollLock'
+import { useHardwareBackLayer } from '../../hooks/useHardwareBackLayer'
 
 type MediaResourcePageContextValue = {
   open?: (resource: MediaResourceDescriptor, resources: MediaResourceDescriptor[]) => void
@@ -109,6 +110,10 @@ export function MediaResourceOverlay({
   onSelect: (resource: MediaResourceDescriptor) => void
 }) {
   const pageContext = useContext(MediaResourcePageContext)
+  useHardwareBackLayer(open && !immersive && !suppressFab && !pageContext?.suppressOverlay, () => {
+    onToggle()
+    return true
+  })
 
   useEffect(() => {
     if (!open) return
@@ -212,6 +217,10 @@ export function MediaResourceScreen({
   onSelect: (resource: MediaResourceDescriptor) => void
   children: ReactNode
 }) {
+  useHardwareBackLayer(true, () => {
+    onClose()
+    return true
+  })
   useEffect(() => lockBodyScroll(), [])
 
   return (
