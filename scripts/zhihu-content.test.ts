@@ -104,6 +104,11 @@ assert.ok(reportedZhihuVideoCard.includes('data-source-page="https://www.zhihu.c
 assert.ok(!reportedZhihuVideoCard.includes('href="https://www.zhihu.com/video/2084728115234858023"'), '回归：不得再次显示成截图中的 URL 链接卡片')
 
 const latestReportedZhihuVideoCard = normalizeZhihuContentHtml('<p><a class="video-box" data-lens-id="2084894365282051809" href="https://www.zhihu.com/video/2084894365282051809"><img src="https://pic.example/latest-reported-video.jpg">https://www.zhihu.com/video/2084894365282051809</a></p>')
+
+const legacyReportedZhihuVideoCard = normalizeZhihuContentHtml('<a class="video-box" href="https://link.zhihu.com/?target=https%3A//www.zhihu.com/video/1622530298419245056" data-lens-id="1622530298419245056"><img src="https://pic.example/legacy-video.jpg">https://www.zhihu.com/video/1622530298419245056</a>')
+assert.ok(legacyReportedZhihuVideoCard.includes('data-reader-role="zhihu-video-page"'), '旧知乎 video-box + link.zhihu.com 包装也必须生成播放器宿主')
+assert.ok(legacyReportedZhihuVideoCard.includes('data-source-page="https://www.zhihu.com/video/1622530298419245056"'))
+assert.ok(!legacyReportedZhihuVideoCard.includes('data-reader-role="zhihu-link-card"'), '当前实测旧视频不能退化成普通链接卡片')
 assert.ok(latestReportedZhihuVideoCard.includes('data-reader-role="zhihu-video-page"'), '最新用户报告的视频必须在 sanitize 后保留稳定播放器宿主')
 assert.ok(latestReportedZhihuVideoCard.includes('data-media-format="video-page"'))
 assert.ok(latestReportedZhihuVideoCard.includes('data-source-page="https://www.zhihu.com/video/2084894365282051809"'))
@@ -184,6 +189,9 @@ assert.match(inlineVideoPagesSource, /<OriginPlayerSurface[\s\S]*embedded/, '通
 assert.match(inlineVideoPagesSource, /resolveDirect/, '知乎已知视频协议应优先直取播放源，避免先展示原站页面')
 assert.match(inlineVideoPagesSource, /removeChild\(shell\.firstChild\)/, '播放器只能接管稳定宿主内部，不能 replaceWith 掉第三方正文根节点')
 assert.match(inlineVideoPagesSource, /appendChild\(host\)/, '播放器宿主必须使用 Android WebView 69 已支持的 DOM API')
+assert.match(inlineVideoPagesSource, /useLayoutEffect/, '视频宿主必须在布局阶段接管，不能依赖一次性的被动 effect')
+assert.match(inlineVideoPagesSource, /new MutationObserver\(\(\) => scan\(\)\)/, '正文 DOM 被 React/WebView 重写后必须自动重新接管视频宿主')
+assert.match(inlineVideoPagesSource, /\[data-media-format="video-page"\]\[data-source-page\]/, '运行时接管应依赖稳定媒体语义，而不是脆弱的展示 role')
 assert.doesNotMatch(inlineVideoPagesSource, /shell\.replaceChildren\(/, 'Android WebView 69 不支持 Element.replaceChildren，禁止在知乎视频挂载链路使用')
 assert.doesNotMatch(inlineVideoPagesSource, /element\.replaceWith\(host\)|anchor\.replaceWith\(host\)/, '播放器挂载不得再次替换第三方正文根节点')
 

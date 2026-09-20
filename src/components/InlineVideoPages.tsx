@@ -1,5 +1,5 @@
 import { LoaderCircle, Play } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 
 import { discoverMediaDescriptor } from '../features/mediaSniffer/service'
@@ -198,45 +198,87 @@ export function InlineVideoPages({ rootRef, html, enabled, fallbackTitle, source
   const [mounted, setMounted] = useState<MountedVideoPage[]>([])
   const [activeKey, setActiveKey] = useState<string | null>(null)
 
-  useEffect(() => {
-    const root = rootRef.current
-    if (!root || !enabled) {
+  useLayoutEffect(() => {
+    if (!enabled) {
       setMounted([])
       setActiveKey(null)
       return
     }
 
-    const next: MountedVideoPage[] = []
-    root.querySelectorAll<HTMLElement>('[data-reader-role="zhihu-video-page"][data-media-format="video-page"][data-source-page]').forEach((shell, index) => {
+    let disposed = false
+    let frame = 0
+    let mountSequence = 0
+    let current: MountedVideoPage[] = []
+    let observedRoot: HTMLElement | null = null
+    let observer: MutationObserver | null = null
+
+    const publish = () => {
+      if (disposed) return
+      const connected = current.filter((item) => item.shell.isConnected && item.host.isConnected)
+      current = connected
+      setMounted([...connected])
+      setActiveKey((active) => active && connected.some((item) => item.key === active)
+        ? active
+        : connected[0]?.key ?? null)
+    }
+
+    const mountShell = (shell: HTMLElement, index: number) => {
+      if (shell.getAttribute('data-reader-inline-video-mounted') === 'true') return false
       const pageUrl = shell.getAttribute('data-source-page')?.trim()
-      if (!pageUrl) return
+      if (!pageUrl) return false
 
       const title = shell.getAttribute('data-related-title')?.trim() || fallbackTitle || '视频'
       const posterImage = shell.querySelector<HTMLImageElement>('img')
       const poster = posterImage?.currentSrc || posterImage?.getAttribute('src') || undefined
-      const key = `${index}:${pageUrl}`
       const fallbackMarkup = shell.innerHTML
       const host = document.createElement('div')
+      const key = `${index}:${pageUrl}:${mountSequence++}`
       host.className = 'reader-inline-video-page'
       host.setAttribute('data-reader-inline-video-page', String(index + 1))
 
       shell.setAttribute('data-reader-inline-video-mounted', 'true')
-      // Android WebView 69 不支持 Element.replaceChildren()；Vite/Babel 只转译
-      // JavaScript 语法，不会为 DOM API 注入 polyfill。必须使用 Chrome 69 已支持的
-      // removeChild/appendChild，否则 effect 会在这里抛 TypeError，页面就永久停留在
-      // 上面的静态“视频 + URL”卡片，正是用户截图中的表现。
       while (shell.firstChild) shell.removeChild(shell.firstChild)
       shell.appendChild(host)
-      next.push({ key, pageUrl, title, poster, host, shell, fallbackMarkup })
-    })
+      current.push({ key, pageUrl, title, poster, host, shell, fallbackMarkup })
+      return true
+    }
 
-    setMounted(next)
-    setActiveKey((active) => active && next.some((item) => item.key === active)
-      ? active
-      : next[0]?.key ?? null)
+    const scan = () => {
+      if (disposed) return
+      const root = rootRef.current
+      if (!root) {
+        if (!frame) {
+          frame = window.requestAnimationFrame(() => {
+            frame = 0
+            scan()
+          })
+        }
+        return
+      }
+
+      if (observedRoot !== root) {
+        observer?.disconnect()
+        observedRoot = root
+        observer = new MutationObserver(() => scan())
+        observer.observe(root, { childList: true, subtree: true })
+      }
+
+      const previousCount = current.length
+      current = current.filter((item) => item.shell.isConnected && item.host.isConnected)
+      let changed = current.length !== previousCount
+      root.querySelectorAll<HTMLElement>('[data-media-format="video-page"][data-source-page]').forEach((shell, index) => {
+        if (mountShell(shell, index)) changed = true
+      })
+      if (changed) publish()
+    }
+
+    scan()
 
     return () => {
-      next.forEach(({ shell, fallbackMarkup }) => {
+      disposed = true
+      observer?.disconnect()
+      if (frame) window.cancelAnimationFrame(frame)
+      current.forEach(({ shell, fallbackMarkup }) => {
         shell.removeAttribute('data-reader-inline-video-mounted')
         if (shell.isConnected) shell.innerHTML = fallbackMarkup
       })

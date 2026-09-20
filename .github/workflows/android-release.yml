@@ -200,6 +200,9 @@ jobs:
       - name: Verify Chrome 69 runtime compatibility
         run: npm run test:webview-runtime-compat
 
+      - name: Verify Zhihu content/video DOM contract
+        run: npm run test:zhihu-content && npm run test:react-innerhtml-stability
+
       - name: Verify Android hardware back contract
         run: npm run test:hardware-back
 

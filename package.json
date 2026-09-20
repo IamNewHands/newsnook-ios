@@ -1,7 +1,7 @@
 {
   "name": "web",
   "private": true,
-  "version": "1.8.8-beta.4",
+  "version": "1.8.8-beta.5",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "workspaces": [
@@ -103,6 +103,7 @@
     "test:zhihu-recommendation": "npx tsx scripts/zhihu-recommendation.test.ts",
     "test:zhihu-feed": "npx tsx scripts/zhihu-feed.test.ts",
     "test:zhihu-content": "npx tsx scripts/zhihu-content.test.ts",
+    "test:react-innerhtml-stability": "node scripts/react-innerhtml-stability.test.mjs",
     "test:zhihu-public-entities": "npx tsx scripts/zhihu-public-entities.test.ts",
     "test:zhihu-comments": "npx tsx scripts/zhihu-comments.test.ts",
     "test:zhihu-segments": "npx tsx scripts/zhihu-segments.test.ts",

@@ -354,6 +354,12 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
     ),
     [detail?.contentHtml, detail?.segmentInfos, refValue],
   )
+  // 这不是普通的“渲染一段 HTML”：InlineArticleVideos / InlineYoutubeEmbeds /
+  // InlineVideoPages 会在该 DOM 子树内部挂 portal/播放器。React 19 对一个新的
+  // dangerouslySetInnerHTML 对象会重新写 innerHTML，即便 __html 字符串没变；回答页
+  // 的点赞数、上下回答等任意状态更新都会因此抹掉播放器宿主。保持对象引用稳定，
+  // 只有 normalizedHtml 真正变化时才允许 React 重建正文 DOM。
+  const normalizedHtmlMarkup = useMemo(() => ({ __html: normalizedHtml }), [normalizedHtml])
   const speedReadDocument = useMemo(() => {
     if (!detail || detail.ref.kind !== refValue.kind || detail.ref.id !== refValue.id) return null
     if (!['answer', 'article', 'pin'].includes(refValue.kind) || !normalizedHtml.trim()) return null
@@ -842,7 +848,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
                 className="reader-prose zhihu-prose text-paper"
                 data-article-lang="zh"
                 onClick={handleBodyClick}
-                dangerouslySetInnerHTML={{ __html: normalizedHtml }}
+                dangerouslySetInnerHTML={normalizedHtmlMarkup}
               />
               <InlineArticleVideos
                 rootRef={proseRef}
