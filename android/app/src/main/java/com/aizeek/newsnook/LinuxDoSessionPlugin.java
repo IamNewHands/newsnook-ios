@@ -61,12 +61,16 @@ public class LinuxDoSessionPlugin extends Plugin {
     private static final String ORIGIN = "https://linux.do";
     private static final String LOGIN_URL = "https://linux.do/login";
     private static final String SESSION_URL = "https://linux.do/session/current.json";
+    private static final String OTP_CSRF_URL = ORIGIN + "/session/csrf.json?newsnook_otp_csrf=1";
+    private static final long OTP_EXCHANGE_TIMEOUT_MILLIS = 2L * 60L * 1000L;
 
     private Dialog dialog;
     private WebView sessionWebView;
     private volatile PluginCall pendingCall;
     private volatile PluginCall pendingUserApiCall;
+    private volatile LinuxDoUserApiAuth.Credential pendingOtpCredential;
     private final AtomicBoolean probing = new AtomicBoolean(false);
+    private final AtomicBoolean exchangingOtp = new AtomicBoolean(false);
     private final ConcurrentHashMap<String, UploadSession> uploadSessions = new ConcurrentHashMap<>();
     private volatile String verifiedUserAgent = "";
     private volatile boolean finishing;
@@ -114,7 +118,7 @@ public class LinuxDoSessionPlugin extends Plugin {
 
     @PluginMethod
     public void authenticateUserApiKey(PluginCall call) {
-        if (userApiAuth.isAuthenticating() || pendingUserApiCall != null) {
+        if (userApiAuth.isAuthenticating() || pendingUserApiCall != null || pendingCall != null || dialog != null) {
             call.reject("已有 Linux.do 系统浏览器登录正在进行", "LINUXDO_USER_API_BUSY");
             return;
         }
@@ -127,7 +131,7 @@ public class LinuxDoSessionPlugin extends Plugin {
 
             @Override
             public void onSuccess(LinuxDoUserApiAuth.Credential credential) {
-                resolveUserApiSnapshot(call, credential);
+                redeemUserApiSession(call, credential);
             }
 
             @Override
@@ -142,6 +146,17 @@ public class LinuxDoSessionPlugin extends Plugin {
     @PluginMethod
     public void cancelUserApiKeyAuth(PluginCall call) {
         userApiAuth.cancel();
+        PluginCall pending = pendingUserApiCall;
+        if (pending != null) {
+            pendingUserApiCall = null;
+            pendingOtpCredential = null;
+            exchangingOtp.set(false);
+            userApiAuth.clearCredential();
+            pending.reject("已取消 Linux.do 登录", "LINUXDO_USER_API_CANCELLED");
+        }
+        getActivity().runOnUiThread(() -> {
+            if (dialog != null) dialog.dismiss();
+        });
         call.resolve();
     }
 
@@ -187,7 +202,7 @@ public class LinuxDoSessionPlugin extends Plugin {
 
     @PluginMethod
     public void authenticate(PluginCall call) {
-        if (pendingCall != null || dialog != null) {
+        if (pendingCall != null || pendingUserApiCall != null || dialog != null) {
             call.reject("已有 Linux.do 验证窗口正在进行", "LINUXDO_SESSION_BUSY");
             return;
         }
@@ -206,10 +221,12 @@ public class LinuxDoSessionPlugin extends Plugin {
     @PluginMethod
     public void snapshot(PluginCall call) {
         LinuxDoUserApiAuth.Credential credential = userApiAuth.credential();
-        if (credential != null) {
-            resolveUserApiSnapshot(call, credential);
+        if (credential != null && credential.hasUsableOneTimePassword()) {
+            pendingUserApiCall = call;
+            redeemUserApiSession(call, credential);
             return;
         }
+        if (credential != null) userApiAuth.clearCredential();
         collectSnapshot(call, false);
     }
 
@@ -249,11 +266,6 @@ public class LinuxDoSessionPlugin extends Plugin {
             }
             if (!cookie.isEmpty()) builder.header("Cookie", cookie);
             if (!userAgent.isEmpty()) builder.header("User-Agent", userAgent);
-            Uri requestUri = Uri.parse(url);
-            String requestPath = requestUri.getPath() == null ? "" : requestUri.getPath();
-            boolean firstPartySessionRequest = requestPath.equals("/session") || requestPath.equals("/session.json") || requestPath.equals("/session/csrf.json");
-            if (!firstPartySessionRequest) userApiAuth.applyHeaders(builder);
-
             if (method.equals("GET")) {
                 builder.get();
             } else {
@@ -527,7 +539,8 @@ public class LinuxDoSessionPlugin extends Plugin {
     }
 
     private void openDialog(String initialUrl) {
-        if (pendingCall == null || getActivity().isFinishing()) {
+        boolean otpExchange = pendingUserApiCall != null && pendingOtpCredential != null;
+        if ((pendingCall == null && !otpExchange) || getActivity().isFinishing()) {
             rejectPending("LINUXDO_SESSION_UNAVAILABLE", "当前 Activity 无法打开 Linux.do 验证页");
             return;
         }
@@ -557,7 +570,7 @@ public class LinuxDoSessionPlugin extends Plugin {
         root.addView(chrome, chromeParams);
 
         TextView title = new TextView(getActivity());
-        title.setText("Linux.do · 登录与安全验证");
+        title.setText(otpExchange ? "Linux.do · 正在建立安全会话" : "Linux.do · 登录与安全验证");
         title.setTextSize(15f);
         title.setTextColor(Color.rgb(238, 239, 242));
         title.setGravity(Gravity.CENTER);
@@ -581,12 +594,17 @@ public class LinuxDoSessionPlugin extends Plugin {
         doneBg.setColor(Color.rgb(198, 70, 52));
         doneBg.setCornerRadius(dp(18));
         done.setBackground(doneBg);
+        done.setVisibility(otpExchange ? View.GONE : View.VISIBLE);
         FrameLayout.LayoutParams doneParams = new FrameLayout.LayoutParams(dp(66), dp(36), Gravity.CENTER_VERTICAL | Gravity.END);
         doneParams.rightMargin = dp(12);
         chrome.addView(done, doneParams);
 
         TextView hint = new TextView(getActivity());
-        hint.setText("如出现 Cloudflare 验证，请在此页自行完成；验证与登录完成后点“完成”。");
+        hint.setText(
+            otpExchange
+                ? "正在把浏览器授权兑换为 App 会话；如出现 Cloudflare 验证，请在此页完成。"
+                : "请在 Linux.do 官方页面完成账号密码、人机或二次验证，登录后点“完成”。"
+        );
         hint.setTextSize(11.5f);
         hint.setTextColor(Color.rgb(166, 171, 181));
         hint.setGravity(Gravity.CENTER_VERTICAL);
@@ -607,7 +625,10 @@ public class LinuxDoSessionPlugin extends Plugin {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
-        cookieManager.setAcceptThirdPartyCookies(webView, false);
+        // hCaptcha is hosted in a third-party iframe on the official login page.
+        // Keep third-party cookies disabled for the OTP bridge, but allow them for
+        // an explicit interactive login so the challenge can complete reliably.
+        cookieManager.setAcceptThirdPartyCookies(webView, !otpExchange);
         verifiedUserAgent = empty(settings.getUserAgentString());
 
         root.addView(webView, new LinearLayout.LayoutParams(
@@ -619,16 +640,37 @@ public class LinuxDoSessionPlugin extends Plugin {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                if (request != null && !request.isForMainFrame()) return false;
                 Uri uri = request != null ? request.getUrl() : null;
                 String target = uri != null ? uri.toString() : "";
                 if (isAllowedUrl(target)) return false;
                 Toast.makeText(getActivity(), "已阻止跳出 Linux.do 第一方域名", Toast.LENGTH_SHORT).show();
                 return true;
             }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (otpExchange) {
+                    handleOtpPageFinished(view, url);
+                } else {
+                    Uri uri = Uri.parse(url);
+                    if (
+                        "/session/current.json".equals(uri.getPath())
+                            && "1".equals(uri.getQueryParameter("newsnook_snapshot"))
+                    ) {
+                        collectWebViewSnapshot(view, pendingCall, true);
+                    }
+                }
+            }
         });
 
         close.setOnClickListener(v -> cancelPending());
-        done.setOnClickListener(v -> collectSnapshot(pendingCall, true));
+        done.setOnClickListener(v -> {
+            if (sessionWebView != null) {
+                sessionWebView.loadUrl(SESSION_URL + "?newsnook_snapshot=1");
+            }
+        });
         nextDialog.setOnKeyListener((ignored, keyCode, event) -> {
             if (keyCode != KeyEvent.KEYCODE_BACK || event.getAction() != KeyEvent.ACTION_UP) return false;
             if (webView.canGoBack()) webView.goBack();
@@ -639,7 +681,7 @@ public class LinuxDoSessionPlugin extends Plugin {
         nextDialog.setOnDismissListener(ignored -> {
             destroyWebView();
             dialog = null;
-            if (!finishing && pendingCall != null) cancelPending();
+            if (!finishing && (pendingCall != null || pendingUserApiCall != null)) cancelPending();
         });
 
         nextDialog.setContentView(root);
@@ -659,6 +701,28 @@ public class LinuxDoSessionPlugin extends Plugin {
         if (window != null) window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         ViewCompat.requestApplyInsets(root);
         webView.loadUrl(initialUrl);
+        if (otpExchange) {
+            PluginCall otpCall = pendingUserApiCall;
+            webView.postDelayed(() -> {
+                if (
+                    otpCall == null
+                        || pendingUserApiCall != otpCall
+                        || pendingOtpCredential == null
+                        || sessionWebView != webView
+                ) {
+                    return;
+                }
+                pendingUserApiCall = null;
+                pendingOtpCredential = null;
+                exchangingOtp.set(false);
+                userApiAuth.clearCredential();
+                otpCall.reject(
+                    "Linux.do 安全会话建立超时，请重新授权；若出现 Cloudflare 验证请先完成验证",
+                    "LINUXDO_USER_API_OTP_TIMEOUT"
+                );
+                finishDialog();
+            }, OTP_EXCHANGE_TIMEOUT_MILLIS);
+        }
     }
 
     private TextView circleButton(String text) {
@@ -674,55 +738,120 @@ public class LinuxDoSessionPlugin extends Plugin {
         return view;
     }
 
-    private void resolveUserApiSnapshot(PluginCall call, LinuxDoUserApiAuth.Credential credential) {
-        Request.Builder builder = new Request.Builder()
-            .url(SESSION_URL)
-            .header("Accept", "application/json, text/plain, */*")
-            .header("X-Requested-With", "XMLHttpRequest");
-        String cookie = empty(CookieManager.getInstance().getCookie(ORIGIN));
-        String userAgent = currentUserAgent();
-        if (!cookie.isEmpty()) builder.header("Cookie", cookie);
-        if (!userAgent.isEmpty()) builder.header("User-Agent", userAgent);
-        userApiAuth.applyHeaders(builder);
+    private void redeemUserApiSession(PluginCall call, LinuxDoUserApiAuth.Credential credential) {
+        if (!credential.hasUsableOneTimePassword()) {
+            pendingUserApiCall = null;
+            userApiAuth.clearCredential();
+            call.reject("Linux.do 授权未返回可用的一次性登录凭据，请重新登录", "LINUXDO_USER_API_OTP");
+            return;
+        }
+        pendingOtpCredential = credential;
+        exchangingOtp.set(false);
+        // A visible WebView navigation sends an HTML-oriented Accept header. Discourse's
+        // extensionless /session/csrf route therefore renders its HTML not-found page,
+        // which leaves the exchange waiting forever. Use the explicit JSON route for
+        // the interactive bridge; this also survives a Cloudflare challenge redirect
+        // because the .json suffix keeps the response format deterministic.
+        getActivity().runOnUiThread(() -> openDialog(OTP_CSRF_URL));
+    }
 
-        identityClient.newCall(builder.build()).enqueue(new Callback() {
+    private void handleOtpPageFinished(WebView view, String value) {
+        PluginCall call = pendingUserApiCall;
+        LinuxDoUserApiAuth.Credential credential = pendingOtpCredential;
+        if (call == null || credential == null || value == null) return;
+
+        Uri uri;
+        try {
+            uri = Uri.parse(value);
+        } catch (Exception ignored) {
+            return;
+        }
+        if (!"linux.do".equalsIgnoreCase(uri.getHost())) return;
+        String path = empty(uri.getPath());
+        if (path.equals("/session/current.json") && "1".equals(uri.getQueryParameter("newsnook_otp"))) {
+            CookieManager.getInstance().flush();
+            view.postDelayed(() -> collectWebViewSnapshot(view, call, true), 250L);
+            return;
+        }
+        if ((!path.equals("/session/csrf") && !path.equals("/session/csrf.json")) || exchangingOtp.get()) {
+            return;
+        }
+
+        view.evaluateJavascript(
+            "(function(){try{return JSON.parse(document.body.innerText).csrf||''}catch(e){return ''}})()",
+            encoded -> {
+                String csrf = "";
+                try {
+                    Object decoded = new org.json.JSONTokener(encoded).nextValue();
+                    if (decoded instanceof String) csrf = ((String) decoded).trim();
+                } catch (Exception ignored) {
+                    csrf = "";
+                }
+                if (csrf.isEmpty()) {
+                    // A Cloudflare interstitial is expected to be non-JSON. Leave it
+                    // visible so the user can complete the challenge; on success the
+                    // same .json URL reloads and this handler runs again. The watchdog
+                    // installed by openDialog prevents a permanent spinner.
+                    return;
+                }
+                if (!exchangingOtp.compareAndSet(false, true)) return;
+
+                String script = "(function(){"
+                    + "var target='/session/otp/" + credential.oneTimePassword + "';"
+                    + "fetch(target,{method:'POST',credentials:'include',redirect:'follow',"
+                    + "headers:{'Accept':'application/json, text/javascript, */*; q=0.01',"
+                    + "'X-CSRF-Token':" + JSONObject.quote(csrf)
+                    + ",'X-Requested-With':'XMLHttpRequest'}})"
+                    + ".then(function(response){location.replace('/session/current.json?newsnook_otp=1&status='+encodeURIComponent(String(response.status)))})"
+                    + ".catch(function(){location.replace('/session/current.json?newsnook_otp=1&status=0')});"
+                    + "})()";
+                view.evaluateJavascript(script, ignored -> {});
+            }
+        );
+    }
+
+    private void collectWebViewSnapshot(WebView view, PluginCall call, boolean finishDialog) {
+        if (view == null || call == null) return;
+        view.evaluateJavascript("document.body ? document.body.innerText : ''", encoded -> {
+            JSONObject user = null;
+            try {
+                Object decoded = new org.json.JSONTokener(encoded).nextValue();
+                String text = decoded instanceof String ? (String) decoded : "";
+                if (!text.isEmpty()) {
+                    JSONObject root = new JSONObject(text);
+                    user = root.optJSONObject("current_user");
+                    if (user == null && root.has("user")) user = root.optJSONObject("user");
+                }
+            } catch (Exception ignored) {
+                user = null;
+            }
+            JSONObject finalUser = user;
+            String cookie = empty(CookieManager.getInstance().getCookie(ORIGIN));
+            String userAgent = currentUserAgent();
+            resolveSnapshot(call, finishDialog, cookie, userAgent, finalUser);
+        });
+    }
+
+    private void burnUserApiCredential(LinuxDoUserApiAuth.Credential credential) {
+        userApiAuth.clearCredential();
+        Request request = new Request.Builder()
+            .url(ORIGIN + "/user-api-key/revoke")
+            .post(RequestBody.create("", MediaType.parse("application/x-www-form-urlencoded; charset=UTF-8")))
+            .header("Accept", "application/json")
+            .header("User-Api-Key", credential.key)
+            .header("User-Api-Client-Id", credential.clientId)
+            .build();
+        identityClient.newCall(request).enqueue(new Callback() {
             @Override
             public void onFailure(Call ignored, IOException error) {
-                if (pendingUserApiCall != call) return;
-                pendingUserApiCall = null;
-                call.reject("已授权，但暂时无法读取 Linux.do 用户信息", "LINUXDO_USER_API_IDENTITY");
+                // The one-time-password scope cannot access normal APIs. Local removal is sufficient.
             }
 
             @Override
             public void onResponse(Call ignored, Response response) throws IOException {
-                syncResponseCookies(response);
-                JSONObject user = null;
-                String text = "";
                 try (ResponseBody body = response.body()) {
-                    text = body != null ? body.string() : "";
-                    if (response.isSuccessful() && !text.isEmpty()) {
-                        JSONObject root = new JSONObject(text);
-                        user = root.optJSONObject("current_user");
-                    }
-                } catch (Exception ignoredParse) {
-                    user = null;
+                    // Best-effort remote revoke; the browser session is already independent of this key.
                 }
-                if (pendingUserApiCall != call) return;
-                if (user == null) {
-                    pendingUserApiCall = null;
-                    call.reject("Linux.do 安全授权已完成，但身份验证失败", "LINUXDO_USER_API_IDENTITY");
-                    return;
-                }
-
-                JSObject result = new JSObject();
-                result.put("authenticated", true);
-                result.put("authMode", LinuxDoUserApiAuth.AUTH_MODE);
-                result.put("apiVersion", credential.apiVersion);
-                if (!credential.expiresAt.isEmpty()) result.put("expiresAt", credential.expiresAt);
-                result.put("userAgent", userAgent);
-                result.put("currentUser", userObject(user));
-                pendingUserApiCall = null;
-                call.resolve(result);
             }
         });
     }
@@ -794,19 +923,44 @@ public class LinuxDoSessionPlugin extends Plugin {
         String userAgent,
         JSONObject user
     ) {
+        boolean userApiExchange = call == pendingUserApiCall;
+        LinuxDoUserApiAuth.Credential credential = pendingOtpCredential;
+        if (userApiExchange && user == null) {
+            pendingUserApiCall = null;
+            pendingOtpCredential = null;
+            exchangingOtp.set(false);
+            userApiAuth.clearCredential();
+            call.reject("Linux.do 授权已完成，但一次性会话兑换失败，请重试", "LINUXDO_USER_API_OTP");
+            finishDialog();
+            return;
+        }
+
         JSObject result = new JSObject();
         result.put("authenticated", user != null);
         result.put("authMode", user != null ? "browser-session" : "none");
         result.put("userAgent", userAgent);
         if (user != null) result.put("currentUser", userObject(user));
 
-        call.resolve(result);
-        if (finishDialog && call == pendingCall) {
-            finishing = true;
+        if (userApiExchange) {
+            pendingUserApiCall = null;
+            pendingOtpCredential = null;
+            exchangingOtp.set(false);
+            if (credential != null) burnUserApiCredential(credential);
+            call.resolve(result);
+            finishDialog();
+        } else if (finishDialog && call == pendingCall) {
             pendingCall = null;
-            if (dialog != null) dialog.dismiss();
-            finishing = false;
+            call.resolve(result);
+            finishDialog();
+        } else {
+            call.resolve(result);
         }
+    }
+
+    private void finishDialog() {
+        finishing = true;
+        if (dialog != null) dialog.dismiss();
+        finishing = false;
     }
 
     private static String avatarUrl(String template) {
@@ -833,6 +987,14 @@ public class LinuxDoSessionPlugin extends Plugin {
             pendingCall.reject("已取消 Linux.do 登录/验证", "LINUXDO_SESSION_CANCELLED");
             pendingCall = null;
         }
+        if (pendingUserApiCall != null) {
+            pendingUserApiCall.reject("已取消 Linux.do 登录", "LINUXDO_USER_API_CANCELLED");
+            pendingUserApiCall = null;
+            pendingOtpCredential = null;
+            exchangingOtp.set(false);
+            userApiAuth.cancel();
+            userApiAuth.clearCredential();
+        }
         if (dialog != null) dialog.dismiss();
     }
 
@@ -840,6 +1002,11 @@ public class LinuxDoSessionPlugin extends Plugin {
         PluginCall call = pendingCall;
         pendingCall = null;
         if (call != null) call.reject(message, code);
+        PluginCall userApiCall = pendingUserApiCall;
+        pendingUserApiCall = null;
+        pendingOtpCredential = null;
+        exchangingOtp.set(false);
+        if (userApiCall != null) userApiCall.reject(message, code);
     }
 
     private void destroyWebView() {
@@ -851,6 +1018,7 @@ public class LinuxDoSessionPlugin extends Plugin {
         view.loadUrl("about:blank");
         view.removeAllViews();
         view.destroy();
+        exchangingOtp.set(false);
     }
 
     private static String empty(String value) {

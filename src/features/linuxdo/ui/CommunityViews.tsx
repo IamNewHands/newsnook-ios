@@ -69,7 +69,7 @@ export function SearchView({ onOpen, onOpenUser }: { onOpen: (topic: LinuxDoTopi
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto page-x pb-28 pt-4">
+    <div className="min-h-0 flex-1 overflow-y-auto page-x pb-4 pt-4">
       <div className="relative">
         <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-paper-faint" />
         <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && void run(1)} placeholder="搜索主题、帖子、用户" className="w-full rounded-[18px] border border-haze bg-ink-raised/50 py-3 pl-10 pr-20 text-[13px] text-paper outline-none placeholder:text-paper-faint focus:border-cinnabar/45" />
@@ -123,8 +123,8 @@ export function DiscoverView({ onOpen }: { onOpen: (topic: LinuxDoTopicSummary) 
   const hotTags = [...tags].sort((a, b) => (b.topicCount ?? 0) - (a.topicCount ?? 0)).slice(0, 12)
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto page-x pb-28 pt-4">
-      <section className="linuxdo-discover-hero rounded-[26px] border border-haze/70 bg-ink-raised p-5 shadow-[0_14px_34px_rgb(47_86_143_/_0.09)]">
+    <div className="min-h-0 flex-1 overflow-y-auto page-x pb-4 pt-4">
+      <section className="linuxdo-discover-hero rounded-[26px] border border-haze/70 bg-ink-raised p-5 shadow-md">
         <div className="flex items-start justify-between gap-4"><div><div className="inline-flex items-center gap-2 rounded-full bg-cinnabar/10 px-3 py-1 text-[10px] font-semibold text-cinnabar"><Sparkles size={12} />探索 Linux.do</div><h2 className="mt-3 text-[22px] font-bold tracking-[-0.03em] text-paper">发现更适合你的讨论</h2><p className="mt-1.5 max-w-md text-[11px] leading-5 text-paper-muted">从真实分类和标签中探索主题，不制造虚假的精选数据。</p></div><div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-cinnabar/10 text-cinnabar"><Compass size={26} /></div></div>
         <div className="mt-4 grid grid-cols-3 gap-2"><div className="rounded-2xl bg-ink-deep px-3 py-2.5"><div className="text-[16px] font-bold text-paper">{categories.length}</div><div className="text-[9px] text-paper-faint">分类</div></div><div className="rounded-2xl bg-ink-deep px-3 py-2.5"><div className="text-[16px] font-bold text-paper">{tags.length}</div><div className="text-[9px] text-paper-faint">标签</div></div><div className="rounded-2xl bg-ink-deep px-3 py-2.5"><div className="text-[16px] font-bold text-paper">{hotTags[0]?.topicCount ?? 0}</div><div className="text-[9px] text-paper-faint">热门话题量</div></div></div>
       </section>
@@ -135,7 +135,7 @@ export function DiscoverView({ onOpen }: { onOpen: (topic: LinuxDoTopicSummary) 
       <div className="mb-2 mt-5 flex items-center gap-2"><Grid2X2 size={14} className="text-cinnabar-soft" /><h2 className="text-[12px] font-semibold tracking-[0.08em] text-paper-muted">推荐分类</h2></div>
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
         {categories.map((category) => (
-          <button key={category.id} type="button" disabled={itemsLoading} onClick={() => void openScope('category:' + category.id, () => discovery.category(category.slug, category.id))} className={'linuxdo-control rounded-[18px] border px-3.5 py-3 text-left transition-colors disabled:opacity-60 ' + (activeScope === 'category:' + category.id ? 'border-cinnabar/30 bg-cinnabar/[0.07] shadow-sm' : 'border-haze/70 bg-ink-raised shadow-[0_8px_24px_rgb(47_86_143_/_0.07)] hover:border-cinnabar/20')}>
+          <button key={category.id} type="button" disabled={itemsLoading} onClick={() => void openScope('category:' + category.id, () => discovery.category(category.slug, category.id))} className={'linuxdo-control rounded-[18px] border px-3.5 py-3 text-left transition-colors disabled:opacity-60 ' + (activeScope === 'category:' + category.id ? 'border-cinnabar/30 bg-cinnabar/[0.07] shadow-sm' : 'border-haze/70 bg-ink-raised shadow-sm hover:border-cinnabar/20')}>
             <div className="text-[13px] font-semibold text-paper">{category.name}</div>
             <div className="mt-1 line-clamp-2 text-[10px] leading-4 text-paper-faint">{category.description || '浏览该分类的最新讨论'}</div>
           </button>
@@ -186,8 +186,8 @@ export function NotificationsView({ session, onOpen, onUnreadChange }: { session
   const filteredItems = items.filter((item) => filter === 'all' ? true : filter === 'mentions' ? [1, 3, 29].includes(item.notificationType) : filter === 'replies' ? item.notificationType === 2 : ![1, 2, 3, 29].includes(item.notificationType))
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto page-x pb-28 pt-3">
-      <section className="mb-4 rounded-[24px] border border-haze/70 bg-ink-raised p-4 shadow-[0_10px_28px_rgb(47_86_143_/_0.07)]"><div className="flex items-center justify-between"><div><h2 className="text-[20px] font-bold tracking-[-0.03em] text-paper">通知</h2><p className="mt-1 text-[10.5px] text-paper-muted">不错过任何重要互动</p></div><Bell size={24} className="text-cinnabar" /></div><div className="mt-4 grid grid-cols-4 rounded-2xl bg-ink-deep p-1">{([['all','全部'],['mentions','提及'],['replies','回复'],['system','系统']] as const).map(([key,label]) => <button key={key} type="button" onClick={() => setFilter(key)} className={'linuxdo-control min-h-9 rounded-xl px-2 text-[10.5px] font-semibold ' + (filter === key ? 'bg-cinnabar text-white shadow-sm' : 'text-paper-muted')}>{label}</button>)}</div></section>
+    <div className="min-h-0 flex-1 overflow-y-auto page-x pb-4 pt-3">
+      <section className="mb-4 rounded-[24px] border border-haze/70 bg-ink-raised p-4 shadow-sm"><div className="flex items-center justify-between"><div><h2 className="text-[20px] font-bold tracking-[-0.03em] text-paper">通知</h2><p className="mt-1 text-[10.5px] text-paper-muted">不错过任何重要互动</p></div><Bell size={24} className="text-cinnabar" /></div><div className="mt-4 grid grid-cols-4 rounded-2xl bg-ink-deep p-1">{([['all','全部'],['mentions','提及'],['replies','回复'],['system','系统']] as const).map(([key,label]) => <button key={key} type="button" onClick={() => setFilter(key)} className={'linuxdo-control min-h-9 rounded-xl px-2 text-[10.5px] font-semibold ' + (filter === key ? 'bg-cinnabar text-white shadow-sm' : 'text-paper-muted')}>{label}</button>)}</div></section>
       <div className="mb-3 flex items-center justify-between"><span className="text-[10.5px] text-paper-faint">未读 {items.filter((item) => !item.read).length}</span><button type="button" onClick={() => void notificationsApi.markRead().then(() => { setItems((previous) => previous.map((item) => ({ ...item, read: true }))); onUnreadChange(0) }).catch((nextError) => setError(readableError(nextError)))} className="linuxdo-control rounded-full border border-haze bg-ink-raised px-3 py-1.5 text-[10px] text-paper-muted">全部已读</button></div>
       {error ? <button type="button" onClick={() => setError('')} className="mb-3 w-full rounded-xl border border-cinnabar/25 bg-cinnabar/10 px-3 py-2 text-left text-[10.5px] text-cinnabar-soft">{error} · 点击关闭</button> : null}
       {loading ? <div className="flex justify-center py-16"><Loader2 className="animate-spin text-paper-faint" /></div> : (
@@ -284,7 +284,7 @@ export function UserProfileView({ username, onOpenTopic }: { username: string; o
   if (error || !profile) return <div className="px-6 py-20 text-center text-[12px] text-cinnabar-soft">{error || '用户不存在'}</div>
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto page-x pb-28 pt-5">
+    <div className="min-h-0 flex-1 overflow-y-auto page-x pb-4 pt-5">
       <section className="rounded-[24px] border border-haze/60 bg-ink-raised/45 p-5">
         <div className="flex items-center gap-4">
           <div className="h-16 w-16 overflow-hidden rounded-full border border-haze bg-paper/5">{avatar(profile.avatarTemplate, profile.username)}</div>
@@ -348,7 +348,7 @@ export function BookmarksView({ session, onOpenTopic }: { session: LinuxDoSessio
   if (error) return <div className="px-6 py-20 text-center text-[12px] text-cinnabar-soft">{error}</div>
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto page-x pb-28 pt-4">
+    <div className="min-h-0 flex-1 overflow-y-auto page-x pb-4 pt-4">
       <div className="space-y-2.5">
         {items.map((item) => (
           <div key={item.id} className="rounded-[18px] border border-haze/60 bg-ink-raised/40 px-4 py-3">

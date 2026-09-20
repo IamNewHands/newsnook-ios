@@ -10,7 +10,7 @@ export function TopicCard({ topic, onOpen, categoryName }: { topic: LinuxDoTopic
     <button
       type="button"
       onClick={onOpen}
-      className="linuxdo-control group w-full rounded-[22px] border border-haze/70 bg-ink-raised px-4 py-4 text-left shadow-[0_10px_30px_rgb(47_86_143_/_0.08)] transition-all duration-200 hover:-translate-y-0.5 hover:border-cinnabar/30 hover:shadow-[0_14px_34px_rgb(47_86_143_/_0.12)] active:translate-y-0"
+      className="linuxdo-control group w-full rounded-[22px] border border-haze/70 bg-ink-raised px-4 py-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-cinnabar/30 hover:shadow-md active:translate-y-0"
     >
       <div className="flex items-start gap-3">
         <div className="mt-0.5 h-10 w-10 shrink-0 overflow-hidden rounded-full border border-haze bg-ink-deep shadow-sm">

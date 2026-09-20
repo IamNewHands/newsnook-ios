@@ -447,7 +447,7 @@ export function LinuxDoTopicView({
         {topic ? <button type="button" onClick={() => onCompose(topic)} className="linuxdo-control inline-flex items-center gap-1.5 rounded-full bg-cinnabar px-3.5 py-2 text-[11.5px] font-medium text-white"><MessageCircle size={13} />回复</button> : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain page-x pb-28" onScroll={(event) => {
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain page-x pb-4" onScroll={(event) => {
         if (!topic || loadingPosts) return
         const node = event.currentTarget
         if (node.scrollHeight - node.scrollTop - node.clientHeight > 500) return
@@ -471,7 +471,7 @@ export function LinuxDoTopicView({
               {posts.map((post) => {
                 const like = post.actions.find((action) => action.id === 2)
                 return (
-                  <article key={post.id} id={'linuxdo-post-' + post.postNumber} className="rounded-[18px] border border-haze/70 bg-ink-raised px-3.5 py-3.5 shadow-[0_6px_18px_rgb(47_86_143_/_0.05)]">
+                  <article key={post.id} id={'linuxdo-post-' + post.postNumber} className="rounded-[18px] border border-haze/70 bg-ink-raised px-3.5 py-3.5 shadow-sm">
                     <header className="linuxdo-control flex items-center gap-3 select-none">
                       <button type="button" onClick={() => onOpenUser(post.username)} className="h-10 w-10 overflow-hidden rounded-full border border-haze bg-ink-deep">{avatar(post.avatarTemplate, post.username)}</button>
                       <button type="button" onClick={() => onOpenUser(post.username)} className="min-w-0 flex-1 text-left">
@@ -638,8 +638,8 @@ export function LinuxDoTopicView({
           </>
         ) : null}
       </div>
-      {jumpingPostNumber ? <div className="pointer-events-none absolute bottom-[calc(max(10px,var(--sab))+118px)] left-1/2 z-30 -translate-x-1/2 rounded-full border border-haze bg-ink-raised/95 px-3 py-2 text-[10px] text-paper-muted shadow-xl"><span className="inline-flex items-center gap-2"><Loader2 size={13} className="animate-spin" />正在定位 #{jumpingPostNumber}</span></div> : null}
-      {returnPostNumber ? <button type="button" onClick={() => { const target = returnPostNumber; setReturnPostNumber(undefined); void jumpToPost(target) }} className="linuxdo-control absolute bottom-[calc(max(10px,var(--sab))+72px)] right-4 z-30 rounded-full border border-haze bg-ink-raised/95 px-3 py-2 text-[10.5px] text-paper shadow-xl">返回引用处 #{returnPostNumber}</button> : null}
+      {jumpingPostNumber ? <div className="pointer-events-none absolute bottom-16 left-1/2 z-30 -translate-x-1/2 rounded-full border border-haze bg-ink-raised/95 px-3 py-2 text-[10px] text-paper-muted shadow-xl"><span className="inline-flex items-center gap-2"><Loader2 size={13} className="animate-spin" />正在定位 #{jumpingPostNumber}</span></div> : null}
+      {returnPostNumber ? <button type="button" onClick={() => { const target = returnPostNumber; setReturnPostNumber(undefined); void jumpToPost(target) }} className="linuxdo-control absolute bottom-4 right-4 z-30 rounded-full border border-haze bg-ink-raised/95 px-3 py-2 text-[10.5px] text-paper shadow-xl">返回引用处 #{returnPostNumber}</button> : null}
       {lightbox ? (() => {
         const current = lightbox.items[lightbox.index]
         if (!current) return null

@@ -161,7 +161,7 @@ function FeedView({
                 key={tab.id}
                 type="button"
                 onClick={() => onMode(tab.id)}
-                className={'linuxdo-control min-h-9 shrink-0 rounded-full px-4 py-1.5 text-[12px] font-semibold transition-all ' + (tab.id === mode ? 'bg-cinnabar text-white shadow-[0_6px_18px_rgb(22_119_255_/_0.22)]' : 'text-paper-muted hover:bg-ink-deep hover:text-paper')}
+                className={'linuxdo-control min-h-9 shrink-0 rounded-full px-4 py-1.5 text-[12px] font-semibold transition-all ' + (tab.id === mode ? 'bg-cinnabar text-white shadow-sm' : 'text-paper-muted hover:bg-ink-deep hover:text-paper')}
               >
                 {tab.label}
               </button>
@@ -176,7 +176,7 @@ function FeedView({
       {pullDistance > 0 || refreshing ? <div className="pointer-events-none flex items-center justify-center gap-2 overflow-hidden text-[10px] text-paper-faint transition-[height]" style={{ height: refreshing ? 34 : pullDistance }}>{refreshing ? <><Loader2 size={13} className="animate-spin" /><span>正在刷新最新主题</span></> : pullDistance >= 54 ? '松手刷新' : '下拉刷新'}</div> : null}
       <div
         ref={scrollerRef}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain page-x pb-28 pt-3"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain page-x pb-4 pt-3"
         onScroll={(event) => {
           const node = event.currentTarget
           cacheRef.current[mode] = { ...cacheRef.current[mode], scrollTop: node.scrollTop }
@@ -283,21 +283,21 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
   return (
     <div className="linuxdo-workspace relative flex h-full min-h-0 flex-col overflow-hidden bg-ink text-paper">
       {route.kind !== 'topic' ? <header className="linuxdo-brand-header linuxdo-control shrink-0 border-b border-haze/60 bg-ink/95 page-x select-none">
-        <div className="flex min-h-[60px] items-center gap-2 py-2">
+        <div className="flex min-h-[60px] items-center gap-1.5 py-2 sm:gap-2">
           <button type="button" onClick={() => { if (!goBack()) onExit() }} className="linuxdo-icon-button grid h-10 w-10 shrink-0 place-items-center rounded-full text-paper-muted" aria-label="返回 NewsNook"><ArrowLeft size={18} /></button>
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-baseline gap-1.5 whitespace-nowrap"><span className="text-[20px] font-bold tracking-[-0.03em] text-paper">Linux.do</span><span className="text-[9.5px] font-medium text-paper-faint">in NewsNook</span></div>
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <div className="flex min-w-0 items-baseline gap-1.5 overflow-hidden whitespace-nowrap"><span className="shrink-0 text-[19px] font-bold tracking-[-0.03em] text-paper min-[400px]:text-[20px]">Linux.do</span><span className="hidden min-w-0 truncate text-[9.5px] font-medium text-paper-faint min-[400px]:inline">in NewsNook</span></div>
             <div className="mt-0.5 truncate text-[10.5px] text-paper-muted">{route.kind === 'feed' ? '更好的技术讨论，从这里开始' : title}</div>
           </div>
           <button type="button" onClick={() => navigate({ kind: 'search' })} className={'linuxdo-icon-button grid h-9 w-9 shrink-0 place-items-center rounded-full ' + (route.kind === 'search' ? 'bg-cinnabar text-white' : 'text-paper-muted')} aria-label="搜索"><Search size={18} /></button>
           <button type="button" onClick={() => navigate({ kind: 'notifications' })} className={'linuxdo-icon-button relative grid h-9 w-9 shrink-0 place-items-center rounded-full ' + (route.kind === 'notifications' ? 'bg-cinnabar text-white' : 'text-paper-muted')} aria-label="通知"><Bell size={18} />{notificationUnread > 0 ? <span className="absolute right-1 top-1 min-w-4 rounded-full bg-[#ff4d4f] px-1 text-center font-mono text-[8px] leading-4 text-white">{notificationUnread > 99 ? '99+' : notificationUnread}</span> : null}</button>
-          <PresetSwitcher {...presetSwitcher} />
+          <div className="linuxdo-preset-slot shrink-0"><PresetSwitcher {...presetSwitcher} /></div>
         </div>
       </header> : null}
 
       {workspaceError ? <button type="button" onClick={() => setWorkspaceError('')} className="linuxdo-control mx-3 mt-2 rounded-xl border border-cinnabar/25 bg-cinnabar/10 px-3 py-2 text-left text-[10.5px] text-cinnabar-soft">{workspaceError} · 点击关闭</button> : null}
 
-      <div className="min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         {route.kind === 'feed' ? (
           <FeedView mode={route.mode} session={session} cacheRef={feedCacheRef} onMode={(mode) => setRoute({ kind: 'feed', mode })} onOpen={(topic) => navigate({ kind: 'topic', topic })} onVerify={() => void verify()} />
         ) : route.kind === 'topic' ? (
@@ -323,7 +323,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
         )}
       </div>
 
-      <nav className="linuxdo-bottom-nav linuxdo-control absolute inset-x-3 bottom-[max(10px,var(--sab))] z-30 grid grid-cols-5 items-end rounded-[24px] border border-haze/70 bg-ink-raised/95 px-2 py-1.5 shadow-2xl backdrop-blur-xl select-none">
+      <nav className="linuxdo-bottom-nav linuxdo-control relative z-30 mx-3 mb-[max(10px,var(--sab))] mt-2 grid shrink-0 grid-cols-5 items-end rounded-[24px] border border-haze/70 bg-ink-raised/95 px-2 py-1.5 shadow-2xl backdrop-blur-xl select-none">
         <button type="button" onClick={() => setRoute({ kind: 'feed', mode: route.kind === 'feed' ? route.mode : 'latest' })} className={'linuxdo-nav-item ' + (route.kind === 'feed' ? 'is-active' : '')} aria-label="首页"><MessageCircle size={18} /><span>首页</span></button>
         <button type="button" onClick={() => setRoute({ kind: 'discover' })} className={'linuxdo-nav-item ' + (route.kind === 'discover' ? 'is-active' : '')} aria-label="发现"><Compass size={18} /><span>发现</span></button>
         <button type="button" onClick={() => { setComposerTopic(undefined); setComposerEditPost(undefined); setComposerInitialRaw(''); setComposerReplyTo(undefined); setComposerOpen(true) }} className="linuxdo-nav-compose" aria-label="发布"><span className="grid h-12 w-12 place-items-center rounded-full bg-cinnabar text-white shadow-lg"><Plus size={22} /></span><span>发布</span></button>

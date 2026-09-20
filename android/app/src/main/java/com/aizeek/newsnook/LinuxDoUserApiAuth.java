@@ -8,6 +8,8 @@ import android.net.Uri;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
+import android.util.Log;
+import androidx.browser.customtabs.CustomTabsIntent;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
@@ -35,19 +37,20 @@ import org.json.JSONObject;
  * Linux.do redirects the encrypted credential back to an app-only deep link.
  */
 final class LinuxDoUserApiAuth {
+    private static final String TAG = "LinuxDoUserApiAuth";
     static final String ORIGIN = "https://linux.do";
-    static final String CLIENT_ID_PREFIX = "newsnook-android-v1-";
+    static final String CLIENT_ID_PREFIX = "newsnook-android-v3-";
     static final String APPLICATION_NAME = "NewsNook";
-    static final String SCOPES = "write";
-    static final String AUTH_MODE = "user-api-key";
-    static final String AUTH_REDIRECT = "newsnook://linuxdo-auth/callback";
+    static final String SCOPES = "one_time_password";
+    static final String AUTH_MODE = "browser-session";
+    static final String AUTH_REDIRECT = "discourse://auth_redirect";
 
     private static final String PREFS = "linuxdo_user_api_auth";
     private static final String PREF_CREDENTIAL = "credential";
     private static final String PREF_CLIENT_ID = "client_id";
     private static final String PREF_PENDING_NONCE = "pending_nonce";
     private static final String PREF_PENDING_STARTED_AT = "pending_started_at";
-    private static final String RSA_ALIAS = "newsnook_linuxdo_user_api_rsa_v1";
+    private static final String RSA_ALIAS = "newsnook_linuxdo_user_api_rsa_v2";
     private static final String AES_ALIAS = "newsnook_linuxdo_user_api_aes_v1";
     private static final String KEYSTORE = "AndroidKeyStore";
     private static final long AUTH_MAX_AGE_MILLIS = 15L * 60L * 1000L;
@@ -64,12 +67,23 @@ final class LinuxDoUserApiAuth {
         final String clientId;
         final int apiVersion;
         final String expiresAt;
+        final String oneTimePassword;
+        final long authorizedAtMillis;
 
-        Credential(String key, String clientId, int apiVersion, String expiresAt) {
+        Credential(
+            String key,
+            String clientId,
+            int apiVersion,
+            String expiresAt,
+            String oneTimePassword,
+            long authorizedAtMillis
+        ) {
             this.key = key;
             this.clientId = clientId;
             this.apiVersion = apiVersion;
             this.expiresAt = expiresAt == null ? "" : expiresAt;
+            this.oneTimePassword = oneTimePassword == null ? "" : oneTimePassword;
+            this.authorizedAtMillis = authorizedAtMillis;
         }
 
         boolean expired() {
@@ -84,7 +98,15 @@ final class LinuxDoUserApiAuth {
             value.put("clientId", clientId);
             value.put("apiVersion", apiVersion);
             if (!expiresAt.isEmpty()) value.put("expiresAt", expiresAt);
+            if (!oneTimePassword.isEmpty()) value.put("oneTimePassword", oneTimePassword);
+            value.put("authorizedAtMillis", authorizedAtMillis);
             return value;
+        }
+
+        boolean hasUsableOneTimePassword() {
+            if (!oneTimePassword.matches("^[0-9a-fA-F]+$")) return false;
+            long age = System.currentTimeMillis() - authorizedAtMillis;
+            return authorizedAtMillis > 0L && age >= 0L && age < 10L * 60L * 1000L;
         }
 
         static Credential fromJson(JSONObject value) {
@@ -92,8 +114,17 @@ final class LinuxDoUserApiAuth {
             String clientId = value.optString("clientId", "");
             int apiVersion = value.optInt("apiVersion", 0);
             String expiresAt = value.optString("expiresAt", "");
+            String oneTimePassword = value.optString("oneTimePassword", "");
+            long authorizedAtMillis = value.optLong("authorizedAtMillis", 0L);
             if (key.isEmpty() || clientId.isEmpty() || apiVersion <= 0) return null;
-            return new Credential(key, clientId, apiVersion, expiresAt);
+            return new Credential(
+                key,
+                clientId,
+                apiVersion,
+                expiresAt,
+                oneTimePassword,
+                authorizedAtMillis
+            );
         }
     }
 
@@ -179,7 +210,6 @@ final class LinuxDoUserApiAuth {
                 .appendQueryParameter("auth_redirect", AUTH_REDIRECT)
                 .appendQueryParameter("application_name", APPLICATION_NAME)
                 .appendQueryParameter("public_key", publicKeyPem())
-                .appendQueryParameter("padding", "oaep")
                 .build();
 
             if (!openSystemBrowser(activity, authorizationUri.toString())) {
@@ -200,7 +230,7 @@ final class LinuxDoUserApiAuth {
     }
 
     /**
-     * Consume newsnook://linuxdo-auth/callback?payload=... from the system browser.
+     * Consume discourse://auth_redirect?payload=...&oneTimePassword=... from the system browser.
      * Returns true only for the dedicated Linux.do auth callback.
      *
      * The pending nonce is persisted so a browser round-trip can survive Android
@@ -232,16 +262,40 @@ final class LinuxDoUserApiAuth {
             return true;
         }
 
+        String stage = "pending_nonce";
+        String encryptedOtp = empty(uri.getQueryParameter("oneTimePassword"));
         try {
             String nonce = pendingNonce();
             if (nonce.isEmpty()) throw new SecurityException("missing pending nonce");
-            Credential credential = decryptCredential(payload, nonce, clientId());
+            stage = "otp_presence";
+            if (encryptedOtp.isEmpty()) {
+                throw new SecurityException("missing one-time password");
+            }
+            stage = "otp_decrypt";
+            String oneTimePassword = decryptValue(encryptedOtp);
+            stage = "payload_decrypt";
+            Credential credential = decryptCredential(
+                payload,
+                nonce,
+                clientId(),
+                oneTimePassword
+            );
+            stage = "credential_store";
             persistCredential(credential);
 
             AuthCallback callback = activeCallback;
             clearPendingAuth();
             if (callback != null) callback.onSuccess(credential);
         } catch (Exception errorValue) {
+            Log.w(
+                TAG,
+                "auth_redirect_rejected stage=" + stage
+                    + " payloadLength=" + payload.length()
+                    + " otpPresent=" + !encryptedOtp.isEmpty()
+                    + " otpLength=" + encryptedOtp.length()
+                    + " error=" + errorValue.getClass().getSimpleName()
+                    + ":" + empty(errorValue.getMessage())
+            );
             AuthCallback callback = activeCallback;
             clearPendingAuth();
             if (callback != null) {
@@ -286,17 +340,14 @@ final class LinuxDoUserApiAuth {
         callback.onFailure(code, message);
     }
 
-    private Credential decryptCredential(String encryptedPayload, String expectedNonce, String clientId)
+    private Credential decryptCredential(
+        String encryptedPayload,
+        String expectedNonce,
+        String clientId,
+        String oneTimePassword
+    )
         throws Exception {
-        byte[] encrypted = Base64.decode(encryptedPayload, Base64.DEFAULT);
-        KeyStore store = KeyStore.getInstance(KEYSTORE);
-        store.load(null);
-        java.security.PrivateKey privateKey = (java.security.PrivateKey) store.getKey(RSA_ALIAS, null);
-        if (privateKey == null) throw new IllegalStateException("missing private key");
-
-        Cipher cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA-1AndMGF1Padding");
-        cipher.init(Cipher.DECRYPT_MODE, privateKey);
-        JSONObject json = new JSONObject(new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8));
+        JSONObject json = new JSONObject(decryptValue(encryptedPayload));
 
         String nonce = json.optString("nonce", "");
         if (expectedNonce.isEmpty() || !constantTimeEquals(expectedNonce, nonce)) {
@@ -305,8 +356,31 @@ final class LinuxDoUserApiAuth {
         String key = json.optString("key", "");
         int api = json.optInt("api", 0);
         String expiresAt = json.optString("expires_at", "");
-        if (key.isEmpty() || api <= 0) throw new SecurityException("invalid credential payload");
-        return new Credential(key, clientId, api, expiresAt);
+        if (key.isEmpty() || api <= 0 || !oneTimePassword.matches("^[0-9a-fA-F]+$")) {
+            throw new SecurityException("invalid credential payload");
+        }
+        return new Credential(
+            key,
+            clientId,
+            api,
+            expiresAt,
+            oneTimePassword,
+            System.currentTimeMillis()
+        );
+    }
+
+    private String decryptValue(String encryptedPayload) throws Exception {
+        byte[] encrypted = Base64.decode(encryptedPayload, Base64.DEFAULT);
+        KeyStore store = KeyStore.getInstance(KEYSTORE);
+        store.load(null);
+        java.security.PrivateKey privateKey = (java.security.PrivateKey) store.getKey(RSA_ALIAS, null);
+        if (privateKey == null) throw new IllegalStateException("missing private key");
+
+        // Match FluxDO and Discourse's default User API Key response format:
+        // Base64(RSA-PKCS1(data)).
+        Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+        cipher.init(Cipher.DECRYPT_MODE, privateKey);
+        return new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8);
     }
 
     private void persistCredential(Credential credential) throws Exception {
@@ -325,7 +399,7 @@ final class LinuxDoUserApiAuth {
                 KeyProperties.PURPOSE_DECRYPT
             )
                 .setKeySize(2048)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_RSA_OAEP)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_RSA_PKCS1)
                 .setDigests(KeyProperties.DIGEST_SHA1, KeyProperties.DIGEST_SHA256)
                 .build();
             generator.initialize(spec);
@@ -347,10 +421,13 @@ final class LinuxDoUserApiAuth {
 
     private String encryptStored(String plaintext) throws Exception {
         SecretKey key = getOrCreateAesKey();
-        byte[] iv = new byte[12];
-        RANDOM.nextBytes(iv);
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-        cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(128, iv));
+        // Android Keystore keys require a provider-generated randomized IV for
+        // encryption. Supplying our own IV is rejected on Xiaomi/HyperOS with
+        // "Caller-provided IV not permitted".
+        cipher.init(Cipher.ENCRYPT_MODE, key);
+        byte[] iv = cipher.getIV();
+        if (iv == null || iv.length == 0) throw new IllegalStateException("missing generated IV");
         byte[] encrypted = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
         return Base64.encodeToString(iv, Base64.NO_WRAP)
             + "."
@@ -390,7 +467,7 @@ final class LinuxDoUserApiAuth {
     private String clientId() {
         SharedPreferences prefs = preferences();
         String existing = prefs.getString(PREF_CLIENT_ID, "");
-        if (existing != null && !existing.isEmpty()) return existing;
+        if (existing != null && existing.startsWith(CLIENT_ID_PREFIX)) return existing;
         String created = CLIENT_ID_PREFIX + randomHex(16);
         prefs.edit().putString(PREF_CLIENT_ID, created).commit();
         return created;
@@ -402,21 +479,38 @@ final class LinuxDoUserApiAuth {
 
     private static boolean isAuthRedirect(Uri uri) {
         if (uri == null) return false;
-        return "newsnook".equalsIgnoreCase(uri.getScheme())
-            && "linuxdo-auth".equalsIgnoreCase(uri.getHost())
-            && "/callback".equals(uri.getPath());
+        return "discourse".equalsIgnoreCase(uri.getScheme())
+            && "auth_redirect".equalsIgnoreCase(uri.getHost());
     }
 
     private static boolean openSystemBrowser(Activity activity, String url) {
         try {
             Uri uri = Uri.parse(url);
             if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) return false;
-            Intent intent = new Intent(Intent.ACTION_VIEW, uri);
-            intent.addCategory(Intent.CATEGORY_BROWSABLE);
-            activity.startActivity(intent);
+
+            // Use the browser's Custom Tab rather than an app-owned WebView or a
+            // standalone browser task. This keeps the authentication surface
+            // visually inside NewsNook while reusing the user's real browser
+            // cookie jar / Google account chooser, exactly as modern native apps do.
+            CustomTabsIntent customTabs = new CustomTabsIntent.Builder()
+                .setColorScheme(CustomTabsIntent.COLOR_SCHEME_SYSTEM)
+                .setShareState(CustomTabsIntent.SHARE_STATE_ON)
+                .setUrlBarHidingEnabled(false)
+                .build();
+            customTabs.intent.addFlags(Intent.FLAG_ACTIVITY_NO_HISTORY);
+            customTabs.launchUrl(activity, uri);
             return true;
-        } catch (Exception ignored) {
-            return false;
+        } catch (Exception customTabError) {
+            try {
+                // Last-resort fallback for devices without a Custom Tabs provider.
+                Uri uri = Uri.parse(url);
+                Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+                intent.addCategory(Intent.CATEGORY_BROWSABLE);
+                activity.startActivity(intent);
+                return true;
+            } catch (Exception ignored) {
+                return false;
+            }
         }
     }
 
