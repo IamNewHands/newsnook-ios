@@ -206,6 +206,9 @@ jobs:
       - name: Verify Android hardware back contract
         run: npm run test:hardware-back
 
+      - name: Verify UI control text-selection contract
+        run: npm run test:control-text-selection && npx tsx scripts/context-actions.test.ts
+
       - name: Initialize Bergamot native engine
         run: npm run bergamot:init
 

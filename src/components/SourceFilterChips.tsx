@@ -112,7 +112,7 @@ export function SourceFilterChips({
               }}
               aria-haspopup="menu"
               aria-label={`${source.name}${favorite ? '，已收藏' : ''}，长按管理`}
-              className={`group flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-full px-2 text-[10.5px] transition-all duration-200 active:scale-95 ${
+              className={`custom-long-press-target group flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-full px-2 text-[10.5px] transition-all duration-200 active:scale-95 ${
                 isSelected
                   ? 'bg-paper text-ink font-medium shadow-2xs ring-1 ring-paper/25'
                   : 'border border-haze/80 bg-ink-raised/60 text-paper-muted/90 hover:border-paper-faint/50 hover:bg-ink-raised hover:text-paper'

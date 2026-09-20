@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import {
   createLongPressController,
@@ -73,5 +74,13 @@ assert.deepEqual(
   { left: 132, top: 662, horizontal: 'left', vertical: 'above' },
   '底部空间不足时菜单应翻到触点上方且留出安全边距',
 )
+
+const categoryRailSource = readFileSync(new URL('../src/components/CategoryRail.tsx', import.meta.url), 'utf8')
+const sourceFilterSource = readFileSync(new URL('../src/components/SourceFilterChips.tsx', import.meta.url), 'utf8')
+const indexCss = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
+
+assert.match(categoryRailSource, /custom-long-press-target/, '分类长按目标必须禁止系统文本选择')
+assert.match(sourceFilterSource, /custom-long-press-target/, '信源长按目标必须禁止系统文本选择')
+assert.match(indexCss, /\.custom-long-press-target,[\s\S]*-webkit-user-select:\s*none;[\s\S]*user-select:\s*none;[\s\S]*-webkit-touch-callout:\s*none;/, '长按交互的移动端选择抑制样式必须完整保留')
 
 console.log('context actions: ok')
