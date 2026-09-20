@@ -4,7 +4,6 @@ import type { LinuxDoSessionSnapshot } from '../types'
 
 interface LinuxDoSessionPlugin {
   authenticate(options?: { url?: string }): Promise<LinuxDoSessionSnapshot>
-  probeUserApiKeySupport(): Promise<{ supported: boolean; version: number; reason?: string }>
   authenticateUserApiKey(): Promise<LinuxDoSessionSnapshot>
   cancelUserApiKeyAuth(): Promise<void>
   clearUserApiKey(): Promise<void>
@@ -18,11 +17,6 @@ interface LinuxDoSessionPlugin {
 }
 
 const NativeLinuxDoSession = registerPlugin<LinuxDoSessionPlugin>('LinuxDoSession')
-
-export async function probeLinuxDoUserApiKeySupport(): Promise<{ supported: boolean; version: number; reason?: string }> {
-  if (!Capacitor.isNativePlatform()) return { supported: false, version: 0, reason: 'native-required' }
-  return NativeLinuxDoSession.probeUserApiKeySupport()
-}
 
 export async function authenticateLinuxDo(): Promise<LinuxDoSessionSnapshot> {
   if (!Capacitor.isNativePlatform()) {

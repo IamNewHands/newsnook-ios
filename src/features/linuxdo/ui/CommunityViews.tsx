@@ -1,5 +1,5 @@
 import { Capacitor } from '@capacitor/core'
-import { Compass, Loader2, Search, Tag } from 'lucide-react'
+import { Bell, Bookmark, Compass, FileText, Flame, Grid2X2, History, Loader2, Search, ShieldCheck, Sparkles, Tag, UserRound } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { linuxDoCapabilities } from '../capabilities'
@@ -87,7 +87,7 @@ export function SearchView({ onOpen, onOpenUser }: { onOpen: (topic: LinuxDoTopi
       </div>
       {history.length ? <div className="mt-3 flex items-center gap-2 overflow-x-auto scrollbar-none"><span className="shrink-0 text-[9.5px] text-paper-faint">最近</span>{history.map((item) => <button key={item} type="button" onClick={() => setQuery(item)} className="linuxdo-control shrink-0 rounded-full border border-haze px-2.5 py-1 text-[10px] text-paper-muted">{item}</button>)}<button type="button" onClick={() => { setHistory([]); localStorage.removeItem('newsnook-linuxdo-search-history') }} className="linuxdo-control shrink-0 text-[9.5px] text-paper-faint">清除</button></div> : null}
       <div className="linuxdo-control mt-3 flex gap-1 rounded-full bg-paper/[0.035] p-1 select-none">
-        {([['topics','主题'],['posts','帖子'],['users','用户']] as const).map(([key,label]) => <button key={key} type="button" onClick={() => setActive(key)} className={'rounded-full px-3 py-1.5 text-[10.5px] ' + (active === key ? 'bg-paper text-ink' : 'text-paper-muted')}>{label}</button>)}
+        {([['topics','主题'],['posts','帖子'],['users','用户']] as const).map(([key,label]) => <button key={key} type="button" onClick={() => setActive(key)} className={'rounded-full px-3 py-1.5 text-[10.5px] ' + (active === key ? 'bg-cinnabar text-white shadow-sm' : 'text-paper-muted')}>{label}</button>)}
       </div>
       {loading ? <div className="flex justify-center py-16"><Loader2 className="animate-spin text-paper-faint" /></div> : null}
       {error ? <p className="py-8 text-center text-[12px] text-cinnabar-soft">{error}</p> : null}
@@ -130,18 +130,28 @@ export function DiscoverView({ onOpen }: { onOpen: (topic: LinuxDoTopicSummary) 
 
   if (loading) return <div className="space-y-4 page-x pt-5"><div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">{Array.from({ length: 6 }, (_, index) => <div key={index} className="h-20 animate-pulse rounded-[18px] border border-haze/50 bg-paper/[0.035]" />)}</div><div className="flex flex-wrap gap-2">{Array.from({ length: 10 }, (_, index) => <div key={index} className="h-7 w-20 animate-pulse rounded-full bg-paper/[0.035]" />)}</div></div>
 
+  const hotTags = [...tags].sort((a, b) => (b.topicCount ?? 0) - (a.topicCount ?? 0)).slice(0, 12)
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto page-x pb-28 pt-4">
-      <div className="mb-2 flex items-center gap-2"><Compass size={14} className="text-cinnabar-soft" /><h2 className="text-[12px] font-semibold tracking-[0.08em] text-paper-muted">分类</h2></div>
+      <section className="linuxdo-discover-hero rounded-[26px] border border-haze/70 bg-ink-raised p-5 shadow-[0_14px_34px_rgb(47_86_143_/_0.09)]">
+        <div className="flex items-start justify-between gap-4"><div><div className="inline-flex items-center gap-2 rounded-full bg-cinnabar/10 px-3 py-1 text-[10px] font-semibold text-cinnabar"><Sparkles size={12} />探索 Linux.do</div><h2 className="mt-3 text-[22px] font-bold tracking-[-0.03em] text-paper">发现更适合你的讨论</h2><p className="mt-1.5 max-w-md text-[11px] leading-5 text-paper-muted">从真实分类和标签中探索主题，不制造虚假的精选数据。</p></div><div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-cinnabar/10 text-cinnabar"><Compass size={26} /></div></div>
+        <div className="mt-4 grid grid-cols-3 gap-2"><div className="rounded-2xl bg-ink-deep px-3 py-2.5"><div className="text-[16px] font-bold text-paper">{categories.length}</div><div className="text-[9px] text-paper-faint">分类</div></div><div className="rounded-2xl bg-ink-deep px-3 py-2.5"><div className="text-[16px] font-bold text-paper">{tags.length}</div><div className="text-[9px] text-paper-faint">标签</div></div><div className="rounded-2xl bg-ink-deep px-3 py-2.5"><div className="text-[16px] font-bold text-paper">{hotTags[0]?.topicCount ?? 0}</div><div className="text-[9px] text-paper-faint">热门话题量</div></div></div>
+      </section>
+
+      <div className="mb-2 mt-5 flex items-center gap-2"><Flame size={14} className="text-[#ff8a3d]" /><h2 className="text-[12px] font-semibold tracking-[0.08em] text-paper-muted">热门标签</h2></div>
+      <div className="flex flex-wrap gap-2">{hotTags.map((tag) => <button key={tag.name} type="button" disabled={itemsLoading} onClick={() => void openScope('tag:' + tag.name, () => discovery.tag(tag.name))} className={'linuxdo-control rounded-full border px-3 py-2 text-[10.5px] font-medium transition-all ' + (activeScope === 'tag:' + tag.name ? 'border-cinnabar/30 bg-cinnabar text-white shadow-sm' : 'border-haze/70 bg-ink-raised text-paper-muted shadow-sm')}>#{tag.name}{tag.topicCount ? <span className="ml-1.5 text-[9px] opacity-65">{tag.topicCount}</span> : null}</button>)}</div>
+
+      <div className="mb-2 mt-5 flex items-center gap-2"><Grid2X2 size={14} className="text-cinnabar-soft" /><h2 className="text-[12px] font-semibold tracking-[0.08em] text-paper-muted">推荐分类</h2></div>
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
         {categories.map((category) => (
-          <button key={category.id} type="button" disabled={itemsLoading} onClick={() => void openScope('category:' + category.id, () => discovery.category(category.slug, category.id))} className={'linuxdo-control rounded-[18px] border px-3.5 py-3 text-left transition-colors disabled:opacity-60 ' + (activeScope === 'category:' + category.id ? 'border-cinnabar/35 bg-cinnabar/[0.07]' : 'border-haze/60 bg-ink-raised/40 hover:bg-ink-raised/70')}>
+          <button key={category.id} type="button" disabled={itemsLoading} onClick={() => void openScope('category:' + category.id, () => discovery.category(category.slug, category.id))} className={'linuxdo-control rounded-[18px] border px-3.5 py-3 text-left transition-colors disabled:opacity-60 ' + (activeScope === 'category:' + category.id ? 'border-cinnabar/30 bg-cinnabar/[0.07] shadow-sm' : 'border-haze/70 bg-ink-raised shadow-[0_8px_24px_rgb(47_86_143_/_0.07)] hover:border-cinnabar/20')}>
             <div className="text-[13px] font-semibold text-paper">{category.name}</div>
             <div className="mt-1 line-clamp-2 text-[10px] leading-4 text-paper-faint">{category.description || '浏览该分类的最新讨论'}</div>
           </button>
         ))}
       </div>
-      <div className="mb-2 mt-5 flex items-center gap-2"><Tag size={14} className="text-cinnabar-soft" /><h2 className="text-[12px] font-semibold tracking-[0.08em] text-paper-muted">标签</h2></div>
+      <div className="mb-2 mt-5 flex items-center gap-2"><Tag size={14} className="text-cinnabar-soft" /><h2 className="text-[12px] font-semibold tracking-[0.08em] text-paper-muted">全部标签</h2></div>
       <div className="flex flex-wrap gap-2">
         {tags.slice(0, 60).map((tag) => (
           <button key={tag.name} type="button" disabled={itemsLoading} onClick={() => void openScope('tag:' + tag.name, () => discovery.tag(tag.name))} className={'linuxdo-control rounded-full border px-3 py-1.5 text-[10.5px] transition-colors disabled:opacity-60 ' + (activeScope === 'tag:' + tag.name ? 'border-cinnabar/35 bg-cinnabar/10 text-cinnabar-soft' : 'border-haze/70 text-paper-muted hover:bg-paper/6 hover:text-paper')}>
@@ -168,6 +178,7 @@ export function NotificationsView({ session, onOpen, onUnreadChange }: { session
   const [loadingMore, setLoadingMore] = useState(false)
   const [nextOffset, setNextOffset] = useState<number | undefined>()
   const [error, setError] = useState('')
+  const [filter, setFilter] = useState<'all' | 'mentions' | 'replies' | 'system'>('all')
 
   useEffect(() => {
     if (!session.authenticated) {
@@ -182,14 +193,16 @@ export function NotificationsView({ session, onOpen, onUnreadChange }: { session
   }, [session.authenticated, onUnreadChange])
 
   if (!session.authenticated) return <div className="px-6 py-20 text-center text-[13px] text-paper-muted">登录后可查看通知</div>
+  const filteredItems = items.filter((item) => filter === 'all' ? true : filter === 'mentions' ? [1, 3, 29].includes(item.notificationType) : filter === 'replies' ? item.notificationType === 2 : ![1, 2, 3, 29].includes(item.notificationType))
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto page-x pb-28 pt-3">
-      <div className="mb-3 flex items-center justify-between"><span className="text-[10.5px] text-paper-faint">未读 {items.filter((item) => !item.read).length}</span><button type="button" onClick={() => void notificationsApi.markRead().then(() => { setItems((previous) => previous.map((item) => ({ ...item, read: true }))); onUnreadChange(0) }).catch((nextError) => setError(readableError(nextError)))} className="linuxdo-control rounded-full border border-haze px-3 py-1.5 text-[10px] text-paper-muted">全部已读</button></div>
+      <section className="mb-4 rounded-[24px] border border-haze/70 bg-ink-raised p-4 shadow-[0_10px_28px_rgb(47_86_143_/_0.07)]"><div className="flex items-center justify-between"><div><h2 className="text-[20px] font-bold tracking-[-0.03em] text-paper">通知</h2><p className="mt-1 text-[10.5px] text-paper-muted">不错过任何重要互动</p></div><Bell size={24} className="text-cinnabar" /></div><div className="mt-4 grid grid-cols-4 rounded-2xl bg-ink-deep p-1">{([['all','全部'],['mentions','提及'],['replies','回复'],['system','系统']] as const).map(([key,label]) => <button key={key} type="button" onClick={() => setFilter(key)} className={'linuxdo-control min-h-9 rounded-xl px-2 text-[10.5px] font-semibold ' + (filter === key ? 'bg-cinnabar text-white shadow-sm' : 'text-paper-muted')}>{label}</button>)}</div></section>
+      <div className="mb-3 flex items-center justify-between"><span className="text-[10.5px] text-paper-faint">未读 {items.filter((item) => !item.read).length}</span><button type="button" onClick={() => void notificationsApi.markRead().then(() => { setItems((previous) => previous.map((item) => ({ ...item, read: true }))); onUnreadChange(0) }).catch((nextError) => setError(readableError(nextError)))} className="linuxdo-control rounded-full border border-haze bg-ink-raised px-3 py-1.5 text-[10px] text-paper-muted">全部已读</button></div>
       {error ? <button type="button" onClick={() => setError('')} className="mb-3 w-full rounded-xl border border-cinnabar/25 bg-cinnabar/10 px-3 py-2 text-left text-[10.5px] text-cinnabar-soft">{error} · 点击关闭</button> : null}
       {loading ? <div className="flex justify-center py-16"><Loader2 className="animate-spin text-paper-faint" /></div> : (
         <div className="space-y-2.5">
-          {items.map((item) => (
+          {filteredItems.map((item) => (
             <button key={item.id} type="button" onClick={() => {
               if (!item.read) {
                 void notificationsApi.markRead(item.id).then(() => { setItems((previous) => previous.map((candidate) => candidate.id === item.id ? { ...candidate, read: true } : candidate)); onUnreadChange(Math.max(0, items.filter((candidate) => !candidate.read).length - 1)) }).catch((nextError) => setError(readableError(nextError)))
@@ -471,7 +484,8 @@ export function AccountView({ session, onSession, onBookmarks, onProfile }: { se
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto page-x pb-28 pt-5">
-      <div className="rounded-[24px] border border-haze/60 bg-ink-raised/45 p-5">
+      <section className="mb-4 overflow-hidden rounded-[28px] border border-haze/70 bg-ink-raised p-5 shadow-[0_14px_36px_rgb(47_86_143_/_0.09)]"><div className="flex items-start justify-between gap-4"><div><div className="inline-flex items-center gap-2 rounded-full bg-cinnabar/10 px-3 py-1 text-[10px] font-semibold text-cinnabar"><ShieldCheck size={12} />安全连接</div><h2 className="mt-3 text-[22px] font-bold tracking-[-0.03em] text-paper">{session.authenticated ? '欢迎回来' : '连接 Linux.do'}</h2><p className="mt-1.5 max-w-sm text-[11px] leading-5 text-paper-muted">{session.authenticated ? '你的社区身份、书签和互动都在这里。' : '使用系统浏览器完成授权，可复用已有 GitHub / Google 登录状态。'}</p></div><div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-cinnabar/10 text-cinnabar"><UserRound size={26} /></div></div></section>
+      <div className="rounded-[24px] border border-haze/70 bg-ink-raised p-5 shadow-[0_10px_30px_rgb(47_86_143_/_0.07)]">
         <div className="flex items-center gap-4">
           <div className="h-14 w-14 overflow-hidden rounded-full border border-haze bg-paper/5">{avatar(session.currentUser?.avatarTemplate, session.currentUser?.username)}</div>
           <div className="min-w-0 flex-1">
@@ -481,8 +495,8 @@ export function AccountView({ session, onSession, onBookmarks, onProfile }: { se
         </div>
         {session.authMode === 'user-api-key' ? <div className="mt-4 inline-flex items-center rounded-full border border-haze/60 bg-paper/[0.035] px-3 py-1.5 text-[10px] text-paper-muted">User API Key · Auth API v{session.apiVersion ?? 4}{session.expiresAt ? ' · 有效期至 ' + new Date(session.expiresAt).toLocaleDateString('zh-CN') : ''}</div> : null}
         <div className="mt-5 flex gap-2">
-          <button type="button" disabled={!native || loginState === 'authenticating'} onClick={() => void login()} className="linuxdo-control flex-1 rounded-full bg-cinnabar px-4 py-2.5 text-[12px] font-medium text-white disabled:opacity-45">
-            {loginState === 'authenticating' ? '请在系统浏览器完成授权…' : session.authMode === 'user-api-key' ? '重新安全授权' : native ? '使用系统浏览器登录' : '请在 App 中登录'}
+          <button type="button" disabled={!native || loginState === 'authenticating'} onClick={() => void login()} className="linuxdo-control min-h-12 flex-1 rounded-2xl bg-cinnabar px-4 py-3 text-[12.5px] font-semibold text-white shadow-[0_10px_26px_rgb(22_119_255_/_0.24)] disabled:opacity-45">
+            {loginState === 'authenticating' ? '正在准备系统浏览器授权…' : session.authMode === 'user-api-key' ? '重新安全授权' : native ? '使用系统浏览器登录' : '请在 App 中登录'}
           </button>
           {loginState === 'authenticating' ? <button type="button" onClick={() => void cancelLinuxDoAuthentication().finally(() => setLoginState('idle'))} className="linuxdo-control rounded-full border border-haze px-4 py-2.5 text-[12px] text-paper-muted">取消</button> : session.authenticated ? <button type="button" onClick={async () => {
             if (session.authMode === 'user-api-key') await clearLinuxDoSession()
@@ -491,7 +505,7 @@ export function AccountView({ session, onSession, onBookmarks, onProfile }: { se
             setLoginState('idle')
           }} className="linuxdo-control rounded-full border border-haze px-4 py-2.5 text-[12px] text-paper-muted">退出</button> : null}
         </div>
-        {loginState === 'authenticating' ? <p className="mt-3 rounded-2xl bg-paper/[0.035] px-3 py-2 text-[10.5px] leading-5 text-paper-muted">已打开系统浏览器。若 Chrome 已登录 GitHub 或 Google，通常无需再次输入密码；在 Linux.do 页面确认授权后会自动完成登录。</p> : null}
+        {loginState === 'authenticating' ? <p className="mt-3 rounded-2xl bg-paper/[0.035] px-3 py-2 text-[10.5px] leading-5 text-paper-muted">正在向 Linux.do 建立安全授权；准备完成后系统浏览器会自动打开。若 Chrome 已登录 GitHub 或 Google，通常无需再次输入密码。</p> : null}
         {loginState === 'cf-required' ? <div className="mt-3 rounded-2xl border border-haze/60 bg-paper/[0.025] px-3 py-3"><div className="text-[11px] font-medium text-paper">需要先完成 Cloudflare 验证</div><div className="mt-1 text-[10px] leading-5 text-paper-faint">验证只用于通过 Linux.do 的浏览器安全检查，不保存账号密码。完成后再使用系统浏览器登录。</div><button type="button" onClick={() => void verifyBrowser(false)} className="linuxdo-control mt-2 rounded-full border border-haze px-3 py-1.5 text-[10px] text-paper-muted">完成 Cloudflare 验证</button></div> : null}
         {loginState === 'unsupported' ? <div className="mt-3 rounded-2xl border border-haze/60 bg-paper/[0.025] px-3 py-3"><div className="text-[11px] font-medium text-paper">Linux.do 当前未开放 App 安全授权</div><div className="mt-1 text-[10px] leading-5 text-paper-faint">可使用兼容模式继续登录，但 GitHub / Google 的系统浏览器登录态不一定能被复用。</div><button type="button" onClick={() => void verifyBrowser(true)} className="linuxdo-control mt-2 rounded-full border border-haze px-3 py-1.5 text-[10px] text-paper-muted">使用兼容模式</button></div> : null}
         {!native ? <p className="mt-3 rounded-2xl bg-paper/[0.035] px-3 py-2 text-[10.5px] leading-5 text-paper-faint">Web 端可浏览公开内容；登录、发帖、回复、点赞、书签、Boost 与上传需要 NewsNook App，以避免把 Linux.do 会话凭据转发到云端。</p> : null}
@@ -499,22 +513,10 @@ export function AccountView({ session, onSession, onBookmarks, onProfile }: { se
         {accountError ? <button type="button" onClick={() => setAccountError('')} className="mt-3 w-full rounded-xl border border-cinnabar/25 bg-cinnabar/10 px-3 py-2 text-left text-[10.5px] text-cinnabar-soft">{accountError} · 点击关闭</button> : null}
       </div>
       <div className="mt-4 grid grid-cols-2 gap-2.5">
-        <button type="button" onClick={onBookmarks} className="linuxdo-control rounded-[18px] border border-haze/55 bg-ink-raised/30 px-3.5 py-3 text-left">
-          <div className="text-[11.5px] font-medium text-paper">书签</div>
-          <div className="mt-1 text-[9.5px] text-paper-faint">{caps.bookmarks ? '查看收藏的楼层与主题' : '不可用'}</div>
-        </button>
-        <button type="button" disabled={!session.currentUser?.username} onClick={() => session.currentUser?.username && onProfile(session.currentUser.username)} className="linuxdo-control rounded-[18px] border border-haze/55 bg-ink-raised/30 px-3.5 py-3 text-left disabled:opacity-50">
-          <div className="text-[11.5px] font-medium text-paper">个人主页</div>
-          <div className="mt-1 text-[9.5px] text-paper-faint">主题、活动、Boost 与统计</div>
-        </button>
-        <div className="rounded-[18px] border border-haze/55 bg-ink-raised/30 px-3.5 py-3">
-          <div className="text-[11.5px] font-medium text-paper">草稿</div>
-          <div className="mt-1 text-[9.5px] text-paper-faint">{caps.drafts ? '自动保存与恢复已启用' : '不可用'}</div>
-        </div>
-        <div className="rounded-[18px] border border-haze/55 bg-ink-raised/30 px-3.5 py-3">
-          <div className="text-[11.5px] font-medium text-paper">图片与附件</div>
-          <div className="mt-1 text-[9.5px] text-paper-faint">{caps.uploads ? 'Composer 原生上传已启用' : '不可用'}</div>
-        </div>
+        <button type="button" onClick={onBookmarks} className="linuxdo-control rounded-[20px] border border-haze/70 bg-ink-raised px-3.5 py-3.5 text-left shadow-[0_8px_24px_rgb(47_86_143_/_0.06)]"><Bookmark size={18} className="mb-2 text-[#f5b326]" /><div className="text-[11.5px] font-semibold text-paper">书签</div><div className="mt-1 text-[9.5px] text-paper-faint">{caps.bookmarks ? '查看收藏的楼层与主题' : '不可用'}</div></button>
+        <button type="button" disabled={!session.currentUser?.username} onClick={() => session.currentUser?.username && onProfile(session.currentUser.username)} className="linuxdo-control rounded-[20px] border border-haze/70 bg-ink-raised px-3.5 py-3.5 text-left shadow-[0_8px_24px_rgb(47_86_143_/_0.06)] disabled:opacity-50"><UserRound size={18} className="mb-2 text-cinnabar" /><div className="text-[11.5px] font-semibold text-paper">个人主页</div><div className="mt-1 text-[9.5px] text-paper-faint">主题、活动、Boost 与统计</div></button>
+        <div className="rounded-[20px] border border-haze/70 bg-ink-raised px-3.5 py-3.5 shadow-[0_8px_24px_rgb(47_86_143_/_0.06)]"><FileText size={18} className="mb-2 text-[#7b61ff]" /><div className="text-[11.5px] font-semibold text-paper">草稿</div><div className="mt-1 text-[9.5px] text-paper-faint">{caps.drafts ? '自动保存与恢复已启用' : '不可用'}</div></div>
+        <div className="rounded-[20px] border border-haze/70 bg-ink-raised px-3.5 py-3.5 shadow-[0_8px_24px_rgb(47_86_143_/_0.06)]"><History size={18} className="mb-2 text-[#2ab66f]" /><div className="text-[11.5px] font-semibold text-paper">媒体与附件</div><div className="mt-1 text-[9.5px] text-paper-faint">{caps.uploads ? '原生上传与图片预览已启用' : '不可用'}</div></div>
       </div>
       {!caps.boost.available ? <p className="mt-4 rounded-[18px] border border-haze/50 bg-paper/[0.025] px-4 py-3 text-[10.5px] leading-5 text-paper-faint">{caps.boost.reason}</p> : null}
     </div>

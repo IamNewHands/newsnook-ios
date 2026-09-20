@@ -107,20 +107,9 @@ public class LinuxDoSessionPlugin extends Plugin {
     }
 
     @PluginMethod
-    public void probeUserApiKeySupport(PluginCall call) {
-        userApiAuth.probe((supported, version, reason) -> {
-            JSObject result = new JSObject();
-            result.put("supported", supported);
-            result.put("version", version);
-            result.put("reason", reason == null ? "" : reason);
-            call.resolve(result);
-        });
-    }
-
-    @PluginMethod
     public void authenticateUserApiKey(PluginCall call) {
         if (userApiAuth.isAuthenticating() || pendingUserApiCall != null) {
-            call.reject("LINUXDO_USER_API_BUSY", "已有 Linux.do 系统浏览器登录正在进行");
+            call.reject("已有 Linux.do 系统浏览器登录正在进行", "LINUXDO_USER_API_BUSY");
             return;
         }
         pendingUserApiCall = call;
@@ -139,7 +128,7 @@ public class LinuxDoSessionPlugin extends Plugin {
             public void onFailure(String code, String message) {
                 if (pendingUserApiCall != call) return;
                 pendingUserApiCall = null;
-                call.reject(code, message);
+                call.reject(message, code);
             }
         });
     }
@@ -199,13 +188,13 @@ public class LinuxDoSessionPlugin extends Plugin {
     @PluginMethod
     public void authenticate(PluginCall call) {
         if (pendingCall != null || dialog != null) {
-            call.reject("LINUXDO_SESSION_BUSY", "已有 Linux.do 验证窗口正在进行");
+            call.reject("已有 Linux.do 验证窗口正在进行", "LINUXDO_SESSION_BUSY");
             return;
         }
 
         String initialUrl = call.getString("url", LOGIN_URL);
         if (!isAllowedUrl(initialUrl)) {
-            call.reject("LINUXDO_SESSION_URL", "只允许打开 linux.do 第一方 HTTPS 页面");
+            call.reject("只允许打开 linux.do 第一方 HTTPS 页面", "LINUXDO_SESSION_URL");
             return;
         }
 
@@ -232,11 +221,11 @@ public class LinuxDoSessionPlugin extends Plugin {
         JSObject requestHeaders = call.getObject("headers", new JSObject());
 
         if (!isApiAllowedUrl(url)) {
-            call.reject("LINUXDO_REQUEST_URL", "只允许请求 linux.do 主站 HTTPS API");
+            call.reject("只允许请求 linux.do 主站 HTTPS API", "LINUXDO_REQUEST_URL");
             return;
         }
         if (!method.equals("GET") && !method.equals("POST") && !method.equals("PUT") && !method.equals("DELETE")) {
-            call.reject("LINUXDO_REQUEST_METHOD", "不支持的请求方法");
+            call.reject("不支持的请求方法", "LINUXDO_REQUEST_METHOD");
             return;
         }
 
@@ -270,7 +259,7 @@ public class LinuxDoSessionPlugin extends Plugin {
             identityClient.newCall(builder.build()).enqueue(new Callback() {
                 @Override
                 public void onFailure(Call ignored, IOException error) {
-                    call.reject("LINUXDO_REQUEST_NETWORK", "Linux.do 网络请求失败");
+                    call.reject("Linux.do 网络请求失败", "LINUXDO_REQUEST_NETWORK");
                 }
 
                 @Override
@@ -305,7 +294,7 @@ public class LinuxDoSessionPlugin extends Plugin {
             result.put("uploadId", uploadId);
             call.resolve(result);
         } catch (IOException error) {
-            call.reject("LINUXDO_UPLOAD_PREPARE", "无法创建上传临时文件");
+            call.reject("无法创建上传临时文件", "LINUXDO_UPLOAD_PREPARE");
         }
     }
 
@@ -315,11 +304,11 @@ public class LinuxDoSessionPlugin extends Plugin {
         String base64 = call.getString("base64", "");
         UploadSession session = uploadSessions.get(uploadId);
         if (session == null) {
-            call.reject("LINUXDO_UPLOAD_SESSION", "上传会话已失效");
+            call.reject("上传会话已失效", "LINUXDO_UPLOAD_SESSION");
             return;
         }
         if (base64.isEmpty()) {
-            call.reject("LINUXDO_UPLOAD_CHUNK", "上传分块为空");
+            call.reject("上传分块为空", "LINUXDO_UPLOAD_CHUNK");
             return;
         }
 
@@ -328,13 +317,13 @@ public class LinuxDoSessionPlugin extends Plugin {
             bytes = Base64.decode(base64, Base64.DEFAULT);
         } catch (IllegalArgumentException error) {
             cleanupUpload(uploadId);
-            call.reject("LINUXDO_UPLOAD_BASE64", "文件分块编码无效");
+            call.reject("文件分块编码无效", "LINUXDO_UPLOAD_BASE64");
             return;
         }
 
         if (session.bytesWritten + bytes.length > 256L * 1024L * 1024L) {
             cleanupUpload(uploadId);
-            call.reject("LINUXDO_UPLOAD_TOO_LARGE", "单个附件超过 256 MB");
+            call.reject("单个附件超过 256 MB", "LINUXDO_UPLOAD_TOO_LARGE");
             return;
         }
 
@@ -346,7 +335,7 @@ public class LinuxDoSessionPlugin extends Plugin {
             call.resolve(result);
         } catch (IOException error) {
             cleanupUpload(uploadId);
-            call.reject("LINUXDO_UPLOAD_WRITE", "写入上传临时文件失败");
+            call.reject("写入上传临时文件失败", "LINUXDO_UPLOAD_WRITE");
         }
     }
 
@@ -356,7 +345,7 @@ public class LinuxDoSessionPlugin extends Plugin {
         UploadSession session = uploadSessions.remove(uploadId);
         if (session == null || session.bytesWritten <= 0 || !session.file.exists()) {
             if (session != null) session.file.delete();
-            call.reject("LINUXDO_UPLOAD_SESSION", "上传会话已失效");
+            call.reject("上传会话已失效", "LINUXDO_UPLOAD_SESSION");
             return;
         }
 
@@ -380,7 +369,7 @@ public class LinuxDoSessionPlugin extends Plugin {
                 @Override
                 public void onFailure(Call ignored, IOException error) {
                     session.file.delete();
-                    call.reject("LINUXDO_UPLOAD_CSRF", "无法建立上传会话");
+                    call.reject("无法建立上传会话", "LINUXDO_UPLOAD_CSRF");
                 }
 
                 @Override
@@ -396,7 +385,7 @@ public class LinuxDoSessionPlugin extends Plugin {
                     }
                     if (csrf.isEmpty()) {
                         session.file.delete();
-                        call.reject("LINUXDO_UPLOAD_CSRF", "无法获取 CSRF Token");
+                        call.reject("无法获取 CSRF Token", "LINUXDO_UPLOAD_CSRF");
                         return;
                     }
                     performUpload(session, call, cookie, userAgent, csrf);
@@ -433,7 +422,7 @@ public class LinuxDoSessionPlugin extends Plugin {
             @Override
             public void onFailure(Call ignoredUpload, IOException error) {
                 session.file.delete();
-                call.reject("LINUXDO_UPLOAD_NETWORK", "上传失败");
+                call.reject("上传失败", "LINUXDO_UPLOAD_NETWORK");
             }
 
             @Override
@@ -442,13 +431,13 @@ public class LinuxDoSessionPlugin extends Plugin {
                 try (ResponseBody body = uploadResponse.body()) {
                     String text = body != null ? body.string() : "";
                     if (!uploadResponse.isSuccessful()) {
-                        call.reject("LINUXDO_UPLOAD_HTTP", text.isEmpty() ? "上传失败" : text);
+                        call.reject(text.isEmpty() ? "上传失败" : text, "LINUXDO_UPLOAD_HTTP");
                         return;
                     }
                     JSObject result = JSObject.fromJSONObject(new JSONObject(text));
                     call.resolve(result);
                 } catch (Exception error) {
-                    call.reject("LINUXDO_UPLOAD_PARSE", "无法解析上传结果");
+                    call.reject("无法解析上传结果", "LINUXDO_UPLOAD_PARSE");
                 } finally {
                     session.file.delete();
                 }
@@ -476,7 +465,7 @@ public class LinuxDoSessionPlugin extends Plugin {
                 CookieManager.getInstance().flush();
                 call.resolve();
             } catch (Exception error) {
-                call.reject("LINUXDO_SESSION_CLEAR", "清理 Linux.do 会话失败");
+                call.reject("清理 Linux.do 会话失败", "LINUXDO_SESSION_CLEAR");
             }
         });
     }
@@ -693,7 +682,7 @@ public class LinuxDoSessionPlugin extends Plugin {
             public void onFailure(Call ignored, IOException error) {
                 if (pendingUserApiCall != call) return;
                 pendingUserApiCall = null;
-                call.reject("LINUXDO_USER_API_IDENTITY", "已授权，但暂时无法读取 Linux.do 用户信息");
+                call.reject("已授权，但暂时无法读取 Linux.do 用户信息", "LINUXDO_USER_API_IDENTITY");
             }
 
             @Override
@@ -713,7 +702,7 @@ public class LinuxDoSessionPlugin extends Plugin {
                 if (pendingUserApiCall != call) return;
                 if (user == null) {
                     pendingUserApiCall = null;
-                    call.reject("LINUXDO_USER_API_IDENTITY", "Linux.do 安全授权已完成，但身份验证失败");
+                    call.reject("Linux.do 安全授权已完成，但身份验证失败", "LINUXDO_USER_API_IDENTITY");
                     return;
                 }
 
@@ -833,7 +822,7 @@ public class LinuxDoSessionPlugin extends Plugin {
 
     private void cancelPending() {
         if (pendingCall != null) {
-            pendingCall.reject("LINUXDO_SESSION_CANCELLED", "已取消 Linux.do 登录/验证");
+            pendingCall.reject("已取消 Linux.do 登录/验证", "LINUXDO_SESSION_CANCELLED");
             pendingCall = null;
         }
         if (dialog != null) dialog.dismiss();
@@ -842,7 +831,7 @@ public class LinuxDoSessionPlugin extends Plugin {
     private void rejectPending(String code, String message) {
         PluginCall call = pendingCall;
         pendingCall = null;
-        if (call != null) call.reject(code, message);
+        if (call != null) call.reject(message, code);
     }
 
     private void destroyWebView() {
@@ -871,11 +860,11 @@ public class LinuxDoSessionPlugin extends Plugin {
         for (String uploadId : uploadSessions.keySet()) cleanupUpload(uploadId);
         getActivity().runOnUiThread(() -> {
             if (pendingCall != null) {
-                pendingCall.reject("LINUXDO_SESSION_DESTROYED", "应用正在关闭");
+                pendingCall.reject("应用正在关闭", "LINUXDO_SESSION_DESTROYED");
                 pendingCall = null;
             }
             if (pendingUserApiCall != null) {
-                pendingUserApiCall.reject("LINUXDO_USER_API_CANCELLED", "应用正在关闭");
+                pendingUserApiCall.reject("应用正在关闭", "LINUXDO_USER_API_CANCELLED");
                 pendingUserApiCall = null;
             }
             if (dialog != null) dialog.dismiss();

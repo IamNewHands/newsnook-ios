@@ -2241,6 +2241,97 @@ html[data-eink='1'] .lead-cover-veil {
   background: color-mix(in srgb, var(--color-paper) 7%, transparent);
 }
 
+/* Linux.do product shell: isolated bright community theme. Rebind both tone
+ * and color variables so existing semantic utility classes stay scoped here. */
+.linuxdo-workspace {
+  color-scheme: light;
+  --tone-ink: #f5f8fc;
+  --tone-ink-raised: #ffffff;
+  --tone-ink-deep: #edf3fb;
+  --tone-paper: #13213b;
+  --tone-paper-muted: #60708c;
+  --tone-paper-faint: #93a0b4;
+  --tone-cinnabar: #1677ff;
+  --tone-cinnabar-soft: #3f8cff;
+  --tone-haze: #dfe7f2;
+  --color-ink: var(--tone-ink);
+  --color-ink-raised: var(--tone-ink-raised);
+  --color-ink-deep: var(--tone-ink-deep);
+  --color-paper: var(--tone-paper);
+  --color-paper-muted: var(--tone-paper-muted);
+  --color-paper-faint: var(--tone-paper-faint);
+  --color-cinnabar: var(--tone-cinnabar);
+  --color-cinnabar-soft: var(--tone-cinnabar-soft);
+  --color-haze: var(--tone-haze);
+  background:
+    radial-gradient(circle at 12% -8%, rgb(74 144 255 / 14%), transparent 28rem),
+    linear-gradient(180deg, #fbfdff 0%, #f5f8fc 48%, #f1f5fb 100%);
+  color: var(--color-paper);
+}
+
+.linuxdo-workspace .linuxdo-brand-header {
+  background: rgb(251 253 255 / 94%);
+  box-shadow: 0 1px 0 rgb(33 73 128 / 6%);
+  backdrop-filter: blur(18px);
+}
+
+.linuxdo-workspace .linuxdo-icon-button {
+  border: 1px solid rgb(37 84 153 / 8%);
+  background: rgb(255 255 255 / 72%);
+  box-shadow: 0 6px 20px rgb(51 93 153 / 7%);
+  transition: transform 160ms var(--ease-ink), background 160ms var(--ease-ink), color 160ms var(--ease-ink);
+}
+
+.linuxdo-workspace .linuxdo-icon-button:active {
+  transform: scale(0.94);
+}
+
+.linuxdo-workspace .linuxdo-bottom-nav {
+  box-shadow: 0 14px 40px rgb(58 88 135 / 16%);
+}
+
+.linuxdo-nav-item,
+.linuxdo-nav-compose {
+  display: flex;
+  min-height: 48px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: 16px;
+  color: var(--color-paper-muted);
+  font-size: 10px;
+  font-weight: 600;
+  transition: color 160ms var(--ease-ink), transform 160ms var(--ease-ink), background 160ms var(--ease-ink);
+}
+
+.linuxdo-nav-item.is-active,
+.linuxdo-nav-compose {
+  color: var(--color-cinnabar);
+}
+
+.linuxdo-nav-item:active,
+.linuxdo-nav-compose:active {
+  transform: scale(0.96);
+}
+
+.linuxdo-nav-compose {
+  margin-top: -18px;
+}
+
+.linuxdo-nav-compose > span:first-child {
+  box-shadow: 0 10px 28px rgb(22 119 255 / 32%);
+}
+
+.linuxdo-workspace button:focus-visible,
+.linuxdo-workspace a:focus-visible,
+.linuxdo-workspace select:focus-visible,
+.linuxdo-workspace input:focus-visible,
+.linuxdo-workspace textarea:focus-visible {
+  outline: 2px solid rgb(22 119 255 / 65%);
+  outline-offset: 2px;
+}
+
 /* Linux.do: Discourse-specific semantics are converted to app-owned data roles
  * before generic HTML sanitization strips source classes. Keep this section
  * scoped so forum content cannot change the rest of NewsNook's reader rules. */
@@ -2259,6 +2350,10 @@ html[data-eink='1'] .lead-cover-veil {
 
 /* Generic reader CSS intentionally fills article images to 100%; forum posts
  * should preserve an image's natural size instead of enlarging badges/screenshots. */
+.reader-prose.linuxdo-post-prose p {
+  text-indent: 0 !important;
+}
+
 .reader-prose.linuxdo-post-prose img[data-linuxdo-role='content-image'],
 .reader-prose.linuxdo-post-prose img[data-linuxdo-role='onebox-image'] {
   width: auto;

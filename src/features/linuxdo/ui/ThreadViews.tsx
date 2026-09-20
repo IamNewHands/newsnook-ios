@@ -227,8 +227,8 @@ export function LinuxDoComposer({
         )}
         <div className="mt-3 flex items-center justify-between">
           <div className="flex rounded-full bg-paper/5 p-1">
-            <button type="button" onClick={() => setPreview(false)} className={'linuxdo-control rounded-full px-3 py-1 text-[10.5px] ' + (!preview ? 'bg-paper text-ink' : 'text-paper-muted')}>编辑</button>
-            <button type="button" onClick={() => setPreview(true)} className={'linuxdo-control rounded-full px-3 py-1 text-[10.5px] ' + (preview ? 'bg-paper text-ink' : 'text-paper-muted')}>预览</button>
+            <button type="button" onClick={() => setPreview(false)} className={'linuxdo-control rounded-full px-3 py-1 text-[10.5px] ' + (!preview ? 'bg-cinnabar text-white' : 'text-paper-muted')}>编辑</button>
+            <button type="button" onClick={() => setPreview(true)} className={'linuxdo-control rounded-full px-3 py-1 text-[10.5px] ' + (preview ? 'bg-cinnabar text-white' : 'text-paper-muted')}>预览</button>
           </div>
           <span className="text-[10px] text-paper-faint">{draftSequence > 0 ? '草稿已同步 · Markdown' : 'Markdown'}</span>
         </div>
@@ -349,8 +349,18 @@ export function LinuxDoTopicView({
   const [error, setError] = useState<unknown>(null)
   const [loadingPosts, setLoadingPosts] = useState(false)
   const [jumpingPostNumber, setJumpingPostNumber] = useState<number | undefined>()
-  const [lightbox, setLightbox] = useState<{ src: string; actionSrc?: string; alt: string } | null>(null)
+  const [lightbox, setLightbox] = useState<{ items: Array<{ src: string; actionSrc?: string; alt: string }>; index: number } | null>(null)
   const [returnPostNumber, setReturnPostNumber] = useState<number | undefined>()
+
+  useEffect(() => {
+    if (!lightbox) return
+    for (const item of [lightbox.items[lightbox.index - 1], lightbox.items[lightbox.index + 1]]) {
+      if (!item?.src) continue
+      const image = new Image()
+      image.referrerPolicy = 'no-referrer'
+      image.src = item.src
+    }
+  }, [lightbox])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -416,7 +426,7 @@ export function LinuxDoTopicView({
   }, [posts, summary.id, summary.slug])
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div data-linuxdo-topic-view className="flex h-full min-h-0 flex-col">
       <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-haze/50 bg-ink/95 page-x py-2.5 backdrop-blur-xl">
         <button type="button" onClick={onBack} className="linuxdo-control grid h-9 w-9 shrink-0 place-items-center rounded-full bg-paper/6 text-paper-muted"><ArrowLeft size={17} /></button>
         <div className="min-w-0 flex-1">
@@ -474,11 +484,18 @@ export function LinuxDoTopicView({
                       const target = event.target as HTMLElement
                       if (target instanceof HTMLImageElement && target.src) {
                         if (target.dataset.linuxdoRole === 'emoji') return
-                        setLightbox({
-                          src: target.src,
-                          actionSrc: target.dataset.linuxdoOriginalSrc || target.src,
-                          alt: target.alt || post.topicTitle || topic.title,
-                        })
+                        event.preventDefault()
+                        event.stopPropagation()
+                        const scope = event.currentTarget.closest<HTMLElement>('[data-linuxdo-topic-view]') ?? event.currentTarget
+                        const images = Array.from(scope.querySelectorAll<HTMLImageElement>('img[data-linuxdo-role="content-image"]'))
+                          .filter((image) => Boolean(image.src))
+                          .map((image) => ({
+                            src: image.src,
+                            actionSrc: image.dataset.linuxdoOriginalSrc || image.src,
+                            alt: image.alt || post.topicTitle || topic.title,
+                          }))
+                        const currentIndex = Math.max(0, images.findIndex((image) => image.src === target.src))
+                        setLightbox({ items: images.length ? images : [{ src: target.src, actionSrc: target.dataset.linuxdoOriginalSrc || target.src, alt: target.alt || post.topicTitle || topic.title }], index: currentIndex })
                         return
                       }
                       const link = target.closest('a') as HTMLAnchorElement | null
@@ -582,7 +599,11 @@ export function LinuxDoTopicView({
       </div>
       {jumpingPostNumber ? <div className="pointer-events-none absolute bottom-[calc(max(10px,var(--sab))+118px)] left-1/2 z-30 -translate-x-1/2 rounded-full border border-haze bg-ink-raised/95 px-3 py-2 text-[10px] text-paper-muted shadow-xl"><span className="inline-flex items-center gap-2"><Loader2 size={13} className="animate-spin" />正在定位 #{jumpingPostNumber}</span></div> : null}
       {returnPostNumber ? <button type="button" onClick={() => { const target = returnPostNumber; setReturnPostNumber(undefined); void jumpToPost(target) }} className="linuxdo-control absolute bottom-[calc(max(10px,var(--sab))+72px)] right-4 z-30 rounded-full border border-haze bg-ink-raised/95 px-3 py-2 text-[10.5px] text-paper shadow-xl">返回引用处 #{returnPostNumber}</button> : null}
-      {lightbox ? <ImageLightbox src={lightbox.src} actionSrc={lightbox.actionSrc} alt={lightbox.alt} onClose={() => setLightbox(null)} overlayCloserRef={overlayBackHandlerRef} /> : null}
+      {lightbox ? (() => {
+        const current = lightbox.items[lightbox.index]
+        if (!current) return null
+        return <ImageLightbox src={current.src} actionSrc={current.actionSrc} alt={current.alt} index={lightbox.index} total={lightbox.items.length} onPrevious={lightbox.index > 0 ? () => setLightbox((state) => state ? { ...state, index: state.index - 1 } : state) : undefined} onNext={lightbox.index < lightbox.items.length - 1 ? () => setLightbox((state) => state ? { ...state, index: state.index + 1 } : state) : undefined} onClose={() => setLightbox(null)} overlayCloserRef={overlayBackHandlerRef} />
+      })() : null}
     </div>
   )
 }

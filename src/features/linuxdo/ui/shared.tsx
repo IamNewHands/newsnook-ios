@@ -10,13 +10,14 @@ export function TopicCard({ topic, onOpen, categoryName }: { topic: LinuxDoTopic
     <button
       type="button"
       onClick={onOpen}
-      className="linuxdo-control group w-full rounded-[20px] border border-haze/60 bg-ink-raised/45 px-4 py-3.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-cinnabar/35 hover:bg-ink-raised/70"
+      className="linuxdo-control group w-full rounded-[22px] border border-haze/70 bg-ink-raised px-4 py-4 text-left shadow-[0_10px_30px_rgb(47_86_143_/_0.08)] transition-all duration-200 hover:-translate-y-0.5 hover:border-cinnabar/30 hover:shadow-[0_14px_34px_rgb(47_86_143_/_0.12)] active:translate-y-0"
     >
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 h-9 w-9 shrink-0 overflow-hidden rounded-full border border-haze bg-paper/5">
+        <div className="mt-0.5 h-10 w-10 shrink-0 overflow-hidden rounded-full border border-haze bg-ink-deep shadow-sm">
           {avatar(author?.avatarTemplate, author?.username)}
         </div>
         <div className="min-w-0 flex-1">
+          <div className="mb-2 flex items-center justify-between gap-2 text-[10.5px] text-paper-faint"><span className="truncate font-medium text-paper-muted">{author?.username || 'Linux.do'}</span><span>{topic.lastPostedAt ? ago(topic.lastPostedAt) : ''}</span></div>
           <div className="flex items-start gap-2">
             <h3 className="line-clamp-2 flex-1 text-[15px] font-semibold leading-[1.45] text-paper">{topic.title}</h3>
             {topic.unseen || (topic.newPosts || 0) > 0 ? (

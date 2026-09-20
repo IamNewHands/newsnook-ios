@@ -40,6 +40,12 @@ function normalizeDiscourseMarkup(html: string): string {
       element.setAttribute('data-linuxdo-role', 'image-block')
     })
     document.body.querySelectorAll('a.lightbox').forEach((element) => {
+      const fullSize = absoluteLinuxDoUrl(element.getAttribute('href'))
+      const image = element.querySelector('img')
+      if (fullSize && image) image.setAttribute('data-linuxdo-original-src', fullSize)
+      // Discourse uses this anchor only to launch its own lightbox. NewsNook owns
+      // image preview, so leaving href here risks opening the browser as a second action.
+      element.removeAttribute('href')
       element.setAttribute('data-linuxdo-role', 'image-link')
     })
 
@@ -57,7 +63,7 @@ function normalizeDiscourseMarkup(html: string): string {
       const src = absoluteLinuxDoUrl(element.getAttribute('src'))
       if (src) {
         element.setAttribute('src', src)
-        element.setAttribute('data-linuxdo-original-src', src)
+        if (!element.getAttribute('data-linuxdo-original-src')) element.setAttribute('data-linuxdo-original-src', src)
       } else element.removeAttribute('src')
 
       // Source responsive candidates are generated for the Discourse layout and

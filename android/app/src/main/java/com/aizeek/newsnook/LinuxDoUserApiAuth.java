@@ -30,9 +30,10 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import okhttp3.Call;
 import okhttp3.Callback;
-import okhttp3.FormBody;
+import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 import org.json.JSONObject;
@@ -54,10 +55,6 @@ final class LinuxDoUserApiAuth {
 
     interface BrowserContext {
         void apply(Request.Builder builder);
-    }
-
-    interface ProbeCallback {
-        void onResult(boolean supported, int version, String reason);
     }
 
     interface AuthCallback {
@@ -168,35 +165,6 @@ final class LinuxDoUserApiAuth {
         scheduler.shutdownNow();
     }
 
-    void probe(ProbeCallback callback) {
-        Request.Builder builder = new Request.Builder()
-            .url(ORIGIN + "/user-api-key/new")
-            .head()
-            .header("Accept", "application/json, text/plain, */*");
-        browserContext.apply(builder);
-        Request request = builder.build();
-
-        client.newCall(request).enqueue(new Callback() {
-            @Override
-            public void onFailure(Call call, IOException error) {
-                callback.onResult(false, 0, "network");
-            }
-
-            @Override
-            public void onResponse(Call call, Response response) {
-                try (ResponseBody ignored = response.body()) {
-                    if (!response.isSuccessful()) {
-                        callback.onResult(false, 0, looksLikeCloudflare(response, "") ? "browser-verification" : "unsupported");
-                        return;
-                    }
-                    int version = parseInt(response.header("Auth-Api-Version"), 0);
-                    boolean device = "true".equalsIgnoreCase(response.header("Auth-Api-Device-Code"));
-                    callback.onResult(device && version >= 4, version, device ? "" : "device-code-unavailable");
-                }
-            }
-        });
-    }
-
     void authenticate(Activity activity, AuthCallback callback) {
         if (!authenticating.compareAndSet(false, true)) {
             callback.onFailure("LINUXDO_USER_API_BUSY", "已有 Linux.do 系统浏览器登录正在进行");
@@ -205,23 +173,7 @@ final class LinuxDoUserApiAuth {
         cancelled.set(false);
         activeCallback = callback;
 
-        probe((supported, version, reason) -> {
-            if (cancelled.get()) {
-                finishFailure(callback, "LINUXDO_USER_API_CANCELLED", "已取消 Linux.do 登录");
-                return;
-            }
-            if (!supported) {
-                String code = "browser-verification".equals(reason)
-                    ? "LINUXDO_USER_API_BROWSER_VERIFICATION_REQUIRED"
-                    : "LINUXDO_USER_API_UNSUPPORTED";
-                String message = "browser-verification".equals(reason)
-                    ? "Linux.do 要求先完成 Cloudflare 浏览器验证"
-                    : "Linux.do 当前未开放 App 安全授权";
-                finishFailure(callback, code, message);
-                return;
-            }
-            beginDeviceAuthorization(activity, callback);
-        });
+        beginDeviceAuthorization(activity, callback);
     }
 
     void cancel() {
@@ -242,18 +194,21 @@ final class LinuxDoUserApiAuth {
             String nonce = randomHex(16);
             String publicKey = publicKeyPem();
             String clientId = clientId();
-            FormBody form = new FormBody.Builder()
-                .add("nonce", nonce)
-                .add("scopes", SCOPES)
-                .add("client_id", clientId)
-                .add("application_name", APPLICATION_NAME)
-                .add("public_key", publicKey)
-                .add("padding", "oaep")
-                .build();
+            JSONObject requestJson = new JSONObject();
+            requestJson.put("nonce", nonce);
+            requestJson.put("scopes", SCOPES);
+            requestJson.put("client_id", clientId);
+            requestJson.put("application_name", APPLICATION_NAME);
+            requestJson.put("public_key", publicKey);
+            requestJson.put("padding", "oaep");
+            RequestBody requestBody = RequestBody.create(
+                requestJson.toString(),
+                MediaType.parse("application/json; charset=UTF-8")
+            );
 
             Request.Builder builder = new Request.Builder()
-                .url(ORIGIN + "/user-api-key/device")
-                .post(form)
+                .url(ORIGIN + "/user-api-key/device.json")
+                .post(requestBody)
                 .header("Accept", "application/json")
                 .header("X-Requested-With", "XMLHttpRequest");
             browserContext.apply(builder);
@@ -278,6 +233,8 @@ final class LinuxDoUserApiAuth {
                     if (!response.isSuccessful()) {
                         if (looksLikeCloudflare(response, text)) {
                             finishFailure(callback, "LINUXDO_USER_API_BROWSER_VERIFICATION_REQUIRED", "Linux.do 要求先完成 Cloudflare 浏览器验证");
+                        } else if (isUnsupportedDeviceFlow(response, text)) {
+                            finishFailure(callback, "LINUXDO_USER_API_UNSUPPORTED", "Linux.do 当前未开放 App 安全授权");
                         } else {
                             finishFailure(callback, "LINUXDO_USER_API_HTTP", apiError(text, "Linux.do 拒绝了 App 授权请求"));
                         }
@@ -338,10 +295,20 @@ final class LinuxDoUserApiAuth {
         String deviceCode = pendingDeviceCode;
         if (deviceCode.isEmpty()) return;
 
-        FormBody form = new FormBody.Builder().add("device_code", deviceCode).build();
+        JSONObject pollJson = new JSONObject();
+        try {
+            pollJson.put("device_code", deviceCode);
+        } catch (Exception error) {
+            finishFailure(callback, "LINUXDO_USER_API_PROTOCOL", "无法准备 Linux.do 授权轮询");
+            return;
+        }
+        RequestBody pollBody = RequestBody.create(
+            pollJson.toString(),
+            MediaType.parse("application/json; charset=UTF-8")
+        );
         Request.Builder builder = new Request.Builder()
-            .url(ORIGIN + "/user-api-key/device/poll")
-            .post(form)
+            .url(ORIGIN + "/user-api-key/device/poll.json")
+            .post(pollBody)
             .header("Accept", "application/json")
             .header("X-Requested-With", "XMLHttpRequest");
         browserContext.apply(builder);
@@ -503,7 +470,6 @@ final class LinuxDoUserApiAuth {
             if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) return false;
             Intent intent = new Intent(Intent.ACTION_VIEW, uri);
             intent.addCategory(Intent.CATEGORY_BROWSABLE);
-            if (intent.resolveActivity(activity.getPackageManager()) == null) return false;
             activity.startActivity(intent);
             return true;
         } catch (Exception ignored) {
@@ -531,6 +497,14 @@ final class LinuxDoUserApiAuth {
         pendingNonce = "";
         activeCallback = null;
         callback.onFailure(code, message);
+    }
+
+    private static boolean isUnsupportedDeviceFlow(Response response, String body) {
+        int status = response.code();
+        if (status == 404 || status == 405 || status == 501) return true;
+        if (status != 403) return false;
+        String lower = body == null ? "" : body.toLowerCase();
+        return lower.contains("user api") && (lower.contains("disabled") || lower.contains("invalid access"));
     }
 
     private static boolean looksLikeCloudflare(Response response, String body) {
