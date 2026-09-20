@@ -1952,7 +1952,8 @@ html[data-eink='1'] .lead-cover-veil {
 .zhihu-content-row-excerpt.is-compact { -webkit-line-clamp: 2; }
 
 /* 知乎工作区正文复用 NewsNook 阅读器排版，只补知乎独有的站外引用卡片。 */
-.reader-prose.zhihu-prose a[data-reader-role='zhihu-link-card'] {
+.reader-prose.zhihu-prose a[data-reader-role='zhihu-link-card'],
+.reader-prose.zhihu-prose [data-reader-role='zhihu-video-page'] {
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -1966,9 +1967,24 @@ html[data-eink='1'] .lead-cover-veil {
   border-bottom: 1px solid color-mix(in oklab, var(--color-haze) 70%, transparent);
 }
 
-.reader-prose.zhihu-prose a[data-reader-role='zhihu-link-card']:hover {
+.reader-prose.zhihu-prose a[data-reader-role='zhihu-link-card']:hover,
+.reader-prose.zhihu-prose [data-reader-role='zhihu-video-page']:hover {
   border-color: color-mix(in oklab, var(--color-cinnabar) 38%, transparent);
   background: color-mix(in oklab, var(--color-paper) 8%, transparent);
+}
+
+/* 播放器接管后，宿主只承担稳定 DOM 边界，不再保留链接卡片的 flex/padding 外观。 */
+.reader-prose.zhihu-prose [data-reader-role='zhihu-video-page'][data-reader-inline-video-mounted='true'] {
+  display: block;
+  margin: 1rem 0 1.25rem;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+}
+
+.reader-prose.zhihu-prose [data-reader-role='zhihu-video-page'][data-reader-inline-video-mounted='true'] > .reader-inline-video-page {
+  width: 100%;
 }
 
 .reader-prose.zhihu-prose [data-reader-role='zhihu-link-kind'] {

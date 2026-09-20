@@ -85,7 +85,7 @@ assert.ok(fallbackImage.includes('data-reader-image-fallbacks='), '知乎图片�
 assert.ok(fallbackImage.includes('https://pic1.zhimg.com/100/original_r.jpg'), '原图 URL 应进入安全备用源列表')
 
 const videoCard = normalizeZhihuContentHtml('<p><a class="video-box" href="https://link.zhihu.com/?target=https%3A%2F%2Fwww.bilibili.com%2Fvideo%2FBV1test"><img src="https://pic.example/video.jpg">DeepSeek 唱歌测试</a></p>')
-assert.ok(videoCard.includes('data-reader-role="zhihu-link-card"'), '知乎视频/站外卡片不能退化成一行裸链接')
+assert.ok(videoCard.includes('data-reader-role="zhihu-video-page"'), '知乎视频必须在清洗阶段直接生成稳定播放器宿主，不能先退化成链接卡片')
 assert.ok(videoCard.includes('bilibili.com/video/BV1test'), '知乎 link.zhihu.com 跳转必须恢复真实站外目标')
 assert.ok(videoCard.includes('data-reader-role="zhihu-link-image"'), '有封面的知乎视频卡片应保留安全缩略图')
 assert.ok(videoCard.includes('data-media-format="video-page"'), '站外视频卡片必须标记为可交给 NewsNook 媒体嗅探/InkVideoPlayer 的视频页')
@@ -93,13 +93,19 @@ assert.ok(videoCard.includes('data-source-page='), '站外视频卡片必须保�
 assert.ok(videoCard.includes('DeepSeek 唱歌测试'))
 
 const nativeZhihuVideoCard = normalizeZhihuContentHtml('<p><a class="video-box" data-lens-id="2081068623192224666" href="https://www.zhihu.com/video/2081068623192224666"><img src="https://pic.example/zhihu-video.jpg">https://www.zhihu.com/video/2081068623192224666</a></p>')
-assert.ok(nativeZhihuVideoCard.includes('data-reader-role="zhihu-link-card"'), '知乎自身 /video/:id 不能被当成普通站内链接留下截图 + 裸 URL')
+assert.ok(nativeZhihuVideoCard.includes('data-reader-role="zhihu-video-page"'), '知乎自身 /video/:id 必须直接生成稳定播放器宿主，不能留下截图 + 裸 URL 链接')
 assert.ok(nativeZhihuVideoCard.includes('data-media-format="video-page"'), '知乎自身视频也必须进入 NewsNook 视频页播放器管线')
 assert.ok(nativeZhihuVideoCard.includes('data-source-page="https://www.zhihu.com/video/2081068623192224666"'), '知乎视频卡片必须保留原始视频页供原生嗅探')
 assert.ok(nativeZhihuVideoCard.includes('data-reader-role="zhihu-link-image"'), '知乎视频封面必须作为视频卡片封面保留')
 
+const reportedZhihuVideoCard = normalizeZhihuContentHtml('<p><a class="video-box" data-lens-id="2084728115234858023" href="https://www.zhihu.com/video/2084728115234858023"><img src="https://pic.example/reported-video.jpg">https://www.zhihu.com/video/2084728115234858023</a></p>')
+assert.ok(reportedZhihuVideoCard.includes('data-reader-role="zhihu-video-page"'), '用户报告的知乎视频必须直接进入稳定播放器宿主')
+assert.ok(reportedZhihuVideoCard.includes('data-source-page="https://www.zhihu.com/video/2084728115234858023"'))
+assert.ok(!reportedZhihuVideoCard.includes('href="https://www.zhihu.com/video/2084728115234858023"'), '回归：不得再次显示成截图中的 URL 链接卡片')
+
 const lensOnlyZhihuVideoCard = normalizeZhihuContentHtml('<p><a class="video-box" data-lens-id="2081068623192224666"><img src="https://pic.example/zhihu-video.jpg"></a></p>')
-assert.ok(lensOnlyZhihuVideoCard.includes('href="https://www.zhihu.com/video/2081068623192224666"'), '只有 data-lens-id 的知乎视频也必须恢复成可播放视频页')
+assert.ok(lensOnlyZhihuVideoCard.includes('data-source-page="https://www.zhihu.com/video/2081068623192224666"'), '只有 data-lens-id 的知乎视频也必须恢复成稳定播放器宿主')
+assert.ok(!lensOnlyZhihuVideoCard.includes('href="https://www.zhihu.com/video/2081068623192224666"'), '知乎视频宿主不能再是可点击链接')
 
 const videoCalls: Array<{ operation: string; url: string; body: unknown }> = []
 const videoService = new ZhihuContentService({
@@ -147,6 +153,8 @@ assert.match(zhihuWorkspaceSource, /<span>AI 速读<\/span>/, '知乎速读入�
 assert.doesNotMatch(zhihuContentScreenSource, /<span>AI 速读<\/span>/, '正文头部不应重复显示速读入口')
 assert.match(inlineVideoPagesSource, /<OriginPlayerSurface[\s\S]*embedded/, '通用嗅探失败时也必须在正文原位显示原站播放表面')
 assert.match(inlineVideoPagesSource, /resolveDirect/, '知乎已知视频协议应优先直取播放源，避免先展示原站页面')
+assert.match(inlineVideoPagesSource, /replaceChildren\(host\)/, '播放器只能接管稳定宿主内部，不能 replaceWith 掉第三方正文根节点')
+assert.doesNotMatch(inlineVideoPagesSource, /element\.replaceWith\(host\)|anchor\.replaceWith\(host\)/, '播放器挂载不得再次替换第三方正文根节点')
 
 const article = toNewsArticle({
   ref: { kind: 'answer', id: '456' },
