@@ -221,7 +221,12 @@ export function InlineVideoPages({ rootRef, html, enabled, fallbackTitle, source
       host.setAttribute('data-reader-inline-video-page', String(index + 1))
 
       shell.setAttribute('data-reader-inline-video-mounted', 'true')
-      shell.replaceChildren(host)
+      // Android WebView 69 不支持 Element.replaceChildren()；Vite/Babel 只转译
+      // JavaScript 语法，不会为 DOM API 注入 polyfill。必须使用 Chrome 69 已支持的
+      // removeChild/appendChild，否则 effect 会在这里抛 TypeError，页面就永久停留在
+      // 上面的静态“视频 + URL”卡片，正是用户截图中的表现。
+      while (shell.firstChild) shell.removeChild(shell.firstChild)
+      shell.appendChild(host)
       next.push({ key, pageUrl, title, poster, host, shell, fallbackMarkup })
     })
 

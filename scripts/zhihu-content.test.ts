@@ -153,7 +153,9 @@ assert.match(zhihuWorkspaceSource, /<span>AI 速读<\/span>/, '知乎速读入�
 assert.doesNotMatch(zhihuContentScreenSource, /<span>AI 速读<\/span>/, '正文头部不应重复显示速读入口')
 assert.match(inlineVideoPagesSource, /<OriginPlayerSurface[\s\S]*embedded/, '通用嗅探失败时也必须在正文原位显示原站播放表面')
 assert.match(inlineVideoPagesSource, /resolveDirect/, '知乎已知视频协议应优先直取播放源，避免先展示原站页面')
-assert.match(inlineVideoPagesSource, /replaceChildren\(host\)/, '播放器只能接管稳定宿主内部，不能 replaceWith 掉第三方正文根节点')
+assert.match(inlineVideoPagesSource, /removeChild\(shell\.firstChild\)/, '播放器只能接管稳定宿主内部，不能 replaceWith 掉第三方正文根节点')
+assert.match(inlineVideoPagesSource, /appendChild\(host\)/, '播放器宿主必须使用 Android WebView 69 已支持的 DOM API')
+assert.doesNotMatch(inlineVideoPagesSource, /shell\.replaceChildren\(/, 'Android WebView 69 不支持 Element.replaceChildren，禁止在知乎视频挂载链路使用')
 assert.doesNotMatch(inlineVideoPagesSource, /element\.replaceWith\(host\)|anchor\.replaceWith\(host\)/, '播放器挂载不得再次替换第三方正文根节点')
 
 const article = toNewsArticle({
