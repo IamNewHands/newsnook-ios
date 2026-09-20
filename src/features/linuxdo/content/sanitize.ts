@@ -22,12 +22,61 @@ function numericDimension(element: Element, name: 'width' | 'height'): number | 
   return Number.isFinite(value) && value > 0 ? value : undefined
 }
 
+function copySemanticAttribute(element: Element, source: string, target: string): void {
+  const value = element.getAttribute(source)?.trim()
+  if (value) element.setAttribute(target, value)
+}
+
+function markDiscourseSemantics(root: Element): void {
+  root.querySelectorAll('aside.quote').forEach((quote) => {
+    quote.setAttribute('data-linuxdo-role', 'quote')
+    copySemanticAttribute(quote, 'data-topic', 'data-linuxdo-topic-id')
+    copySemanticAttribute(quote, 'data-post', 'data-linuxdo-post-number')
+    copySemanticAttribute(quote, 'data-username', 'data-linuxdo-username')
+    quote.removeAttribute('data-topic')
+    quote.removeAttribute('data-post')
+    quote.removeAttribute('data-username')
+    quote.querySelectorAll('.title').forEach((element, index) => {
+      if (index === 0) element.setAttribute('data-linuxdo-role', 'quote-header')
+    })
+    quote.querySelectorAll('.quote-controls').forEach((element) => element.setAttribute('data-linuxdo-role', 'quote-controls'))
+    const body = quote.querySelector('blockquote')
+    if (body) body.setAttribute('data-linuxdo-role', 'quote-body')
+  })
+
+  root.querySelectorAll('aside.onebox, .onebox').forEach((onebox) => {
+    const className = onebox.getAttribute('class') ?? ''
+    const target = onebox.querySelector('a[href]')
+    const href = absoluteLinuxDoUrl(onebox.getAttribute('data-onebox-src') ?? target?.getAttribute('href') ?? null)
+    const hrefUrl = href ? new URL(href) : undefined
+    const localTopic =
+      /(?:^|\s)discourse(?:topic|local-date)?(?:\s|$)/i.test(className) ||
+      /(?:^|\s)discourse-topic(?:\s|$)/i.test(className) ||
+      Boolean(hrefUrl?.hostname === 'linux.do' && /^\/t\//.test(hrefUrl.pathname))
+    onebox.setAttribute('data-linuxdo-role', localTopic ? 'onebox-topic' : 'onebox')
+    onebox.setAttribute('data-linuxdo-onebox-kind', localTopic ? 'topic' : 'external')
+    if (href) onebox.setAttribute('data-linuxdo-href', href)
+    onebox.removeAttribute('data-onebox-src')
+    onebox.querySelectorAll('header, .source').forEach((element) => element.setAttribute('data-linuxdo-role', 'onebox-source'))
+    onebox.querySelectorAll('.onebox-body, article').forEach((element) => element.setAttribute('data-linuxdo-role', 'onebox-body'))
+    onebox.querySelectorAll('h3, h4').forEach((element) => element.setAttribute('data-linuxdo-role', 'onebox-title'))
+    onebox.querySelectorAll('p').forEach((element) => element.setAttribute('data-linuxdo-role', 'onebox-description'))
+    onebox.querySelectorAll('.category, .topic-category').forEach((element) => element.setAttribute('data-linuxdo-role', 'onebox-category'))
+    onebox.querySelectorAll('.discourse-tags, .topic-tags').forEach((element) => element.setAttribute('data-linuxdo-role', 'onebox-tags'))
+  })
+
+  root.querySelectorAll('a.mention').forEach((element) => element.setAttribute('data-linuxdo-role', 'mention'))
+  root.querySelectorAll('a.mention-group').forEach((element) => element.setAttribute('data-linuxdo-role', 'mention-group'))
+  root.querySelectorAll('.spoiler, .spoiled, [data-spoiler-state]').forEach((element) => element.setAttribute('data-linuxdo-role', 'spoiler'))
+}
+
 function normalizeDiscourseMarkup(html: string): string {
   if (!html.trim()) return ''
 
   try {
     const { document } = parseHTML('<!doctype html><html><body></body></html>')
     document.body.innerHTML = html
+    markDiscourseSemantics(document.body)
 
     // Discourse lightbox metadata (filename / dimensions / filesize) is UI chrome,
     // not post content. Once source classes are stripped by our generic sanitizer
@@ -47,10 +96,6 @@ function normalizeDiscourseMarkup(html: string): string {
       // image preview, so leaving href here risks opening the browser as a second action.
       element.removeAttribute('href')
       element.setAttribute('data-linuxdo-role', 'image-link')
-    })
-
-    document.body.querySelectorAll('aside.onebox, .onebox').forEach((element) => {
-      element.setAttribute('data-linuxdo-role', 'onebox')
     })
 
     document.body.querySelectorAll('a[href]').forEach((element) => {
@@ -81,12 +126,15 @@ function normalizeDiscourseMarkup(html: string): string {
         srcValue.includes('/images/emoji/') ||
         srcValue.includes('/emoji/') && width !== undefined && width <= 32 && height !== undefined && height <= 32
 
-      const onebox = element.closest('aside.onebox, .onebox')
+      const onebox = element.closest('[data-linuxdo-role="onebox"], [data-linuxdo-role="onebox-topic"]')
+      const quoteHeader = element.closest('[data-linuxdo-role="quote-header"]')
       if (isEmoji) {
         element.setAttribute('data-linuxdo-role', 'emoji')
         element.setAttribute('data-reader-role', 'badge')
         element.setAttribute('width', '20')
         element.setAttribute('height', '20')
+      } else if (quoteHeader) {
+        element.setAttribute('data-linuxdo-role', 'quote-avatar')
       } else if (onebox) {
         element.setAttribute('data-linuxdo-role', 'onebox-image')
       } else {

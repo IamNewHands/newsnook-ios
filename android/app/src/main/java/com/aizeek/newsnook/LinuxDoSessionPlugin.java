@@ -1,6 +1,7 @@
 package com.aizeek.newsnook;
 
 import android.app.Dialog;
+import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.graphics.drawable.GradientDrawable;
@@ -98,12 +99,17 @@ public class LinuxDoSessionPlugin extends Plugin {
         if (getBridge() != null && getBridge().getWebView() != null) {
             verifiedUserAgent = empty(getBridge().getWebView().getSettings().getUserAgentString());
         }
-        userApiAuth = new LinuxDoUserApiAuth(getContext(), identityClient, builder -> {
-            String cookie = empty(CookieManager.getInstance().getCookie(ORIGIN));
-            String userAgent = verifiedUserAgent;
-            if (!cookie.isEmpty()) builder.header("Cookie", cookie);
-            if (!userAgent.isEmpty()) builder.header("User-Agent", userAgent);
-        });
+        userApiAuth = new LinuxDoUserApiAuth(getContext());
+        Intent launchIntent = getActivity() != null ? getActivity().getIntent() : null;
+        if (launchIntent != null && launchIntent.getData() != null) {
+            userApiAuth.handleRedirect(launchIntent.getData());
+        }
+    }
+
+    @Override
+    protected void handleOnNewIntent(Intent intent) {
+        if (intent == null || intent.getData() == null || userApiAuth == null) return;
+        userApiAuth.handleRedirect(intent.getData());
     }
 
     @PluginMethod
@@ -136,12 +142,6 @@ public class LinuxDoSessionPlugin extends Plugin {
     @PluginMethod
     public void cancelUserApiKeyAuth(PluginCall call) {
         userApiAuth.cancel();
-        PluginCall pending = pendingUserApiCall;
-        if (pending != null) {
-            pendingUserApiCall = null;
-            userApiAuth.clearCredential();
-            pending.reject("LINUXDO_USER_API_CANCELLED", "已取消 Linux.do 登录");
-        }
         call.resolve();
     }
 
@@ -214,6 +214,11 @@ public class LinuxDoSessionPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void browserSnapshot(PluginCall call) {
+        collectSnapshot(call, false);
+    }
+
+    @PluginMethod
     public void request(PluginCall call) {
         String url = call.getString("url", "");
         String method = call.getString("method", "GET").toUpperCase();
@@ -244,7 +249,10 @@ public class LinuxDoSessionPlugin extends Plugin {
             }
             if (!cookie.isEmpty()) builder.header("Cookie", cookie);
             if (!userAgent.isEmpty()) builder.header("User-Agent", userAgent);
-            userApiAuth.applyHeaders(builder);
+            Uri requestUri = Uri.parse(url);
+            String requestPath = requestUri.getPath() == null ? "" : requestUri.getPath();
+            boolean firstPartySessionRequest = requestPath.equals("/session") || requestPath.equals("/session.json") || requestPath.equals("/session/csrf.json");
+            if (!firstPartySessionRequest) userApiAuth.applyHeaders(builder);
 
             if (method.equals("GET")) {
                 builder.get();

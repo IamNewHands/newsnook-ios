@@ -1,25 +1,15 @@
-import { Capacitor } from '@capacitor/core'
-import { Bell, Bookmark, Compass, FileText, Flame, Grid2X2, History, Loader2, Search, ShieldCheck, Sparkles, Tag, UserRound } from 'lucide-react'
+import { Bell, Compass, Flame, Grid2X2, Loader2, Search, Sparkles, Tag } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-import { linuxDoCapabilities } from '../capabilities'
 import type { LinuxDoBookmarkService } from '../bookmark/service'
 import type { LinuxDoPeopleService } from '../people/service'
 import {
-  linuxDoApi as api,
   linuxDoBookmarks as bookmarkApi,
   linuxDoDiscovery as discovery,
   linuxDoNotifications as notificationsApi,
   linuxDoPeople as peopleApi,
   linuxDoSearch as searchApi,
 } from '../runtime'
-import {
-  authenticateLinuxDo,
-  cancelLinuxDoAuthentication,
-  clearLinuxDoBrowserSession,
-  clearLinuxDoSession,
-  verifyLinuxDoBrowserSession,
-} from '../session/native'
 import type {
   LinuxDoCategory,
   LinuxDoNotification,
@@ -427,99 +417,3 @@ export function BookmarksView({ session, onOpenTopic }: { session: LinuxDoSessio
     </div>
   )
 }
-
-export function AccountView({ session, onSession, onBookmarks, onProfile }: { session: LinuxDoSessionSnapshot; onSession: (next: LinuxDoSessionSnapshot) => void; onBookmarks: () => void; onProfile: (username: string) => void }) {
-  const caps = linuxDoCapabilities()
-  const native = Capacitor.isNativePlatform()
-  const [accountError, setAccountError] = useState('')
-  const [loginState, setLoginState] = useState<'idle' | 'authenticating' | 'unsupported' | 'cf-required'>('idle')
-
-  const applySession = (next: LinuxDoSessionSnapshot) => {
-    api.setSession(next)
-    onSession(next)
-  }
-
-  const errorCode = (error: unknown): string => {
-    if (typeof error === 'object' && error !== null && 'code' in error) return String((error as { code?: unknown }).code ?? '')
-    return ''
-  }
-
-  const login = async () => {
-    setAccountError('')
-    setLoginState('authenticating')
-    try {
-      applySession(await authenticateLinuxDo())
-      setLoginState('idle')
-    } catch (nextError) {
-      const code = errorCode(nextError)
-      if (code === 'LINUXDO_USER_API_CANCELLED') {
-        setLoginState('idle')
-      } else if (code === 'LINUXDO_USER_API_UNSUPPORTED') {
-        setLoginState('unsupported')
-      } else if (code === 'LINUXDO_USER_API_BROWSER_VERIFICATION_REQUIRED') {
-        setLoginState('cf-required')
-      } else {
-        setLoginState('idle')
-        setAccountError(readableError(nextError))
-      }
-    }
-  }
-
-  const verifyBrowser = async (compatibilityMode: boolean) => {
-    setAccountError('')
-    try {
-      const next = await verifyLinuxDoBrowserSession()
-      if (compatibilityMode) {
-        applySession(next)
-        setLoginState('idle')
-      } else {
-        setLoginState('idle')
-        await login()
-      }
-    } catch (nextError) {
-      setLoginState('idle')
-      setAccountError(readableError(nextError))
-    }
-  }
-
-  return (
-    <div className="min-h-0 flex-1 overflow-y-auto page-x pb-28 pt-5">
-      <section className="mb-4 overflow-hidden rounded-[28px] border border-haze/70 bg-ink-raised p-5 shadow-[0_14px_36px_rgb(47_86_143_/_0.09)]"><div className="flex items-start justify-between gap-4"><div><div className="inline-flex items-center gap-2 rounded-full bg-cinnabar/10 px-3 py-1 text-[10px] font-semibold text-cinnabar"><ShieldCheck size={12} />安全连接</div><h2 className="mt-3 text-[22px] font-bold tracking-[-0.03em] text-paper">{session.authenticated ? '欢迎回来' : '连接 Linux.do'}</h2><p className="mt-1.5 max-w-sm text-[11px] leading-5 text-paper-muted">{session.authenticated ? '你的社区身份、书签和互动都在这里。' : '使用系统浏览器完成授权，可复用已有 GitHub / Google 登录状态。'}</p></div><div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-cinnabar/10 text-cinnabar"><UserRound size={26} /></div></div></section>
-      <div className="rounded-[24px] border border-haze/70 bg-ink-raised p-5 shadow-[0_10px_30px_rgb(47_86_143_/_0.07)]">
-        <div className="flex items-center gap-4">
-          <div className="h-14 w-14 overflow-hidden rounded-full border border-haze bg-paper/5">{avatar(session.currentUser?.avatarTemplate, session.currentUser?.username)}</div>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[17px] font-semibold text-paper">{session.authenticated ? session.currentUser?.name || session.currentUser?.username : '未登录'}</div>
-            <div className="mt-1 text-[11px] text-paper-faint">{session.authenticated ? '@' + session.currentUser?.username + (session.authMode === 'user-api-key' ? ' · 安全授权' : ' · 兼容会话') : '使用系统浏览器登录，可复用 Chrome 中已登录的 GitHub / Google 账号'}</div>
-          </div>
-        </div>
-        {session.authMode === 'user-api-key' ? <div className="mt-4 inline-flex items-center rounded-full border border-haze/60 bg-paper/[0.035] px-3 py-1.5 text-[10px] text-paper-muted">User API Key · Auth API v{session.apiVersion ?? 4}{session.expiresAt ? ' · 有效期至 ' + new Date(session.expiresAt).toLocaleDateString('zh-CN') : ''}</div> : null}
-        <div className="mt-5 flex gap-2">
-          <button type="button" disabled={!native || loginState === 'authenticating'} onClick={() => void login()} className="linuxdo-control min-h-12 flex-1 rounded-2xl bg-cinnabar px-4 py-3 text-[12.5px] font-semibold text-white shadow-[0_10px_26px_rgb(22_119_255_/_0.24)] disabled:opacity-45">
-            {loginState === 'authenticating' ? '正在准备系统浏览器授权…' : session.authMode === 'user-api-key' ? '重新安全授权' : native ? '使用系统浏览器登录' : '请在 App 中登录'}
-          </button>
-          {loginState === 'authenticating' ? <button type="button" onClick={() => void cancelLinuxDoAuthentication().finally(() => setLoginState('idle'))} className="linuxdo-control rounded-full border border-haze px-4 py-2.5 text-[12px] text-paper-muted">取消</button> : session.authenticated ? <button type="button" onClick={async () => {
-            if (session.authMode === 'user-api-key') await clearLinuxDoSession()
-            else if (session.authMode === 'browser-session') await clearLinuxDoBrowserSession()
-            applySession({ authenticated: false, authMode: 'none' })
-            setLoginState('idle')
-          }} className="linuxdo-control rounded-full border border-haze px-4 py-2.5 text-[12px] text-paper-muted">退出</button> : null}
-        </div>
-        {loginState === 'authenticating' ? <p className="mt-3 rounded-2xl bg-paper/[0.035] px-3 py-2 text-[10.5px] leading-5 text-paper-muted">正在向 Linux.do 建立安全授权；准备完成后系统浏览器会自动打开。若 Chrome 已登录 GitHub 或 Google，通常无需再次输入密码。</p> : null}
-        {loginState === 'cf-required' ? <div className="mt-3 rounded-2xl border border-haze/60 bg-paper/[0.025] px-3 py-3"><div className="text-[11px] font-medium text-paper">需要先完成 Cloudflare 验证</div><div className="mt-1 text-[10px] leading-5 text-paper-faint">验证只用于通过 Linux.do 的浏览器安全检查，不保存账号密码。完成后再使用系统浏览器登录。</div><button type="button" onClick={() => void verifyBrowser(false)} className="linuxdo-control mt-2 rounded-full border border-haze px-3 py-1.5 text-[10px] text-paper-muted">完成 Cloudflare 验证</button></div> : null}
-        {loginState === 'unsupported' ? <div className="mt-3 rounded-2xl border border-haze/60 bg-paper/[0.025] px-3 py-3"><div className="text-[11px] font-medium text-paper">Linux.do 当前未开放 App 安全授权</div><div className="mt-1 text-[10px] leading-5 text-paper-faint">可使用兼容模式继续登录，但 GitHub / Google 的系统浏览器登录态不一定能被复用。</div><button type="button" onClick={() => void verifyBrowser(true)} className="linuxdo-control mt-2 rounded-full border border-haze px-3 py-1.5 text-[10px] text-paper-muted">使用兼容模式</button></div> : null}
-        {!native ? <p className="mt-3 rounded-2xl bg-paper/[0.035] px-3 py-2 text-[10.5px] leading-5 text-paper-faint">Web 端可浏览公开内容；登录、发帖、回复、点赞、书签、Boost 与上传需要 NewsNook App，以避免把 Linux.do 会话凭据转发到云端。</p> : null}
-        {native ? <button type="button" onClick={async () => { await clearLinuxDoBrowserSession(); setAccountError('') }} className="linuxdo-control mt-3 text-[10px] text-paper-faint underline decoration-haze underline-offset-4">清除 Cloudflare / 浏览器验证数据</button> : null}
-        {accountError ? <button type="button" onClick={() => setAccountError('')} className="mt-3 w-full rounded-xl border border-cinnabar/25 bg-cinnabar/10 px-3 py-2 text-left text-[10.5px] text-cinnabar-soft">{accountError} · 点击关闭</button> : null}
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-2.5">
-        <button type="button" onClick={onBookmarks} className="linuxdo-control rounded-[20px] border border-haze/70 bg-ink-raised px-3.5 py-3.5 text-left shadow-[0_8px_24px_rgb(47_86_143_/_0.06)]"><Bookmark size={18} className="mb-2 text-[#f5b326]" /><div className="text-[11.5px] font-semibold text-paper">书签</div><div className="mt-1 text-[9.5px] text-paper-faint">{caps.bookmarks ? '查看收藏的楼层与主题' : '不可用'}</div></button>
-        <button type="button" disabled={!session.currentUser?.username} onClick={() => session.currentUser?.username && onProfile(session.currentUser.username)} className="linuxdo-control rounded-[20px] border border-haze/70 bg-ink-raised px-3.5 py-3.5 text-left shadow-[0_8px_24px_rgb(47_86_143_/_0.06)] disabled:opacity-50"><UserRound size={18} className="mb-2 text-cinnabar" /><div className="text-[11.5px] font-semibold text-paper">个人主页</div><div className="mt-1 text-[9.5px] text-paper-faint">主题、活动、Boost 与统计</div></button>
-        <div className="rounded-[20px] border border-haze/70 bg-ink-raised px-3.5 py-3.5 shadow-[0_8px_24px_rgb(47_86_143_/_0.06)]"><FileText size={18} className="mb-2 text-[#7b61ff]" /><div className="text-[11.5px] font-semibold text-paper">草稿</div><div className="mt-1 text-[9.5px] text-paper-faint">{caps.drafts ? '自动保存与恢复已启用' : '不可用'}</div></div>
-        <div className="rounded-[20px] border border-haze/70 bg-ink-raised px-3.5 py-3.5 shadow-[0_8px_24px_rgb(47_86_143_/_0.06)]"><History size={18} className="mb-2 text-[#2ab66f]" /><div className="text-[11.5px] font-semibold text-paper">媒体与附件</div><div className="mt-1 text-[9.5px] text-paper-faint">{caps.uploads ? '原生上传与图片预览已启用' : '不可用'}</div></div>
-      </div>
-      {!caps.boost.available ? <p className="mt-4 rounded-[18px] border border-haze/50 bg-paper/[0.025] px-4 py-3 text-[10.5px] leading-5 text-paper-faint">{caps.boost.reason}</p> : null}
-    </div>
-  )
-}
-

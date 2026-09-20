@@ -2443,12 +2443,288 @@ html[data-eink='1'] .lead-cover-veil {
   overflow-wrap: anywhere;
 }
 
-.reader-prose.linuxdo-post-prose blockquote {
-  margin: 12px 0;
-  padding: 10px 12px;
-  border-left: 2px solid rgb(198 70 52 / 55%);
-  border-radius: 0 12px 12px 0;
-  background: rgb(255 255 255 / 3.5%);
+.reader-prose.linuxdo-post-prose {
+  font-family: var(--font-body);
+  font-size: 15.5px;
+  font-weight: 400;
+  line-height: 1.74;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.reader-prose.linuxdo-post-prose p {
+  margin: 0 0 0.78em;
+  line-height: inherit;
+}
+
+.reader-prose.linuxdo-post-prose p:last-child {
+  margin-bottom: 0;
+}
+
+.reader-prose.linuxdo-post-prose a {
+  color: #2784df;
+  text-decoration: none;
+  text-underline-offset: 0.14em;
+}
+
+.reader-prose.linuxdo-post-prose a:active {
+  opacity: 0.72;
+}
+
+.reader-prose.linuxdo-post-prose strong,
+.reader-prose.linuxdo-post-prose b {
+  font-weight: 700;
+}
+
+.reader-prose.linuxdo-post-prose em,
+.reader-prose.linuxdo-post-prose i {
+  font-style: italic;
+}
+
+.reader-prose.linuxdo-post-prose h1,
+.reader-prose.linuxdo-post-prose h2,
+.reader-prose.linuxdo-post-prose h3,
+.reader-prose.linuxdo-post-prose h4,
+.reader-prose.linuxdo-post-prose h5,
+.reader-prose.linuxdo-post-prose h6 {
+  margin: 1.15em 0 0.5em;
+  font-family: var(--font-body);
+  font-weight: 700;
+  line-height: 1.36;
+}
+
+.reader-prose.linuxdo-post-prose h1 { font-size: 1.34em; }
+.reader-prose.linuxdo-post-prose h2 { font-size: 1.24em; }
+.reader-prose.linuxdo-post-prose h3 { font-size: 1.14em; }
+.reader-prose.linuxdo-post-prose h4,
+.reader-prose.linuxdo-post-prose h5,
+.reader-prose.linuxdo-post-prose h6 { font-size: 1.04em; }
+
+.reader-prose.linuxdo-post-prose ul,
+.reader-prose.linuxdo-post-prose ol {
+  margin: 0.55em 0 0.85em;
+  padding-left: 1.45em;
+}
+
+.reader-prose.linuxdo-post-prose li {
+  margin: 0.24em 0;
+}
+
+.reader-prose.linuxdo-post-prose hr {
+  margin: 1.15em 0;
+  border: 0;
+  border-top: 1px solid var(--color-haze);
+}
+
+.reader-prose.linuxdo-post-prose code {
+  border-radius: 5px;
+  background: #eef2f7;
+  padding: 0.12em 0.34em;
+  color: #27364c;
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  overflow-wrap: anywhere;
+}
+
+.reader-prose.linuxdo-post-prose pre {
+  max-width: 100%;
+  margin: 0.85em 0;
+  overflow-x: auto;
+  border: 1px solid #dde5ef;
+  border-radius: 10px;
+  background: #f5f7fa;
+  padding: 0.85em 0.95em;
+  color: #25344a;
+  white-space: pre;
+  -webkit-overflow-scrolling: touch;
+}
+
+.reader-prose.linuxdo-post-prose pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.88em;
+  overflow-wrap: normal;
+}
+
+.reader-prose.linuxdo-post-prose kbd {
+  display: inline-block;
+  border: 1px solid #cad4e1;
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: #ffffff;
+  padding: 0.08em 0.38em;
+  color: #35445b;
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+}
+
+.reader-prose.linuxdo-post-prose blockquote:not([data-linuxdo-role='quote-body']) {
+  margin: 0.8em 0;
+  padding: 0.45em 0.8em;
+  border-left: 3px solid #cfd8e5;
+  border-radius: 0 4px 4px 0;
+  background: #f7f8fa;
+  color: #506077;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='quote'] {
+  display: block;
+  margin: 0.85em 0;
+  overflow: hidden;
+  border-left: 4px solid #cfd7e2;
+  border-radius: 0 6px 6px 0;
+  background: #f6f7f9;
+  color: #34445b;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='quote-header'] {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px 5px;
+  color: #58687e;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.reader-prose.linuxdo-post-prose img[data-linuxdo-role='quote-avatar'] {
+  display: inline-block !important;
+  width: 26px !important;
+  max-width: 26px !important;
+  height: 26px !important;
+  max-height: 26px !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  border-radius: 50% !important;
+  object-fit: cover;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='quote-controls'] {
+  margin-left: auto;
+  color: #98a4b5;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='quote-body'] {
+  margin: 0;
+  padding: 7px 11px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #39495f;
+  font-size: 13.5px;
+  line-height: 1.68;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='quote-body'] p {
+  margin-bottom: 0.58em;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='onebox'],
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='onebox-topic'] {
+  display: block;
+  min-height: 0;
+  margin: 0.85em 0;
+  padding: 0.85em;
+  overflow: hidden;
+  border: 1px solid #dce4ee;
+  border-radius: 10px;
+  background: #f7f9fb;
+  box-shadow: 0 1px 2px rgb(35 61 98 / 5%);
+  color: #27364c;
+  cursor: pointer;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='onebox-source'] {
+  margin-bottom: 0.45em;
+  color: #7d899a;
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='onebox-title'] {
+  margin: 0 0 0.36em;
+  color: #247ed1;
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.38;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='onebox-description'] {
+  margin: 0.35em 0 0;
+  color: #4d5c70;
+  font-size: 12.5px;
+  line-height: 1.58;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='onebox'] img[data-linuxdo-role='onebox-image'],
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='onebox-topic'] img[data-linuxdo-role='onebox-image'] {
+  float: left;
+  width: auto;
+  max-width: 35%;
+  max-height: 150px;
+  margin: 0 0.8em 0.45em 0;
+  border-radius: 7px;
+  object-fit: contain;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='onebox-body']::after,
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='onebox']::after,
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='onebox-topic']::after {
+  display: table;
+  clear: both;
+  content: '';
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='onebox-category'],
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='onebox-tags'] {
+  color: #7f8b9a;
+  font-size: 10.5px;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='mention'],
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='mention-group'] {
+  display: inline;
+  border-radius: 5px;
+  background: #e9f3ff;
+  padding: 0.08em 0.32em;
+  color: #176fc1;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='spoiler'] {
+  border-radius: 4px;
+  background: #d9dde3;
+  color: transparent;
+  text-shadow: 0 0 8px rgb(44 55 70 / 65%);
+  cursor: pointer;
+  transition: color 120ms var(--ease-ink), background 120ms var(--ease-ink), text-shadow 120ms var(--ease-ink);
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='spoiler'][data-linuxdo-revealed='true'] {
+  background: #eef1f5;
+  color: inherit;
+  text-shadow: none;
+}
+
+.reader-prose.linuxdo-post-prose details {
+  margin: 0.75em 0;
+  border: 1px solid #dce4ee;
+  border-radius: 8px;
+  background: #f8f9fb;
+  padding: 0.55em 0.75em;
+}
+
+.reader-prose.linuxdo-post-prose summary {
+  cursor: pointer;
+  color: #40516a;
+  font-weight: 650;
 }
 
 @keyframes linuxdo-card-in {

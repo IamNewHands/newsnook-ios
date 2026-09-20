@@ -282,6 +282,11 @@ export function sanitizeArticleHtml(html: string): string {
       // roles are converted to this app-owned marker before sanitization.
       'data-linuxdo-role',
       'data-linuxdo-original-src',
+      'data-linuxdo-topic-id',
+      'data-linuxdo-post-number',
+      'data-linuxdo-username',
+      'data-linuxdo-href',
+      'data-linuxdo-onebox-kind',
       // 知乎段评：只保留本地注入的服务端 segment 元数据，供阅读层打开段评/点赞。
       'data-zhihu-segment-id',
       'data-zhihu-content-id',

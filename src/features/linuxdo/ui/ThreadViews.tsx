@@ -43,7 +43,7 @@ function LinuxDoPostBody({ html, onClick }: { html: string; onClick: (event: Rea
   return (
     <div
       ref={rootRef}
-      className="reader-prose linuxdo-post-prose mt-4 text-paper"
+      className="reader-prose linuxdo-post-prose mt-3 text-paper"
       onClick={onClick}
       dangerouslySetInnerHTML={{ __html: html }}
     />
@@ -471,19 +471,20 @@ export function LinuxDoTopicView({
               {posts.map((post) => {
                 const like = post.actions.find((action) => action.id === 2)
                 return (
-                  <article key={post.id} id={'linuxdo-post-' + post.postNumber} className="rounded-[22px] border border-haze/60 bg-ink-raised/40 px-4 py-4">
+                  <article key={post.id} id={'linuxdo-post-' + post.postNumber} className="rounded-[18px] border border-haze/70 bg-ink-raised px-3.5 py-3.5 shadow-[0_6px_18px_rgb(47_86_143_/_0.05)]">
                     <header className="linuxdo-control flex items-center gap-3 select-none">
-                      <button type="button" onClick={() => onOpenUser(post.username)} className="h-9 w-9 overflow-hidden rounded-full border border-haze bg-paper/5">{avatar(post.avatarTemplate, post.username)}</button>
+                      <button type="button" onClick={() => onOpenUser(post.username)} className="h-10 w-10 overflow-hidden rounded-full border border-haze bg-ink-deep">{avatar(post.avatarTemplate, post.username)}</button>
                       <button type="button" onClick={() => onOpenUser(post.username)} className="min-w-0 flex-1 text-left">
-                        <div className="truncate text-[12.5px] font-semibold text-paper">{post.name || post.username}</div>
+                        <div className="truncate text-[13.5px] font-semibold text-paper">{post.name || post.username}</div>
                         <div className="mt-0.5 text-[9.5px] text-paper-faint">{'@' + post.username + ' · ' + ago(post.createdAt)}</div>
                       </button>
                       <span className="font-mono text-[10px] text-paper-faint">{'#' + post.postNumber}</span>
                     </header>
                     <LinuxDoPostBody html={post.cooked} onClick={(event) => {
                       const target = event.target as HTMLElement
-                      if (target instanceof HTMLImageElement && target.src) {
-                        if (target.dataset.linuxdoRole === 'emoji') return
+                      const imageRole = target instanceof HTMLImageElement ? target.dataset.linuxdoRole : undefined
+                      if (imageRole === 'emoji') return
+                      if (target instanceof HTMLImageElement && target.src && imageRole === 'content-image') {
                         event.preventDefault()
                         event.stopPropagation()
                         const scope = event.currentTarget.closest<HTMLElement>('[data-linuxdo-topic-view]') ?? event.currentTarget
@@ -498,6 +499,46 @@ export function LinuxDoTopicView({
                         setLightbox({ items: images.length ? images : [{ src: target.src, actionSrc: target.dataset.linuxdoOriginalSrc || target.src, alt: target.alt || post.topicTitle || topic.title }], index: currentIndex })
                         return
                       }
+
+                      const spoiler = target.closest<HTMLElement>('[data-linuxdo-role="spoiler"]')
+                      if (spoiler) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        spoiler.dataset.linuxdoRevealed = spoiler.dataset.linuxdoRevealed === 'true' ? 'false' : 'true'
+                        return
+                      }
+
+                      const quote = target.closest<HTMLElement>('[data-linuxdo-role="quote"]')
+                      if (quote) {
+                        const quotedPost = Number(quote.dataset.linuxdoPostNumber || 0)
+                        const quotedTopic = Number(quote.dataset.linuxdoTopicId || topic.id)
+                        if (quotedPost > 0) {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          if (!quotedTopic || quotedTopic === topic.id) void jumpToPost(quotedPost, post.postNumber)
+                          else onOpenTopic({ id: quotedTopic, slug: 'topic', title: quote.dataset.linuxdoUsername ? '@' + quote.dataset.linuxdoUsername + ' 的引用' : '引用主题', postsCount: 0, replyCount: 0, views: 0, likeCount: 0, createdAt: '', lastPostedAt: '', tags: [], posters: [] }, quotedPost)
+                          return
+                        }
+                      }
+
+                      const onebox = target.closest<HTMLElement>('[data-linuxdo-role="onebox"], [data-linuxdo-role="onebox-topic"]')
+                      if (onebox?.dataset.linuxdoHref) {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        try {
+                          const oneboxUrl = new URL(onebox.dataset.linuxdoHref, 'https://linux.do')
+                          const topicMatch = oneboxUrl.hostname === 'linux.do' ? oneboxUrl.pathname.match(/^\/t\/(?:([^/]+)\/)?(\d+)(?:\/(\d+))?/) : null
+                          if (topicMatch) {
+                            onOpenTopic({ id: Number(topicMatch[2]), slug: topicMatch[1] || 'topic', title: onebox.textContent?.trim().slice(0, 100) || 'Linux.do 主题', postsCount: 0, replyCount: 0, views: 0, likeCount: 0, createdAt: '', lastPostedAt: '', tags: [], posters: [] }, topicMatch[3] ? Number(topicMatch[3]) : undefined)
+                          } else {
+                            void openExternal(oneboxUrl.toString())
+                          }
+                        } catch {
+                          // Invalid onebox target is inert.
+                        }
+                        return
+                      }
+
                       const link = target.closest('a') as HTMLAnchorElement | null
                       if (!link?.href) return
                       try {
@@ -542,7 +583,7 @@ export function LinuxDoTopicView({
                         // Invalid links remain inert instead of navigating the app WebView.
                       }
                     }} />
-                    <footer className="linuxdo-control mt-4 flex flex-wrap items-center gap-1.5 border-t border-haze/40 pt-3 select-none">
+                    <footer className="linuxdo-control mt-3 flex flex-wrap items-center gap-1.5 border-t border-haze/50 pt-2.5 select-none">
                       <button type="button" disabled={!session.authenticated} onClick={async () => {
                         try {
                           if (like?.acted) {

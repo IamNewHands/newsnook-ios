@@ -8,6 +8,7 @@ interface LinuxDoSessionPlugin {
   cancelUserApiKeyAuth(): Promise<void>
   clearUserApiKey(): Promise<void>
   snapshot(): Promise<LinuxDoSessionSnapshot>
+  browserSnapshot(): Promise<LinuxDoSessionSnapshot>
   request(options: { url: string; method: 'GET' | 'POST' | 'PUT' | 'DELETE'; headers?: Record<string, string>; body?: string }): Promise<{ status: number; data: string; headers?: Record<string, string> }>
   beginUpload(options: { fileName: string; mimeType: string }): Promise<{ uploadId: string }>
   appendUploadChunk(options: { uploadId: string; base64: string }): Promise<{ bytesWritten: number }>
@@ -41,6 +42,11 @@ export async function verifyLinuxDoBrowserSession(url = 'https://linux.do/'): Pr
 export async function readLinuxDoSession(): Promise<LinuxDoSessionSnapshot> {
   if (!Capacitor.isNativePlatform()) return { authenticated: false, authMode: 'none' }
   return NativeLinuxDoSession.snapshot()
+}
+
+export async function readLinuxDoBrowserSession(): Promise<LinuxDoSessionSnapshot> {
+  if (!Capacitor.isNativePlatform()) return { authenticated: false, authMode: 'none' }
+  return NativeLinuxDoSession.browserSnapshot()
 }
 
 export async function requestLinuxDoNative(options: { url: string; method: 'GET' | 'POST' | 'PUT' | 'DELETE'; headers?: Record<string, string>; body?: string }): Promise<{ status: number; data: string; headers?: Record<string, string> }> {

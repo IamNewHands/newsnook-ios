@@ -53,6 +53,18 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="newsnook" android:host="auth" />
             </intent-filter>
+
+            <!--
+                Linux.do/Discourse 委托认证回流。系统浏览器里可使用 GitHub / Google 等
+                Linux.do 当前开放的第三方登录，授权后返回 RSA 加密 payload。
+                与 NewsNook 云账户 OAuth 回流严格分离，避免 token 路由串线。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="newsnook" android:host="linuxdo-auth" android:pathPrefix="/callback" />
+            </intent-filter>
         </activity>
 
         <service

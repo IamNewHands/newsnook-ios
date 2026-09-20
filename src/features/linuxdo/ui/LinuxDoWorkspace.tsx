@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 
 
 import { PresetSwitcher, type PresetSwitcherProps } from '../../../components/PresetSwitcher'
 import { LinuxDoBoostComposer, LinuxDoComposer, LinuxDoTopicView } from './ThreadViews'
-import { AccountView, BookmarksView, DiscoverView, NotificationsView, SearchView, UserProfileView } from './CommunityViews'
+import { BookmarksView, DiscoverView, NotificationsView, SearchView, UserProfileView } from './CommunityViews'
+import { AccountView } from './AccountView'
 import { verifyLinuxDoBrowserSession } from '../session/native'
 import {
   linuxDoApi as api,
@@ -282,14 +283,14 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
   return (
     <div className="linuxdo-workspace relative flex h-full min-h-0 flex-col overflow-hidden bg-ink text-paper">
       {route.kind !== 'topic' ? <header className="linuxdo-brand-header linuxdo-control shrink-0 border-b border-haze/60 bg-ink/95 page-x select-none">
-        <div className="flex min-h-[72px] items-center gap-3 py-2.5">
-          <button type="button" onClick={() => { if (!goBack()) onExit() }} className="linuxdo-icon-button grid h-11 w-11 shrink-0 place-items-center rounded-full text-paper-muted" aria-label="返回 NewsNook"><ArrowLeft size={18} /></button>
+        <div className="flex min-h-[60px] items-center gap-2 py-2">
+          <button type="button" onClick={() => { if (!goBack()) onExit() }} className="linuxdo-icon-button grid h-10 w-10 shrink-0 place-items-center rounded-full text-paper-muted" aria-label="返回 NewsNook"><ArrowLeft size={18} /></button>
           <div className="min-w-0 flex-1">
-            <div className="flex items-baseline gap-2"><span className="text-[21px] font-bold tracking-[-0.03em] text-paper">Linux.do</span><span className="text-[10px] font-medium text-paper-faint">in NewsNook</span></div>
+            <div className="flex min-w-0 items-baseline gap-1.5 whitespace-nowrap"><span className="text-[20px] font-bold tracking-[-0.03em] text-paper">Linux.do</span><span className="text-[9.5px] font-medium text-paper-faint">in NewsNook</span></div>
             <div className="mt-0.5 truncate text-[10.5px] text-paper-muted">{route.kind === 'feed' ? '更好的技术讨论，从这里开始' : title}</div>
           </div>
-          <button type="button" onClick={() => navigate({ kind: 'search' })} className={'linuxdo-icon-button grid h-11 w-11 shrink-0 place-items-center rounded-full ' + (route.kind === 'search' ? 'bg-cinnabar text-white' : 'text-paper-muted')} aria-label="搜索"><Search size={18} /></button>
-          <button type="button" onClick={() => navigate({ kind: 'notifications' })} className={'linuxdo-icon-button relative grid h-11 w-11 shrink-0 place-items-center rounded-full ' + (route.kind === 'notifications' ? 'bg-cinnabar text-white' : 'text-paper-muted')} aria-label="通知"><Bell size={18} />{notificationUnread > 0 ? <span className="absolute right-1 top-1 min-w-4 rounded-full bg-[#ff4d4f] px-1 text-center font-mono text-[8px] leading-4 text-white">{notificationUnread > 99 ? '99+' : notificationUnread}</span> : null}</button>
+          <button type="button" onClick={() => navigate({ kind: 'search' })} className={'linuxdo-icon-button grid h-9 w-9 shrink-0 place-items-center rounded-full ' + (route.kind === 'search' ? 'bg-cinnabar text-white' : 'text-paper-muted')} aria-label="搜索"><Search size={18} /></button>
+          <button type="button" onClick={() => navigate({ kind: 'notifications' })} className={'linuxdo-icon-button relative grid h-9 w-9 shrink-0 place-items-center rounded-full ' + (route.kind === 'notifications' ? 'bg-cinnabar text-white' : 'text-paper-muted')} aria-label="通知"><Bell size={18} />{notificationUnread > 0 ? <span className="absolute right-1 top-1 min-w-4 rounded-full bg-[#ff4d4f] px-1 text-center font-mono text-[8px] leading-4 text-white">{notificationUnread > 99 ? '99+' : notificationUnread}</span> : null}</button>
           <PresetSwitcher {...presetSwitcher} />
         </div>
       </header> : null}
