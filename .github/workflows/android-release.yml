@@ -197,6 +197,9 @@ jobs:
       - name: Verify release/update contract
         run: npm run test:app-update
 
+      - name: Verify Chrome 69 runtime compatibility
+        run: npm run test:webview-runtime-compat
+
       - name: Initialize Bergamot native engine
         run: npm run bergamot:init
 

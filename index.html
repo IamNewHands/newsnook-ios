@@ -149,6 +149,47 @@
             return JSON.parse(JSON.stringify(val))
           }
         }
+        // ParentNode.replaceChildren（Chrome / Android WebView 86+）
+        // NewsNook 的最低运行基线是 Chrome 69；Vite 只转译语法，不会补 DOM API。
+        // 同时覆盖 Element / DocumentFragment，防止正文增强 effect 因一个现代 DOM API
+        // 直接中断，留下尚未接管的静态占位。
+        var replaceChildrenCompat = function () {
+          while (this.firstChild) this.removeChild(this.firstChild)
+          var doc = this.ownerDocument || document
+          for (var i = 0; i < arguments.length; i++) {
+            var value = arguments[i]
+            this.appendChild(value instanceof Node ? value : doc.createTextNode(String(value)))
+          }
+        }
+        if (typeof Element !== 'undefined' && !Element.prototype.replaceChildren) {
+          Element.prototype.replaceChildren = replaceChildrenCompat
+        }
+        if (typeof DocumentFragment !== 'undefined' && !DocumentFragment.prototype.replaceChildren) {
+          DocumentFragment.prototype.replaceChildren = replaceChildrenCompat
+        }
+        // String.prototype.matchAll（Chrome / Android WebView 73+）。
+        // 媒体嗅探器需要它解析 HLS / HTML；没有此 polyfill 时 Chrome 69 的
+        // 知乎视频兜底链路会在直链失败后再次中断。
+        if (!String.prototype.matchAll) {
+          String.prototype.matchAll = function (regexp) {
+            var re
+            if (regexp instanceof RegExp) {
+              if (!regexp.global) throw new TypeError('matchAll requires a global RegExp')
+              re = new RegExp(regexp.source, regexp.flags)
+              re.lastIndex = regexp.lastIndex
+            } else {
+              re = new RegExp(String(regexp), 'g')
+            }
+            var input = String(this)
+            var matches = []
+            var match
+            while ((match = re.exec(input)) !== null) {
+              matches.push(match)
+              if (match[0] === '') re.lastIndex += 1
+            }
+            return matches[Symbol.iterator]()
+          }
+        }
         if (typeof queueMicrotask !== 'function') {
           window.queueMicrotask = function (cb) {
             Promise.resolve().then(cb)

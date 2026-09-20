@@ -258,7 +258,10 @@ export function OriginPlayerSurface({
   return (
     <div className={embedded ? 'w-full' : 'mt-5 page-x lg:px-8'}>
       <div className="overflow-hidden rounded-xl border border-haze bg-ink-raised/80">
-        <div ref={slotRef} className="relative aspect-video w-full bg-[#0c0d10]">
+        <div
+          ref={slotRef}
+          className={`relative w-full bg-[#0c0d10] ${mode === 'origin' ? 'reader-video-aspect' : ''}`}
+        >
           {mode === 'custom' && candidate ? (
             <InkVideoPlayer
               src={candidate.url}

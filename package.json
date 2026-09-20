@@ -1,7 +1,7 @@
 {
   "name": "web",
   "private": true,
-  "version": "1.8.8-beta.3",
+  "version": "1.8.8-beta.4",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "workspaces": [
@@ -113,6 +113,7 @@
     "test:product-tour": "npx tsx scripts/product-tour.test.ts",
     "test:scheme-onboarding": "npx tsx scripts/scheme-onboarding.test.ts",
     "test:webview-css-compat": "npx tsx scripts/webview-css-compat.test.ts",
+    "test:webview-runtime-compat": "npx tsx scripts/webview-runtime-compat.test.ts",
     "test:sync-projection": "npm run build:contracts && npx tsx scripts/sync-projection.test.ts",
     "test:sync-engine": "npm run build:contracts && npx tsx scripts/sync-engine.test.ts",
     "test:cloud-contracts": "npm run build:contracts && npx tsx scripts/cloud-sync-contracts.test.ts",

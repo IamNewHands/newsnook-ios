@@ -106,7 +106,7 @@ function InlineVideoPage({
       <button
         type="button"
         onClick={onActivate}
-        className="group relative block aspect-video w-full overflow-hidden rounded-xl border border-haze/70 bg-[#0c0d10] text-left shadow-[0_12px_30px_-20px_rgba(0,0,0,0.7)]"
+        className="reader-video-aspect group relative block w-full overflow-hidden rounded-xl border border-haze/70 bg-[#0c0d10] text-left shadow-[0_12px_30px_-20px_rgba(0,0,0,0.7)]"
         aria-label={`播放视频：${video.title}`}
       >
         {video.poster ? (
@@ -167,7 +167,7 @@ function InlineVideoPage({
   }
 
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-haze/70 bg-[#0c0d10]">
+    <div className="reader-video-aspect relative w-full overflow-hidden rounded-xl border border-haze/70 bg-[#0c0d10]">
       {video.poster ? (
         <img
           src={video.poster}

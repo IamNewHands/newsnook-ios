@@ -216,7 +216,7 @@ export function InkVideoPlayer({
         data-reader-block
         role="button"
         tabIndex={0}
-        className="reader-deferred-host aspect-video"
+        className="reader-deferred-host reader-video-aspect"
         onClick={() => {
           setAllowed(true)
           onUnlocked?.()
@@ -273,7 +273,7 @@ export function InkVideoPlayer({
     <>
       <MediaResourcePageProvider open={openMediaResourcePage}>
         {mediaPage ? (
-          <div className="aspect-video w-full bg-[#0c0d10]" aria-hidden data-reader-block />
+          <div className="reader-video-aspect w-full bg-[#0c0d10]" aria-hidden data-reader-block />
         ) : (
           player
         )}
@@ -1536,7 +1536,7 @@ function InkVideoPlayerReady({
     >
       <div
         ref={stageRef}
-        className={`relative overflow-hidden bg-black ${immersive ? 'h-full min-h-[240px]' : 'aspect-video'}`}
+        className={`relative overflow-hidden bg-black ${immersive ? 'h-full min-h-[240px]' : 'reader-video-aspect'}`}
       >
         <div
           data-video-rotation={videoView.rotation}

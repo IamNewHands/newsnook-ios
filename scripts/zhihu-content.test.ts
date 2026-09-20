@@ -103,6 +103,16 @@ assert.ok(reportedZhihuVideoCard.includes('data-reader-role="zhihu-video-page"')
 assert.ok(reportedZhihuVideoCard.includes('data-source-page="https://www.zhihu.com/video/2084728115234858023"'))
 assert.ok(!reportedZhihuVideoCard.includes('href="https://www.zhihu.com/video/2084728115234858023"'), '回归：不得再次显示成截图中的 URL 链接卡片')
 
+const latestReportedZhihuVideoCard = normalizeZhihuContentHtml('<p><a class="video-box" data-lens-id="2084894365282051809" href="https://www.zhihu.com/video/2084894365282051809"><img src="https://pic.example/latest-reported-video.jpg">https://www.zhihu.com/video/2084894365282051809</a></p>')
+assert.ok(latestReportedZhihuVideoCard.includes('data-reader-role="zhihu-video-page"'), '最新用户报告的视频必须在 sanitize 后保留稳定播放器宿主')
+assert.ok(latestReportedZhihuVideoCard.includes('data-media-format="video-page"'))
+assert.ok(latestReportedZhihuVideoCard.includes('data-source-page="https://www.zhihu.com/video/2084894365282051809"'))
+assert.ok(!latestReportedZhihuVideoCard.includes('href="https://www.zhihu.com/video/2084894365282051809"'), '最新回归：静态宿主不得仍是可点击 URL 卡片')
+
+const cachedLegacyZhihuVideoCard = normalizeZhihuContentHtml('<a href="https://www.zhihu.com/video/2084894365282051809" data-reader-role="zhihu-link-card" data-related-title="知乎视频" data-media-format="video-page" data-source-page="https://www.zhihu.com/video/2084894365282051809"><img src="https://pic.example/cached-video.jpg" data-reader-role="zhihu-link-image"><span data-reader-role="zhihu-link-kind">视频</span><span data-reader-role="zhihu-link-body"><span data-reader-role="zhihu-link-title">https://www.zhihu.com/video/2084894365282051809</span><span data-reader-role="zhihu-link-host">zhihu.com</span></span></a>')
+assert.ok(cachedLegacyZhihuVideoCard.includes('data-reader-role="zhihu-video-page"'), '升级后必须把旧缓存中的 zhihu-link-card 重新规范化成播放器宿主')
+assert.ok(!cachedLegacyZhihuVideoCard.includes('data-reader-role="zhihu-link-card"'), '旧缓存不得让升级后的回答继续停留在历史链接卡片形态')
+
 const lensOnlyZhihuVideoCard = normalizeZhihuContentHtml('<p><a class="video-box" data-lens-id="2081068623192224666"><img src="https://pic.example/zhihu-video.jpg"></a></p>')
 assert.ok(lensOnlyZhihuVideoCard.includes('data-source-page="https://www.zhihu.com/video/2081068623192224666"'), '只有 data-lens-id 的知乎视频也必须恢复成稳定播放器宿主')
 assert.ok(!lensOnlyZhihuVideoCard.includes('href="https://www.zhihu.com/video/2081068623192224666"'), '知乎视频宿主不能再是可点击链接')
@@ -138,6 +148,25 @@ assert.deepEqual(videoCalls[0]?.body, {
   scene_code: 'answer_detail_web',
   is_only_video: true,
 })
+
+const latestReportedVideoService = new ZhihuContentService({
+  async getJson() { throw new Error('not used') },
+  async postJsonWithHeaders() {
+    return {
+      video_play: {
+        playlist: {
+          mp4: [
+            { quality: 'SD', codec: 'H265', bitrate: 242, url: ['https://video.example/h265-480.mp4'] },
+            { quality: 'FHD', codec: 'H265', bitrate: 263, url: ['https://video.example/h265-1080.mp4'] },
+            { quality: 'SD', codec: 'H264', bitrate: 573.09, url: ['https://video.example/h264-480.mp4'] },
+          ],
+        },
+      },
+    }
+  },
+})
+const latestReportedPlayback = await latestReportedVideoService.readVideo('2084894365282051809', { kind: 'answer', id: 'reported-answer' })
+assert.equal(latestReportedPlayback?.url, 'https://video.example/h264-480.mp4', '真实返回形态下应优先选中高 bitrate H264 源，避免老 WebView 误选 H265')
 
 const zhihuContentScreenSource = readFileSync(new URL('../src/features/zhihu/ui/ZhihuContentScreen.tsx', import.meta.url), 'utf8')
 const zhihuWorkspaceSource = readFileSync(new URL('../src/features/zhihu/ui/ZhihuWorkspace.tsx', import.meta.url), 'utf8')
