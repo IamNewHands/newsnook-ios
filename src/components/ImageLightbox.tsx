@@ -7,7 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from 'react'
-import { Download, Share2, X } from 'lucide-react'
+import { Download, Loader2, RefreshCcw, Share2, X } from 'lucide-react'
 
 import { saveImageToGallery, shareImage } from '../lib/imageActions'
 import { lockBodyScroll } from '../lib/bodyScrollLock'
@@ -15,6 +15,8 @@ import { recoverAppScrollSurfaces } from '../lib/gestureStyles'
 
 interface Props {
   src: string
+  /** 保存 / 分享时优先使用的原始地址；显示可继续使用 blob/fallback URL。 */
+  actionSrc?: string
   alt?: string
   onClose: () => void
   /** 系统返回：先关菜单，再关灯箱 */
@@ -33,7 +35,7 @@ type BusyAction = 'save' | 'share' | null
 /**
  * 全屏看图：双指捏合、单指平移、双击缩放、下滑关闭；长按保存/分享。
  */
-export function ImageLightbox({ src, alt = '', onClose, overlayCloserRef }: Props) {
+export function ImageLightbox({ src, actionSrc, alt = '', onClose, overlayCloserRef }: Props) {
   const stageRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
   const transformRef = useRef({ scale: 1, x: 0, y: 0 })
@@ -55,6 +57,8 @@ export function ImageLightbox({ src, alt = '', onClose, overlayCloserRef }: Prop
   const [menuOpen, setMenuOpen] = useState(false)
   const [busy, setBusy] = useState<BusyAction>(null)
   const [status, setStatus] = useState<string | null>(null)
+  const [imageState, setImageState] = useState<'loading' | 'loaded' | 'error'>('loading')
+  const [reloadKey, setReloadKey] = useState(0)
 
   const clearLongPress = useCallback(() => {
     if (longPressTimerRef.current != null) {
@@ -181,6 +185,12 @@ export function ImageLightbox({ src, alt = '', onClose, overlayCloserRef }: Prop
   }, [menuOpen, onClose, overlayCloserRef])
 
   useEffect(() => () => clearLongPress(), [clearLongPress])
+
+  useEffect(() => {
+    setImageState('loading')
+    setReloadKey(0)
+    resetTransform(false)
+  }, [src, resetTransform])
 
   const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y)
   const midpoint = (a: Point, b: Point): Point => ({
@@ -372,11 +382,12 @@ export function ImageLightbox({ src, alt = '', onClose, overlayCloserRef }: Prop
     setBusy(action)
     setStatus(null)
     try {
+      const source = actionSrc || src
       if (action === 'save') {
-        await saveImageToGallery(src)
+        await saveImageToGallery(source)
         setStatus('已保存到相册 有所闻')
       } else {
-        await shareImage(src, alt || '分享图片')
+        await shareImage(source, alt || '分享图片')
         setMenuOpen(false)
         setStatus(null)
       }
@@ -436,14 +447,45 @@ export function ImageLightbox({ src, alt = '', onClose, overlayCloserRef }: Prop
           }
         }}
       >
+        {imageState === 'loading' ? (
+          <div className="pointer-events-none absolute inset-0 grid place-items-center" role="status" aria-live="polite">
+            <div className="flex flex-col items-center gap-3 text-paper-faint">
+              <Loader2 size={24} className="animate-spin" />
+              <span className="font-mono text-[10px] tracking-[0.12em]">图片加载中</span>
+            </div>
+          </div>
+        ) : null}
+        {imageState === 'error' ? (
+          <div className="absolute inset-0 grid place-items-center px-6">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                setImageState('loading')
+                setReloadKey((value) => value + 1)
+              }}
+              className="flex items-center gap-2 rounded-full border border-haze bg-ink-raised/85 px-4 py-2.5 text-[12px] text-paper-muted backdrop-blur-md"
+            >
+              <RefreshCcw size={15} />重新加载图片
+            </button>
+          </div>
+        ) : null}
         <img
+          key={`${src}:${reloadKey}`}
           ref={imgRef}
           src={src}
           alt={alt}
           draggable={false}
           referrerPolicy="no-referrer"
+          onLoad={() => setImageState('loaded')}
+          onError={() => setImageState('error')}
           className="max-h-full max-w-full select-none object-contain"
-          style={{ transformOrigin: 'center center', willChange: 'transform' }}
+          style={{
+            transformOrigin: 'center center',
+            willChange: 'transform',
+            opacity: imageState === 'loaded' ? 1 : 0,
+            transition: 'opacity 220ms var(--ease-ink)',
+          }}
         />
       </div>
 

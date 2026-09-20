@@ -1799,6 +1799,7 @@ export default function App() {
         onUpdate={appUpdate.onUpdate}
         onLater={appUpdate.onLater}
         onSkip={appUpdate.onSkip}
+        allowPermanentSkip={appUpdate.dialogOrigin === 'manual'}
       />
       <OptionPickerDialog
         open={appUpdate.trackPickerOpen}

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import {
   androidVersionCode,
@@ -190,6 +191,14 @@ assert.equal(
   }),
   false,
 )
+
+const updateDialogSource = readFileSync(new URL('../src/features/appUpdate/UpdateDialog.tsx', import.meta.url), 'utf8')
+const updateHookSource = readFileSync(new URL('../src/features/appUpdate/useAppUpdate.ts', import.meta.url), 'utf8')
+assert.match(updateDialogSource, /allowPermanentSkip/)
+assert.match(updateDialogSource, /不再提醒此版本/)
+assert.match(updateHookSource, /dialogOrigin !== 'manual'/)
+assert.match(updateHookSource, /origin: 'auto'/)
+assert.match(updateHookSource, /origin: 'manual'/)
 
 console.log('✓ asset / gate ok')
 

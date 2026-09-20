@@ -13,7 +13,7 @@ Object.assign(globalThis, {
 })
 
 const { detectBrowserChallenge } = await import('../src/lib/browserChallenge')
-const { decodeCategories, decodeCurrentUser, decodeNotifications, decodeTopic, decodeTopics } = await import('../src/features/linuxdo/api/decode')
+const { decodeCategories, decodeCurrentUser, decodeNotifications, decodeTagNames, decodeTopic, decodeTopics } = await import('../src/features/linuxdo/api/decode')
 const { linuxDoCapabilities } = await import('../src/features/linuxdo/capabilities')
 const { linuxDoEndpoints } = await import('../src/features/linuxdo/api/endpoints')
 const { sanitizeLinuxDoCooked } = await import('../src/features/linuxdo/content/sanitize')
@@ -73,7 +73,7 @@ const feed = decodeTopics({
       created_at: '2026-09-20T00:00:00Z',
       last_posted_at: '2026-09-20T01:00:00Z',
       category_id: 9,
-      tags: ['linux', 'newsnook'],
+      tags: ['linux', { id: 'newsnook', name: 'newsnook' }, { text: 'android' }],
       posters: [{ user_id: 1, description: 'Original Poster' }, { user_id: 2, description: 'Most Recent Poster' }],
     }],
   },
@@ -81,6 +81,10 @@ const feed = decodeTopics({
 assert.equal(feed.length, 1)
 assert.equal(feed[0]?.replyCount, 3)
 assert.equal(feed[0]?.posters[1]?.username, 'bob')
+assert.deepEqual(feed[0]?.tags, ['linux', 'newsnook', 'android'])
+assert.deepEqual(decodeTagNames([{ id: 'ai', text: 'AI' }, { name: 'dev' }, 'news']), ['AI', 'dev', 'news'])
+assert.equal(decodeTagNames([{ foo: 'bar' }]).includes('[object Object]'), false)
+assert.deepEqual(decodeTagNames(['[object Object]', 'valid']), ['valid'])
 
 const topic = decodeTopic({
   id: 100,
@@ -91,7 +95,7 @@ const topic = decodeTopic({
   like_count: 5,
   created_at: '2026-09-20T00:00:00Z',
   last_posted_at: '2026-09-20T01:00:00Z',
-  tags: ['linux'],
+  tags: [{ id: 'linux', name: 'linux' }, { text: 'guide' }],
   post_stream: {
     stream: [501, 502],
     posts: [{
@@ -111,6 +115,7 @@ assert.equal(topic.postStream.stream.length, 2)
 assert.equal(topic.postStream.posts[0]?.actions[0]?.acted, true)
 assert.equal(topic.postStream.posts[0]?.bookmarked, true)
 assert.equal(topic.postStream.posts[0]?.bookmarkId, 77)
+assert.deepEqual(topic.tags, ['linux', 'guide'])
 assert.doesNotMatch(topic.postStream.posts[0]?.cooked ?? '', /<script/i)
 assert.doesNotMatch(topic.postStream.posts[0]?.cooked ?? '', /onerror/i)
 
@@ -131,6 +136,22 @@ const dirty = '<p onclick="evil()">safe</p><iframe src="javascript:alert(1)"></i
 const clean = sanitizeLinuxDoCooked(dirty)
 assert.doesNotMatch(clean, /onclick/i)
 assert.doesNotMatch(clean, /javascript:/i)
+
+const discourseMedia = sanitizeLinuxDoCooked(`
+  <p>before <img src="/images/emoji/twitter/smiley.png" class="emoji" alt="smiley" width="20" height="20"> after</p>
+  <div class="lightbox-wrapper">
+    <a class="lightbox" href="/uploads/default/original/1X/photo.png">
+      <img src="/uploads/default/optimized/1X/photo_2_690x74.png" width="690" height="74">
+      <div class="meta"><span class="filename">image</span><span class="informations">2134×230 22.6 KB</span></div>
+    </a>
+  </div>
+`)
+assert.match(discourseMedia, /data-linuxdo-role="emoji"/)
+assert.match(discourseMedia, /data-linuxdo-role="content-image"/)
+assert.match(discourseMedia, /data-linuxdo-role="image-block"/)
+assert.match(discourseMedia, /https:\/\/linux\.do\/uploads\/default\/optimized/)
+assert.doesNotMatch(discourseMedia, /2134×230/)
+assert.doesNotMatch(discourseMedia, />image</)
 
 assert.equal(linuxDoEndpoints.latest(2).endsWith('/latest.json?page=2'), true)
 assert.equal(linuxDoEndpoints.category('dev', 9, 3).endsWith('/c/dev/9.json?page=3'), true)
@@ -207,7 +228,10 @@ assert.match(javaSource, /User-Api-Client-Id/)
 assert.match(authJavaSource, /AndroidKeyStore/)
 assert.match(authJavaSource, /AES\/GCM\/NoPadding/)
 assert.match(authJavaSource, /RSA\/ECB\/OAEPWithSHA-1AndMGF1Padding/)
-assert.match(authJavaSource, /CustomTabsIntent/)
+assert.match(authJavaSource, /Intent\.ACTION_VIEW/)
+assert.match(authJavaSource, /Intent\.CATEGORY_BROWSABLE/)
+assert.match(authJavaSource, /resolveActivity\(activity\.getPackageManager\(\)\)/)
+assert.doesNotMatch(authJavaSource, /CustomTabsIntent/)
 assert.match(authJavaSource, /\/user-api-key\/device/)
 assert.match(authJavaSource, /\/user-api-key\/device\/poll/)
 assert.match(authJavaSource, /constantTimeEquals\(expectedNonce, nonce\)/)

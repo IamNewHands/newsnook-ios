@@ -1,5 +1,5 @@
 import { linuxDoEndpoints } from '../api/endpoints'
-import { decodeCategories, decodeTopics } from '../api/decode'
+import { decodeCategories, decodeTagNames, decodeTopics } from '../api/decode'
 import type { LinuxDoApiClient } from '../api/client'
 import type { LinuxDoCategory, LinuxDoTag, LinuxDoTopicSummary } from '../types'
 
@@ -24,7 +24,7 @@ export class LinuxDoDiscoveryService {
     if (!Array.isArray(tags)) return []
     return tags.map((tag: any) => ({
       id: typeof tag?.id === 'string' ? tag.id : undefined,
-      name: String(tag?.text ?? tag?.name ?? tag?.id ?? ''),
+      name: decodeTagNames([tag])[0] ?? '',
       topicCount: typeof tag?.count === 'number' ? tag.count : undefined,
     })).filter((tag: LinuxDoTag) => tag.name)
   }

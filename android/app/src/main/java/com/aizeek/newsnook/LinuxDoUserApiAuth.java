@@ -2,12 +2,12 @@ package com.aizeek.newsnook;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
-import androidx.browser.customtabs.CustomTabsIntent;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
@@ -300,16 +300,12 @@ final class LinuxDoUserApiAuth {
                         authDeadlineMillis = System.currentTimeMillis() + Math.max(30, expiresIn) * 1000L;
 
                         activity.runOnUiThread(() -> {
-                            try {
-                                CustomTabsIntent intent = new CustomTabsIntent.Builder()
-                                    .setShowTitle(true)
-                                    .build();
-                                intent.launchUrl(activity, Uri.parse(verificationUrl));
-                                callback.onPending(verificationUrl, expiresIn);
-                                if (authenticating.get()) startPolling(callback, interval);
-                            } catch (Exception error) {
-                                finishFailure(callback, "LINUXDO_USER_API_BROWSER", "无法打开系统浏览器");
+                            if (!openSystemBrowser(activity, verificationUrl)) {
+                                finishFailure(callback, "LINUXDO_USER_API_BROWSER", "无法打开系统浏览器，请检查默认浏览器是否可用");
+                                return;
                             }
+                            callback.onPending(verificationUrl, expiresIn);
+                            if (authenticating.get()) startPolling(callback, interval);
                         });
                     } catch (Exception error) {
                         finishFailure(callback, "LINUXDO_USER_API_PROTOCOL", "无法解析 Linux.do 授权信息");
@@ -499,6 +495,20 @@ final class LinuxDoUserApiAuth {
 
     private SharedPreferences preferences() {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    private static boolean openSystemBrowser(Activity activity, String url) {
+        try {
+            Uri uri = Uri.parse(url);
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) return false;
+            Intent intent = new Intent(Intent.ACTION_VIEW, uri);
+            intent.addCategory(Intent.CATEGORY_BROWSABLE);
+            if (intent.resolveActivity(activity.getPackageManager()) == null) return false;
+            activity.startActivity(intent);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private void finishSuccess(AuthCallback callback, Credential credential) {

@@ -1,6 +1,9 @@
+import { Browser } from '@capacitor/browser'
 import { ArrowLeft, Bookmark, Heart, ImagePlus, Loader2, MessageCircle, Pencil, Quote, Rocket, Send, Trash2, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject } from 'react'
 
+import { ImageLightbox } from '../../../components/ImageLightbox'
+import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
 import { markdownToSafeHtml } from '../../../lib/markdown'
 import {
   linuxDoDiscovery,
@@ -17,8 +20,35 @@ import type {
   LinuxDoTopic,
   LinuxDoTopicSummary,
 } from '../types'
+import { decodeTagNames } from '../api/decode'
 import { LinuxDoApiError } from '../types'
 import { ago, avatar, compact, readableError } from './utils'
+
+async function openExternal(url: string): Promise<void> {
+  try {
+    await Browser.open({ url })
+  } catch {
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+}
+
+function LinuxDoPostBody({ html, onClick }: { html: string; onClick: (event: ReactMouseEvent<HTMLDivElement>) => void }) {
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  useProgressiveImages(rootRef, html, Boolean(html), {
+    autoLoad: true,
+    forceNativeFallback: true,
+    imageReferer: 'https://linux.do/',
+  })
+
+  return (
+    <div
+      ref={rootRef}
+      className="reader-prose linuxdo-post-prose mt-4 text-paper"
+      onClick={onClick}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  )
+}
 
 export function LinuxDoComposer({
   open,
@@ -87,7 +117,7 @@ export function LinuxDoComposer({
           setRaw((previous) => previous || snapshot.data?.reply || '')
           setTitle((previous) => previous || snapshot.data?.title || '')
           setCategoryId((previous) => previous ?? snapshot.data?.categoryId)
-          setSelectedTags((previous) => previous.length ? previous : snapshot.data?.tags || [])
+          setSelectedTags((previous) => previous.length ? previous : decodeTagNames(snapshot.data?.tags || []))
         }
       }).catch(() => undefined)
     }
@@ -295,6 +325,7 @@ export function LinuxDoTopicView({
   onCompose,
   onBoost,
   onOpenUser,
+  onOpenTopic,
   onEdit,
   targetPostNumber,
   postMutation,
@@ -306,6 +337,7 @@ export function LinuxDoTopicView({
   onCompose: (topic: LinuxDoTopic, options?: { initialRaw?: string; replyToPostNumber?: number }) => void
   onBoost: (post: LinuxDoPost) => void
   onOpenUser: (username: string) => void
+  onOpenTopic: (topic: LinuxDoTopicSummary, targetPostNumber?: number) => void
   onEdit: (topic: LinuxDoTopic, post: LinuxDoPost) => void
   targetPostNumber?: number
   postMutation?: LinuxDoPost
@@ -316,17 +348,9 @@ export function LinuxDoTopicView({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
   const [loadingPosts, setLoadingPosts] = useState(false)
-  const [viewerSrc, setViewerSrc] = useState('')
+  const [jumpingPostNumber, setJumpingPostNumber] = useState<number | undefined>()
+  const [lightbox, setLightbox] = useState<{ src: string; actionSrc?: string; alt: string } | null>(null)
   const [returnPostNumber, setReturnPostNumber] = useState<number | undefined>()
-
-  useEffect(() => {
-    overlayBackHandlerRef.current = () => {
-      if (!viewerSrc) return false
-      setViewerSrc('')
-      return true
-    }
-    return () => { overlayBackHandlerRef.current = null }
-  }, [overlayBackHandlerRef, viewerSrc])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -370,6 +394,7 @@ export function LinuxDoTopicView({
 
   const jumpToPost = useCallback(async (postNumber: number, fromPostNumber?: number) => {
     if (fromPostNumber) setReturnPostNumber(fromPostNumber)
+    setJumpingPostNumber(postNumber)
     if (!posts.some((post) => post.postNumber === postNumber)) {
       try {
         const windowTopic = await linuxDoTopics.get(summary.slug, summary.id, postNumber)
@@ -380,10 +405,14 @@ export function LinuxDoTopicView({
         })
       } catch (nextError) {
         setError(nextError)
+        setJumpingPostNumber(undefined)
         return
       }
     }
-    window.setTimeout(() => document.getElementById('linuxdo-post-' + postNumber)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80)
+    window.setTimeout(() => {
+      document.getElementById('linuxdo-post-' + postNumber)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setJumpingPostNumber(undefined)
+    }, 80)
   }, [posts, summary.id, summary.slug])
 
   return (
@@ -418,7 +447,7 @@ export function LinuxDoTopicView({
         setLoadingPosts(true)
         void linuxDoTopics.loadPosts(topic.id, remaining).then((extra) => setPosts((previous) => previous.concat(extra).sort((a, b) => a.postNumber - b.postNumber))).finally(() => setLoadingPosts(false))
       }}>
-        {loading ? <div className="flex justify-center py-24 text-paper-faint"><Loader2 className="animate-spin" /></div> : null}
+        {loading ? <div className="space-y-3 py-5">{Array.from({ length: 4 }, (_, index) => <div key={index} className="rounded-[22px] border border-haze/50 bg-ink-raised/35 p-4"><div className="flex items-center gap-3"><div className="h-9 w-9 animate-pulse rounded-full bg-paper/[0.07]" /><div className="flex-1"><div className="h-3 w-28 animate-pulse rounded bg-paper/[0.07]" /><div className="mt-2 h-2.5 w-20 animate-pulse rounded bg-paper/[0.045]" /></div></div><div className="mt-5 h-3 w-[92%] animate-pulse rounded bg-paper/[0.06]" /><div className="mt-3 h-3 w-[76%] animate-pulse rounded bg-paper/[0.05]" /><div className="mt-3 h-32 animate-pulse rounded-2xl bg-paper/[0.035]" /></div>)}</div> : null}
         {error ? <div className="py-24 text-center text-[13px] text-paper-muted">{readableError(error)}</div> : null}
         {topic ? (
           <>
@@ -441,26 +470,62 @@ export function LinuxDoTopicView({
                       </button>
                       <span className="font-mono text-[10px] text-paper-faint">{'#' + post.postNumber}</span>
                     </header>
-                    <div className="reader-prose linuxdo-post-prose mt-4 text-paper" onClick={(event) => {
+                    <LinuxDoPostBody html={post.cooked} onClick={(event) => {
                       const target = event.target as HTMLElement
                       if (target instanceof HTMLImageElement && target.src) {
-                        setViewerSrc(target.src)
+                        if (target.dataset.linuxdoRole === 'emoji') return
+                        setLightbox({
+                          src: target.src,
+                          actionSrc: target.dataset.linuxdoOriginalSrc || target.src,
+                          alt: target.alt || post.topicTitle || topic.title,
+                        })
                         return
                       }
                       const link = target.closest('a') as HTMLAnchorElement | null
                       if (!link?.href) return
                       try {
                         const url = new URL(link.href, 'https://linux.do')
-                        if (url.hostname !== 'linux.do') return
-                        const match = url.pathname.match(/^\/t\/(?:[^/]+\/)?(\d+)\/(\d+)/)
-                        if (!match || Number(match[1]) !== topic.id) return
+                        if (url.protocol !== 'https:' && url.protocol !== 'http:') return
                         event.preventDefault()
-                        void jumpToPost(Number(match[2]), post.postNumber)
+
+                        if (url.hostname === 'linux.do') {
+                          const topicMatch = url.pathname.match(/^\/t\/(?:([^/]+)\/)?(\d+)(?:\/(\d+))?/)
+                          if (topicMatch) {
+                            const targetTopicId = Number(topicMatch[2])
+                            const targetPost = topicMatch[3] ? Number(topicMatch[3]) : undefined
+                            if (targetTopicId === topic.id && targetPost) {
+                              void jumpToPost(targetPost, post.postNumber)
+                            } else {
+                              onOpenTopic({
+                                id: targetTopicId,
+                                slug: topicMatch[1] || 'topic',
+                                title: link.textContent?.trim() || 'Linux.do 主题',
+                                postsCount: 0,
+                                replyCount: 0,
+                                views: 0,
+                                likeCount: 0,
+                                createdAt: '',
+                                lastPostedAt: '',
+                                tags: [],
+                                posters: [],
+                              }, targetPost)
+                            }
+                            return
+                          }
+
+                          const userMatch = url.pathname.match(/^\/u\/([^/?#]+)/)
+                          if (userMatch) {
+                            onOpenUser(decodeURIComponent(userMatch[1]))
+                            return
+                          }
+                        }
+
+                        void openExternal(url.toString())
                       } catch {
-                        // Leave non-topic links to the browser.
+                        // Invalid links remain inert instead of navigating the app WebView.
                       }
-                    }} dangerouslySetInnerHTML={{ __html: post.cooked }} />
-                    <footer className="linuxdo-control mt-4 flex items-center gap-1.5 border-t border-haze/40 pt-3 select-none">
+                    }} />
+                    <footer className="linuxdo-control mt-4 flex flex-wrap items-center gap-1.5 border-t border-haze/40 pt-3 select-none">
                       <button type="button" disabled={!session.authenticated} onClick={async () => {
                         try {
                           if (like?.acted) {
@@ -510,12 +575,14 @@ export function LinuxDoTopicView({
                   </article>
                 )
               })}
+              {loadingPosts ? <div className="flex items-center justify-center gap-2 py-5 text-[10.5px] text-paper-faint" role="status" aria-live="polite"><Loader2 size={15} className="animate-spin" />正在加载更多回复</div> : null}
             </div>
           </>
         ) : null}
       </div>
+      {jumpingPostNumber ? <div className="pointer-events-none absolute bottom-[calc(max(10px,var(--sab))+118px)] left-1/2 z-30 -translate-x-1/2 rounded-full border border-haze bg-ink-raised/95 px-3 py-2 text-[10px] text-paper-muted shadow-xl"><span className="inline-flex items-center gap-2"><Loader2 size={13} className="animate-spin" />正在定位 #{jumpingPostNumber}</span></div> : null}
       {returnPostNumber ? <button type="button" onClick={() => { const target = returnPostNumber; setReturnPostNumber(undefined); void jumpToPost(target) }} className="linuxdo-control absolute bottom-[calc(max(10px,var(--sab))+72px)] right-4 z-30 rounded-full border border-haze bg-ink-raised/95 px-3 py-2 text-[10.5px] text-paper shadow-xl">返回引用处 #{returnPostNumber}</button> : null}
-      {viewerSrc ? <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 p-4" onClick={() => setViewerSrc('')}><button type="button" className="linuxdo-control absolute right-4 top-[max(16px,var(--sat))] grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white"><X size={18} /></button><img src={viewerSrc} alt="" className="max-h-full max-w-full rounded-xl object-contain" /></div> : null}
+      {lightbox ? <ImageLightbox src={lightbox.src} actionSrc={lightbox.actionSrc} alt={lightbox.alt} onClose={() => setLightbox(null)} overlayCloserRef={overlayBackHandlerRef} /> : null}
     </div>
   )
 }

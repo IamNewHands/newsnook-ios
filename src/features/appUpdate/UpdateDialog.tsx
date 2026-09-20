@@ -16,10 +16,11 @@ type Props = {
   onUpdate: () => void
   onLater: () => void
   onSkip: () => void
+  allowPermanentSkip?: boolean
 }
 
 /** 发现新版本弹框：立即更新 / 稍后 / 跳过此版本 */
-export function UpdateDialog({ open, release, localVersion, onUpdate, onLater, onSkip }: Props) {
+export function UpdateDialog({ open, release, localVersion, onUpdate, onLater, onSkip, allowPermanentSkip = false }: Props) {
   useHardwareBackLayer(open && Boolean(release), () => {
     onLater()
     return true
@@ -52,21 +53,27 @@ export function UpdateDialog({ open, release, localVersion, onUpdate, onLater, o
         </div>
         <div className="mt-5 flex items-center justify-end gap-2.5">
           <button type="button" onClick={onLater} className={DIALOG_CANCEL_CLASS}>
-            稍后
+            稍后提醒
           </button>
           <button type="button" onClick={onUpdate} className={DIALOG_CONFIRM_CLASS}>
             立即更新
           </button>
         </div>
-        <div className="mt-3 text-center">
-          <button
-            type="button"
-            onClick={onSkip}
-            className="font-mono text-[11px] text-paper-faint transition-colors hover:text-paper-muted"
-          >
-            跳过此版本
-          </button>
-        </div>
+        {allowPermanentSkip ? (
+          <div className="mt-3 text-center">
+            <button
+              type="button"
+              onClick={onSkip}
+              className="font-mono text-[11px] text-paper-faint transition-colors hover:text-paper-muted"
+            >
+              不再提醒此版本
+            </button>
+          </div>
+        ) : (
+          <p className="mt-3 text-center font-mono text-[10px] leading-relaxed text-paper-faint">
+            稍后仍可从“我的 → 关于 → 检查更新”继续更新
+          </p>
+        )}
       </div>
     </div>
   )

@@ -278,6 +278,10 @@ export function sanitizeArticleHtml(html: string): string {
       'data-source-page',
       'data-related-title',
       'data-reader-image-fallbacks',
+      // Linux.do / Discourse: source classes are removed, so trusted semantic
+      // roles are converted to this app-owned marker before sanitization.
+      'data-linuxdo-role',
+      'data-linuxdo-original-src',
       // 知乎段评：只保留本地注入的服务端 segment 元数据，供阅读层打开段评/点赞。
       'data-zhihu-segment-id',
       'data-zhihu-content-id',

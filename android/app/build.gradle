@@ -138,7 +138,6 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation "androidx.webkit:webkit:$androidxWebkitVersion"
-    implementation "androidx.browser:browser:1.9.0"
     implementation "com.squareup.okhttp3:okhttp:$okhttpVersion"
     implementation project(':capacitor-android')
     localImplementation 'com.google.mlkit:translate:17.0.3'

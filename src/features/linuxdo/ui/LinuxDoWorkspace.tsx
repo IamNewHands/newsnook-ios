@@ -65,6 +65,7 @@ function FeedView({
 }) {
   const [items, setItems] = useState<LinuxDoTopicSummary[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [categoryNames, setCategoryNames] = useState<Record<number, string>>({})
@@ -82,8 +83,10 @@ function FeedView({
       setLoading(false)
       return
     }
-    if (reset) setLoading(true)
-    else setLoadingMore(true)
+    if (reset) {
+      if (cacheRef.current[mode].items.length) setRefreshing(true)
+      else setLoading(true)
+    } else setLoadingMore(true)
     setError(null)
     try {
       const page = reset ? 0 : pageRef.current + 1
@@ -100,6 +103,7 @@ function FeedView({
       setError(nextError)
     } finally {
       setLoading(false)
+      setRefreshing(false)
       setLoadingMore(false)
     }
   }, [mode, session.authenticated, cacheRef])
@@ -162,13 +166,13 @@ function FeedView({
               </button>
             ))}
           </div>
-          <button type="button" onClick={() => void load(true)} className="linuxdo-control grid h-9 w-9 shrink-0 place-items-center rounded-full border border-haze/70 text-paper-muted hover:bg-paper/8 hover:text-paper" aria-label="刷新">
-            <RefreshCcw size={14} />
+          <button type="button" disabled={refreshing || loading} onClick={() => void load(true)} className="linuxdo-control grid h-9 w-9 shrink-0 place-items-center rounded-full border border-haze/70 text-paper-muted hover:bg-paper/8 hover:text-paper disabled:opacity-55" aria-label={refreshing ? '正在刷新' : '刷新'}>
+            <RefreshCcw size={14} className={refreshing ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
 
-      {pullDistance > 0 ? <div className="pointer-events-none flex justify-center overflow-hidden text-[10px] text-paper-faint transition-[height]" style={{ height: pullDistance }}>{pullDistance >= 54 ? '松手刷新' : '下拉刷新'}</div> : null}
+      {pullDistance > 0 || refreshing ? <div className="pointer-events-none flex items-center justify-center gap-2 overflow-hidden text-[10px] text-paper-faint transition-[height]" style={{ height: refreshing ? 34 : pullDistance }}>{refreshing ? <><Loader2 size={13} className="animate-spin" /><span>正在刷新最新主题</span></> : pullDistance >= 54 ? '松手刷新' : '下拉刷新'}</div> : null}
       <div
         ref={scrollerRef}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain page-x pb-28 pt-3"
@@ -194,7 +198,7 @@ function FeedView({
           </div>
         ) : (
           <div className="space-y-3">
-            {items.map((topic) => <TopicCard key={topic.id} topic={topic} categoryName={topic.categoryId ? categoryNames[topic.categoryId] : undefined} onOpen={() => onOpen(topic)} />)}
+            {items.map((topic, index) => <div key={topic.id} className="linuxdo-card-in" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }}><TopicCard topic={topic} categoryName={topic.categoryId ? categoryNames[topic.categoryId] : undefined} onOpen={() => onOpen(topic)} /></div>)}
             {loadingMore ? <div className="flex justify-center py-5 text-paper-faint"><Loader2 size={17} className="animate-spin" /></div> : null}
           </div>
         )}
@@ -293,7 +297,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
         {route.kind === 'feed' ? (
           <FeedView mode={route.mode} session={session} cacheRef={feedCacheRef} onMode={(mode) => setRoute({ kind: 'feed', mode })} onOpen={(topic) => navigate({ kind: 'topic', topic })} onVerify={() => void verify()} />
         ) : route.kind === 'topic' ? (
-          <LinuxDoTopicView summary={route.topic} session={session} targetPostNumber={route.targetPostNumber} postMutation={topicPostMutation} overlayBackHandlerRef={topicOverlayBackHandlerRef} onBack={() => { if (!goBack()) setRoute({ kind: 'feed', mode: 'latest' }) }} onCompose={(topic, options) => { setComposerTopic(topic); setComposerEditPost(undefined); setComposerInitialRaw(options?.initialRaw || ''); setComposerReplyTo(options?.replyToPostNumber); setComposerOpen(true) }} onBoost={setBoostPost} onOpenUser={(username) => navigate({ kind: 'user', username })} onEdit={(topic, post) => {
+          <LinuxDoTopicView summary={route.topic} session={session} targetPostNumber={route.targetPostNumber} postMutation={topicPostMutation} overlayBackHandlerRef={topicOverlayBackHandlerRef} onBack={() => { if (!goBack()) setRoute({ kind: 'feed', mode: 'latest' }) }} onCompose={(topic, options) => { setComposerTopic(topic); setComposerEditPost(undefined); setComposerInitialRaw(options?.initialRaw || ''); setComposerReplyTo(options?.replyToPostNumber); setComposerOpen(true) }} onBoost={setBoostPost} onOpenUser={(username) => navigate({ kind: 'user', username })} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onEdit={(topic, post) => {
             setComposerTopic(topic)
             setComposerReplyTo(undefined)
             const openEditor = (raw: string) => { setComposerEditPost({ ...post, raw }); setComposerInitialRaw(raw); setComposerOpen(true) }
@@ -336,7 +340,6 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
 
       {boostPost ? <LinuxDoBoostComposer post={boostPost} onClose={() => setBoostPost(null)} /> : null}
 
-      <style>{'.linuxdo-control,.linuxdo-control *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}.linuxdo-post-prose,.linuxdo-post-prose *{-webkit-user-select:text;user-select:text}.linuxdo-post-prose img{max-width:100%;height:auto;border-radius:14px}.linuxdo-post-prose pre{max-width:100%;overflow-x:auto;white-space:pre}.linuxdo-post-prose code{overflow-wrap:anywhere}.linuxdo-post-prose blockquote{margin:12px 0;border-left:2px solid rgba(198,70,52,.55);background:rgba(255,255,255,.035);border-radius:0 12px 12px 0;padding:10px 12px}@media(min-width:1024px){.linuxdo-workspace .page-x{width:100%;max-width:1040px;margin-inline:auto}.linuxdo-workspace .linuxdo-bottom-nav{left:50%;right:auto;width:min(540px,calc(100% - 32px));transform:translateX(-50%)}}'}</style>
     </div>
   )
 }

@@ -10,6 +10,26 @@ import { sanitizeLinuxDoCooked } from '../content/sanitize'
 
 type Json = Record<string, any>
 
+function tagName(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    const normalized = value.trim()
+    if (!normalized || /^\[object\s+Object\]$/i.test(normalized)) return undefined
+    return normalized
+  }
+  if (!value || typeof value !== 'object') return undefined
+  const tag = value as Json
+  for (const candidate of [tag.name, tag.text, tag.id, tag.slug]) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim()
+  }
+  return undefined
+}
+
+export function decodeTagNames(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const names = value.map(tagName).filter((name): name is string => Boolean(name))
+  return Array.from(new Set(names))
+}
+
 function avatar(template: unknown): string | undefined {
   return typeof template === 'string' ? 'https://linux.do' + template.replace('{size}', '96') : undefined
 }
@@ -46,7 +66,7 @@ export function decodeTopics(input: unknown): LinuxDoTopicSummary[] {
     createdAt: String(topic.created_at ?? ''),
     lastPostedAt: String(topic.last_posted_at ?? topic.created_at ?? ''),
     categoryId: typeof topic.category_id === 'number' ? topic.category_id : undefined,
-    tags: Array.isArray(topic.tags) ? topic.tags.map(String) : [],
+    tags: decodeTagNames(topic.tags),
     posters: Array.isArray(topic.posters) ? topic.posters.map((p: Json) => {
       const u = users.get(Number(p.user_id))
       return { userId: p.user_id, username: u?.username, avatarTemplate: avatar(u?.avatar_template), description: p.description }
@@ -97,7 +117,7 @@ export function decodeTopic(input: unknown): LinuxDoTopic {
     title: String(root.title ?? ''),
     fancyTitle: typeof root.fancy_title === 'string' ? root.fancy_title : undefined,
     categoryId: typeof root.category_id === 'number' ? root.category_id : undefined,
-    tags: Array.isArray(root.tags) ? root.tags.map(String) : [],
+    tags: decodeTagNames(root.tags),
     postsCount: Number(root.posts_count ?? 0),
     views: Number(root.views ?? 0),
     likeCount: Number(root.like_count ?? 0),

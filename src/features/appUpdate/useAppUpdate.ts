@@ -44,6 +44,7 @@ export function useAppUpdate({ settingsOpen }: Options) {
   const [trackPickerOpen, setTrackPickerOpen] = useState(false)
   const [betaConfirmOpen, setBetaConfirmOpen] = useState(false)
   const [dialogRelease, setDialogRelease] = useState<LatestReleaseInfo | null>(null)
+  const [dialogOrigin, setDialogOrigin] = useState<'auto' | 'manual'>('auto')
   const [installPermissionOpen, setInstallPermissionOpen] = useState(false)
   const [pendingAfterPermission, setPendingAfterPermission] = useState<LatestReleaseInfo | null>(
     null,
@@ -81,9 +82,10 @@ export function useAppUpdate({ settingsOpen }: Options) {
   const downloadingRef = useRef(downloading)
   const updateTrackRef = useRef(updateTrack)
   const checkGenerationRef = useRef(0)
-  const showReleaseRef = useRef<(release: LatestReleaseInfo, options?: { force?: boolean }) => void>(
-    () => {},
-  )
+  const showReleaseRef = useRef<(
+    release: LatestReleaseInfo,
+    options?: { force?: boolean; origin?: 'auto' | 'manual' },
+  ) => void>(() => {})
 
   settingsOpenRef.current = settingsOpen
   downloadingRef.current = downloading
@@ -110,11 +112,12 @@ export function useAppUpdate({ settingsOpen }: Options) {
   }, [supported])
 
   const showRelease = useCallback(
-    (release: LatestReleaseInfo, options?: { force?: boolean }) => {
+    (release: LatestReleaseInfo, options?: { force?: boolean; origin?: 'auto' | 'manual' }) => {
       if (settingsOpen && !options?.force) {
         pendingWhileSettings.current = release
         return
       }
+      setDialogOrigin(options?.origin ?? 'auto')
       setDialogRelease(release)
     },
     [settingsOpen],
@@ -126,6 +129,7 @@ export function useAppUpdate({ settingsOpen }: Options) {
     const pending = pendingWhileSettings.current
     if (pending) {
       pendingWhileSettings.current = null
+      setDialogOrigin('auto')
       setDialogRelease(pending)
     }
   }, [settingsOpen, supported])
@@ -157,7 +161,7 @@ export function useAppUpdate({ settingsOpen }: Options) {
           } else {
             setAvailableVersion(undefined)
           }
-          if (shouldPrompt) showReleaseRef.current(result.release)
+          if (shouldPrompt) showReleaseRef.current(result.release, { origin: 'auto' })
         } else if (result.status === 'up-to-date') {
           setAvailableVersion(undefined)
         }
@@ -253,12 +257,20 @@ export function useAppUpdate({ settingsOpen }: Options) {
   }, [closeDialog, dialogRelease])
 
   const onSkip = useCallback(() => {
+    // Permanent ignore is only valid after an explicit manual update check.
+    // Cold-start prompts may be dismissed by accessibility/ad-skip automation;
+    // that must never be interpreted as a durable user preference.
+    if (dialogOrigin !== 'manual') {
+      if (dialogRelease) saveSnooze(Date.now(), dialogRelease.subscriptionTrack)
+      closeDialog()
+      return
+    }
     if (dialogRelease) {
       saveSkippedVersion(dialogRelease.version, dialogRelease.subscriptionTrack)
       setAvailableVersion(undefined)
     }
     closeDialog()
-  }, [closeDialog, dialogRelease])
+  }, [closeDialog, dialogOrigin, dialogRelease])
 
   const startDownload = useCallback(
     async (release: LatestReleaseInfo) => {
@@ -313,7 +325,7 @@ export function useAppUpdate({ settingsOpen }: Options) {
       if (result.status === 'available') {
         setManualStatus('idle')
         setAvailableVersion(result.release.version)
-        showRelease(result.release, { force: true })
+        showRelease(result.release, { force: true, origin: 'manual' })
         return
       }
       if (result.status === 'up-to-date') {
@@ -483,6 +495,7 @@ export function useAppUpdate({ settingsOpen }: Options) {
     supported,
     dialogRelease,
     dialogOpen: dialogRelease != null,
+    dialogOrigin,
     localVersion: __APP_VERSION__,
     hasUpdate,
     availableVersion,
