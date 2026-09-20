@@ -1,0 +1,145 @@
+import type {
+  LinuxDoCategory,
+  LinuxDoNotification,
+  LinuxDoPost,
+  LinuxDoTopic,
+  LinuxDoTopicSummary,
+  LinuxDoUser,
+} from '../types'
+import { sanitizeLinuxDoCooked } from '../content/sanitize'
+
+type Json = Record<string, any>
+
+function avatar(template: unknown): string | undefined {
+  return typeof template === 'string' ? 'https://linux.do' + template.replace('{size}', '96') : undefined
+}
+
+export function decodeCurrentUser(input: unknown): LinuxDoUser | undefined {
+  const root = input as Json
+  const user = (root?.current_user ?? root?.user) as Json | undefined
+  if (!user || typeof user.id !== 'number' || typeof user.username !== 'string') return undefined
+  return {
+    id: user.id,
+    username: user.username,
+    name: typeof user.name === 'string' ? user.name : undefined,
+    avatarTemplate: avatar(user.avatar_template),
+    trustLevel: typeof user.trust_level === 'number' ? user.trust_level : undefined,
+    unreadNotifications: typeof user.unread_notifications === 'number' ? user.unread_notifications : undefined,
+  }
+}
+
+export function decodeTopics(input: unknown): LinuxDoTopicSummary[] {
+  const root = input as Json
+  const list = root?.topic_list?.topics
+  const users = new Map<number, Json>()
+  for (const user of Array.isArray(root?.users) ? root.users : []) if (typeof user?.id === 'number') users.set(user.id, user)
+  if (!Array.isArray(list)) return []
+  return list.filter(Boolean).map((topic: Json) => ({
+    id: Number(topic.id),
+    slug: String(topic.slug ?? ''),
+    title: String(topic.title ?? ''),
+    fancyTitle: typeof topic.fancy_title === 'string' ? topic.fancy_title : undefined,
+    postsCount: Number(topic.posts_count ?? 0),
+    replyCount: Number(topic.reply_count ?? Math.max(0, Number(topic.posts_count ?? 1) - 1)),
+    views: Number(topic.views ?? 0),
+    likeCount: Number(topic.like_count ?? 0),
+    createdAt: String(topic.created_at ?? ''),
+    lastPostedAt: String(topic.last_posted_at ?? topic.created_at ?? ''),
+    categoryId: typeof topic.category_id === 'number' ? topic.category_id : undefined,
+    tags: Array.isArray(topic.tags) ? topic.tags.map(String) : [],
+    posters: Array.isArray(topic.posters) ? topic.posters.map((p: Json) => {
+      const u = users.get(Number(p.user_id))
+      return { userId: p.user_id, username: u?.username, avatarTemplate: avatar(u?.avatar_template), description: p.description }
+    }) : [],
+    unseen: Boolean(topic.unseen),
+    unread: typeof topic.unread === 'number' ? topic.unread : undefined,
+    newPosts: typeof topic.new_posts === 'number' ? topic.new_posts : undefined,
+    pinned: Boolean(topic.pinned),
+    closed: Boolean(topic.closed),
+    archived: Boolean(topic.archived),
+  })).filter((topic: LinuxDoTopicSummary) => Number.isFinite(topic.id) && topic.id > 0)
+}
+
+export function decodePost(post: Json): LinuxDoPost {
+  return {
+    id: Number(post.id),
+    postNumber: Number(post.post_number ?? 0),
+    username: String(post.username ?? ''),
+    name: typeof post.name === 'string' ? post.name : undefined,
+    avatarTemplate: avatar(post.avatar_template),
+    createdAt: String(post.created_at ?? ''),
+    updatedAt: typeof post.updated_at === 'string' ? post.updated_at : undefined,
+    cooked: sanitizeLinuxDoCooked(String(post.cooked ?? '')),
+    raw: typeof post.raw === 'string' ? post.raw : undefined,
+    replyToPostNumber: typeof post.reply_to_post_number === 'number' ? post.reply_to_post_number : undefined,
+    topicId: typeof post.topic_id === 'number' ? post.topic_id : undefined,
+    topicSlug: typeof post.topic_slug === 'string' ? post.topic_slug : typeof post.slug === 'string' ? post.slug : undefined,
+    topicTitle: typeof post.topic_title === 'string' ? post.topic_title : typeof post.blurb === 'string' ? undefined : typeof post.title === 'string' ? post.title : undefined,
+    yours: Boolean(post.yours),
+    canEdit: Boolean(post.can_edit),
+    canDelete: Boolean(post.can_delete),
+    bookmarked: Boolean(post.bookmarked),
+    bookmarkId: typeof post.bookmark_id === 'number' ? post.bookmark_id : undefined,
+    bookmarkName: typeof post.bookmark_name === 'string' ? post.bookmark_name : undefined,
+    bookmarkReminderAt: typeof post.bookmark_reminder_at === 'string' ? post.bookmark_reminder_at : undefined,
+    actions: Array.isArray(post.actions_summary)
+      ? post.actions_summary.map((a: Json) => ({ id: Number(a.id), count: Number(a.count ?? 0), acted: Boolean(a.acted), canAct: a.can_act !== false }))
+      : [],
+  }
+}
+
+export function decodeTopic(input: unknown): LinuxDoTopic {
+  const root = input as Json
+  const stream = root?.post_stream ?? {}
+  return {
+    id: Number(root.id),
+    slug: String(root.slug ?? ''),
+    title: String(root.title ?? ''),
+    fancyTitle: typeof root.fancy_title === 'string' ? root.fancy_title : undefined,
+    categoryId: typeof root.category_id === 'number' ? root.category_id : undefined,
+    tags: Array.isArray(root.tags) ? root.tags.map(String) : [],
+    postsCount: Number(root.posts_count ?? 0),
+    views: Number(root.views ?? 0),
+    likeCount: Number(root.like_count ?? 0),
+    createdAt: String(root.created_at ?? ''),
+    lastPostedAt: String(root.last_posted_at ?? ''),
+    postStream: {
+      stream: Array.isArray(stream.stream) ? stream.stream.map(Number) : [],
+      posts: Array.isArray(stream.posts) ? stream.posts.map(decodePost) : [],
+    },
+    details: root.details ? {
+      canCreatePost: Boolean(root.details.can_create_post),
+      notificationLevel: typeof root.details.notification_level === 'number' ? root.details.notification_level : undefined,
+    } : undefined,
+  }
+}
+
+export function decodeCategories(input: unknown): LinuxDoCategory[] {
+  const list = (input as Json)?.category_list?.categories
+  if (!Array.isArray(list)) return []
+  return list.map((c: Json) => ({
+    id: Number(c.id),
+    name: String(c.name ?? ''),
+    slug: String(c.slug ?? ''),
+    color: typeof c.color === 'string' ? c.color : undefined,
+    textColor: typeof c.text_color === 'string' ? c.text_color : undefined,
+    topicCount: typeof c.topic_count === 'number' ? c.topic_count : undefined,
+    description: typeof c.description_text === 'string' ? c.description_text : undefined,
+  }))
+}
+
+export function decodeNotifications(input: unknown): LinuxDoNotification[] {
+  const list = (input as Json)?.notifications
+  if (!Array.isArray(list)) return []
+  return list.map((n: Json) => ({
+    id: Number(n.id),
+    notificationType: Number(n.notification_type ?? 0),
+    read: Boolean(n.read),
+    createdAt: String(n.created_at ?? ''),
+    postNumber: typeof n.post_number === 'number' ? n.post_number : undefined,
+    topicId: typeof n.topic_id === 'number' ? n.topic_id : undefined,
+    fancyTitle: typeof n.fancy_title === 'string' ? n.fancy_title : undefined,
+    slug: typeof n.slug === 'string' ? n.slug : undefined,
+    data: n.data && typeof n.data === 'object' ? n.data : {},
+  }))
+}

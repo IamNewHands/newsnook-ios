@@ -1,7 +1,7 @@
 {
   "name": "web",
   "private": true,
-  "version": "1.8.8-beta.6",
+  "version": "1.8.8-beta.7",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "workspaces": [
@@ -109,6 +109,7 @@
     "test:zhihu-segments": "npx tsx scripts/zhihu-segments.test.ts",
     "test:zhihu-cache": "npx tsx scripts/zhihu-cache.test.ts",
     "test:zhihu": "npx tsx scripts/zhihu.test.ts",
+    "test:linuxdo": "npx tsx scripts/linuxdo.test.ts",
     "test:cloudflare-routing": "npx tsx scripts/cloudflare-routing.test.ts",
     "test:config-backup": "rolldown scripts/config-backup.test.ts --platform=node --format=esm --file=node_modules/.cache/newsnook/config-backup.test.mjs && node node_modules/.cache/newsnook/config-backup.test.mjs",
     "test:product-tour": "npx tsx scripts/product-tour.test.ts",

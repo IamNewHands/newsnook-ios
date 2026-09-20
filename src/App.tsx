@@ -166,6 +166,12 @@ const ZhihuWorkspace = lazy(() =>
   })),
 )
 
+const LinuxDoWorkspace = lazy(() =>
+  import('./features/linuxdo/ui/LinuxDoWorkspace').then((module) => ({
+    default: module.LinuxDoWorkspace,
+  })),
+)
+
 const DEFAULT_ENABLED = SOURCES.filter((source) => source.enabled).map((source) => source.id)
 
 function emptyCacheSnapshot() {
@@ -1655,6 +1661,20 @@ export default function App() {
                   update((prev) => updateTypography(prev, { fontScale: next }))
                 }
                 speedReadConfig={speedReadConfig}
+              />
+            </Suspense>
+          ) : activeSiteId === 'linuxdo' ? (
+            <Suspense
+              fallback={
+                <div role="status" className="flex h-full items-center justify-center font-mono text-[12px] text-paper-faint">
+                  正在打开 Linux.do 工作区…
+                </div>
+              }
+            >
+              <LinuxDoWorkspace
+                onExit={leaveActiveSite}
+                backHandlerRef={siteBackHandlerRef}
+                presetSwitcher={presetSwitcherConfig}
               />
             </Suspense>
           ) : (

@@ -1,4 +1,4 @@
-export type SiteId = 'zhihu'
+export type SiteId = 'zhihu' | 'linuxdo'
 
 export interface SiteDescriptor {
   id: SiteId

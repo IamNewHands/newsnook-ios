@@ -18,6 +18,17 @@ export const SITES: readonly SiteDescriptor[] = [
       authenticated: false,
     },
   },
+  {
+    id: 'linuxdo',
+    name: 'Linux.do',
+    description: 'Discourse 社区专属工作区 · 信息流、主题、分类、标签与互动',
+    origin: 'https://linux.do',
+    adapterId: 'linuxdo',
+    capabilities: {
+      publicRead: true,
+      authenticated: true,
+    },
+  },
 ] as const
 
 export function findSite(id: string | null | undefined): SiteDescriptor | undefined {

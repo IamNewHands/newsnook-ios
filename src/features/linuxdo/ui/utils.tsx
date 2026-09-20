@@ -1,0 +1,34 @@
+import type { ReactNode } from 'react'
+
+import { LinuxDoApiError } from '../types'
+
+export function compact(value: number): string {
+  if (value < 1000) return String(value)
+  return (value / 1000).toFixed(value < 10000 ? 1 : 0).replace('.0', '') + 'k'
+}
+
+export function ago(value: string): string {
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) return ''
+  const minutes = Math.max(1, Math.floor((Date.now() - timestamp) / 60000))
+  if (minutes < 60) return String(minutes) + ' 分钟前'
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return String(hours) + ' 小时前'
+  const days = Math.floor(hours / 24)
+  if (days < 30) return String(days) + ' 天前'
+  return new Date(timestamp).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+}
+
+export function readableError(error: unknown): string {
+  if (error instanceof LinuxDoApiError && error.kind === 'rate-limited' && error.retryAfterSeconds !== undefined) {
+    return '请求过于频繁，请在 ' + Math.max(1, Math.ceil(error.retryAfterSeconds)) + ' 秒后重试'
+  }
+  if (error instanceof Error) return error.message
+  return '加载失败'
+}
+
+export function avatar(url?: string, name?: string): ReactNode {
+  if (url) return <img src={url} alt="" className="h-full w-full object-cover" />
+  return <span className="text-[12px] font-semibold text-paper-muted">{(name || '?').slice(0, 1).toUpperCase()}</span>
+}
+

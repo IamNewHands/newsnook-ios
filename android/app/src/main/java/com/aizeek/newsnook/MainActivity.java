@@ -272,6 +272,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AppUpdatePlugin.class);
         registerPlugin(SecureStorePlugin.class);
         registerPlugin(ZhihuSessionPlugin.class);
+        registerPlugin(LinuxDoSessionPlugin.class);
         registerPlugin(SyncNotificationPlugin.class);
         bridgeBuilder.addWebViewListener(
             new WebViewListener() {
