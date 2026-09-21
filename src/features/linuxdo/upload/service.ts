@@ -11,6 +11,29 @@ export interface LinuxDoUpload {
   height?: number
 }
 
+export type LinuxDoUploadBatchState = 'queued' | 'uploading' | 'success' | 'error'
+
+export interface LinuxDoUploadBatchProgress {
+  index: number
+  file: File
+  state: LinuxDoUploadBatchState
+  progress: number
+  upload?: LinuxDoUpload
+  error?: string
+}
+
+export interface LinuxDoUploadBatchResult {
+  file: File
+  upload?: LinuxDoUpload
+  error?: string
+}
+
+// Discourse's client setting `simultaneous_uploads` defaults to 15. NewsNook
+// keeps the same batch ceiling while limiting active native uploads to three so
+// a mobile WebView does not stage/encode too many large files at once.
+export const LINUXDO_UPLOAD_BATCH_LIMIT = 15
+export const LINUXDO_UPLOAD_CONCURRENCY = 3
+
 function absoluteUrl(value: string): string {
   if (!value.trim()) return ''
   try {
@@ -19,6 +42,29 @@ function absoluteUrl(value: string): string {
   } catch {
     return ''
   }
+}
+
+export async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (!items.length) return []
+  const limit = Math.max(1, Math.min(Math.floor(concurrency) || 1, items.length))
+  const results = new Array<R>(items.length)
+  let cursor = 0
+
+  const runWorker = async () => {
+    while (true) {
+      const index = cursor
+      cursor += 1
+      if (index >= items.length) return
+      results[index] = await worker(items[index], index)
+    }
+  }
+
+  await Promise.all(Array.from({ length: limit }, () => runWorker()))
+  return results
 }
 
 export class LinuxDoUploadService {
@@ -41,6 +87,38 @@ export class LinuxDoUploadService {
       width: typeof payload?.width === 'number' ? payload.width : undefined,
       height: typeof payload?.height === 'number' ? payload.height : undefined,
     }
+  }
+
+  async uploadMany(
+    files: File[],
+    options: {
+      concurrency?: number
+      onProgress?: (event: LinuxDoUploadBatchProgress) => void
+    } = {},
+  ): Promise<LinuxDoUploadBatchResult[]> {
+    if (!files.length) return []
+    if (files.length > LINUXDO_UPLOAD_BATCH_LIMIT) {
+      throw new Error(`一次最多选择 ${LINUXDO_UPLOAD_BATCH_LIMIT} 个文件，请分批上传`)
+    }
+
+    return mapWithConcurrency(
+      files,
+      options.concurrency ?? LINUXDO_UPLOAD_CONCURRENCY,
+      async (file, index) => {
+        options.onProgress?.({ index, file, state: 'uploading', progress: 0 })
+        try {
+          const upload = await this.upload(file, (progress) => {
+            options.onProgress?.({ index, file, state: 'uploading', progress })
+          })
+          options.onProgress?.({ index, file, state: 'success', progress: 1, upload })
+          return { file, upload }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          options.onProgress?.({ index, file, state: 'error', progress: 1, error: message })
+          return { file, error: message }
+        }
+      },
+    )
   }
 
   markdown(upload: LinuxDoUpload, file: File): string {

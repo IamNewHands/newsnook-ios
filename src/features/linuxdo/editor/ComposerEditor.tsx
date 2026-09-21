@@ -1,5 +1,6 @@
 import {
   Bold,
+  CheckCircle2,
   Code2,
   Eye,
   Heading2,
@@ -13,6 +14,7 @@ import {
   Quote,
   Redo2,
   Strikethrough,
+  TriangleAlert,
   Undo2,
 } from 'lucide-react'
 import { forwardRef, useImperativeHandle, useRef, type KeyboardEvent, type ReactNode } from 'react'
@@ -38,6 +40,14 @@ export interface ComposerEditorHandle {
   focus: () => void
 }
 
+export interface ComposerUploadVisualItem {
+  id: string
+  name: string
+  size: number
+  state: 'queued' | 'uploading' | 'success' | 'error'
+  progress: number
+}
+
 interface ComposerEditorProps {
   value: string
   onChange: (value: string) => void
@@ -45,8 +55,7 @@ interface ComposerEditorProps {
   onPreviewChange: (preview: boolean) => void
   placeholder: string
   uploading: boolean
-  uploadProgress: number
-  uploadLabel: string
+  uploadItems: ComposerUploadVisualItem[]
   previewUploadUrls: Record<string, string>
   onUpload: () => void
   onOpenInsert: () => void
@@ -73,8 +82,7 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
   onPreviewChange,
   placeholder,
   uploading,
-  uploadProgress,
-  uploadLabel,
+  uploadItems,
   previewUploadUrls,
   onUpload,
   onOpenInsert,
@@ -86,6 +94,15 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
   const undoRef = useRef<string[]>([])
   const redoRef = useRef<string[]>([])
   const lastInputAtRef = useRef(0)
+
+  const uploadCompleted = uploadItems.filter((item) => item.state === 'success' || item.state === 'error').length
+  const uploadFailed = uploadItems.filter((item) => item.state === 'error').length
+  const uploadTotalBytes = uploadItems.reduce((total, item) => total + Math.max(1, item.size), 0)
+  const uploadWeightedProgress = uploadItems.length
+    ? uploadItems.reduce((total, item) => total + Math.max(1, item.size) * (item.state === 'error' ? 1 : Math.max(0, Math.min(1, item.progress))), 0) / uploadTotalBytes
+    : 0
+  const uploadPercent = Math.round(uploadWeightedProgress * 100)
+  const uploadButtonLabel = uploading ? `正在上传 ${uploadItems.length} 个文件` : '图片 / 附件'
 
   const selection = () => {
     const textarea = textareaRef.current
@@ -164,20 +181,33 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
         </div>
         <span className="mx-1 h-6 w-px shrink-0 bg-haze/70" aria-hidden />
         <div className="flex shrink-0 items-center gap-1 py-1.5">
-          <button type="button" onClick={onUpload} disabled={uploading} className="linuxdo-composer-tool" aria-label={uploadLabel} title={uploadLabel}>{uploading ? <Loader2 size={16} className="animate-spin" /> : <ImagePlus size={16} />}</button>
+          <button type="button" onClick={onUpload} disabled={uploading} className="linuxdo-composer-tool" aria-label={uploadButtonLabel} title={uploadButtonLabel}>{uploading ? <Loader2 size={16} className="animate-spin" /> : <ImagePlus size={16} />}</button>
           <button type="button" onClick={onOpenInsert} className="linuxdo-composer-tool is-accent" aria-label="更多插入功能" title="更多插入功能"><Plus size={17} /></button>
         </div>
       </div>
 
-      {uploading ? (
+      {uploading && uploadItems.length ? (
         <div className="shrink-0 border-b border-haze/55 bg-paper/[0.025] px-3 py-2" role="status" aria-live="polite">
           <div className="flex items-center justify-between gap-3 text-[10px]">
-            <span className="min-w-0 flex-1 truncate font-medium text-paper-muted">{uploadLabel}</span>
-            <span className="shrink-0 font-mono text-paper-faint">{Math.round(Math.max(0, Math.min(1, uploadProgress)) * 100)}%</span>
+            <span className="inline-flex min-w-0 items-center gap-1.5 font-medium text-paper-muted">
+              <Loader2 size={12} className="shrink-0 animate-spin text-cinnabar-soft" />
+              <span className="truncate">正在上传 {uploadItems.length} 个文件 · 已完成 {uploadCompleted}/{uploadItems.length}</span>
+            </span>
+            <span className="shrink-0 font-mono text-paper-faint">{uploadPercent}%</span>
           </div>
-          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-paper/[0.07]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.max(0, Math.min(1, uploadProgress)) * 100)}>
-            <div className="h-full rounded-full bg-cinnabar transition-[width] duration-150" style={{ width: `${Math.max(2, Math.min(100, uploadProgress * 100))}%` }} />
+          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-paper/[0.07]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={uploadPercent}>
+            <div className="h-full rounded-full bg-cinnabar transition-[width] duration-150" style={{ width: `${Math.max(2, Math.min(100, uploadPercent))}%` }} />
           </div>
+          <div className="scrollbar-none mt-2 flex gap-1.5 overflow-x-auto pb-0.5">
+            {uploadItems.map((item) => (
+              <span key={item.id} className={'inline-flex max-w-[12rem] shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[9px] ' + (item.state === 'error' ? 'border-cinnabar/25 bg-cinnabar/[0.06] text-cinnabar-soft' : 'border-haze/55 bg-paper/[0.035] text-paper-faint')}>
+                {item.state === 'success' ? <CheckCircle2 size={10} className="shrink-0 text-cinnabar-soft" /> : item.state === 'error' ? <TriangleAlert size={10} className="shrink-0" /> : item.state === 'uploading' ? <Loader2 size={10} className="shrink-0 animate-spin" /> : <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-paper-faint/50" />}
+                <span className="truncate">{item.name}</span>
+                {item.state === 'uploading' ? <span className="shrink-0 font-mono">{Math.round(item.progress * 100)}%</span> : null}
+              </span>
+            ))}
+          </div>
+          {uploadFailed ? <div className="mt-1.5 text-[9px] text-cinnabar-soft">已有 {uploadFailed} 个文件失败，其余文件继续上传</div> : null}
         </div>
       ) : null}
 
@@ -211,11 +241,11 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
       </div>
 
       <footer className="flex min-h-11 shrink-0 items-center justify-between gap-3 border-t border-haze/60 px-3 py-1.5">
-        <div className="flex items-center rounded-full bg-paper/5 p-0.5">
-          <button type="button" onClick={() => onPreviewChange(false)} className={'linuxdo-control rounded-full px-3 py-1.5 text-[10.5px] transition-colors ' + (!preview ? 'bg-cinnabar text-white' : 'text-paper-muted')}>编辑</button>
-          <button type="button" onClick={() => onPreviewChange(true)} className={'linuxdo-control inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[10.5px] transition-colors ' + (preview ? 'bg-cinnabar text-white' : 'text-paper-muted')}><Eye size={12} />预览</button>
+        <div className="flex shrink-0 items-center whitespace-nowrap rounded-full bg-paper/5 p-0.5">
+          <button type="button" onClick={() => onPreviewChange(false)} className={'linuxdo-control whitespace-nowrap rounded-full px-3 py-1.5 text-[10.5px] transition-colors ' + (!preview ? 'bg-cinnabar text-white' : 'text-paper-muted')}>编辑</button>
+          <button type="button" onClick={() => onPreviewChange(true)} className={'linuxdo-control inline-flex items-center gap-1 whitespace-nowrap rounded-full px-3 py-1.5 text-[10.5px] transition-colors ' + (preview ? 'bg-cinnabar text-white' : 'text-paper-muted')}><Eye size={12} />预览</button>
         </div>
-        {footer}
+        <div className="min-w-0 flex-1 overflow-hidden text-right">{footer}</div>
       </footer>
     </section>
   )

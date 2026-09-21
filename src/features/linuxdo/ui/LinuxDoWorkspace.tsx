@@ -1,4 +1,4 @@
-import { ArrowLeft, Bell, Compass, Loader2, MessageCircle, Plus, RefreshCcw, Search, UserRound } from 'lucide-react'
+import { ArrowLeft, Bell, CheckCircle2, Compass, Loader2, MessageCircle, Plus, RefreshCcw, Search, TriangleAlert, UserRound } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 
 import { PresetSwitcher, type PresetSwitcherProps } from '../../../components/PresetSwitcher'
@@ -240,9 +240,11 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
   const [topicPostMutation, setTopicPostMutation] = useState<LinuxDoPost | undefined>()
   const [boostPost, setBoostPost] = useState<LinuxDoPost | null>(null)
   const [workspaceError, setWorkspaceError] = useState('')
+  const [workspaceNotice, setWorkspaceNotice] = useState<{ message: string; tone: 'success' | 'error' } | null>(null)
   const [notificationUnread, setNotificationUnread] = useState(0)
   const topicOverlayBackHandlerRef = useRef<(() => boolean) | null>(null)
   const composerRequestCloseRef = useRef<(() => void) | null>(null)
+  const workspaceNoticeTimerRef = useRef<number | null>(null)
   const [workspaceCategories, setWorkspaceCategories] = useState<Record<number, LinuxDoCategory>>({})
   useEffect(() => {
     void discovery.categories().then((cats) => setWorkspaceCategories(Object.fromEntries(cats.map((c) => [c.id, c])))).catch(() => undefined)
@@ -250,6 +252,18 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
 
   useEffect(() => {
     void api.restore().then((next) => { setSession(next); setNotificationUnread(next.currentUser?.unreadNotifications ?? 0) }).catch((nextError) => setWorkspaceError(readableError(nextError)))
+    return () => {
+      if (workspaceNoticeTimerRef.current != null) window.clearTimeout(workspaceNoticeTimerRef.current)
+    }
+  }, [])
+
+  const showWorkspaceNotice = useCallback((message: string, tone: 'success' | 'error' = 'success') => {
+    if (workspaceNoticeTimerRef.current != null) window.clearTimeout(workspaceNoticeTimerRef.current)
+    setWorkspaceNotice({ message, tone })
+    workspaceNoticeTimerRef.current = window.setTimeout(() => {
+      workspaceNoticeTimerRef.current = null
+      setWorkspaceNotice(null)
+    }, tone === 'error' ? 3600 : 2400)
   }, [])
 
   const navigate = useCallback((next: Route) => {
@@ -377,7 +391,30 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
         }
       }} onEdited={(updated) => { setTopicPostMutation(updated); setComposerOpen(false); setComposerEditPost(undefined) }} />
 
-      {boostPost ? <LinuxDoBoostComposer post={boostPost} onClose={() => setBoostPost(null)} /> : null}
+      {boostPost ? (
+        <LinuxDoBoostComposer
+          post={boostPost}
+          onClose={() => setBoostPost(null)}
+          onCreated={(post, boost) => {
+            setTopicPostMutation({
+              ...post,
+              boosts: [...(post.boosts ?? []), boost],
+              canBoost: false,
+            })
+            showWorkspaceNotice('Boost 已发送，并已显示在当前帖子中')
+          }}
+          onFailed={(message) => showWorkspaceNotice(message, 'error')}
+        />
+      ) : null}
+
+      {workspaceNotice ? (
+        <div role={workspaceNotice.tone === 'error' ? 'alert' : 'status'} aria-live="polite" className="pointer-events-none fixed bottom-[calc(5.6rem+var(--sab))] left-1/2 z-[70] w-[min(92vw,32rem)] -translate-x-1/2 animate-in fade-in zoom-in-95 duration-150">
+          <div className={'flex items-start gap-2 rounded-2xl border px-4 py-2.5 text-[11.5px] font-medium shadow-2xl backdrop-blur-xl ' + (workspaceNotice.tone === 'error' ? 'border-cinnabar/30 bg-ink-raised/98 text-cinnabar-soft' : 'border-haze/70 bg-ink-raised/95 text-paper')}>
+            {workspaceNotice.tone === 'error' ? <TriangleAlert size={14} className="mt-0.5 shrink-0" /> : <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-cinnabar-soft" />}
+            <span className="min-w-0 flex-1 leading-5">{workspaceNotice.message}</span>
+          </div>
+        </div>
+      ) : null}
 
     </div>
   )

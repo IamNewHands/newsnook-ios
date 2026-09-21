@@ -13,13 +13,14 @@ Object.assign(globalThis, {
 })
 
 const { detectBrowserChallenge } = await import('../src/lib/browserChallenge')
-const { decodeCategories, decodeCurrentUser, decodeNotifications, decodeTagNames, decodeTopic, decodeTopics } = await import('../src/features/linuxdo/api/decode')
+const { decodeBoost, decodeCategories, decodeCurrentUser, decodeNotifications, decodeTagNames, decodeTopic, decodeTopics } = await import('../src/features/linuxdo/api/decode')
 const { linuxDoCapabilities } = await import('../src/features/linuxdo/capabilities')
 const { linuxDoEndpoints } = await import('../src/features/linuxdo/api/endpoints')
 const { sanitizeLinuxDoCooked } = await import('../src/features/linuxdo/content/sanitize')
 const { LinuxDoDraftService } = await import('../src/features/linuxdo/draft/service')
 const { LinuxDoDiscoveryService, sortLinuxDoTags } = await import('../src/features/linuxdo/discovery/service')
-const { LinuxDoUploadService } = await import('../src/features/linuxdo/upload/service')
+const { LinuxDoInteractionService } = await import('../src/features/linuxdo/interaction/service')
+const { LINUXDO_UPLOAD_BATCH_LIMIT, LINUXDO_UPLOAD_CONCURRENCY, LinuxDoUploadService, mapWithConcurrency } = await import('../src/features/linuxdo/upload/service')
 const { LinuxDoBookmarkService } = await import('../src/features/linuxdo/bookmark/service')
 const { LinuxDoPeopleService } = await import('../src/features/linuxdo/people/service')
 const { LinuxDoSearchService } = await import('../src/features/linuxdo/search/service')
@@ -366,6 +367,21 @@ assert.equal(topic.postStream.posts[0]?.reactionUsersCount, 46)
 assert.equal(topic.postStream.posts[0]?.boosts?.[0]?.user.username, 'bob')
 assert.match(topic.postStream.posts[0]?.boosts?.[0]?.user.avatarTemplate ?? '', /bob\/96\/2\.png$/)
 assert.equal(topic.postStream.posts[0]?.canBoost, true)
+const decodedBoost = decodeBoost({
+  id: 701,
+  cooked: '<p>我也支持</p>',
+  can_delete: true,
+  can_flag: false,
+  user: { id: 9, username: 'frank', name: 'Frank', avatar_template: '/user_avatar/linux.do/frank/{size}/9.png' },
+})
+assert.equal(decodedBoost?.id, 701)
+assert.equal(decodedBoost?.canDelete, true)
+assert.equal(decodedBoost?.canFlag, false)
+assert.equal(decodedBoost?.user.username, 'frank')
+assert.equal(decodedBoost?.user.name, 'Frank')
+assert.equal(decodedBoost?.user.avatarTemplate, 'https://linux.do/user_avatar/linux.do/frank/96/9.png')
+assert.match(decodedBoost?.cooked ?? '', /我也支持/)
+assert.equal(decodeBoost({ id: 0, cooked: '<p>invalid</p>', user: { username: 'frank' } }), undefined)
 assert.deepEqual(topic.tags, ['linux', 'guide'])
 assert.doesNotMatch(topic.postStream.posts[0]?.cooked ?? '', /<script/i)
 assert.doesNotMatch(topic.postStream.posts[0]?.cooked ?? '', /onerror/i)
@@ -533,6 +549,34 @@ assert.equal(linuxDoEndpoints.userActivity('frank', 0).includes('filter='), fals
 assert.equal(linuxDoEndpoints.notifications(60, 30).endsWith('/notifications.json?offset=60&limit=30'), true)
 assert.equal(linuxDoEndpoints.topic('hello', 100, 42).endsWith('/t/hello/100/42.json'), true)
 assert.equal(linuxDoEndpoints.postRaw(501).endsWith('/posts/501/raw'), true)
+
+const boostCalls: Array<{ url: string; form: Record<string, unknown>; auth?: string }> = []
+const interactionService = new LinuxDoInteractionService({
+  postForm: async (url: string, form: Record<string, unknown>, options?: { auth?: string }) => {
+    boostCalls.push({ url, form, auth: options?.auth })
+    return {
+      id: 880,
+      cooked: '<p>支持一下</p>',
+      can_delete: true,
+      can_flag: false,
+      user: {
+        id: 9,
+        username: 'frank',
+        name: 'Frank',
+        avatar_template: '/user_avatar/linux.do/frank/{size}/9.png',
+      },
+    }
+  },
+} as any)
+const createdBoost = await interactionService.boost(501, ' 支持一下 ')
+assert.equal(createdBoost.id, 880)
+assert.equal(createdBoost.user.username, 'frank')
+assert.equal(createdBoost.canDelete, true)
+assert.deepEqual(boostCalls[0], {
+  url: 'https://linux.do/discourse-boosts/posts/501/boosts.json',
+  form: { raw: '支持一下' },
+  auth: 'required',
+})
 
 const tagSearchCalls: Array<{ url: string; auth?: string }> = []
 const discoveryService = new LinuxDoDiscoveryService({
@@ -723,6 +767,23 @@ assert.equal(uploadService.markdown({ url: 'https://linux.do/u.png', originalFil
 assert.equal(uploadService.markdown({ url: 'https://linux.do/uploads/default/original/1X/u.png', shortUrl: 'upload://abc123', originalFilename: 'u.png' }, new File(['x'], 'u.png', { type: 'image/png' })), '![u.png](upload://abc123)', 'composer markdown should preserve Discourse short URLs; only local preview resolves them')
 assert.deepEqual(uploadService.shortUrls('a upload://abc.png b upload://abc.png c upload://xyz.webp'), ['upload://abc.png', 'upload://xyz.webp'])
 assert.equal(uploadService.markdown({ url: 'https://linux.do/a.zip', originalFilename: 'a.zip' }, new File(['x'], 'a.zip', { type: 'application/zip' })), '[a.zip](https://linux.do/a.zip)')
+assert.equal(LINUXDO_UPLOAD_BATCH_LIMIT, 15)
+assert.equal(LINUXDO_UPLOAD_CONCURRENCY, 3)
+let activePoolWorkers = 0
+let maxPoolWorkers = 0
+const poolResult = await mapWithConcurrency([1, 2, 3, 4, 5], 2, async (value) => {
+  activePoolWorkers += 1
+  maxPoolWorkers = Math.max(maxPoolWorkers, activePoolWorkers)
+  await new Promise((resolve) => setTimeout(resolve, (6 - value) * 2))
+  activePoolWorkers -= 1
+  return value * 10
+})
+assert.deepEqual(poolResult, [10, 20, 30, 40, 50], 'bounded upload pool must preserve the selected file order')
+assert.equal(maxPoolWorkers, 2, 'bounded upload pool must not exceed configured concurrency')
+await assert.rejects(
+  () => uploadService.uploadMany(Array.from({ length: LINUXDO_UPLOAD_BATCH_LIMIT + 1 }, (_, index) => new File(['x'], `f-${index}.png`, { type: 'image/png' }))),
+  /一次最多选择 15 个文件/,
+)
 const uploadLookupCalls: Array<{ url: string; form: Record<string, unknown>; auth?: string }> = []
 const uploadLookupService = new LinuxDoUploadService({
   postForm: async (url: string, form: Record<string, unknown>, options?: { auth?: string }) => {
@@ -858,6 +919,7 @@ const authJavaSource = readFileSync('android/app/src/main/java/com/aizeek/newsno
 const manifestSource = readFileSync('android/app/src/main/AndroidManifest.xml', 'utf8')
 const clientSource = readFileSync('src/features/linuxdo/api/client.ts', 'utf8')
 const threadViewSource = readFileSync('src/features/linuxdo/ui/ThreadViews.tsx', 'utf8')
+const composerEditorSource = readFileSync('src/features/linuxdo/editor/ComposerEditor.tsx', 'utf8')
 const workspaceSource = readFileSync('src/features/linuxdo/ui/LinuxDoWorkspace.tsx', 'utf8')
 const discoverViewSource = readFileSync('src/features/linuxdo/ui/DiscoverView.tsx', 'utf8')
 const discoveryServiceSource = readFileSync('src/features/linuxdo/discovery/service.ts', 'utf8')
@@ -922,9 +984,22 @@ assert.match(threadViewSource, /onNext=/)
 assert.match(threadViewSource, /\[data-linuxdo-role="quote"\]/)
 assert.match(threadViewSource, /\[data-linuxdo-role="onebox"\]/)
 assert.match(threadViewSource, /\[data-linuxdo-role="spoiler"\]/)
+assert.match(threadViewSource, /type="file" multiple/)
+assert.match(threadViewSource, /uploadMany\(files/)
+assert.match(threadViewSource, /重试失败项/)
+assert.doesNotMatch(threadViewSource, /uploadLabel/)
+assert.match(composerEditorSource, /whitespace-nowrap rounded-full/)
+assert.match(composerEditorSource, /正在上传 \{uploadItems\.length\} 个文件/)
+assert.match(composerEditorSource, /已完成 \{uploadCompleted\}\/\{uploadItems\.length\}/)
 assert.match(workspaceSource, /onScopeChange=\{replaceDiscoverScope\}/)
 assert.match(workspaceSource, /cacheRef=\{discoverCacheRef\}/)
 assert.match(workspaceSource, /navigate\(\{ kind: 'topic', topic \}\)/)
+assert.match(workspaceSource, /onCreated=\{\(post, boost\) =>/)
+assert.match(workspaceSource, /boosts: \[\.\.\.\(post\.boosts \?\? \[\]\), boost\]/)
+assert.match(workspaceSource, /canBoost: false/)
+assert.match(workspaceSource, /Boost 已发送，并已显示在当前帖子中/)
+assert.match(threadViewSource, /Boost 发送失败：/)
+assert.match(threadViewSource, /发送中…/)
 assert.match(discoverViewSource, /DISCOVERY_ORDERS/)
 assert.match(discoverViewSource, /loadMoreActiveScope/)
 assert.match(discoveryServiceSource, /more_topics_url/)

@@ -1,4 +1,5 @@
 import type {
+  LinuxDoBoost,
   LinuxDoCategory,
   LinuxDoNotification,
   LinuxDoPost,
@@ -81,6 +82,25 @@ export function decodeTopics(input: unknown): LinuxDoTopicSummary[] {
   })).filter((topic: LinuxDoTopicSummary) => Number.isFinite(topic.id) && topic.id > 0)
 }
 
+export function decodeBoost(input: unknown): LinuxDoBoost | undefined {
+  const boost = input as Json | undefined
+  const user = boost?.user as Json | undefined
+  const id = Number(boost?.id)
+  if (!Number.isFinite(id) || id <= 0 || !user || typeof user.username !== 'string' || !user.username.trim()) return undefined
+  return {
+    id,
+    cooked: sanitizeLinuxDoCooked(String(boost?.cooked ?? '')),
+    canDelete: Boolean(boost?.can_delete),
+    canFlag: Boolean(boost?.can_flag),
+    user: {
+      id: typeof user.id === 'number' ? user.id : undefined,
+      username: user.username,
+      name: typeof user.name === 'string' ? user.name : undefined,
+      avatarTemplate: avatar(user.avatar_template),
+    },
+  }
+}
+
 export function decodePost(post: Json): LinuxDoPost {
   const replyToUser = post.reply_to_user as Json | undefined
   const currentUserReaction = post.current_user_reaction as Json | undefined
@@ -115,21 +135,7 @@ export function decodePost(post: Json): LinuxDoPost {
     } : undefined,
     reactionUsersCount: typeof post.reaction_users_count === 'number' ? post.reaction_users_count : undefined,
     boosts: Array.isArray(post.boosts)
-      ? post.boosts.map((boost: Json) => {
-        const user = boost.user as Json | undefined
-        return {
-          id: Number(boost.id),
-          cooked: sanitizeLinuxDoCooked(String(boost.cooked ?? '')),
-          canDelete: Boolean(boost.can_delete),
-          canFlag: Boolean(boost.can_flag),
-          user: {
-            id: typeof user?.id === 'number' ? user.id : undefined,
-            username: String(user?.username ?? ''),
-            name: typeof user?.name === 'string' ? user.name : undefined,
-            avatarTemplate: avatar(user?.avatar_template),
-          },
-        }
-      }).filter((boost) => Number.isFinite(boost.id) && boost.id > 0)
+      ? post.boosts.map(decodeBoost).filter((boost): boost is LinuxDoBoost => Boolean(boost))
       : [],
     canBoost: Boolean(post.can_boost),
     topicId: typeof post.topic_id === 'number' ? post.topic_id : undefined,

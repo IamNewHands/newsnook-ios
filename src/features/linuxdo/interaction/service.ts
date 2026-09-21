@@ -1,5 +1,7 @@
+import { decodeBoost } from '../api/decode'
 import { linuxDoEndpoints } from '../api/endpoints'
 import type { LinuxDoApiClient } from '../api/client'
+import type { LinuxDoBoost } from '../types'
 
 const LIKE_ACTION_ID = 2
 
@@ -30,11 +32,18 @@ export class LinuxDoInteractionService {
     await this.api.deleteJson(linuxDoEndpoints.bookmarkDelete(bookmarkId), undefined, { auth: 'required' })
   }
 
-  async boost(postId: number, raw: string): Promise<{ id?: number; raw?: string }> {
+  async boost(postId: number, raw: string): Promise<LinuxDoBoost> {
     const text = raw.trim()
     if (!text) throw new Error('Boost 内容不能为空')
     if (Array.from(text).length > 16) throw new Error('Boost 最多 16 个字符')
-    return this.api.postForm(linuxDoEndpoints.boostCreate(postId), { post_id: postId, raw: text }, { auth: 'required' })
+    const payload = await this.api.postForm<unknown>(
+      linuxDoEndpoints.boostCreate(postId),
+      { raw: text },
+      { auth: 'required' },
+    )
+    const boost = decodeBoost(payload)
+    if (!boost) throw new Error('Linux.do 已响应，但未返回有效的 Boost 数据')
+    return boost
   }
 
   async deleteBoost(boostId: number): Promise<void> {

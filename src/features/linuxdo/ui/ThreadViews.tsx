@@ -1,5 +1,5 @@
 import { Browser } from '@capacitor/browser'
-import { ArrowLeft, Bookmark, Check, ChevronDown, Hash, Heart, Link, Loader2, MessageCircle, MoreHorizontal, Pencil, Quote, Reply, Rocket, Send, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Bookmark, Check, ChevronDown, Hash, Heart, Link, Loader2, MessageCircle, MoreHorizontal, Pencil, Quote, Reply, Rocket, Send, Trash2, TriangleAlert, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject } from 'react'
 
 import { ImageLightbox } from '../../../components/ImageLightbox'
@@ -30,10 +30,11 @@ import { LinuxDoApiError } from '../types'
 import { ago, avatar, compact, readableError, tagGlyph } from './utils'
 import { resolveReplyTarget } from './threadModel'
 import { boostText, reactionGlyph, reactionTotal } from './engagementModel'
-import { ComposerEditor, type ComposerEditorHandle } from '../editor/ComposerEditor'
+import { ComposerEditor, type ComposerEditorHandle, type ComposerUploadVisualItem } from '../editor/ComposerEditor'
 import { CategoryPickerSheet, InsertMenuSheet, TagPickerSheet, TemplatePickerSheet } from '../editor/ComposerSheets'
 import { buildComposerDraftData, validateComposer } from '../editor/model'
 import { resolveLinuxDoTemplate, type LinuxDoComposerTemplate, type LinuxDoTemplateVariables } from '../template/service'
+import { LINUXDO_UPLOAD_BATCH_LIMIT } from '../upload/service'
 
 async function openExternal(url: string): Promise<void> {
   try {
@@ -222,9 +223,9 @@ export function LinuxDoComposer({
   const lastSavedDraftRef = useRef('')
   const [draftKey, setDraftKey] = useState('')
   const [uploading, setUploading] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState(0)
-  const [uploadFileName, setUploadFileName] = useState('')
-  const [uploadNotice, setUploadNotice] = useState('')
+  const [uploadItems, setUploadItems] = useState<ComposerUploadVisualItem[]>([])
+  const [failedUploadFiles, setFailedUploadFiles] = useState<File[]>([])
+  const [uploadNotice, setUploadNotice] = useState<{ tone: 'success' | 'warning'; message: string } | null>(null)
   const [previewUploadUrls, setPreviewUploadUrls] = useState<Record<string, string>>({})
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false)
   const [tagPickerOpen, setTagPickerOpen] = useState(false)
@@ -247,9 +248,10 @@ export function LinuxDoComposer({
       draftSequenceRef.current = 0
       lastSavedDraftRef.current = ''
       setDraftKey('')
-      setUploadProgress(0)
-      setUploadFileName('')
-      setUploadNotice('')
+      setUploading(false)
+      setUploadItems([])
+      setFailedUploadFiles([])
+      setUploadNotice(null)
       setPreviewUploadUrls({})
       setCategoryPickerOpen(false)
       setTagPickerOpen(false)
@@ -386,7 +388,7 @@ export function LinuxDoComposer({
   const selectedCategory = categories.find((category) => category.id === categoryId)
   const hasContent = Boolean(title.trim() || raw.trim() || categoryId || selectedTags.length)
   const requestClose = () => {
-    if (sending || closing) return
+    if (sending || closing || uploading) return
     if (hasContent) setCloseConfirmOpen(true)
     else onClose()
   }
@@ -470,13 +472,76 @@ export function LinuxDoComposer({
     : undefined
 
   const chooseFile = () => fileRef.current?.click()
-  const uploadLabel = uploading
-    ? (uploadProgress < 0.15
-        ? `正在准备${uploadFileName ? ' · ' + uploadFileName : ''}`
-        : uploadProgress < 0.95
-          ? `正在上传到 LinuxDO${uploadFileName ? ' · ' + uploadFileName : ''}`
-          : `正在确认上传结果${uploadFileName ? ' · ' + uploadFileName : ''}`)
-    : '图片 / 附件'
+
+  const startUploadBatch = async (files: File[]) => {
+    if (!files.length || uploading) return
+    if (files.length > LINUXDO_UPLOAD_BATCH_LIMIT) {
+      setError(`一次最多选择 ${LINUXDO_UPLOAD_BATCH_LIMIT} 个文件，请分批上传。`)
+      return
+    }
+
+    const batchId = Date.now().toString(36)
+    setUploading(true)
+    setError('')
+    setUploadNotice(null)
+    setFailedUploadFiles([])
+    setUploadItems(files.map((file, index) => ({
+      id: `${batchId}-${index}`,
+      name: file.name || `文件 ${index + 1}`,
+      size: file.size,
+      state: 'queued',
+      progress: 0,
+    })))
+
+    try {
+      const results = await linuxDoUploads.uploadMany(files, {
+        onProgress: (event) => {
+          setUploadItems((previous) => previous.map((item, index) => index === event.index ? {
+            ...item,
+            state: event.state,
+            progress: event.progress,
+          } : item))
+        },
+      })
+
+      const successful = results.filter((result) => result.upload)
+      const failed = results.filter((result) => !result.upload).map((result) => result.file)
+      setFailedUploadFiles(failed)
+
+      if (successful.length) {
+        const nextPreviewUrls: Record<string, string> = {}
+        const markdown = successful.map(({ file, upload }) => {
+          if (upload?.shortUrl) nextPreviewUrls[upload.shortUrl] = upload.url
+          return linuxDoUploads.markdown(upload!, file)
+        }).join('\n')
+        if (Object.keys(nextPreviewUrls).length) {
+          setPreviewUploadUrls((previous) => ({ ...previous, ...nextPreviewUrls }))
+        }
+        editorRef.current?.insertBlock(markdown)
+      }
+
+      if (!failed.length) {
+        setUploadNotice({
+          tone: 'success',
+          message: files.length === 1
+            ? '文件上传成功，已插入正文。'
+            : `${files.length} 个文件已全部上传，并按选择顺序插入正文。`,
+        })
+      } else {
+        const failedNames = failed.slice(0, 2).map((file) => file.name).join('、')
+        setUploadNotice({
+          tone: 'warning',
+          message: `${successful.length}/${files.length} 上传成功，${failed.length} 个失败${failedNames ? `：${failedNames}${failed.length > 2 ? ' 等' : ''}` : ''}。`,
+        })
+      }
+    } catch (nextError) {
+      setError(`上传失败：${readableError(nextError)}`)
+      setFailedUploadFiles(files)
+      setUploadItems((previous) => previous.map((item) => ({ ...item, state: 'error', progress: 1 })))
+    } finally {
+      setUploading(false)
+    }
+  }
 
   return (
     <div className="linuxdo-composer absolute inset-0 z-40 flex bg-black/55 sm:items-center sm:justify-center sm:p-4">
@@ -488,7 +553,7 @@ export function LinuxDoComposer({
               <h3 className="font-display text-[18px] font-semibold tracking-[-0.01em] text-paper">{editPost ? '编辑帖子' : topic ? '回复主题' : '发布新主题'}</h3>
               <p className="mt-0.5 truncate text-[10px] text-paper-faint">{topic ? topic.title : editPost ? `帖子 #${editPost.postNumber}` : 'Markdown 与富文本工具 · 自动保存草稿'}</p>
             </div>
-            <button type="button" onClick={requestClose} className="linuxdo-control grid h-10 w-10 shrink-0 place-items-center rounded-full bg-paper/6 text-paper-muted" aria-label="关闭编辑器"><X size={17} /></button>
+            <button type="button" onClick={requestClose} disabled={uploading || sending || closing} className="linuxdo-control grid h-10 w-10 shrink-0 place-items-center rounded-full bg-paper/6 text-paper-muted disabled:opacity-35" aria-label={uploading ? '文件上传中，暂不能关闭编辑器' : '关闭编辑器'}><X size={17} /></button>
           </div>
         </div>
 
@@ -523,39 +588,31 @@ export function LinuxDoComposer({
           onPreviewChange={setPreview}
           placeholder={editPost ? '编辑帖子内容…' : topic ? '写下你的回复…' : '在此输入正文。支持 Markdown、BBCode 与 HTML；也可以用工具栏快速排版。'}
           uploading={uploading}
-          uploadProgress={uploadProgress}
-          uploadLabel={uploadLabel}
+          uploadItems={uploadItems}
           previewUploadUrls={previewUploadUrls}
           onUpload={chooseFile}
           onOpenInsert={() => setInsertMenuOpen(true)}
           onOpenTemplate={openTemplatePicker}
-          footer={<span className={'font-mono text-[9.5px] ' + (validation.bodyRemaining > 0 ? 'text-cinnabar-soft' : 'text-paper-faint')}>{uploading ? uploadLabel : validation.bodyCount + '/20'}{draftSequence > 0 && !uploading ? ' · 草稿已保存' : ''}</span>}
+          footer={<span className={'block truncate whitespace-nowrap font-mono text-[9.5px] ' + (validation.bodyRemaining > 0 ? 'text-cinnabar-soft' : 'text-paper-faint')}>{validation.bodyCount}/20{draftSequence > 0 ? ' · 草稿已保存' : ''}</span>}
         />
-        <input ref={fileRef} type="file" className="hidden" accept="image/*,.pdf,.zip,.txt" onChange={(event) => {
-          const file = event.target.files?.[0]
+        <input ref={fileRef} type="file" multiple className="hidden" accept="image/*,.pdf,.zip,.txt" onChange={(event) => {
+          const files = Array.from(event.target.files ?? [])
           event.currentTarget.value = ''
-          if (!file) return
-          setUploading(true)
-          setError('')
-          setUploadNotice('')
-          setUploadFileName(file.name || '附件')
-          setUploadProgress(0)
-          void linuxDoUploads.upload(file, setUploadProgress).then((uploaded) => {
-            const markdown = linuxDoUploads.markdown(uploaded, file)
-            if (uploaded.shortUrl) {
-              setPreviewUploadUrls((previous) => ({ ...previous, [uploaded.shortUrl!]: uploaded.url }))
-            }
-            editorRef.current?.insertText(markdown + '\n')
-            setUploadProgress(1)
-            setUploadNotice(file.type.startsWith('image/') ? '图片上传成功，已插入正文，可切换到预览检查。' : '附件上传成功，已插入正文。')
-          }).catch((nextError) => {
-            setError(`上传失败：${readableError(nextError)}`)
-          }).finally(() => {
-            setUploading(false)
-            setUploadFileName('')
-          })
+          if (!files.length) return
+          void startUploadBatch(files)
         }} />
-        {uploadNotice ? <div role="status" aria-live="polite" className="flex shrink-0 items-center justify-between gap-3 rounded-xl border border-haze/60 bg-paper/[0.035] px-3 py-2 text-[10.5px] text-paper-muted"><span className="inline-flex min-w-0 items-center gap-1.5"><Check size={12} className="shrink-0 text-cinnabar-soft" /><span className="truncate">{uploadNotice}</span></span><button type="button" onClick={() => setPreview(true)} className="linuxdo-control shrink-0 rounded-full bg-paper/[0.05] px-2.5 py-1 text-[9.5px] font-medium text-paper">预览</button></div> : null}
+        {uploadNotice ? (
+          <div role={uploadNotice.tone === 'warning' ? 'alert' : 'status'} aria-live="polite" className={'flex shrink-0 items-center justify-between gap-3 rounded-xl border px-3 py-2 text-[10.5px] ' + (uploadNotice.tone === 'warning' ? 'border-cinnabar/25 bg-cinnabar/[0.06] text-cinnabar-soft' : 'border-haze/60 bg-paper/[0.035] text-paper-muted')}>
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              {uploadNotice.tone === 'warning' ? <TriangleAlert size={12} className="shrink-0" /> : <Check size={12} className="shrink-0 text-cinnabar-soft" />}
+              <span className="truncate">{uploadNotice.message}</span>
+            </span>
+            <span className="flex shrink-0 items-center gap-1.5">
+              {failedUploadFiles.length ? <button type="button" disabled={uploading} onClick={() => void startUploadBatch(failedUploadFiles)} className="linuxdo-control rounded-full bg-paper/[0.06] px-2.5 py-1 text-[9.5px] font-medium text-paper disabled:opacity-40">重试失败项</button> : null}
+              <button type="button" onClick={() => setPreview(true)} className="linuxdo-control rounded-full bg-paper/[0.05] px-2.5 py-1 text-[9.5px] font-medium text-paper">预览</button>
+            </span>
+          </div>
+        ) : null}
         {error ? <button type="button" onClick={() => setError('')} className="linuxdo-control shrink-0 rounded-xl border border-cinnabar/20 bg-cinnabar/8 px-3 py-2 text-left text-[10.5px] leading-relaxed text-cinnabar-soft">{error} · 点击关闭</button> : null}
         <div className="flex shrink-0 items-center justify-between gap-3 pb-[max(4px,var(--sab))] sm:pb-0">
           <span className="min-w-0 flex-1 truncate text-[9.5px] text-paper-faint">写操作不会自动重试 · 发布前请在预览中检查</span>
@@ -601,7 +658,7 @@ export function LinuxDoComposer({
   )
 }
 
-export function LinuxDoBoostComposer({ post, onClose }: { post: LinuxDoPost; onClose: () => void }) {
+export function LinuxDoBoostComposer({ post, onClose, onCreated, onFailed }: { post: LinuxDoPost; onClose: () => void; onCreated: (post: LinuxDoPost, boost: LinuxDoBoost) => void; onFailed?: (message: string) => void }) {
   const [raw, setRaw] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
@@ -614,10 +671,13 @@ export function LinuxDoBoostComposer({ post, onClose }: { post: LinuxDoPost; onC
     setSending(true)
     setError('')
     try {
-      await linuxDoInteractions.boost(post.id, text)
+      const created = await linuxDoInteractions.boost(post.id, text)
+      onCreated(post, created)
       onClose()
     } catch (nextError) {
-      setError(readableError(nextError))
+      const message = 'Boost 发送失败：' + readableError(nextError) + '。内容已保留，可直接重试。'
+      setError(message)
+      onFailed?.(message)
     } finally {
       setSending(false)
     }
@@ -631,12 +691,12 @@ export function LinuxDoBoostComposer({ post, onClose }: { post: LinuxDoPost; onC
             <h3 className="flex items-center gap-2 text-[15px] font-semibold text-paper"><Rocket size={15} className="text-cinnabar-soft" />Boost</h3>
             <p className="mt-1 text-[10.5px] text-paper-faint">对 #{post.postNumber} 留下最多 16 个字符的轻量回应</p>
           </div>
-          <button type="button" onClick={onClose} className="linuxdo-control grid h-9 w-9 place-items-center rounded-full bg-paper/6 text-paper-muted"><X size={15} /></button>
+          <button type="button" onClick={onClose} disabled={sending} className="linuxdo-control grid h-9 w-9 place-items-center rounded-full bg-paper/6 text-paper-muted disabled:opacity-35" aria-label={sending ? 'Boost 发送中' : '关闭 Boost 编辑器'}><X size={15} /></button>
         </div>
         <textarea
           autoFocus
           value={raw}
-          onChange={(event) => setRaw(event.target.value)}
+          onChange={(event) => { setRaw(event.target.value); if (error) setError('') }}
           rows={3}
           placeholder="写点简短的…"
           className="mt-4 w-full resize-none rounded-2xl border border-haze bg-ink px-4 py-3 text-[13px] leading-6 text-paper outline-none placeholder:text-paper-faint focus:border-cinnabar/50"
@@ -645,10 +705,15 @@ export function LinuxDoBoostComposer({ post, onClose }: { post: LinuxDoPost; onC
           <span className={remaining < 0 ? 'text-[10px] text-cinnabar-soft' : 'text-[10px] text-paper-faint'}>{remaining} 字</span>
           <button type="button" disabled={sending || !raw.trim() || remaining < 0} onClick={() => void send()} className="linuxdo-control inline-flex items-center gap-2 rounded-full bg-cinnabar px-4 py-2 text-[11.5px] font-medium text-white disabled:opacity-40">
             {sending ? <Loader2 size={13} className="animate-spin" /> : <Rocket size={13} />}
-            Boost
+            {sending ? '发送中…' : 'Boost'}
           </button>
         </div>
-        {error ? <p className="mt-2 text-[10.5px] text-cinnabar-soft">{error}</p> : null}
+        {error ? (
+          <div role="alert" className="mt-3 flex items-start gap-2 rounded-2xl border border-cinnabar/25 bg-cinnabar/[0.07] px-3 py-2.5 text-[10.5px] leading-5 text-cinnabar-soft">
+            <TriangleAlert size={14} className="mt-0.5 shrink-0" />
+            <span>{error}</span>
+          </div>
+        ) : null}
       </div>
     </div>
   )
