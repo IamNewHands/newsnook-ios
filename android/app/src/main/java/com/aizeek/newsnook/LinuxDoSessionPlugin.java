@@ -30,6 +30,7 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import android.util.Base64;
@@ -46,6 +47,7 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
+import okio.BufferedSink;
 import org.json.JSONObject;
 
 /**
@@ -87,6 +89,60 @@ public class LinuxDoSessionPlugin extends Plugin {
             this.fileName = fileName;
             this.mimeType = mimeType;
         }
+    }
+
+    private final class UploadProgressRequestBody extends RequestBody {
+        private final String uploadId;
+        private final UploadSession session;
+        private final MediaType mediaType;
+
+        UploadProgressRequestBody(String uploadId, UploadSession session) {
+            this.uploadId = uploadId;
+            this.session = session;
+            this.mediaType = MediaType.parse(session.mimeType);
+        }
+
+        @Override
+        public MediaType contentType() {
+            return mediaType;
+        }
+
+        @Override
+        public long contentLength() {
+            return session.file.length();
+        }
+
+        @Override
+        public void writeTo(BufferedSink sink) throws IOException {
+            long total = Math.max(1L, contentLength());
+            long sent = 0L;
+            int lastPercent = -1;
+            long lastNotifyAt = 0L;
+            byte[] buffer = new byte[64 * 1024];
+            try (FileInputStream input = new FileInputStream(session.file)) {
+                int read;
+                while ((read = input.read(buffer)) != -1) {
+                    sink.write(buffer, 0, read);
+                    sent += read;
+                    int percent = (int) Math.min(100L, Math.round((sent * 100.0d) / total));
+                    long now = System.currentTimeMillis();
+                    if (percent == 100 || percent != lastPercent && (percent - lastPercent >= 1 || now - lastNotifyAt >= 160L)) {
+                        notifyUploadProgress(uploadId, sent, total);
+                        lastPercent = percent;
+                        lastNotifyAt = now;
+                    }
+                }
+            }
+        }
+    }
+
+    private void notifyUploadProgress(String uploadId, long sentBytes, long totalBytes) {
+        JSObject event = new JSObject();
+        event.put("uploadId", uploadId);
+        event.put("sentBytes", sentBytes);
+        event.put("totalBytes", totalBytes);
+        event.put("progress", totalBytes > 0L ? Math.min(1.0d, sentBytes / (double) totalBytes) : 0.0d);
+        notifyListeners("linuxDoUploadProgress", event);
     }
 
     private final OkHttpClient identityClient = new OkHttpClient.Builder()
@@ -375,7 +431,7 @@ public class LinuxDoSessionPlugin extends Plugin {
             String userAgent = currentUserAgent();
 
             if (userApiAuth.hasValidCredential()) {
-                performUpload(session, call, cookie, userAgent, "");
+                performUpload(uploadId, session, call, cookie, userAgent, "");
                 return;
             }
 
@@ -408,20 +464,21 @@ public class LinuxDoSessionPlugin extends Plugin {
                         call.reject("无法获取 CSRF Token", "LINUXDO_UPLOAD_CSRF");
                         return;
                     }
-                    performUpload(session, call, cookie, userAgent, csrf);
+                    performUpload(uploadId, session, call, cookie, userAgent, csrf);
                 }
             });
         });
     }
 
     private void performUpload(
+        String uploadId,
         UploadSession session,
         PluginCall call,
         String cookie,
         String userAgent,
         String csrf
     ) {
-        RequestBody fileBody = RequestBody.create(session.file, MediaType.parse(session.mimeType));
+        RequestBody fileBody = new UploadProgressRequestBody(uploadId, session);
         MultipartBody multipart = new MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("upload_type", "composer")

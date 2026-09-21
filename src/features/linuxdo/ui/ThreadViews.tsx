@@ -223,6 +223,9 @@ export function LinuxDoComposer({
   const [draftKey, setDraftKey] = useState('')
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [uploadFileName, setUploadFileName] = useState('')
+  const [uploadNotice, setUploadNotice] = useState('')
+  const [previewUploadUrls, setPreviewUploadUrls] = useState<Record<string, string>>({})
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false)
   const [tagPickerOpen, setTagPickerOpen] = useState(false)
   const [insertMenuOpen, setInsertMenuOpen] = useState(false)
@@ -245,6 +248,9 @@ export function LinuxDoComposer({
       lastSavedDraftRef.current = ''
       setDraftKey('')
       setUploadProgress(0)
+      setUploadFileName('')
+      setUploadNotice('')
+      setPreviewUploadUrls({})
       setCategoryPickerOpen(false)
       setTagPickerOpen(false)
       setInsertMenuOpen(false)
@@ -310,6 +316,25 @@ export function LinuxDoComposer({
     }, 900)
     return () => window.clearTimeout(timer)
   }, [open, session.authenticated, draftKey, raw, title, categoryId, selectedTags, topic, editPost, replyToPostNumber])
+
+  useEffect(() => {
+    if (!open || !preview || !session.authenticated) return
+    const unresolved = linuxDoUploads.shortUrls(raw).filter((shortUrl) => !previewUploadUrls[shortUrl])
+    if (!unresolved.length) return
+    let active = true
+    const timer = window.setTimeout(() => {
+      void linuxDoUploads.lookupPreviewUrls(unresolved).then((resolved) => {
+        if (!active || !Object.keys(resolved).length) return
+        setPreviewUploadUrls((previous) => ({ ...previous, ...resolved }))
+      }).catch((nextError) => {
+        if (active) setError(`图片预览地址解析失败：${readableError(nextError)}。正文中的上传引用仍会正常提交。`)
+      })
+    }, 120)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [open, preview, previewUploadUrls, raw, session.authenticated])
 
   const searchComposerTags = useCallback((query: string) => {
     const selectedTagIds: Array<string | number> = []
@@ -446,7 +471,11 @@ export function LinuxDoComposer({
 
   const chooseFile = () => fileRef.current?.click()
   const uploadLabel = uploading
-    ? (uploadProgress < 0.8 ? `准备 ${Math.round(uploadProgress * 100)}%` : '正在上传')
+    ? (uploadProgress < 0.15
+        ? `正在准备${uploadFileName ? ' · ' + uploadFileName : ''}`
+        : uploadProgress < 0.95
+          ? `正在上传到 LinuxDO${uploadFileName ? ' · ' + uploadFileName : ''}`
+          : `正在确认上传结果${uploadFileName ? ' · ' + uploadFileName : ''}`)
     : '图片 / 附件'
 
   return (
@@ -494,7 +523,9 @@ export function LinuxDoComposer({
           onPreviewChange={setPreview}
           placeholder={editPost ? '编辑帖子内容…' : topic ? '写下你的回复…' : '在此输入正文。支持 Markdown、BBCode 与 HTML；也可以用工具栏快速排版。'}
           uploading={uploading}
+          uploadProgress={uploadProgress}
           uploadLabel={uploadLabel}
+          previewUploadUrls={previewUploadUrls}
           onUpload={chooseFile}
           onOpenInsert={() => setInsertMenuOpen(true)}
           onOpenTemplate={openTemplatePicker}
@@ -506,12 +537,25 @@ export function LinuxDoComposer({
           if (!file) return
           setUploading(true)
           setError('')
+          setUploadNotice('')
+          setUploadFileName(file.name || '附件')
           setUploadProgress(0)
           void linuxDoUploads.upload(file, setUploadProgress).then((uploaded) => {
             const markdown = linuxDoUploads.markdown(uploaded, file)
+            if (uploaded.shortUrl) {
+              setPreviewUploadUrls((previous) => ({ ...previous, [uploaded.shortUrl!]: uploaded.url }))
+            }
             editorRef.current?.insertText(markdown + '\n')
-          }).catch((nextError) => setError(readableError(nextError))).finally(() => { setUploading(false); setUploadProgress(0) })
+            setUploadProgress(1)
+            setUploadNotice(file.type.startsWith('image/') ? '图片上传成功，已插入正文，可切换到预览检查。' : '附件上传成功，已插入正文。')
+          }).catch((nextError) => {
+            setError(`上传失败：${readableError(nextError)}`)
+          }).finally(() => {
+            setUploading(false)
+            setUploadFileName('')
+          })
         }} />
+        {uploadNotice ? <div role="status" aria-live="polite" className="flex shrink-0 items-center justify-between gap-3 rounded-xl border border-haze/60 bg-paper/[0.035] px-3 py-2 text-[10.5px] text-paper-muted"><span className="inline-flex min-w-0 items-center gap-1.5"><Check size={12} className="shrink-0 text-cinnabar-soft" /><span className="truncate">{uploadNotice}</span></span><button type="button" onClick={() => setPreview(true)} className="linuxdo-control shrink-0 rounded-full bg-paper/[0.05] px-2.5 py-1 text-[9.5px] font-medium text-paper">预览</button></div> : null}
         {error ? <button type="button" onClick={() => setError('')} className="linuxdo-control shrink-0 rounded-xl border border-cinnabar/20 bg-cinnabar/8 px-3 py-2 text-left text-[10.5px] leading-relaxed text-cinnabar-soft">{error} · 点击关闭</button> : null}
         <div className="flex shrink-0 items-center justify-between gap-3 pb-[max(4px,var(--sab))] sm:pb-0">
           <span className="min-w-0 flex-1 truncate text-[9.5px] text-paper-faint">写操作不会自动重试 · 发布前请在预览中检查</span>

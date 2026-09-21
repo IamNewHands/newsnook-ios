@@ -147,6 +147,27 @@ assert.match(safeComposerPreview, /data-linuxdo-preview-block="mermaid"/)
 assert.match(safeComposerPreview, /data-linuxdo-preview-block="chart"/)
 assert.match(safeComposerPreview, /data-linuxdo-preview-block="graphviz"/)
 assert.doesNotMatch(safeComposerPreview, /<script/i)
+const detailsTemplatePreview = composerPreview.renderLinuxDoComposerPreview(`[details="摘要"]
+#### 本帖使用社区开源推广，符合推广要求。
+
+我申明并遵循社区要求的以下内容：
+
+* **我的帖子已经打上 #开源推广 标签：** 是 / 否
+* **我的开源项目完整开源：** 是 / 否
+
+*以下为项目介绍正文内容*
+[/details]`)
+assert.match(detailsTemplatePreview, /<details[^>]*data-linuxdo-role="details"/)
+assert.match(detailsTemplatePreview, /<h4[^>]*>本帖使用社区开源推广，符合推广要求。<\/h4>/)
+assert.match(detailsTemplatePreview, /<strong>我的帖子已经打上 #开源推广 标签：<\/strong>/)
+assert.match(detailsTemplatePreview, /<em>以下为项目介绍正文内容<\/em>/)
+assert.doesNotMatch(detailsTemplatePreview, /####|\*\*我的帖子|\*以下为项目/)
+const uploadPreview = composerPreview.renderLinuxDoComposerPreview(
+  '![截图](upload://abc123.png)',
+  { 'upload://abc123.png': 'https://linux.do/uploads/default/original/1X/abc123.png' },
+)
+assert.match(uploadPreview, /src="https:\/\/linux\.do\/uploads\/default\/original\/1X\/abc123\.png"/)
+assert.doesNotMatch(uploadPreview, /upload:\/\//)
 
 assert.ok(feedModel, 'feed verification retry model should exist')
 const verificationEvents: string[] = []
@@ -699,7 +720,22 @@ assert.equal(draftService.keyFor({ action: 'edit', postId: 501 }), 'post_501')
 
 const uploadService = new LinuxDoUploadService()
 assert.equal(uploadService.markdown({ url: 'https://linux.do/u.png', originalFilename: 'u.png' }, new File(['x'], 'u.png', { type: 'image/png' })), '![u.png](https://linux.do/u.png)')
+assert.equal(uploadService.markdown({ url: 'https://linux.do/uploads/default/original/1X/u.png', shortUrl: 'upload://abc123', originalFilename: 'u.png' }, new File(['x'], 'u.png', { type: 'image/png' })), '![u.png](upload://abc123)', 'composer markdown should preserve Discourse short URLs; only local preview resolves them')
+assert.deepEqual(uploadService.shortUrls('a upload://abc.png b upload://abc.png c upload://xyz.webp'), ['upload://abc.png', 'upload://xyz.webp'])
 assert.equal(uploadService.markdown({ url: 'https://linux.do/a.zip', originalFilename: 'a.zip' }, new File(['x'], 'a.zip', { type: 'application/zip' })), '[a.zip](https://linux.do/a.zip)')
+const uploadLookupCalls: Array<{ url: string; form: Record<string, unknown>; auth?: string }> = []
+const uploadLookupService = new LinuxDoUploadService({
+  postForm: async (url: string, form: Record<string, unknown>, options?: { auth?: string }) => {
+    uploadLookupCalls.push({ url, form, auth: options?.auth })
+    return [{ short_url: 'upload://abc.png', url: '/uploads/default/original/1X/abc.png' }]
+  },
+} as any)
+assert.deepEqual(await uploadLookupService.lookupPreviewUrls(['upload://abc.png']), {
+  'upload://abc.png': 'https://linux.do/uploads/default/original/1X/abc.png',
+})
+assert.equal(uploadLookupCalls[0]?.url, 'https://linux.do/uploads/lookup-urls.json')
+assert.deepEqual(uploadLookupCalls[0]?.form, { 'short_urls[]': ['upload://abc.png'] })
+assert.equal(uploadLookupCalls[0]?.auth, 'required')
 
 const peopleCalls: Array<{ url: string; options?: { auth?: string } }> = []
 const fakeApi = {
@@ -834,6 +870,8 @@ assert.match(javaSource, /"Set-Cookie"\.equalsIgnoreCase/)
 assert.match(javaSource, /isApiAllowedUrl/)
 assert.match(javaSource, /can_use_templates/)
 assert.match(javaSource, /canUseTemplates/)
+assert.match(javaSource, /UploadProgressRequestBody/)
+assert.match(javaSource, /linuxDoUploadProgress/)
 assert.match(javaSource, /User-Api-Key/)
 assert.match(javaSource, /User-Api-Client-Id/)
 assert.match(authJavaSource, /AndroidKeyStore/)

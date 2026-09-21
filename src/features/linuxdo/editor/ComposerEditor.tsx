@@ -7,6 +7,7 @@ import {
   Italic,
   Link2,
   List,
+  Loader2,
   ListOrdered,
   Plus,
   Quote,
@@ -44,7 +45,9 @@ interface ComposerEditorProps {
   onPreviewChange: (preview: boolean) => void
   placeholder: string
   uploading: boolean
+  uploadProgress: number
   uploadLabel: string
+  previewUploadUrls: Record<string, string>
   onUpload: () => void
   onOpenInsert: () => void
   onOpenTemplate: () => void
@@ -70,7 +73,9 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
   onPreviewChange,
   placeholder,
   uploading,
+  uploadProgress,
   uploadLabel,
+  previewUploadUrls,
   onUpload,
   onOpenInsert,
   onOpenTemplate,
@@ -159,15 +164,27 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
         </div>
         <span className="mx-1 h-6 w-px shrink-0 bg-haze/70" aria-hidden />
         <div className="flex shrink-0 items-center gap-1 py-1.5">
-          <button type="button" onClick={onUpload} disabled={uploading} className="linuxdo-composer-tool" aria-label={uploadLabel} title={uploadLabel}><ImagePlus size={16} /></button>
+          <button type="button" onClick={onUpload} disabled={uploading} className="linuxdo-composer-tool" aria-label={uploadLabel} title={uploadLabel}>{uploading ? <Loader2 size={16} className="animate-spin" /> : <ImagePlus size={16} />}</button>
           <button type="button" onClick={onOpenInsert} className="linuxdo-composer-tool is-accent" aria-label="更多插入功能" title="更多插入功能"><Plus size={17} /></button>
         </div>
       </div>
 
+      {uploading ? (
+        <div className="shrink-0 border-b border-haze/55 bg-paper/[0.025] px-3 py-2" role="status" aria-live="polite">
+          <div className="flex items-center justify-between gap-3 text-[10px]">
+            <span className="min-w-0 flex-1 truncate font-medium text-paper-muted">{uploadLabel}</span>
+            <span className="shrink-0 font-mono text-paper-faint">{Math.round(Math.max(0, Math.min(1, uploadProgress)) * 100)}%</span>
+          </div>
+          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-paper/[0.07]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.max(0, Math.min(1, uploadProgress)) * 100)}>
+            <div className="h-full rounded-full bg-cinnabar transition-[width] duration-150" style={{ width: `${Math.max(2, Math.min(100, uploadProgress * 100))}%` }} />
+          </div>
+        </div>
+      ) : null}
+
       <div className="relative min-h-[240px] flex-1">
         {preview ? (
           value.trim() ? (
-            <article className="reader-prose linuxdo-post-prose linuxdo-composer-preview absolute inset-0 overflow-y-auto px-4 py-4 text-paper" dangerouslySetInnerHTML={{ __html: renderLinuxDoComposerPreview(value) }} />
+            <article className="reader-prose linuxdo-post-prose linuxdo-composer-preview absolute inset-0 overflow-y-auto px-4 py-4 text-paper" dangerouslySetInnerHTML={{ __html: renderLinuxDoComposerPreview(value, previewUploadUrls) }} />
           ) : (
             <div className="absolute inset-0 grid place-items-center px-8 text-center text-[12px] text-paper-faint"><span><Eye size={21} className="mx-auto mb-2 opacity-60" />输入正文后可在这里检查排版</span></div>
           )

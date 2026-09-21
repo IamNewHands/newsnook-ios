@@ -66,6 +66,7 @@ export const linuxDoEndpoints = {
   drafts: ORIGIN + '/drafts.json',
   draft: (key: string) => ORIGIN + '/drafts/' + encodeURIComponent(key) + '.json',
   uploads: ORIGIN + '/uploads.json',
+  uploadLookupUrls: ORIGIN + '/uploads/lookup-urls.json',
   userBookmarks: (username: string) => ORIGIN + '/u/' + encodeURIComponent(username) + '/bookmarks.json',
   boostCreate: (postId: number) => ORIGIN + '/discourse-boosts/posts/' + postId + '/boosts.json',
   boost: (boostId: number) => ORIGIN + '/discourse-boosts/boosts/' + boostId + '.json',

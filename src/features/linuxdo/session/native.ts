@@ -1,4 +1,4 @@
-import { Capacitor, registerPlugin } from '@capacitor/core'
+import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 
 import type { LinuxDoSessionSnapshot } from '../types'
 
@@ -14,6 +14,7 @@ interface LinuxDoSessionPlugin {
   appendUploadChunk(options: { uploadId: string; base64: string }): Promise<{ bytesWritten: number }>
   finishUpload(options: { uploadId: string }): Promise<Record<string, unknown>>
   cancelUpload(options: { uploadId: string }): Promise<void>
+  addListener(eventName: 'linuxDoUploadProgress', listener: (event: { uploadId: string; sentBytes: number; totalBytes: number; progress: number }) => void): Promise<PluginListenerHandle>
   clearBrowserSession(): Promise<void>
 }
 
@@ -61,7 +62,15 @@ export async function uploadLinuxDoFile(file: File, onProgress?: (progress: numb
     mimeType: file.type || 'application/octet-stream',
   })
   const chunkSize = 256 * 1024
+  let progressListener: PluginListenerHandle | undefined
   try {
+    progressListener = await NativeLinuxDoSession.addListener('linuxDoUploadProgress', (event) => {
+      if (event.uploadId !== uploadId) return
+      const networkProgress = Number.isFinite(event.progress) ? Math.max(0, Math.min(1, event.progress)) : 0
+      // 15% is staging the browser File into native storage; 80% is the real
+      // multipart upload; the last 5% is server response/cook confirmation.
+      onProgress?.(0.15 + networkProgress * 0.8)
+    })
     for (let offset = 0; offset < file.size; offset += chunkSize) {
       const bytes = new Uint8Array(await file.slice(offset, Math.min(file.size, offset + chunkSize)).arrayBuffer())
       let binary = ''
@@ -69,14 +78,17 @@ export async function uploadLinuxDoFile(file: File, onProgress?: (progress: numb
         binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
       }
       await NativeLinuxDoSession.appendUploadChunk({ uploadId, base64: btoa(binary) })
-      onProgress?.(file.size ? Math.min(0.8, ((offset + bytes.length) / file.size) * 0.8) : 0.8)
+      onProgress?.(file.size ? Math.min(0.15, ((offset + bytes.length) / file.size) * 0.15) : 0.15)
     }
+    onProgress?.(0.15)
     const result = await NativeLinuxDoSession.finishUpload({ uploadId })
     onProgress?.(1)
     return result
   } catch (error) {
     await NativeLinuxDoSession.cancelUpload({ uploadId }).catch(() => undefined)
     throw error
+  } finally {
+    await progressListener?.remove().catch(() => undefined)
   }
 }
 

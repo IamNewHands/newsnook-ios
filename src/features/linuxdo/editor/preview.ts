@@ -6,6 +6,15 @@ function escapeAttribute(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+function resolvePreviewUploadUrls(raw: string, uploadUrls: Record<string, string>): string {
+  let resolved = raw
+  for (const [shortUrl, canonicalUrl] of Object.entries(uploadUrls)) {
+    if (!shortUrl.startsWith('upload://') || !/^https?:\/\//i.test(canonicalUrl)) continue
+    resolved = resolved.split(shortUrl).join(canonicalUrl)
+  }
+  return resolved
+}
+
 function discourseExtensions(raw: string): string {
   return raw
     .replace(/<div\s+data-theme-toc="true"\s*><\/div>/gi, '<div data-linuxdo-preview-block="toc"><div data-linuxdo-role="preview-block-label">目录</div><p>发布后将根据正文标题生成目录</p></div>')
@@ -18,9 +27,6 @@ function discourseExtensions(raw: string): string {
     .replace(/\[graphviz[^\]]*\]\s*([\s\S]*?)\s*\[\/graphviz\]/gi, (_match, source) => (
       `<div data-linuxdo-preview-block="graphviz"><div data-linuxdo-role="preview-block-label">graphviz</div><pre><code>${escapeAttribute(String(source).trim())}</code></pre></div>`
     ))
-    .replace(/\[details(?:="([^"]*)")?\]\s*([\s\S]*?)\s*\[\/details\]/gi, (_match, summary, content) => (
-      `<details><summary>${escapeAttribute(summary || '详细信息')}</summary>\n${content.trim()}\n</details>`
-    ))
     .replace(/\[spoiler\]([\s\S]*?)\[\/spoiler\]/gi, '<span class="spoiler">$1</span>')
     .replace(/\[date=([^\s\]]+)(?:\s+time=([^\s\]]+))?(?:\s+timezone="([^"]+)")?[^\]]*\]/gi, (_match, date, time, timezone) => (
       `<time>${escapeAttribute(`${date}${time ? ` ${time}` : ''}${timezone ? ` · ${timezone}` : ''}`)}</time>`
@@ -32,6 +38,51 @@ function discourseExtensions(raw: string): string {
     })
 }
 
+function expandDetailsBlocks(raw: string, depth = 0): string {
+  if (!raw.includes('[details') || depth > 8) return raw
+
+  const openPattern = /\[details(?:="([^"]*)")?\]/gi
+  let cursor = 0
+  let output = ''
+  while (cursor < raw.length) {
+    openPattern.lastIndex = cursor
+    const open = openPattern.exec(raw)
+    if (!open) {
+      output += raw.slice(cursor)
+      break
+    }
+
+    output += raw.slice(cursor, open.index)
+    const scanPattern = /\[details(?:="[^"]*")?\]|\[\/details\]/gi
+    scanPattern.lastIndex = openPattern.lastIndex
+    let nesting = 1
+    let closeStart = -1
+    let closeEnd = -1
+    while (nesting > 0) {
+      const token = scanPattern.exec(raw)
+      if (!token) break
+      if (/^\[\/details\]$/i.test(token[0])) nesting -= 1
+      else nesting += 1
+      if (nesting === 0) {
+        closeStart = token.index
+        closeEnd = scanPattern.lastIndex
+      }
+    }
+
+    if (closeStart < 0) {
+      output += raw.slice(open.index)
+      break
+    }
+
+    const innerSource = raw.slice(openPattern.lastIndex, closeStart).trim()
+    const expandedInner = expandDetailsBlocks(innerSource, depth + 1)
+    const innerHtml = marked.parse(discourseExtensions(expandedInner), { async: false, gfm: true, breaks: false }) as string
+    output += `\n<details><summary>${escapeAttribute(open[1] || '详细信息')}</summary><div data-linuxdo-role="details-body">${innerHtml}</div></details>\n`
+    cursor = closeEnd
+  }
+  return output
+}
+
 function markDiagramBlocks(html: string): string {
   return html.replace(
     /<pre><code class="language-(mermaid|chart|graphviz)">([\s\S]*?)<\/code><\/pre>/gi,
@@ -39,8 +90,10 @@ function markDiagramBlocks(html: string): string {
   )
 }
 
-export function renderLinuxDoComposerPreview(raw: string): string {
+export function renderLinuxDoComposerPreview(raw: string, uploadUrls: Record<string, string> = {}): string {
   if (!raw.trim()) return ''
-  const html = marked.parse(discourseExtensions(raw), { async: false, gfm: true, breaks: false }) as string
+  const previewRaw = resolvePreviewUploadUrls(raw, uploadUrls)
+  const prepared = discourseExtensions(expandDetailsBlocks(previewRaw))
+  const html = marked.parse(prepared, { async: false, gfm: true, breaks: false }) as string
   return sanitizeLinuxDoCooked(markDiagramBlocks(html))
 }

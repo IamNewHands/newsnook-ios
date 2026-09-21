@@ -2947,6 +2947,18 @@ html[data-eink='1'] .lead-cover-veil {
   font-weight: 650;
 }
 
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='details-body'] {
+  padding-top: 0.55em;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='details-body'] > :first-child {
+  margin-top: 0;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='details-body'] > :last-child {
+  margin-bottom: 0;
+}
+
 .reader-prose.linuxdo-post-prose [data-linuxdo-role='poll'] {
   margin: 0.85em 0;
   border: 1px solid var(--color-haze);
