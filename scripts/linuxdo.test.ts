@@ -495,5 +495,14 @@ assert.match(cssSource, /data-linuxdo-role='quote-title-link'/)
 assert.match(cssSource, /data-linuxdo-role='quote-category-dot'/)
 assert.match(cssSource, /data-linuxdo-role='quote-chevron'/)
 
+// CSS rules for mobile card width optimization and readable desktop measure
+assert.match(cssSource, /\.linuxdo-workspace \.page-x\s*\{\s*padding-inline:\s*0\.5rem;/)
+assert.match(cssSource, /max-width:\s*860px;/)
+
+const threadViewsSource = readFileSync(new URL('../src/features/linuxdo/ui/ThreadViews.tsx', import.meta.url), 'utf8')
+assert.match(threadViewsSource, /rounded-xl sm:rounded-2xl border border-haze\/45 bg-ink-raised\/85 p-3 sm:p-4/)
+
+const sharedViewsSource = readFileSync(new URL('../src/features/linuxdo/ui/shared.tsx', import.meta.url), 'utf8')
+assert.match(sharedViewsSource, /rounded-xl sm:rounded-2xl border border-haze\/50 bg-ink-raised\/85 p-3 sm:p-4/)
 
 console.log('linuxdo: ok')

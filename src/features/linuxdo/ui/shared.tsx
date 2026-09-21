@@ -31,10 +31,10 @@ export function TopicCard({
       aria-label={'打开主题：' + topic.title}
       onClick={onOpen}
       onKeyDown={openFromKeyboard}
-      className="linuxdo-control group w-full rounded-2xl border border-haze/50 bg-ink-raised/85 p-3.5 sm:p-4 text-left shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-180 hover:-translate-y-0.5 hover:border-cinnabar/30 hover:shadow-md active:translate-y-0"
+      className="linuxdo-control group w-full rounded-xl sm:rounded-2xl border border-haze/50 bg-ink-raised/85 p-3 sm:p-4 text-left shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-180 hover:-translate-y-0.5 hover:border-cinnabar/30 hover:shadow-md active:translate-y-0"
     >
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 h-9 w-9 shrink-0 overflow-hidden rounded-full ring-1 ring-black/5 dark:ring-white/10 bg-ink-deep shadow-sm">
+      <div className="flex items-start gap-2.5 sm:gap-3">
+        <div className="mt-0.5 h-8 w-8 sm:h-9 sm:w-9 shrink-0 overflow-hidden rounded-full ring-1 ring-black/5 dark:ring-white/10 bg-ink-deep shadow-sm">
           {avatar(author?.avatarTemplate, author?.username)}
         </div>
         <div className="min-w-0 flex-1">
@@ -43,7 +43,7 @@ export function TopicCard({
             <span>{topic.lastPostedAt ? ago(topic.lastPostedAt) : ''}</span>
           </div>
           <div className="flex items-start gap-2">
-            <h3 className="line-clamp-2 flex-1 text-[15px] font-semibold leading-[1.45] text-paper">{topic.title}</h3>
+            <h3 className="line-clamp-2 flex-1 text-[14.5px] sm:text-[15px] font-semibold leading-[1.42] text-paper">{topic.title}</h3>
             {topic.unseen || (topic.newPosts || 0) > 0 ? (
               <span className="mt-0.5 shrink-0 rounded-full bg-cinnabar/15 px-2 py-0.5 font-mono text-[9px] font-semibold tracking-[0.08em] text-cinnabar-soft">NEW</span>
             ) : null}
@@ -66,11 +66,11 @@ export function TopicCard({
               )
             })}
           </div>
-          <div className="mt-3 flex items-center justify-between gap-3 text-[10.5px] text-paper-faint">
+          <div className="mt-2.5 sm:mt-3 flex items-center justify-between gap-2 text-[10px] sm:text-[10.5px] text-paper-faint">
             <span className="min-w-0 truncate">
               {(last?.username ? '最后回复 ' + last.username : author?.username || 'Linux.do') + (topic.lastPostedAt ? ' · ' + ago(topic.lastPostedAt) : '')}
             </span>
-            <span className="flex shrink-0 items-center gap-3 font-mono">
+            <span className="flex shrink-0 items-center gap-2.5 sm:gap-3 font-mono">
               <span className="inline-flex items-center gap-1"><MessageCircle size={11} />{compact(topic.replyCount)}</span>
               <span>{compact(topic.views)} 阅</span>
               {topic.likeCount > 0 ? <span className="inline-flex items-center gap-1"><Heart size={10} />{compact(topic.likeCount)}</span> : null}

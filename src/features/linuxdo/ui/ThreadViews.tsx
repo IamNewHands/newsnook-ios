@@ -640,11 +640,11 @@ export function LinuxDoTopicView({
         setLoadingPosts(true)
         void linuxDoTopics.loadPosts(topic.id, remaining).then((extra) => setPosts((previous) => previous.concat(extra).sort((a, b) => a.postNumber - b.postNumber))).finally(() => setLoadingPosts(false))
       }}>
-        {loading ? <div className="space-y-3 py-5" role="status" aria-label="正在加载主题回复">{Array.from({ length: 4 }, (_, index) => <div key={index} className="rounded-[22px] border border-haze/50 bg-ink-raised/35 p-4"><div className="flex items-center gap-3"><div className="linuxdo-skeleton h-9 w-9 rounded-full" /><div className="flex-1"><div className="linuxdo-skeleton h-3 w-28 rounded" /><div className="linuxdo-skeleton mt-2 h-2.5 w-20 rounded" /></div></div><div className="linuxdo-skeleton mt-5 h-3 w-[92%] rounded" /><div className="linuxdo-skeleton mt-3 h-3 w-[76%] rounded" /><div className="linuxdo-skeleton mt-3 h-32 rounded-2xl" /></div>)}</div> : null}
+        {loading ? <div className="space-y-2.5 sm:space-y-3 py-4 sm:py-5" role="status" aria-label="正在加载主题回复">{Array.from({ length: 4 }, (_, index) => <div key={index} className="rounded-xl sm:rounded-2xl border border-haze/50 bg-ink-raised/35 p-3 sm:p-4"><div className="flex items-center gap-2.5 sm:gap-3"><div className="linuxdo-skeleton h-8 w-8 sm:h-9 sm:w-9 rounded-full" /><div className="flex-1"><div className="linuxdo-skeleton h-3 w-28 rounded" /><div className="linuxdo-skeleton mt-2 h-2.5 w-20 rounded" /></div></div><div className="linuxdo-skeleton mt-4 sm:mt-5 h-3 w-[92%] rounded" /><div className="linuxdo-skeleton mt-2.5 sm:mt-3 h-3 w-[76%] rounded" /><div className="linuxdo-skeleton mt-2.5 sm:mt-3 h-28 sm:h-32 rounded-lg sm:rounded-xl" /></div>)}</div> : null}
         {error ? <div className="py-24 text-center text-[13px] text-paper-muted">{readableError(error)}</div> : null}
         {topic ? (
           <>
-            <header className="py-4 sm:py-5 border-b border-haze/30">
+            <header className="px-1.5 sm:px-0 py-3.5 sm:py-5 border-b border-haze/30 mb-2.5 sm:mb-3">
               <h1 className="font-sans font-bold text-[20px] sm:text-[22px] leading-[1.32] tracking-[-0.015em] text-paper">{topic.title}</h1>
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 {(() => {
@@ -689,15 +689,15 @@ export function LinuxDoTopicView({
                 })}
               </div>
             </header>
-            <div className="space-y-3">
+            <div className="space-y-2.5 sm:space-y-3">
               {posts.map((post) => {
                 const like = post.actions.find((action) => action.id === 2)
                 const replyTarget = resolveReplyTarget(post, posts)
                 const isTopicOwner = (summary?.posters?.[0]?.username && summary.posters[0].username === post.username) || post.postNumber === 1
                 return (
-                  <article key={post.id} id={'linuxdo-post-' + post.postNumber} className="group rounded-2xl border border-haze/45 bg-ink-raised/85 p-3.5 sm:p-4 shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-150 hover:border-haze/70">
-                    <header className="linuxdo-control flex items-start gap-3 select-none">
-                      <button type="button" onClick={() => onOpenUser(post.username)} className="relative mt-0.5 h-9 w-9 shrink-0 overflow-hidden rounded-full ring-1 ring-black/5 dark:ring-white/10 bg-ink-deep transition-transform active:scale-95">
+                  <article key={post.id} id={'linuxdo-post-' + post.postNumber} className="group rounded-xl sm:rounded-2xl border border-haze/45 bg-ink-raised/85 p-3 sm:p-4 shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-150 hover:border-haze/70">
+                    <header className="linuxdo-control flex items-start gap-2.5 sm:gap-3 select-none">
+                      <button type="button" onClick={() => onOpenUser(post.username)} className="relative mt-0.5 h-8 w-8 sm:h-9 sm:w-9 shrink-0 overflow-hidden rounded-full ring-1 ring-black/5 dark:ring-white/10 bg-ink-deep transition-transform active:scale-95">
                         {avatar(post.avatarTemplate, post.username)}
                       </button>
                       <div className="min-w-0 flex-1">
@@ -722,7 +722,7 @@ export function LinuxDoTopicView({
                           <button
                             type="button"
                             onClick={() => void jumpToPost(post.replyToPostNumber!, post.postNumber)}
-                            className="linuxdo-control inline-flex max-w-32 items-center gap-1 rounded-full border border-haze/60 bg-paper/[0.03] py-0.5 pl-1 pr-2 text-[10px] text-paper-muted transition-colors hover:border-cinnabar/30 hover:text-cinnabar"
+                            className="linuxdo-control inline-flex max-w-28 sm:max-w-32 items-center gap-1 rounded-full border border-haze/60 bg-paper/[0.03] py-0.5 pl-1 pr-2 text-[10px] text-paper-muted transition-colors hover:border-cinnabar/30 hover:text-cinnabar"
                             aria-label={'跳转到 ' + replyTarget.username + ' 的帖子 #' + post.replyToPostNumber}
                           >
                             <Reply size={11} className="shrink-0 text-cinnabar-soft" />
@@ -862,7 +862,7 @@ export function LinuxDoTopicView({
                       }
                     }} />
                     <BoostCloud boosts={post.boosts ?? []} onOpenUser={onOpenUser} />
-                    <footer className="linuxdo-control mt-3.5 flex items-center justify-between gap-2 border-t border-haze/40 pt-2.5 select-none">
+                    <footer className="linuxdo-control mt-3 sm:mt-3.5 flex items-center justify-between gap-1.5 sm:gap-2 border-t border-haze/40 pt-2 sm:pt-2.5 select-none">
                       <button
                         type="button"
                         disabled={!session.authenticated}

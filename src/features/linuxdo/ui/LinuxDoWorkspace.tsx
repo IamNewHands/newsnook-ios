@@ -198,8 +198,8 @@ function FeedView({
         }}
       >
         {loading ? (
-          <div className="space-y-3" role="status" aria-label={linuxDoLoadingLabel('initial')}>
-            {Array.from({ length: 6 }, (_, index) => <div key={index} className="linuxdo-skeleton h-[126px] rounded-[20px] border border-haze/50" />)}
+          <div className="space-y-2.5 sm:space-y-3" role="status" aria-label={linuxDoLoadingLabel('initial')}>
+            {Array.from({ length: 6 }, (_, index) => <div key={index} className="linuxdo-skeleton h-[126px] rounded-xl sm:rounded-2xl border border-haze/50" />)}
           </div>
         ) : error ? (
           <div className="mx-auto mt-20 max-w-sm rounded-[22px] border border-haze bg-ink-raised/50 px-5 py-6 text-center">
@@ -213,7 +213,7 @@ function FeedView({
             </button>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2.5 sm:space-y-3">
             {items.map((topic, index) => <div key={topic.id} className="linuxdo-card-in" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }}><TopicCard topic={topic} category={topic.categoryId ? categoriesById[topic.categoryId] : undefined} onOpen={() => onOpen(topic)} onOpenCategory={(category) => onOpenScope({ kind: 'category', category })} onOpenTag={(name) => onOpenScope({ kind: 'tag', name })} /></div>)}
             {loadingMore ? <div className="flex justify-center py-5 text-paper-faint" role="status" aria-label={linuxDoLoadingLabel('more')}><Loader2 size={17} className="animate-spin" /></div> : null}
           </div>
@@ -343,7 +343,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
         )}
       </div>
 
-      <nav className="linuxdo-bottom-nav linuxdo-control relative z-30 mx-3 mb-[max(10px,var(--sab))] mt-2 grid shrink-0 grid-cols-5 items-end rounded-[24px] border border-haze/70 bg-ink-raised/95 px-2 py-1.5 shadow-2xl backdrop-blur-xl select-none">
+      <nav className="linuxdo-bottom-nav linuxdo-control relative z-30 mx-2 sm:mx-3 mb-[max(10px,var(--sab))] mt-2 grid shrink-0 grid-cols-5 items-end rounded-[22px] sm:rounded-[24px] border border-haze/70 bg-ink-raised/95 px-2 py-1.5 shadow-2xl backdrop-blur-xl select-none">
         <button type="button" onClick={() => setRoute({ kind: 'feed', mode: route.kind === 'feed' ? route.mode : 'latest' })} className={'linuxdo-nav-item ' + (route.kind === 'feed' ? 'is-active' : '')} aria-label="首页"><MessageCircle size={18} /><span>首页</span></button>
         <button type="button" onClick={() => setRoute({ kind: 'discover' })} className={'linuxdo-nav-item ' + (route.kind === 'discover' ? 'is-active' : '')} aria-label="发现"><Compass size={18} /><span>发现</span></button>
         <button type="button" onClick={() => { setComposerTopic(undefined); setComposerEditPost(undefined); setComposerInitialRaw(''); setComposerReplyTo(undefined); setComposerOpen(true) }} className="linuxdo-nav-compose" aria-label="发布"><span className="grid h-12 w-12 place-items-center rounded-full bg-cinnabar text-white shadow-lg"><Plus size={22} /></span><span>发布</span></button>

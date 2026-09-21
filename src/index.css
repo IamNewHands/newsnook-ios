@@ -3074,11 +3074,25 @@ html[data-eink='1'] .linuxdo-tag-chip {
   box-shadow: none;
 }
 
+/* LINUX DO 社区工作区专属水平留白规范：
+ * 移动端采用 8px (0.5rem) 现代微外槽，保留浮动卡片独立层级与微阴影，彻底释放横向空间；
+ * 平板与桌面端平滑提升边距，宽屏保持 860px 黄金阅读中轴，防止超宽显示器过度拉伸。 */
+.linuxdo-workspace .page-x {
+  padding-inline: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  .linuxdo-workspace .page-x {
+    padding-inline: 1.25rem;
+  }
+}
+
 @media (min-width: 1024px) {
   .linuxdo-workspace .page-x {
     width: 100%;
-    max-width: 1040px;
+    max-width: 860px;
     margin-inline: auto;
+    padding-inline: 1.5rem;
   }
 
   .linuxdo-workspace .linuxdo-bottom-nav {
