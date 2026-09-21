@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 
@@ -111,6 +111,7 @@ import {
 } from './features/translation/config'
 import { resolveAiFeatureConfig } from './features/translation/aiConfig'
 import { FAVORITES_CATEGORY_ID, RECOMMEND_CATEGORY_ID, type CategoryId } from './sources/categories'
+import { applySnapshotToPrefs } from './sources/presets'
 import {
   FOLLOWS_ENABLED_SOURCES,
   FONT_FAMILY_OPTIONS,
@@ -481,15 +482,18 @@ export default function App() {
 
   // 切换预设后回到新预设的第一个普通分类：推荐池随预设而变，不静默延续推荐 Tab
   const activePresetId = presets.state.activePresetId
+  const activePresetFirstCategoryId = useMemo(() => {
+    const active = presets.activePreset
+    if (!active) return defaultFeedCategoryId(regularCategories)
+    return defaultFeedCategoryId(visibleCategories(applySnapshotToPrefs(prefs, active.snapshot)))
+  }, [prefs, presets.activePreset, regularCategories])
   const prevPresetIdRef = useRef(activePresetId)
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (prevPresetIdRef.current === activePresetId) return
     prevPresetIdRef.current = activePresetId
-    if (categoryId === RECOMMEND_CATEGORY_ID) {
-      setCategoryId(defaultFeedCategoryId(regularCategories))
-      setCategoryFilterSourceId(null)
-    }
-  }, [activePresetId, categoryId, regularCategories])
+    setCategoryId(activePresetFirstCategoryId)
+    setCategoryFilterSourceId(null)
+  }, [activePresetFirstCategoryId, activePresetId])
 
   const categorySourceIds = useMemo(
     () => sourceIdsForCategoryWithPrefs(categoryId, prefs, enabledIds),
@@ -1546,6 +1550,7 @@ export default function App() {
 
     return (
       <FeedScreen
+        key={`preset:${activePresetId}`}
         title={BRAND_TITLE}
         caption={
           activeFilterSource

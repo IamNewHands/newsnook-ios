@@ -58,8 +58,12 @@ export const linuxDoEndpoints = {
     if (filter !== undefined) params.set('filter', String(filter))
     return ORIGIN + '/user_actions.json?' + params.toString()
   },
-  notifications: (offset = 0, limit = 30) => ORIGIN + '/notifications.json?offset=' + offset + '&limit=' + limit,
-  markNotificationsRead: ORIGIN + '/notifications/mark-read.json',
+  notifications: (offset = 0, limit = 30, filter?: 'read' | 'unread') => {
+    const params = new URLSearchParams({ offset: String(offset), limit: String(limit) })
+    if (filter) params.set('filter', filter)
+    return ORIGIN + '/notifications.json?' + params.toString()
+  },
+  markNotificationsRead: ORIGIN + '/notifications/mark-read',
   postsCreate: ORIGIN + '/posts.json',
   post: (id: number) => ORIGIN + '/posts/' + id + '.json',
   postRaw: (id: number) => ORIGIN + '/posts/' + id + '/raw',

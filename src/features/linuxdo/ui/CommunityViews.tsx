@@ -1,9 +1,22 @@
+import { Browser } from '@capacitor/browser'
+import { Capacitor } from '@capacitor/core'
 import { Bell, Loader2, Search, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ConfirmDialog } from '../../../components/ConfirmDialog'
 
 import type { LinuxDoBookmarkService } from '../bookmark/service'
+import {
+  linuxDoNotificationDetail,
+  linuxDoNotificationLabel,
+  linuxDoNotificationMatchesFilter,
+  linuxDoNotificationTitle,
+  markAllLinuxDoNotificationsRead,
+  markLinuxDoNotificationRead,
+  mergeLinuxDoNotifications,
+  resolveLinuxDoNotificationTarget,
+  type LinuxDoNotificationFilter,
+} from '../notification/model'
 import {
   linuxDoBookmarks as bookmarkApi,
   linuxDoNotifications as notificationsApi,
@@ -141,104 +154,298 @@ export function SearchView({ onOpen, onOpenUser }: { onOpen: (topic: LinuxDoTopi
 
 export { DiscoverView } from './DiscoverView'
 
+async function openLinuxDoNotificationExternal(url: string): Promise<void> {
+  if (Capacitor.isNativePlatform()) {
+    await Browser.open({ url })
+  } else {
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+}
+
 export function NotificationsView({
   session,
   onOpen,
+  onOpenUser,
   onUnreadChange,
 }: {
   session: LinuxDoSessionSnapshot
   onOpen: (topic: LinuxDoTopicSummary, targetPostNumber?: number) => void
+  onOpenUser: (username: string, tab?: 'badges', badgeId?: number) => void
   onUnreadChange: (count: number) => void
 }) {
-  const notificationLabel = (type: number) =>
-    ({
-      1: '有人提到了你',
-      2: '有人回复了你',
-      3: '有人引用了你',
-      4: '帖子被编辑',
-      5: '有人点赞',
-      6: '收到私信',
-      7: '收到私信邀请',
-      9: '关注主题有新帖',
-      11: '有人链接了你的内容',
-      12: '获得徽章',
-      13: '收到主题邀请',
-      18: '主题提醒',
-      24: '书签提醒',
-      25: '收到 Reaction',
-      29: '聊天中提到了你',
-      36: '关注的分类或标签有新内容',
-      43: '收到 Boost',
-    })[type] || '新通知'
   const [items, setItems] = useState<LinuxDoNotification[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [nextOffset, setNextOffset] = useState<number | undefined>()
   const [error, setError] = useState('')
-  const [filter, setFilter] = useState<'all' | 'mentions' | 'replies' | 'system'>('all')
+  const [filter, setFilter] = useState<LinuxDoNotificationFilter>('all')
+  const [unreadCount, setUnreadCount] = useState(session.currentUser?.unreadNotifications ?? 0)
+  const [markingAll, setMarkingAll] = useState(false)
+  const [markingIds, setMarkingIds] = useState<Set<number>>(() => new Set())
+  const [detailItem, setDetailItem] = useState<LinuxDoNotification | null>(null)
+  const mountedRef = useRef(true)
+  const loadGenerationRef = useRef(0)
+  const mutationGenerationRef = useRef(0)
+  const unreadCountRef = useRef(unreadCount)
+  const pendingIdsRef = useRef(new Set<number>())
+  const markingAllRef = useRef(false)
+
+  const applyUnreadCount = useCallback((count: number) => {
+    const normalized = Math.max(0, Math.trunc(Number.isFinite(count) ? count : 0))
+    unreadCountRef.current = normalized
+    if (mountedRef.current) setUnreadCount(normalized)
+    onUnreadChange(normalized)
+  }, [onUnreadChange])
+
+  const refreshServerTruth = useCallback(async (mutationGeneration: number, refreshItems: boolean) => {
+    const [countResult, listResult] = await Promise.allSettled([
+      notificationsApi.unreadCount(),
+      refreshItems ? notificationsApi.list() : Promise.resolve(undefined),
+    ])
+    if (mutationGeneration !== mutationGenerationRef.current) return
+
+    if (countResult.status === 'fulfilled') applyUnreadCount(countResult.value)
+
+    if (mountedRef.current && listResult.status === 'fulfilled' && listResult.value) {
+      const result = listResult.value
+      setItems((previous) => {
+        const serverById = new Map(result.items.map((item) => [item.id, item]))
+        const next = previous.map((item) => serverById.get(item.id) ?? item)
+        for (const item of result.items) {
+          if (!next.some((existing) => existing.id === item.id)) next.push(item)
+        }
+        return next
+      })
+      setNextOffset(result.nextOffset)
+    }
+  }, [applyUnreadCount])
+
+  const loadNotifications = useCallback(async (showSpinner: boolean) => {
+    if (!session.authenticated) return
+    const generation = ++loadGenerationRef.current
+    const mutationGeneration = mutationGenerationRef.current
+    if (showSpinner) setLoading(true)
+    setError('')
+    try {
+      const [result, count] = await Promise.all([
+        notificationsApi.list(),
+        notificationsApi.unreadCount().catch(() => undefined),
+      ])
+      if (!mountedRef.current || generation !== loadGenerationRef.current) return
+      setItems((previous) => showSpinner ? result.items : mergeLinuxDoNotifications(previous, result.items))
+      setNextOffset(result.nextOffset)
+      if (count !== undefined && mutationGeneration === mutationGenerationRef.current) applyUnreadCount(count)
+    } catch (nextError) {
+      if (mountedRef.current && generation === loadGenerationRef.current) setError(readableError(nextError))
+    } finally {
+      if (mountedRef.current && generation === loadGenerationRef.current) setLoading(false)
+    }
+  }, [applyUnreadCount, session.authenticated])
 
   useEffect(() => {
+    mountedRef.current = true
     if (!session.authenticated) {
+      setItems([])
       setLoading(false)
+      applyUnreadCount(0)
+      return () => {
+        mountedRef.current = false
+        loadGenerationRef.current += 1
+      }
+    }
+
+    void loadNotifications(true)
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void loadNotifications(false)
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      mountedRef.current = false
+      loadGenerationRef.current += 1
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [applyUnreadCount, loadNotifications, session.authenticated])
+
+  const markOneRead = useCallback((item: LinuxDoNotification) => {
+    if (item.read || pendingIdsRef.current.has(item.id)) return
+
+    pendingIdsRef.current.add(item.id)
+    const mutationGeneration = ++mutationGenerationRef.current
+    setItems((previous) => markLinuxDoNotificationRead(previous, item.id))
+    applyUnreadCount(unreadCountRef.current - 1)
+    setMarkingIds((previous) => {
+      const next = new Set(previous)
+      next.add(item.id)
+      return next
+    })
+
+    void notificationsApi.markRead(item.id).then(() => {
+      void refreshServerTruth(mutationGeneration, false)
+    }).catch((nextError) => {
+      if (mountedRef.current) setError('标记通知已读失败：' + readableError(nextError))
+      void refreshServerTruth(mutationGeneration, true)
+    }).finally(() => {
+      pendingIdsRef.current.delete(item.id)
+      if (mountedRef.current) {
+        setMarkingIds((previous) => {
+          const next = new Set(previous)
+          next.delete(item.id)
+          return next
+        })
+      }
+    })
+  }, [applyUnreadCount, refreshServerTruth])
+
+  const markAllRead = useCallback(() => {
+    if (markingAllRef.current || unreadCountRef.current === 0) return
+
+    markingAllRef.current = true
+    const mutationGeneration = ++mutationGenerationRef.current
+    setMarkingAll(true)
+    setItems((previous) => markAllLinuxDoNotificationsRead(previous))
+    applyUnreadCount(0)
+
+    void notificationsApi.markAllRead().then(() => {
+      void refreshServerTruth(mutationGeneration, true)
+    }).catch((nextError) => {
+      if (mountedRef.current) setError('全部已读失败：' + readableError(nextError))
+      void refreshServerTruth(mutationGeneration, true)
+    }).finally(() => {
+      markingAllRef.current = false
+      if (mountedRef.current) setMarkingAll(false)
+    })
+  }, [applyUnreadCount, refreshServerTruth])
+
+  const openNotification = useCallback((item: LinuxDoNotification) => {
+    markOneRead(item)
+    const target = resolveLinuxDoNotificationTarget(item, session.currentUser?.username)
+
+    if (target.kind === 'topic') {
+      onOpen({
+        id: target.topicId,
+        slug: target.slug || 'topic',
+        title: linuxDoNotificationTitle(item),
+        postsCount: 0,
+        replyCount: 0,
+        views: 0,
+        likeCount: 0,
+        createdAt: item.createdAt,
+        lastPostedAt: item.createdAt,
+        tags: [],
+        posters: [],
+      }, target.postNumber)
       return
     }
-    void notificationsApi.list().then((result) => {
-      setItems(result.items)
-      setNextOffset(result.nextOffset)
-      onUnreadChange(result.items.filter((item) => !item.read).length)
-    }).catch((nextError) => setError(readableError(nextError))).finally(() => setLoading(false))
-  }, [session.authenticated, onUnreadChange])
+
+    if (target.kind === 'user') {
+      onOpenUser(target.username, target.tab, target.badgeId)
+      return
+    }
+
+    if (target.kind === 'external') {
+      void openLinuxDoNotificationExternal(target.url).catch((nextError) => {
+        if (mountedRef.current) setError('无法打开通知内容：' + readableError(nextError))
+      })
+      return
+    }
+
+    setDetailItem(item)
+  }, [markOneRead, onOpen, onOpenUser, session.currentUser?.username])
 
   if (!session.authenticated) return <div className="px-6 py-20 text-center text-[13px] text-paper-muted">登录后可查看通知</div>
-  const filteredItems = items.filter((item) => filter === 'all' ? true : filter === 'mentions' ? [1, 3, 29].includes(item.notificationType) : filter === 'replies' ? item.notificationType === 2 : ![1, 2, 3, 29].includes(item.notificationType))
+  const filteredItems = items.filter((item) => linuxDoNotificationMatchesFilter(item, filter))
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto page-x pb-4 pt-3">
-      <section className="mb-4 rounded-[24px] border border-haze/70 bg-ink-raised p-4 shadow-sm"><div className="flex items-center justify-between"><div><h2 className="text-[20px] font-bold tracking-[-0.03em] text-paper">通知</h2><p className="mt-1 text-[10.5px] text-paper-muted">不错过任何重要互动</p></div><Bell size={24} className="text-cinnabar" /></div><div className="mt-4 grid grid-cols-4 rounded-2xl bg-ink-deep p-1">{([['all','全部'],['mentions','提及'],['replies','回复'],['system','系统']] as const).map(([key,label]) => <button key={key} type="button" onClick={() => setFilter(key)} className={'linuxdo-control min-h-9 rounded-xl px-2 text-[10.5px] font-semibold ' + (filter === key ? 'bg-cinnabar text-white shadow-sm' : 'text-paper-muted')}>{label}</button>)}</div></section>
-      <div className="mb-3 flex items-center justify-between"><span className="text-[10.5px] text-paper-faint">未读 {items.filter((item) => !item.read).length}</span><button type="button" onClick={() => void notificationsApi.markRead().then(() => { setItems((previous) => previous.map((item) => ({ ...item, read: true }))); onUnreadChange(0) }).catch((nextError) => setError(readableError(nextError)))} className="linuxdo-control rounded-full border border-haze bg-ink-raised px-3 py-1.5 text-[10px] text-paper-muted">全部已读</button></div>
+      <section className="mb-4 rounded-[24px] border border-haze/70 bg-ink-raised p-4 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div><h2 className="text-[20px] font-bold tracking-[-0.03em] text-paper">通知</h2><p className="mt-1 text-[10.5px] text-paper-muted">不错过任何重要互动</p></div>
+          <Bell size={24} className="text-cinnabar" />
+        </div>
+        <div className="mt-4 grid grid-cols-4 rounded-2xl bg-ink-deep p-1">
+          {([['all', '全部'], ['mentions', '提及'], ['replies', '回复'], ['system', '系统']] as const).map(([key, label]) => (
+            <button key={key} type="button" onClick={() => setFilter(key)} className={'linuxdo-control min-h-9 rounded-xl px-2 text-[10.5px] font-semibold ' + (filter === key ? 'bg-cinnabar text-white shadow-sm' : 'text-paper-muted')}>{label}</button>
+          ))}
+        </div>
+      </section>
+
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-[10.5px] text-paper-faint">未读 {unreadCount}</span>
+        <button
+          type="button"
+          disabled={markingAll || unreadCount === 0 || loading}
+          onClick={markAllRead}
+          className="linuxdo-control rounded-full border border-haze bg-ink-raised px-3 py-1.5 text-[10px] text-paper-muted disabled:opacity-40"
+        >
+          {markingAll ? '处理中…' : '全部已读'}
+        </button>
+      </div>
+
       {error ? <button type="button" onClick={() => setError('')} className="mb-3 w-full rounded-xl border border-cinnabar/25 bg-cinnabar/10 px-3 py-2 text-left text-[10.5px] text-cinnabar-soft">{error} · 点击关闭</button> : null}
+
       {loading ? <div className="flex justify-center py-16"><Loader2 className="animate-spin text-paper-faint" /></div> : (
         <div className="space-y-2.5">
           {filteredItems.map((item) => (
-            <button key={item.id} type="button" onClick={() => {
-              if (!item.read) {
-                void notificationsApi.markRead(item.id).then(() => { setItems((previous) => previous.map((candidate) => candidate.id === item.id ? { ...candidate, read: true } : candidate)); onUnreadChange(Math.max(0, items.filter((candidate) => !candidate.read).length - 1)) }).catch((nextError) => setError(readableError(nextError)))
-              }
-              if (item.topicId) {
-                onOpen({
-                  id: item.topicId,
-                  slug: item.slug || 'topic',
-                  title: item.fancyTitle || 'Linux.do 主题',
-                  postsCount: 0,
-                  replyCount: 0,
-                  views: 0,
-                  likeCount: 0,
-                  createdAt: item.createdAt,
-                  lastPostedAt: item.createdAt,
-                  tags: [],
-                  posters: [],
-                }, item.postNumber)
-              }
-            }} className={'linuxdo-control w-full rounded-[18px] border px-4 py-3 text-left ' + (item.read ? 'border-haze/50 bg-ink-raised/30' : 'border-cinnabar/25 bg-cinnabar/[0.055]')}>
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => openNotification(item)}
+              className={'linuxdo-control w-full rounded-[18px] border px-4 py-3 text-left ' + (item.read ? 'border-haze/50 bg-ink-raised/30' : 'border-cinnabar/25 bg-cinnabar/[0.055]')}
+            >
               <div className="flex items-start gap-3">
-                <div className={'mt-1 h-2 w-2 rounded-full ' + (item.read ? 'bg-paper/15' : 'bg-cinnabar')} />
+                <div className={'mt-1 h-2 w-2 shrink-0 rounded-full ' + (item.read ? 'bg-paper/15' : 'bg-cinnabar')} />
                 <div className="min-w-0 flex-1">
-                  <div className="text-[10px] font-medium text-cinnabar-soft">{notificationLabel(item.notificationType)}</div>
-                  <div className="mt-0.5 line-clamp-2 text-[12.5px] font-medium text-paper">{item.fancyTitle || 'Linux.do'}</div>
+                  <div className="flex items-center gap-1.5 text-[10px] font-medium text-cinnabar-soft">
+                    <span>{linuxDoNotificationLabel(item.notificationType)}</span>
+                    {markingIds.has(item.id) ? <Loader2 size={10} className="animate-spin text-paper-faint" /> : null}
+                  </div>
+                  <div className="mt-0.5 line-clamp-2 text-[12.5px] font-medium text-paper">{linuxDoNotificationTitle(item)}</div>
                   <div className="mt-1 text-[9.5px] text-paper-faint">{ago(item.createdAt)}</div>
                 </div>
               </div>
             </button>
           ))}
-          {nextOffset !== undefined ? <button type="button" disabled={loadingMore} onClick={() => {
-            setLoadingMore(true)
-            void notificationsApi.list(nextOffset).then((result) => {
-              setItems((previous) => previous.concat(result.items.filter((item) => !previous.some((existing) => existing.id === item.id))))
-              setNextOffset(result.nextOffset)
-            }).catch((nextError) => setError(readableError(nextError))).finally(() => setLoadingMore(false))
-          }} className="linuxdo-control w-full rounded-full border border-haze px-4 py-2 text-[10.5px] text-paper-muted disabled:opacity-40">{loadingMore ? '加载中…' : '加载更多通知'}</button> : null}
+          {!filteredItems.length ? <div className="py-14 text-center text-[11px] text-paper-faint">当前分类暂无通知</div> : null}
+          {nextOffset !== undefined ? (
+            <button
+              type="button"
+              disabled={loadingMore}
+              onClick={() => {
+                setLoadingMore(true)
+                void notificationsApi.list(nextOffset).then((result) => {
+                  setItems((previous) => mergeLinuxDoNotifications(previous, result.items))
+                  setNextOffset(result.nextOffset)
+                }).catch((nextError) => setError(readableError(nextError))).finally(() => setLoadingMore(false))
+              }}
+              className="linuxdo-control w-full rounded-full border border-haze px-4 py-2 text-[10.5px] text-paper-muted disabled:opacity-40"
+            >
+              {loadingMore ? '加载中…' : '加载更多通知'}
+            </button>
+          ) : null}
         </div>
       )}
+
+      {detailItem ? (
+        <div className="fixed inset-0 z-[90] grid place-items-end bg-black/25 p-3 pb-[max(16px,var(--sab))] sm:place-items-center" role="presentation" onClick={() => setDetailItem(null)}>
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="通知详情"
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-md rounded-[24px] border border-haze/80 bg-ink-raised p-5 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold text-cinnabar-soft">{linuxDoNotificationLabel(detailItem.notificationType)}</div>
+                <h3 className="mt-1 text-[17px] font-bold tracking-[-0.02em] text-paper">{linuxDoNotificationTitle(detailItem)}</h3>
+              </div>
+              <button type="button" onClick={() => setDetailItem(null)} className="linuxdo-control grid h-8 w-8 shrink-0 place-items-center rounded-full border border-haze text-paper-muted" aria-label="关闭通知详情"><X size={15} /></button>
+            </div>
+            <p className="mt-3 text-[11.5px] leading-6 text-paper-muted">{linuxDoNotificationDetail(detailItem)}</p>
+            <div className="mt-4 text-[9.5px] text-paper-faint">{ago(detailItem.createdAt)}</div>
+          </section>
+        </div>
+      ) : null}
     </div>
   )
 }

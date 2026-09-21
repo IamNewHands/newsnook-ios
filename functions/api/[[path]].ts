@@ -191,8 +191,8 @@ export const onRequest: PagesFunction = async (context) => {
       const targetUrl = new URL(target)
       const isMedia = firstSegment === 'media'
       const requestedUa = url.searchParams.get('ua')
-      const isNetease =
-        target.includes('163.com') || target.includes('netease.com') || target.includes('126.net')
+      const isNetease = /(?:^|\.)(?:163\.com|netease\.com|126\.net)$/i.test(targetUrl.hostname)
+      if (!isMedia && isNetease && targetUrl.protocol === 'http:') targetUrl.protocol = 'https:'
       const isWechatImage =
         !isMedia &&
         /(?:^|\.)(?:mmbiz\.qpic\.cn|mmecoa\.qpic\.cn|qlogo\.cn)$/i.test(targetUrl.hostname)
@@ -203,10 +203,14 @@ export const onRequest: PagesFunction = async (context) => {
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
       }
       if (!isWechatImage) {
-        headers.Referer = isMedia && isNetease ? 'https://3g.163.com/' : `${targetUrl.origin}/`
+        headers.Referer = isNetease
+          ? isMedia
+            ? 'https://3g.163.com/'
+            : 'https://www.163.com/'
+          : `${targetUrl.origin}/`
       }
 
-      const upstream = await fetch(target, { headers, redirect: 'follow' })
+      const upstream = await fetch(targetUrl.href, { headers, redirect: 'follow' })
       const respHeaders = corsHeaders()
       respHeaders.set(
         'Content-Type',

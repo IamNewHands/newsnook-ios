@@ -15,6 +15,10 @@
 - 列表 UA 固定 `NewsApp`
 - 汽车频道：`/nc/auto/list/5Yac5Zyz/0-20.html`（顶层键是 `list` 而非 TID，解析器按数组键兼容）
 - 正文走网易详情接口；图集 / 视频等特殊 `skipType` 按现有解析器处理
+- `dingyue` / `cms-bucket` / `bjnewsrec-cv` / `pic-bucket.ws.126.net` 列表图会对空或外站
+  Referer 返回不可解码的占位图。Web 对网易图链预先走 `/api/image`，代理固定携带
+  `Referer: https://www.163.com/`；Android WebView 直载失败后由原生 HTTP 用同一 Referer
+  重试。两端都先把网易 `http://` 图链升级为 HTTPS，其他图床仍默认直连、失败才代理兜底。
 
 ### 1.2 中文媒体 / 科普（group `cn` / `tech`）
 

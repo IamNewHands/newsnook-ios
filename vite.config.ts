@@ -385,10 +385,10 @@ function upstreamProxy(): Plugin {
           const isPost = incoming.pathname === '/api/post' || req.url.startsWith('/api/post?')
           const isImage = incoming.pathname === '/api/image' || req.url.startsWith('/api/image?')
           const isMedia = incoming.pathname === '/api/media' || req.url.startsWith('/api/media?')
-          const isNetease =
-            target.includes('163.com') ||
-            target.includes('netease.com') ||
-            target.includes('126.net')
+          const isNetease = /(?:^|\.)(?:163\.com|netease\.com|126\.net)$/i.test(
+            targetUrl.hostname,
+          )
+          if (isImage && isNetease && targetUrl.protocol === 'http:') targetUrl.protocol = 'https:'
 
           if (isPost) {
             const body = await readRequestBody(req)
@@ -430,14 +430,16 @@ function upstreamProxy(): Plugin {
           }
           if (!isWechatImage) {
             headers.Referer =
-              isMedia && isNetease
-                ? 'https://3g.163.com/'
+              isNetease
+                ? isMedia
+                  ? 'https://3g.163.com/'
+                  : 'https://www.163.com/'
                 : targetUrl.hostname.endsWith('.translate.goog')
                   ? 'https://translate.google.com/'
                   : `${targetUrl.origin}/`
           }
 
-          const upstream = await fetchUpstream(target, { headers })
+          const upstream = await fetchUpstream(targetUrl.href, { headers })
           res.statusCode = upstream.status
           const contentType =
             upstream.contentType ||

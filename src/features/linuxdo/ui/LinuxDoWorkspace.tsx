@@ -13,6 +13,7 @@ import {
   linuxDoApi as api,
   linuxDoDiscovery as discovery,
   linuxDoFeeds as feeds,
+  linuxDoNotifications as notificationsApi,
   linuxDoTopics as topicsApi,
 } from '../runtime'
 import { TopicCard } from './shared'
@@ -29,7 +30,7 @@ type Route =
   | { kind: 'search' }
   | { kind: 'discover'; scope?: LinuxDoDiscoveryScope }
   | { kind: 'notifications' }
-  | { kind: 'user'; username: string }
+  | { kind: 'user'; username: string; tab?: 'badges'; badgeId?: number }
   | { kind: 'bookmarks' }
   | { kind: 'account' }
 
@@ -516,6 +517,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
   const [workspaceError, setWorkspaceError] = useState('')
   const [workspaceNotice, setWorkspaceNotice] = useState<string>('')
   const [notificationUnread, setNotificationUnread] = useState(0)
+  const notificationUnreadRevisionRef = useRef(0)
   const topicOverlayBackHandlerRef = useRef<(() => boolean) | null>(null)
   const composerRequestCloseRef = useRef<(() => void) | null>(null)
   const workspaceNoticeTimerRef = useRef<number | null>(null)
@@ -527,11 +529,16 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
     }
   }, [])
 
+  const applyNotificationUnread = useCallback((count: number) => {
+    notificationUnreadRevisionRef.current += 1
+    setNotificationUnread(Math.max(0, Math.trunc(Number.isFinite(count) ? count : 0)))
+  }, [])
+
   const applyWorkspaceSession = useCallback((next: LinuxDoSessionSnapshot) => {
     setSession(next)
-    setNotificationUnread(next.currentUser?.unreadNotifications ?? 0)
+    applyNotificationUnread(next.currentUser?.unreadNotifications ?? 0)
     resetPersonalizedFeedCaches()
-  }, [resetPersonalizedFeedCaches])
+  }, [applyNotificationUnread, resetPersonalizedFeedCaches])
 
   const expireWorkspaceSession = useCallback(() => {
     const next: LinuxDoSessionSnapshot = { authenticated: false, authMode: 'none' }
@@ -549,6 +556,27 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
       if (workspaceNoticeTimerRef.current != null) window.clearTimeout(workspaceNoticeTimerRef.current)
     }
   }, [applyWorkspaceSession])
+
+  const refreshNotificationUnread = useCallback(async () => {
+    if (!session.authenticated) return
+    const revision = notificationUnreadRevisionRef.current
+    try {
+      const count = await notificationsApi.unreadCount()
+      if (revision === notificationUnreadRevisionRef.current) setNotificationUnread(count)
+    } catch {
+      // Notification count is auxiliary UI state; the active screen reports actionable errors.
+    }
+  }, [session.authenticated])
+
+  useEffect(() => {
+    if (!session.authenticated) return
+    void refreshNotificationUnread()
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void refreshNotificationUnread()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [refreshNotificationUnread, session.authenticated])
 
   const showWorkspaceNotice = useCallback((message: string) => {
     if (workspaceNoticeTimerRef.current != null) window.clearTimeout(workspaceNoticeTimerRef.current)
@@ -631,8 +659,8 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
             <div className="flex min-w-0 items-baseline gap-1.5 overflow-hidden whitespace-nowrap"><span className="shrink-0 text-[19px] font-bold tracking-[-0.03em] text-paper min-[400px]:text-[20px]">Linux.do</span><span className="hidden min-w-0 truncate text-[9.5px] font-medium text-paper-faint min-[400px]:inline">in NewsNook</span></div>
             <div className="mt-0.5 truncate text-[10.5px] text-paper-muted">{route.kind === 'feed' ? '更好的技术讨论，从这里开始' : title}</div>
           </div>
-          <button type="button" onClick={() => navigate({ kind: 'search' })} className={'linuxdo-icon-button grid h-9 w-9 shrink-0 place-items-center rounded-full ' + (route.kind === 'search' ? 'bg-cinnabar text-white' : 'text-paper-muted')} aria-label="搜索"><Search size={18} /></button>
-          <button type="button" onClick={() => navigate({ kind: 'notifications' })} className={'linuxdo-icon-button relative grid h-9 w-9 shrink-0 place-items-center rounded-full ' + (route.kind === 'notifications' ? 'bg-cinnabar text-white' : 'text-paper-muted')} aria-label="通知"><Bell size={18} />{notificationUnread > 0 ? <span className="absolute right-1 top-1 min-w-4 rounded-full bg-[#ff4d4f] px-1 text-center font-mono text-[8px] leading-4 text-white">{notificationUnread > 99 ? '99+' : notificationUnread}</span> : null}</button>
+          <button type="button" onClick={() => navigate({ kind: 'search' })} className={'linuxdo-icon-button grid h-9 w-9 shrink-0 place-items-center rounded-full ' + (route.kind === 'search' ? 'is-active' : 'text-paper-muted')} aria-label="搜索"><Search size={18} /></button>
+          <button type="button" onClick={() => navigate({ kind: 'notifications' })} className={'linuxdo-icon-button relative grid h-9 w-9 shrink-0 place-items-center rounded-full ' + (route.kind === 'notifications' ? 'is-active' : 'text-paper-muted')} aria-label="通知"><Bell size={18} />{notificationUnread > 0 ? <span className="absolute right-1 top-1 min-w-4 rounded-full bg-[#ff4d4f] px-1 text-center font-mono text-[8px] leading-4 text-white">{notificationUnread > 99 ? '99+' : notificationUnread}</span> : null}</button>
           <div className="linuxdo-preset-slot shrink-0"><PresetSwitcher {...presetSwitcher} /></div>
         </div>
       </header> : null}
@@ -670,9 +698,9 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
         ) : route.kind === 'discover' ? (
           <DiscoverView initialScope={route.scope} cacheRef={discoverCacheRef} onScopeChange={replaceDiscoverScope} onOpen={(topic) => navigate({ kind: 'topic', topic })} />
         ) : route.kind === 'notifications' ? (
-          <NotificationsView session={session} onUnreadChange={setNotificationUnread} onOpen={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} />
+          <NotificationsView session={session} onUnreadChange={applyNotificationUnread} onOpen={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenUser={(username, tab, badgeId) => navigate({ kind: 'user', username, tab, badgeId })} />
         ) : route.kind === 'user' ? (
-          <UserProfileView username={route.username} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenUser={(username) => navigate({ kind: 'user', username })} />
+          <UserProfileView username={route.username} initialTab={route.tab} initialBadgeId={route.badgeId} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenUser={(username) => navigate({ kind: 'user', username })} />
         ) : route.kind === 'bookmarks' ? (
           <BookmarksView session={session} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} />
         ) : (

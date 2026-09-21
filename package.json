@@ -1,7 +1,7 @@
 {
   "name": "web",
   "private": true,
-  "version": "1.8.8-beta.13",
+  "version": "1.8.8-beta.14",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "workspaces": [
@@ -61,6 +61,7 @@
     "test:soft-404": "rolldown scripts/soft-404.test.ts --platform=node --format=esm --file=node_modules/.cache/newsnook/soft-404.test.mjs && node node_modules/.cache/newsnook/soft-404.test.mjs",
     "test:typography": "rolldown scripts/paragraph-typography.test.ts --platform=node --format=esm --file=node_modules/.cache/newsnook/paragraph-typography.test.mjs && node node_modules/.cache/newsnook/paragraph-typography.test.mjs",
     "test:layout-presets": "npx tsx scripts/layout-presets.test.ts",
+    "test:preset-navigation": "npx tsx scripts/preset-navigation.test.ts",
     "test:google-news-decode": "npx tsx scripts/google-news-decode.test.ts",
     "test:native-http": "npx tsx scripts/native-http-response.test.ts",
     "test:google-news-parse": "npx tsx scripts/google-news-parse.test.ts",

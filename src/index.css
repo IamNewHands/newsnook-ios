@@ -2262,6 +2262,12 @@ html[data-eink='1'] .lead-cover-veil {
   transition: transform 160ms var(--ease-ink), background 160ms var(--ease-ink), color 160ms var(--ease-ink);
 }
 
+.linuxdo-workspace .linuxdo-icon-button.is-active {
+  border-color: color-mix(in srgb, var(--color-cinnabar) 76%, transparent);
+  background: var(--color-cinnabar);
+  color: white;
+}
+
 .linuxdo-workspace .linuxdo-icon-button:active {
   transform: scale(0.94);
 }

@@ -33,7 +33,7 @@ import type {
 import type { LinuxDoCategory, LinuxDoTopicSummary } from '../types'
 import { ago, avatar, compact, readableError, tagGlyph } from './utils'
 
-type UserProfileTab = 'overview' | 'activity' | 'topics' | 'replies' | 'likes' | 'boosts' | 'responses' | 'badges'
+export type UserProfileTab = 'overview' | 'activity' | 'topics' | 'replies' | 'likes' | 'boosts' | 'responses' | 'badges'
 type ActivityTab = Extract<UserProfileTab, 'activity' | 'topics' | 'replies' | 'likes' | 'responses'>
 type BoostMode = 'received' | 'given'
 
@@ -384,10 +384,14 @@ function BoostCard({
 
 export function UserProfileView({
   username,
+  initialTab = 'overview',
+  initialBadgeId,
   onOpenTopic,
   onOpenUser,
 }: {
   username: string
+  initialTab?: UserProfileTab
+  initialBadgeId?: number
   onOpenTopic: (topic: LinuxDoTopicSummary, targetPostNumber?: number) => void
   onOpenUser: (username: string) => void
 }) {
@@ -396,7 +400,7 @@ export function UserProfileView({
   const [loading, setLoading] = useState(true)
   const [profileError, setProfileError] = useState('')
   const [summaryError, setSummaryError] = useState('')
-  const [activeTab, setActiveTab] = useState<UserProfileTab>('overview')
+  const [activeTab, setActiveTab] = useState<UserProfileTab>(initialTab)
   const [activities, setActivities] = useState<Partial<Record<ActivityTab, ActivityCacheEntry>>>({})
   const [boostMode, setBoostMode] = useState<BoostMode>('received')
   const [boostsReceived, setBoostsReceived] = useState<LinuxDoBoostListItem[]>([])
@@ -412,6 +416,7 @@ export function UserProfileView({
   const [badgesError, setBadgesError] = useState('')
   const [categoriesById, setCategoriesById] = useState<Record<number, LinuxDoCategory>>({})
   const generationRef = useRef(0)
+  const targetBadgeRef = useRef<HTMLElement | null>(null)
 
   const loadHeader = useCallback(() => {
     const generation = ++generationRef.current
@@ -421,7 +426,7 @@ export function UserProfileView({
     setSummary(null)
     setProfileError('')
     setSummaryError('')
-    setActiveTab('overview')
+    setActiveTab(initialTab)
     setActivities({})
     setBoostsReceived([])
     setBoostsGiven([])
@@ -452,7 +457,7 @@ export function UserProfileView({
     })
 
     return () => controller.abort()
-  }, [username])
+  }, [initialTab, username])
 
   useEffect(() => loadHeader(), [loadHeader])
 
@@ -595,6 +600,14 @@ export function UserProfileView({
     }
     return Array.from(merged.values())
   }, [badges, summary])
+
+  useEffect(() => {
+    if (activeTab !== 'badges' || !initialBadgeId || !badgesLoaded) return
+    const frame = window.requestAnimationFrame(() => {
+      targetBadgeRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeTab, badgesLoaded, initialBadgeId, visibleBadges])
 
   const openSummaryReply = (reply: LinuxDoUserSummaryReply) => {
     onOpenTopic(summaryToTopic(reply.topic), reply.postNumber)
@@ -932,16 +945,21 @@ export function UserProfileView({
                 <div className="grid gap-2 sm:grid-cols-2">
                   {visibleBadges.map((badge) => {
                     const featured = badge.favorite === true || profile.featuredUserBadgeIds.includes(badge.id) || (badge.badgeId ? profile.featuredUserBadgeIds.includes(badge.badgeId) : false)
+                    const notificationTarget = initialBadgeId !== undefined && (badge.badgeId === initialBadgeId || badge.id === initialBadgeId)
                     return (
-                      <article key={(badge.badgeId ?? badge.id) + ':' + badge.id} className={'rounded-2xl border p-3.5 ' + (featured ? 'border-cinnabar/35 bg-cinnabar/[0.055]' : 'border-haze/55 bg-ink-raised/35')}>
+                      <article
+                        key={(badge.badgeId ?? badge.id) + ':' + badge.id}
+                        ref={notificationTarget ? (node) => { targetBadgeRef.current = node } : undefined}
+                        className={'rounded-2xl border p-3.5 ' + (notificationTarget ? 'border-cinnabar bg-cinnabar/[0.09] ring-1 ring-cinnabar/30' : featured ? 'border-cinnabar/35 bg-cinnabar/[0.055]' : 'border-haze/55 bg-ink-raised/35')}
+                      >
                         <div className="flex items-start gap-3">
-                          <span className={'grid h-10 w-10 shrink-0 place-items-center rounded-xl ' + (featured ? 'bg-cinnabar/12 text-cinnabar-soft' : 'bg-paper/[0.04] text-paper-muted')}>
+                          <span className={'grid h-10 w-10 shrink-0 place-items-center rounded-xl ' + (notificationTarget || featured ? 'bg-cinnabar/12 text-cinnabar-soft' : 'bg-paper/[0.04] text-paper-muted')}>
                             {badge.imageUrl ? <img src={badge.imageUrl} alt="" className="h-7 w-7 object-contain" /> : <Award size={19} />}
                           </span>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
                               <h4 className="truncate text-[12.5px] font-semibold text-paper">{badge.name}</h4>
-                              {featured ? <span className="shrink-0 rounded-full bg-cinnabar/12 px-1.5 py-0.5 text-[8px] font-semibold text-cinnabar-soft">展示中</span> : null}
+                              {notificationTarget ? <span className="shrink-0 rounded-full bg-cinnabar/12 px-1.5 py-0.5 text-[8px] font-semibold text-cinnabar-soft">本次获得</span> : featured ? <span className="shrink-0 rounded-full bg-cinnabar/12 px-1.5 py-0.5 text-[8px] font-semibold text-cinnabar-soft">展示中</span> : null}
                             </div>
                             {badge.description ? <p className="mt-1 line-clamp-3 select-text text-[10.5px] leading-5 text-paper-muted">{badge.description}</p> : null}
                             <div className="mt-2 flex flex-wrap gap-x-2 text-[9px] text-paper-faint">

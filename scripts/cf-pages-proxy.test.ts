@@ -215,12 +215,17 @@ console.log('--- 测试 5: /api/image 防盗链 Referer 处理 ---')
   const originalFetch = globalThis.fetch
   let capturedWechatHeaders: Record<string, string> = {}
   let capturedOtherHeaders: Record<string, string> = {}
+  let capturedNeteaseHeaders: Record<string, string> = {}
+  let capturedNeteaseUrl = ''
 
   try {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.includes('qpic.cn')) {
         capturedWechatHeaders = (init?.headers as Record<string, string>) || {}
+      } else if (url.includes('126.net')) {
+        capturedNeteaseUrl = url
+        capturedNeteaseHeaders = (init?.headers as Record<string, string>) || {}
       } else {
         capturedOtherHeaders = (init?.headers as Record<string, string>) || {}
       }
@@ -259,6 +264,22 @@ console.log('--- 测试 5: /api/image 防盗链 Referer 处理 ---')
       data: {},
     })
     assert.equal(capturedOtherHeaders.Referer, 'https://cdn.example.com/')
+
+    // 网易图片必须升级 HTTPS，并使用网易门户 Referer 绕过 ws.126.net 防盗链。
+    const reqNetease = new Request(
+      'https://news.aizeek.com/api/image?url=http%3A%2F%2Fdingyue.ws.126.net%2Fcover.jpg',
+    )
+    await onRequest({
+      request: reqNetease,
+      params: { path: ['image'] },
+      functionPath: '/api/image',
+      waitUntil: () => {},
+      next: async () => new Response(),
+      env: {},
+      data: {},
+    })
+    assert.equal(capturedNeteaseUrl, 'https://dingyue.ws.126.net/cover.jpg')
+    assert.equal(capturedNeteaseHeaders.Referer, 'https://www.163.com/')
   } finally {
     globalThis.fetch = originalFetch
   }

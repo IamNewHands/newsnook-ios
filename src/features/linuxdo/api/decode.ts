@@ -200,18 +200,40 @@ export function decodeCategories(input: unknown): LinuxDoCategory[] {
   }))
 }
 
+function decodeNotificationData(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  if (typeof value !== 'string' || !value.trim()) return {}
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+function notificationInteger(value: unknown): number | undefined {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
+}
+
 export function decodeNotifications(input: unknown): LinuxDoNotification[] {
   const list = (input as Json)?.notifications
   if (!Array.isArray(list)) return []
-  return list.map((n: Json) => ({
-    id: Number(n.id),
-    notificationType: Number(n.notification_type ?? 0),
-    read: Boolean(n.read),
-    createdAt: String(n.created_at ?? ''),
-    postNumber: typeof n.post_number === 'number' ? n.post_number : undefined,
-    topicId: typeof n.topic_id === 'number' ? n.topic_id : undefined,
-    fancyTitle: typeof n.fancy_title === 'string' ? n.fancy_title : undefined,
-    slug: typeof n.slug === 'string' ? n.slug : undefined,
-    data: n.data && typeof n.data === 'object' ? n.data : {},
-  }))
+  return list.flatMap((n: Json) => {
+    const id = notificationInteger(n.id)
+    if (!id) return []
+    return [{
+      id,
+      notificationType: Number(n.notification_type ?? 0),
+      read: n.read === true,
+      createdAt: String(n.created_at ?? ''),
+      postNumber: notificationInteger(n.post_number),
+      topicId: notificationInteger(n.topic_id),
+      fancyTitle: typeof n.fancy_title === 'string' ? n.fancy_title : undefined,
+      slug: typeof n.slug === 'string' ? n.slug : undefined,
+      data: decodeNotificationData(n.data),
+    }]
+  })
 }

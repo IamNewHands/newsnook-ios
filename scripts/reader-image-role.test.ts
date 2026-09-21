@@ -6,6 +6,11 @@ import {
   inferImageDisplayRole,
   normalizeContentImages,
 } from '../src/lib/normalizeImages'
+import {
+  imageReferer,
+  initialListImageUrl,
+  normalizeListImageUrl,
+} from '../src/lib/imageProxy'
 
 function imgFrom(html: string): Element {
   const { document } = parseHTML(`<div id="r">${html}</div>`)
@@ -19,6 +24,26 @@ function imgFrom(html: string): Element {
     imgFrom('<img src="https://cdn.example/logo.png" width="40" height="40" alt="网易财经" />'),
   )
   assert.equal(role, 'badge', 'explicit small width/height attrs should be badge')
+}
+
+{
+  const raw = 'http://dingyue.ws.126.net/2026/0918/cover.jpg'
+  assert.equal(normalizeListImageUrl(raw), 'https://dingyue.ws.126.net/2026/0918/cover.jpg')
+  assert.equal(
+    initialListImageUrl(raw, false),
+    '/api/image?url=https%3A%2F%2Fdingyue.ws.126.net%2F2026%2F0918%2Fcover.jpg',
+  )
+  assert.equal(initialListImageUrl(raw, true), 'https://dingyue.ws.126.net/2026/0918/cover.jpg')
+  assert.equal(imageReferer(raw), 'https://www.163.com/')
+  assert.equal(
+    normalizeListImageUrl('//cms-bucket.ws.126.net/cover.png'),
+    'https://cms-bucket.ws.126.net/cover.png',
+  )
+  assert.equal(
+    initialListImageUrl('https://img.ithome.com/news/photo.png', false),
+    'https://img.ithome.com/news/photo.png',
+    '普通图床应继续直连，仅加载失败时由 InkImage 代理重试',
+  )
 }
 
 {

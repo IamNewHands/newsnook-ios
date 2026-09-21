@@ -27,6 +27,7 @@ const { LinuxDoPeopleService } = await import('../src/features/linuxdo/people/se
 const { LinuxDoSearchService } = await import('../src/features/linuxdo/search/service')
 const { LinuxDoTemplateService, collectLinuxDoTemplateTags, filterLinuxDoTemplates, resolveLinuxDoTemplate } = await import('../src/features/linuxdo/template/service')
 const { LinuxDoNotificationService } = await import('../src/features/linuxdo/notification/service')
+const notificationModel = await import('../src/features/linuxdo/notification/model')
 const feedModel = await import('../src/features/linuxdo/ui/feedModel').catch(() => null)
 const discoveryScope = await import('../src/features/linuxdo/ui/discoveryScope').catch(() => null)
 const threadModel = await import('../src/features/linuxdo/ui/threadModel').catch(() => null)
@@ -414,10 +415,64 @@ assert.equal(categories[0]?.slug, 'dev')
 assert.equal(categories[0]?.parentId, 4)
 
 const notifications = decodeNotifications({
-  notifications: [{ id: 8, notification_type: 5, read: false, created_at: '2026-09-20T00:00:00Z', topic_id: 100, fancy_title: 'Hello' }],
+  notifications: [
+    { id: 8, notification_type: 5, read: false, created_at: '2026-09-20T00:00:00Z', topic_id: 100, fancy_title: 'Hello' },
+    { id: '9', notification_type: 12, read: false, created_at: '2026-09-20T00:02:00Z', data: '{"badge_id":77,"badge_name":"热心用户","badge_slug":"enthusiast"}' },
+  ],
 })
 assert.equal(notifications[0]?.read, false)
 assert.equal(notifications[0]?.topicId, 100)
+assert.equal(notifications[1]?.id, 9)
+assert.equal(notifications[1]?.data.badge_id, 77)
+assert.equal(notifications[1]?.data.badge_name, '热心用户')
+
+const reactionNotification = {
+  id: 25,
+  notificationType: 25,
+  read: false,
+  createdAt: '2026-09-21T00:00:00Z',
+  topicId: 345,
+  postNumber: 6,
+  slug: 'reaction-topic',
+  fancyTitle: 'Reaction target',
+  data: { display_username: 'alice' },
+}
+assert.deepEqual(
+  notificationModel.resolveLinuxDoNotificationTarget(reactionNotification, 'frank'),
+  { kind: 'topic', topicId: 345, slug: 'reaction-topic', postNumber: 6 },
+  'Reaction notifications must navigate by topic_id/post_number, never by notification.id',
+)
+const badgeNotification = {
+  id: 12,
+  notificationType: 12,
+  read: false,
+  createdAt: '2026-09-21T00:00:00Z',
+  topicId: 999,
+  data: { badge_id: 77, badge_name: '热心用户', badge_slug: 'enthusiast' },
+}
+assert.deepEqual(
+  notificationModel.resolveLinuxDoNotificationTarget(badgeNotification, 'frank'),
+  { kind: 'user', username: 'frank', tab: 'badges', badgeId: 77 },
+)
+assert.equal(notificationModel.linuxDoNotificationTitle(badgeNotification), '获得徽章 · 热心用户')
+assert.deepEqual(
+  notificationModel.resolveLinuxDoNotificationTarget({
+    id: 38,
+    notificationType: 38,
+    read: false,
+    createdAt: '2026-09-21T00:00:00Z',
+    data: {},
+  }),
+  { kind: 'detail' },
+  'system notifications without a page must still have an explicit detail target',
+)
+const locallyReadReaction = notificationModel.markLinuxDoNotificationRead([reactionNotification], reactionNotification.id)
+assert.equal(locallyReadReaction[0]?.read, true)
+const staleRefresh = notificationModel.mergeLinuxDoNotifications(locallyReadReaction, [{ ...reactionNotification, read: false }])
+assert.equal(staleRefresh[0]?.read, true, 'a stale refresh must not resurrect an unread Reaction after mark-read')
+const deletedTargetNotification = { ...reactionNotification, id: 26, topicId: 99999999 }
+assert.equal(notificationModel.markLinuxDoNotificationRead([deletedTargetNotification], 26)[0]?.read, true, 'read state is independent from whether the target topic still exists')
+assert.equal(notificationModel.markAllLinuxDoNotificationsRead([reactionNotification, badgeNotification]).every((item: { read: boolean }) => item.read), true)
 
 const dirty = '<p onclick="evil()">safe</p><iframe src="javascript:alert(1)"></iframe>'
 const clean = sanitizeLinuxDoCooked(dirty)
@@ -566,6 +621,8 @@ assert.equal(linuxDoEndpoints.userActivity('frank', 0, 1).endsWith('filter=1'), 
 assert.equal(linuxDoEndpoints.userActivity('frank', 0, 6).endsWith('filter=6'), true)
 assert.equal(linuxDoEndpoints.userActivity('frank', 0).includes('filter='), false)
 assert.equal(linuxDoEndpoints.notifications(60, 30).endsWith('/notifications.json?offset=60&limit=30'), true)
+assert.equal(linuxDoEndpoints.notifications(0, 1, 'unread').endsWith('/notifications.json?offset=0&limit=1&filter=unread'), true)
+assert.equal(linuxDoEndpoints.markNotificationsRead, 'https://linux.do/notifications/mark-read')
 assert.equal(linuxDoEndpoints.topic('hello', 100, 42).endsWith('/t/hello/100/42.json'), true)
 assert.equal(linuxDoEndpoints.postRaw(501).endsWith('/posts/501/raw'), true)
 assert.equal(linuxDoEndpoints.hot(2), 'https://linux.do/hot.json?page=2')
@@ -971,13 +1028,34 @@ assert.equal(search.posts[0]?.topicId, 44)
 assert.equal(search.posts[0]?.topicSlug, 'search-hit')
 assert.match(search.posts[0]?.cooked ?? '', /matched/)
 
-let notificationForm: Record<string, unknown> | undefined
+const notificationWrites: Array<{ url: string; form: Record<string, unknown> }> = []
+const serverUnreadNotificationIds = new Set([12, 13, 14, 15, 16, 17, 18])
 const notificationService = new LinuxDoNotificationService({
-  postForm: async (_url: string, form: Record<string, unknown>) => { notificationForm = form },
+  putForm: async (url: string, form: Record<string, unknown>) => {
+    notificationWrites.push({ url, form })
+    const id = Number(form.id)
+    if (Number.isInteger(id) && id > 0) serverUnreadNotificationIds.delete(id)
+    else serverUnreadNotificationIds.clear()
+  },
+  getJson: async (url: string) => url.includes('filter=unread')
+    ? {
+      total_rows_notifications: serverUnreadNotificationIds.size,
+      notifications: serverUnreadNotificationIds.size
+        ? [{ id: [...serverUnreadNotificationIds][0], notification_type: 25, read: false, created_at: '2026-09-21T01:00:00Z', topic_id: 100 }]
+        : [],
+    }
+    : { notifications: [] },
 } as any)
+assert.equal(await notificationService.unreadCount(), 7)
 await notificationService.markRead(12)
-assert.equal(notificationForm?.id, 12)
-assert.equal('notification_id' in (notificationForm ?? {}), false)
+assert.equal(await notificationService.unreadCount(), 6, 'single mark-read must persist on the next unread-count refresh')
+await notificationService.markAllRead()
+assert.deepEqual(notificationWrites, [
+  { url: linuxDoEndpoints.markNotificationsRead, form: { id: 12 } },
+  { url: linuxDoEndpoints.markNotificationsRead, form: {} },
+])
+assert.equal('notification_id' in notificationWrites[0]!.form, false)
+assert.equal(await notificationService.unreadCount(), 0, 'mark-all-read must persist after a server refresh')
 
 const javaSource = readFileSync('android/app/src/main/java/com/aizeek/newsnook/LinuxDoSessionPlugin.java', 'utf8')
 const authJavaSource = readFileSync('android/app/src/main/java/com/aizeek/newsnook/LinuxDoUserApiAuth.java', 'utf8')
@@ -986,6 +1064,8 @@ const clientSource = readFileSync('src/features/linuxdo/api/client.ts', 'utf8')
 const threadViewSource = readFileSync('src/features/linuxdo/ui/ThreadViews.tsx', 'utf8')
 const composerEditorSource = readFileSync('src/features/linuxdo/editor/ComposerEditor.tsx', 'utf8')
 const workspaceSource = readFileSync('src/features/linuxdo/ui/LinuxDoWorkspace.tsx', 'utf8')
+const communityViewsSource = readFileSync('src/features/linuxdo/ui/CommunityViews.tsx', 'utf8')
+const userProfileSource = readFileSync('src/features/linuxdo/ui/UserProfileView.tsx', 'utf8')
 const discoverViewSource = readFileSync('src/features/linuxdo/ui/DiscoverView.tsx', 'utf8')
 const discoveryServiceSource = readFileSync('src/features/linuxdo/discovery/service.ts', 'utf8')
 const feedServiceSource = readFileSync('src/features/linuxdo/feed/service.ts', 'utf8')
@@ -1088,6 +1168,17 @@ assert.match(workspaceSource, /currentModeRef\.current = nextMode/)
 assert.match(workspaceSource, /requestMode !== currentModeRef\.current/)
 assert.match(workspaceSource, /hasMoreRef\.current && !busyRef\.current/)
 assert.match(workspaceSource, /!error && hasMoreRef\.current/)
+assert.match(workspaceSource, /route\.kind === 'notifications' \? 'is-active'/)
+assert.match(workspaceSource, /onUnreadChange=\{applyNotificationUnread\}/)
+assert.match(workspaceSource, /notificationsApi\.unreadCount\(\)/)
+assert.match(communityViewsSource, /notificationsApi\.markAllRead\(\)/)
+assert.match(communityViewsSource, /notificationsApi\.markRead\(item\.id\)/)
+assert.match(communityViewsSource, /resolveLinuxDoNotificationTarget\(item, session\.currentUser\?\.username\)/)
+assert.match(communityViewsSource, /mutationGeneration === mutationGenerationRef\.current/)
+assert.match(communityViewsSource, /document\.addEventListener\('visibilitychange'/)
+assert.match(communityViewsSource, /onOpenUser\(target\.username, target\.tab, target\.badgeId\)/)
+assert.match(userProfileSource, /initialBadgeId/)
+assert.match(userProfileSource, /本次获得/)
 assert.match(feedServiceSource, /linuxDoEndpoints\.hot\(page\)/)
 assert.match(feedServiceSource, /linuxDoEndpoints\.top\(page\)/)
 assert.match(feedServiceSource, /linuxDoEndpoints\.bookmarkedTopics\(page\)/)
@@ -1123,6 +1214,7 @@ assert.match(cssSource, /data-linuxdo-role='callout'/)
 assert.match(cssSource, /data-linuxdo-callout='warning'/)
 assert.match(cssSource, /data-linuxdo-callout='success'/)
 assert.match(cssSource, /--linuxdo-callout-warning-bg/)
+assert.match(cssSource, /\.linuxdo-workspace \.linuxdo-icon-button\.is-active\s*\{[^}]*background:\s*var\(--color-cinnabar\);[^}]*color:\s*white;/s)
 const lightboxSource = readFileSync('src/components/ImageLightbox.tsx', 'utf8')
 assert.match(lightboxSource, /左右滑动切换/)
 assert.match(lightboxSource, /aria-label="上一张"/)
