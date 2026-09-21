@@ -351,6 +351,13 @@ assert.equal(linuxDoEndpoints.boostCreate(501).endsWith('/discourse-boosts/posts
 assert.equal(linuxDoEndpoints.drafts.endsWith('/drafts.json'), true)
 assert.equal(linuxDoEndpoints.draft('topic_100').endsWith('/drafts/topic_100.json'), true)
 assert.equal(linuxDoEndpoints.userBookmarks('frank').endsWith('/u/frank/bookmarks.json'), true)
+assert.equal(linuxDoEndpoints.userSummary('frank'), 'https://linux.do/u/frank/summary.json')
+assert.equal(linuxDoEndpoints.userBadges('frank'), 'https://linux.do/user-badges/frank.json')
+assert.equal(linuxDoEndpoints.userActivity('frank', 30, 5), 'https://linux.do/user_actions.json?username=frank&offset=30&filter=5')
+assert.equal(linuxDoEndpoints.userActivity('frank', 0, 4).endsWith('filter=4'), true)
+assert.equal(linuxDoEndpoints.userActivity('frank', 0, 1).endsWith('filter=1'), true)
+assert.equal(linuxDoEndpoints.userActivity('frank', 0, 6).endsWith('filter=6'), true)
+assert.equal(linuxDoEndpoints.userActivity('frank', 0).includes('filter='), false)
 assert.equal(linuxDoEndpoints.notifications(60, 30).endsWith('/notifications.json?offset=60&limit=30'), true)
 assert.equal(linuxDoEndpoints.topic('hello', 100, 42).endsWith('/t/hello/100/42.json'), true)
 assert.equal(linuxDoEndpoints.postRaw(501).endsWith('/posts/501/raw'), true)
@@ -364,11 +371,59 @@ const uploadService = new LinuxDoUploadService()
 assert.equal(uploadService.markdown({ url: 'https://linux.do/u.png', originalFilename: 'u.png' }, new File(['x'], 'u.png', { type: 'image/png' })), '![u.png](https://linux.do/u.png)')
 assert.equal(uploadService.markdown({ url: 'https://linux.do/a.zip', originalFilename: 'a.zip' }, new File(['x'], 'a.zip', { type: 'application/zip' })), '[a.zip](https://linux.do/a.zip)')
 
+const peopleCalls: Array<{ url: string; options?: { auth?: string } }> = []
 const fakeApi = {
-  getJson: async (url: string) => {
+  getJson: async (url: string, options?: { auth?: string }) => {
+    peopleCalls.push({ url, options })
     if (url.includes('/bookmarks.json')) return { bookmarks: [{ id: 7, post_id: 501, post_number: 3, topic_id: 100, title: 'Saved topic', slug: 'saved-topic' }] }
-    if (url.includes('/user_actions.json')) return { user_actions: [{ action_type: 5 }], topics: [], users: [] }
-    return { user: { id: 42, username: 'frank', name: 'Frank', trust_level: 3, topic_count: 2, post_count: 10, likes_received: 8 } }
+    if (url.includes('/user-badges/frank.json')) return {
+      user_badges: [
+        { id: 70, granted_at: '2026-09-01T00:00:00Z', is_favorite: true, badge: { id: 7, name: '自传作者', description: '填写个人资料信息', icon: 'user-pen', slug: 'autobiographer' } },
+        { id: 71, granted_at: '2026-09-02T00:00:00Z', badge: { id: 8, name: '编辑者', description: '首次编辑帖子', icon: 'pen', slug: 'editor' } },
+      ],
+    }
+    if (url.includes('/summary.json')) return {
+      user_summary: {
+        likes_given: 21,
+        likes_received: 88,
+        topics_entered: 1200,
+        posts_read_count: 4300,
+        days_visited: 320,
+        topic_count: 12,
+        post_count: 98,
+        time_read: 7200,
+        recent_time_read: 600,
+        can_see_summary_stats: true,
+        can_see_user_actions: true,
+        topics: [{ id: 100, slug: 'top-topic', title: 'Top Topic', category_id: 9, like_count: 15, created_at: '2026-09-20T00:00:00Z' }],
+        replies: [{ post_number: 7, like_count: 3, created_at: '2026-09-20T01:00:00Z', topic: { id: 101, slug: 'reply-topic', title: 'Reply Topic', category_id: 9 } }],
+        links: [{ url: 'https://example.com/docs', title: 'Docs', clicks: 9, post_number: 7, topic: { id: 101, slug: 'reply-topic', title: 'Reply Topic' } }],
+        most_replied_to_users: [{ id: 2, username: 'alice', count: 6, avatar_template: '/user_avatar/linux.do/alice/{size}/1.png' }],
+        most_liked_users: [{ id: 3, username: 'bob', count: 5, avatar_template: '/user_avatar/linux.do/bob/{size}/2.png' }],
+        most_liked_by_users: [{ id: 4, username: 'carol', count: 4, avatar_template: '/user_avatar/linux.do/carol/{size}/3.png' }],
+        top_categories: [{ id: 9, name: '开发调优', slug: 'dev', topic_count: 5, post_count: 40, color: '3AB54A' }],
+        badges: [{ id: 70, granted_at: '2026-09-01T00:00:00Z', count: 1, badge: { id: 7, name: '自传作者', description: '填写个人资料信息', icon: 'user-pen', slug: 'autobiographer' } }],
+      },
+    }
+    if (url.includes('/user_actions.json')) return {
+      user_actions: [{
+        action_type: 5,
+        created_at: '2026-09-20T02:00:00Z',
+        username: 'frank',
+        avatar_template: '/user_avatar/linux.do/frank/{size}/1.png',
+        topic_id: 101,
+        post_id: 501,
+        post_number: 7,
+        reply_to_post_number: 1,
+        category_id: 9,
+        slug: 'reply-topic',
+        title: 'Reply Topic',
+        excerpt: '<p>hello <strong>world</strong><script>bad()</script></p>',
+      }],
+      topics: [],
+      users: [],
+    }
+    return { user: { id: 42, username: 'frank', name: 'Frank', trust_level: 3, bio_cooked: '<p>Bio</p>', featured_user_badge_ids: [7] } }
   },
 } as any
 const bookmarkService = new LinuxDoBookmarkService(fakeApi)
@@ -378,7 +433,39 @@ assert.equal(bookmarkResult.items[0]?.postNumber, 3)
 const peopleService = new LinuxDoPeopleService(fakeApi)
 const profile = await peopleService.profile('frank')
 assert.equal(profile.trustLevel, 3)
-assert.equal(profile.postCount, 10)
+assert.deepEqual(profile.featuredUserBadgeIds, [7])
+assert.equal('postCount' in profile, false, 'profile endpoint must not invent summary statistics')
+const publicSummary = await peopleService.summary('frank')
+assert.equal(publicSummary.topicCount, 12)
+assert.equal(publicSummary.postCount, 98)
+assert.equal(publicSummary.likesReceived, 88)
+assert.equal(publicSummary.likesGiven, 21)
+assert.equal(publicSummary.topics[0]?.title, 'Top Topic')
+assert.equal(publicSummary.replies[0]?.postNumber, 7)
+assert.equal(publicSummary.topCategories[0]?.name, '开发调优')
+assert.equal(publicSummary.mostRepliedToUsers[0]?.username, 'alice')
+assert.equal(publicSummary.badges[0]?.name, '自传作者')
+assert.equal(publicSummary.badges[0]?.badgeId, 7)
+const publicBadges = await peopleService.badges('frank')
+assert.equal(publicBadges.length, 2)
+assert.equal(publicBadges[0]?.name, '自传作者')
+assert.equal(publicBadges[0]?.favorite, true)
+const publicReplies = await peopleService.activity('frank', { filter: 'replies' })
+assert.equal(publicReplies.actions[0]?.actionType, 5)
+assert.equal(publicReplies.actions[0]?.title, 'Reply Topic')
+assert.match(publicReplies.actions[0]?.excerpt ?? '', /<strong>world<\/strong>/)
+assert.doesNotMatch(publicReplies.actions[0]?.excerpt ?? '', /<script/i)
+assert.ok(peopleCalls.some((call) => call.url.endsWith('/u/frank/summary.json') && call.options?.auth === 'optional'))
+assert.ok(peopleCalls.some((call) => call.url.endsWith('/user-badges/frank.json') && call.options?.auth === 'optional'))
+assert.ok(peopleCalls.some((call) => call.url.includes('/user_actions.json?username=frank&offset=0&filter=5') && call.options?.auth === 'optional'))
+const rootlessSummaryService = new LinuxDoPeopleService({ getJson: async () => ({ topic_count: 3, post_count: 0, topics: [], replies: [], badges: [] }) } as any)
+const rootlessSummary = await rootlessSummaryService.summary('rootless')
+assert.equal(rootlessSummary.topicCount, 3)
+assert.equal(rootlessSummary.postCount, 0, 'an explicit zero from Discourse must remain zero')
+const missingSummaryService = new LinuxDoPeopleService({ getJson: async () => ({ topics: [], replies: [], badges: [] }) } as any)
+const missingSummary = await missingSummaryService.summary('private-stats')
+assert.equal(missingSummary.topicCount, undefined, 'missing/hidden stats must not be presented as zero')
+assert.equal(missingSummary.likesReceived, undefined)
 
 const searchService = new LinuxDoSearchService({
   getJson: async () => ({

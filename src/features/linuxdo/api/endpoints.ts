@@ -19,8 +19,13 @@ export const linuxDoEndpoints = {
     ORIGIN + '/t/' + topicId + '/posts.json?' + ids.map((id) => 'post_ids[]=' + encodeURIComponent(String(id))).join('&'),
   search: (q: string, page = 1) => ORIGIN + '/search.json?q=' + encodeURIComponent(q) + '&page=' + page,
   user: (username: string) => ORIGIN + '/u/' + encodeURIComponent(username) + '.json',
-  userActivity: (username: string, offset = 0) =>
-    ORIGIN + '/user_actions.json?username=' + encodeURIComponent(username) + '&offset=' + offset,
+  userSummary: (username: string) => ORIGIN + '/u/' + encodeURIComponent(username) + '/summary.json',
+  userBadges: (username: string) => ORIGIN + '/user-badges/' + encodeURIComponent(username) + '.json',
+  userActivity: (username: string, offset = 0, filter?: number) => {
+    const params = new URLSearchParams({ username, offset: String(offset) })
+    if (filter !== undefined) params.set('filter', String(filter))
+    return ORIGIN + '/user_actions.json?' + params.toString()
+  },
   notifications: (offset = 0, limit = 30) => ORIGIN + '/notifications.json?offset=' + offset + '&limit=' + limit,
   markNotificationsRead: ORIGIN + '/notifications/mark-read.json',
   postsCreate: ORIGIN + '/posts.json',

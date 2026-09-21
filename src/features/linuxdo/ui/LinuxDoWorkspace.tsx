@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 
 
 import { PresetSwitcher, type PresetSwitcherProps } from '../../../components/PresetSwitcher'
 import { LinuxDoBoostComposer, LinuxDoComposer, LinuxDoTopicView } from './ThreadViews'
-import { BookmarksView, DiscoverView, NotificationsView, SearchView, UserProfileView } from './CommunityViews'
+import { BookmarksView, DiscoverView, NotificationsView, SearchView } from './CommunityViews'
+import { UserProfileView } from './UserProfileView'
 import { AccountView } from './AccountView'
 import { verifyLinuxDoBrowserSession } from '../session/native'
 import {
@@ -335,7 +336,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
         ) : route.kind === 'notifications' ? (
           <NotificationsView session={session} onUnreadChange={setNotificationUnread} onOpen={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} />
         ) : route.kind === 'user' ? (
-          <UserProfileView username={route.username} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} />
+          <UserProfileView username={route.username} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenUser={(username) => navigate({ kind: 'user', username })} />
         ) : route.kind === 'bookmarks' ? (
           <BookmarksView session={session} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} />
         ) : (

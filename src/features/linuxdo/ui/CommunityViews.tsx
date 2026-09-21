@@ -4,11 +4,9 @@ import { useEffect, useState } from 'react'
 import { ConfirmDialog } from '../../../components/ConfirmDialog'
 
 import type { LinuxDoBookmarkService } from '../bookmark/service'
-import type { LinuxDoPeopleService } from '../people/service'
 import {
   linuxDoBookmarks as bookmarkApi,
   linuxDoNotifications as notificationsApi,
-  linuxDoPeople as peopleApi,
   linuxDoSearch as searchApi,
 } from '../runtime'
 import type {
@@ -241,90 +239,6 @@ export function NotificationsView({
           }} className="linuxdo-control w-full rounded-full border border-haze px-4 py-2 text-[10.5px] text-paper-muted disabled:opacity-40">{loadingMore ? '加载中…' : '加载更多通知'}</button> : null}
         </div>
       )}
-    </div>
-  )
-}
-
-export function UserProfileView({ username, onOpenTopic }: { username: string; onOpenTopic: (topic: LinuxDoTopicSummary, targetPostNumber?: number) => void }) {
-  const [profile, setProfile] = useState<Awaited<ReturnType<LinuxDoPeopleService['profile']>> | null>(null)
-  const [activity, setActivity] = useState<Awaited<ReturnType<LinuxDoPeopleService['activity']>> | null>(null)
-  const [boostsGiven, setBoostsGiven] = useState<any[]>([])
-  const [boostsReceived, setBoostsReceived] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    setLoading(true)
-    setError('')
-    void Promise.all([
-      peopleApi.profile(username),
-      peopleApi.activity(username),
-      peopleApi.boostsGiven(username).catch(() => []),
-      peopleApi.boostsReceived(username).catch(() => []),
-    ]).then(([nextProfile, nextActivity, given, received]) => {
-      setProfile(nextProfile)
-      setActivity(nextActivity)
-      setBoostsGiven(given)
-      setBoostsReceived(received)
-    }).catch((nextError) => setError(readableError(nextError))).finally(() => setLoading(false))
-  }, [username])
-
-  const openBoostPost = (item: Awaited<ReturnType<LinuxDoPeopleService['boostsGiven']>>[number]) => {
-    const post = item.post
-    if (!post?.topicId) return
-    let slug = 'topic'
-    let postNumber: number | undefined
-    if (post.url) {
-      try {
-        const parsed = new URL(post.url, 'https://linux.do')
-        const match = parsed.pathname.match(/^\/t\/([^/]+)\/(\d+)(?:\/(\d+))?/)
-        if (match) {
-          slug = match[1] || slug
-          postNumber = match[3] ? Number(match[3]) : undefined
-        }
-      } catch {
-        // Use topic id even if the plugin returns a non-standard URL.
-      }
-    }
-    onOpenTopic({ id: post.topicId, slug, title: post.topicTitle || 'Linux.do 主题', postsCount: 0, replyCount: 0, views: 0, likeCount: 0, createdAt: item.createdAt || '', lastPostedAt: item.createdAt || '', tags: [], posters: [] }, postNumber)
-  }
-
-  if (loading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-paper-faint" /></div>
-  if (error || !profile) return <div className="px-6 py-20 text-center text-[12px] text-cinnabar-soft">{error || '用户不存在'}</div>
-
-  return (
-    <div className="min-h-0 flex-1 overflow-y-auto page-x pb-4 pt-5">
-      <section className="rounded-[24px] border border-haze/60 bg-ink-raised/45 p-5">
-        <div className="flex items-center gap-4">
-          <div className="h-16 w-16 overflow-hidden rounded-full border border-haze bg-paper/5">{avatar(profile.avatarTemplate, profile.username)}</div>
-          <div className="min-w-0 flex-1">
-            <h2 className="truncate text-[18px] font-semibold text-paper">{profile.name || profile.username}</h2>
-            <p className="mt-1 text-[11px] text-paper-faint">{'@' + profile.username + (profile.trustLevel !== undefined ? ' · TL' + profile.trustLevel : '')}</p>
-          </div>
-        </div>
-        {profile.bioCooked ? <div className="linuxdo-post-prose reader-prose mt-4 text-[12px] text-paper-muted" dangerouslySetInnerHTML={{ __html: profile.bioCooked }} /> : null}
-        <div className="mt-4 grid grid-cols-4 gap-2">
-          {[
-            ['主题', profile.topicCount ?? 0],
-            ['帖子', profile.postCount ?? 0],
-            ['获赞', profile.likesReceived ?? 0],
-            ['Boost', boostsReceived.length],
-          ].map(([label, value]) => <div key={String(label)} className="rounded-2xl bg-paper/[0.035] px-2 py-2 text-center"><div className="text-[13px] font-semibold text-paper">{String(value)}</div><div className="mt-0.5 text-[9px] text-paper-faint">{String(label)}</div></div>)}
-        </div>
-      </section>
-      <section className="mt-5">
-        <div className="mb-2 flex items-center justify-between"><h3 className="text-[12px] font-semibold text-paper-muted">最近活动</h3><span className="text-[9.5px] text-paper-faint">主题与回复</span></div>
-        <div className="space-y-3">{(activity?.topics ?? []).map((topic) => <TopicCard key={topic.id} topic={topic} onOpen={() => onOpenTopic(topic)} />)}</div>
-      </section>
-      {(boostsReceived.length || boostsGiven.length) ? <section className="mt-5 grid gap-4 lg:grid-cols-2">
-        {([['收到的 Boost', boostsReceived], ['发出的 Boost', boostsGiven]] as const).map(([label, list]) => <div key={label}>
-          <div className="mb-2 flex items-center justify-between"><h3 className="text-[12px] font-semibold text-paper-muted">{label}</h3><span className="text-[9.5px] text-paper-faint">{list.length}</span></div>
-          <div className="space-y-2">{list.slice(0, 8).map((item) => <button key={item.id} type="button" disabled={!item.post?.topicId} onClick={() => openBoostPost(item)} className="linuxdo-control w-full rounded-[18px] border border-haze/55 bg-ink-raised/35 px-3.5 py-3 text-left disabled:opacity-70">
-            <div className="line-clamp-2 text-[12px] font-medium text-paper">{item.raw || 'Boost'}</div>
-            {item.post?.excerpt ? <div className="mt-1.5 line-clamp-2 text-[10.5px] leading-4 text-paper-faint">{item.post.excerpt}</div> : null}
-            <div className="mt-2 text-[9.5px] text-paper-faint">{item.post?.topicTitle || 'Linux.do'}{item.createdAt ? ' · ' + ago(item.createdAt) : ''}</div>
-          </button>)}</div>
-        </div>)}</section> : null}
     </div>
   )
 }
