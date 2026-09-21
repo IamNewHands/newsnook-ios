@@ -232,6 +232,8 @@ export function LinuxDoComposer({
   const [insertMenuOpen, setInsertMenuOpen] = useState(false)
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false)
+  const [closeConfirmMode, setCloseConfirmMode] = useState<'save' | 'save-failed'>('save')
+  const [draftCloseError, setDraftCloseError] = useState('')
   const [closing, setClosing] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const editorRef = useRef<ComposerEditorHandle | null>(null)
@@ -258,6 +260,8 @@ export function LinuxDoComposer({
       setInsertMenuOpen(false)
       setTemplatePickerOpen(false)
       setCloseConfirmOpen(false)
+      setCloseConfirmMode('save')
+      setDraftCloseError('')
       setClosing(false)
       return
     }
@@ -389,8 +393,11 @@ export function LinuxDoComposer({
   const hasContent = Boolean(title.trim() || raw.trim() || categoryId || selectedTags.length)
   const requestClose = () => {
     if (sending || closing || uploading) return
-    if (hasContent) setCloseConfirmOpen(true)
-    else onClose()
+    if (hasContent) {
+      setCloseConfirmMode('save')
+      setDraftCloseError('')
+      setCloseConfirmOpen(true)
+    } else onClose()
   }
 
   if (requestCloseRef) requestCloseRef.current = requestClose
@@ -430,6 +437,8 @@ export function LinuxDoComposer({
 
   const closeAfterSavingDraft = async () => {
     setCloseConfirmOpen(false)
+    setCloseConfirmMode('save')
+    setDraftCloseError('')
     if (!session.authenticated || !draftKey) {
       onClose()
       return
@@ -458,9 +467,12 @@ export function LinuxDoComposer({
       lastSavedDraftRef.current = fingerprint
       onClose()
     } catch (nextError) {
-      setError(nextError instanceof LinuxDoApiError && nextError.status === 409
-        ? '草稿已在其他设备更新。当前内容仍保留在编辑器中，请复制后重新打开。'
-        : `草稿保存失败：${readableError(nextError)}`)
+      const message = nextError instanceof LinuxDoApiError && nextError.status === 409
+        ? '草稿已在其他设备更新，NewsNook 不能安全覆盖服务端草稿。'
+        : `草稿保存失败：${readableError(nextError)}`
+      setDraftCloseError(message)
+      setCloseConfirmMode('save-failed')
+      setCloseConfirmOpen(true)
     } finally {
       setClosing(false)
     }
@@ -647,18 +659,37 @@ export function LinuxDoComposer({
       />
       <ConfirmDialog
         open={closeConfirmOpen}
-        title="关闭编辑器？"
-        message={session.authenticated ? '当前内容会保留在 LinuxDo 草稿中，下次打开可以继续。' : '当前未登录，关闭后输入内容不会保留。'}
-        confirmLabel="关闭"
+        title={closeConfirmMode === 'save-failed' ? '草稿保存失败' : '关闭编辑器？'}
+        message={closeConfirmMode === 'save-failed'
+          ? <><span>{draftCloseError}</span><br /><span>当前内容仍保留在编辑器中。可以继续编辑后再次关闭重试保存；也可以直接关闭，但本次未保存的修改会丢失。</span></>
+          : session.authenticated
+            ? '关闭前会先尝试保存到 LinuxDO 草稿；如果保存失败，你仍可以选择直接关闭。'
+            : '当前未登录，关闭后输入内容不会保留。'}
+        confirmLabel={closeConfirmMode === 'save-failed' || !session.authenticated ? '直接关闭' : '保存并关闭'}
         cancelLabel="继续编辑"
-        onConfirm={() => void closeAfterSavingDraft()}
-        onCancel={() => setCloseConfirmOpen(false)}
+        onConfirm={() => {
+          if (closeConfirmMode === 'save-failed') {
+            setCloseConfirmOpen(false)
+            setDraftCloseError('')
+            onClose()
+            return
+          }
+          void closeAfterSavingDraft()
+        }}
+        onCancel={() => {
+          if (closeConfirmMode === 'save-failed' && draftCloseError) {
+            setError(`${draftCloseError}。当前内容仍保留在编辑器中。`)
+          }
+          setCloseConfirmOpen(false)
+          setCloseConfirmMode('save')
+          setDraftCloseError('')
+        }}
       />
     </div>
   )
 }
 
-export function LinuxDoBoostComposer({ post, onClose, onCreated, onFailed }: { post: LinuxDoPost; onClose: () => void; onCreated: (post: LinuxDoPost, boost: LinuxDoBoost) => void; onFailed?: (message: string) => void }) {
+export function LinuxDoBoostComposer({ post, onClose, onCreated }: { post: LinuxDoPost; onClose: () => void; onCreated: (post: LinuxDoPost, boost: LinuxDoBoost) => void }) {
   const [raw, setRaw] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
@@ -675,9 +706,7 @@ export function LinuxDoBoostComposer({ post, onClose, onCreated, onFailed }: { p
       onCreated(post, created)
       onClose()
     } catch (nextError) {
-      const message = 'Boost 发送失败：' + readableError(nextError) + '。内容已保留，可直接重试。'
-      setError(message)
-      onFailed?.(message)
+      setError('Boost 发送失败：' + readableError(nextError) + '。内容已保留，可直接重试。')
     } finally {
       setSending(false)
     }
