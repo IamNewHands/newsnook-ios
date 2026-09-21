@@ -396,8 +396,66 @@ function formatDiscourseQuote(quote: Element): void {
   titleEl.appendChild(controls)
 }
 
+const MARKDOWN_CALLOUT_KIND: Record<string, 'note' | 'tip' | 'important' | 'warning' | 'caution' | 'success'> = {
+  note: 'note',
+  info: 'note',
+  tip: 'tip',
+  hint: 'tip',
+  important: 'important',
+  warning: 'warning',
+  warn: 'warning',
+  caution: 'caution',
+  danger: 'caution',
+  error: 'caution',
+  success: 'success',
+  check: 'success',
+  done: 'success',
+}
+
+const MARKDOWN_CALLOUT_RE = /^\s*\[!\s*([a-z]+)\s*\]\s*/i
+
+function markMarkdownCallout(blockquote: Element): void {
+  // Discourse quote widgets have their own author/topic semantics. Only enhance
+  // plain Markdown blockquotes so quoted forum posts cannot accidentally change type.
+  if (blockquote.closest('aside.quote')) return
+
+  let firstMeaningfulText: ChildNode | null = null
+  const queue: ChildNode[] = Array.from(blockquote.childNodes)
+  while (queue.length > 0) {
+    const node = queue.shift()!
+    if (node.nodeType === 3) {
+      if ((node.nodeValue ?? '').trim()) {
+        firstMeaningfulText = node
+        break
+      }
+      continue
+    }
+    if (node.nodeType !== 1) continue
+    const element = node as Element
+    queue.unshift(...Array.from(element.childNodes))
+  }
+
+  if (!firstMeaningfulText) return
+  const text = firstMeaningfulText.nodeValue ?? ''
+  const match = text.match(MARKDOWN_CALLOUT_RE)
+  const kind = match ? MARKDOWN_CALLOUT_KIND[match[1].toLowerCase()] : undefined
+  if (!match || !kind) return
+
+  firstMeaningfulText.nodeValue = text.slice(match[0].length)
+  blockquote.setAttribute('data-linuxdo-role', 'callout')
+  blockquote.setAttribute('data-linuxdo-callout', kind)
+
+  // GitHub-style alerts often put the marker on a line by itself. Remove the
+  // now-empty leading paragraph without touching links/strong/code in real content.
+  const firstElement = Array.from(blockquote.children)[0]
+  if (firstElement?.tagName === 'P' && !(firstElement.textContent ?? '').trim() && !firstElement.querySelector('img, video, audio, iframe, code')) {
+    firstElement.remove()
+  }
+}
+
 function markDiscourseSemantics(root: Element): void {
   root.querySelectorAll('aside.quote').forEach((quote) => formatDiscourseQuote(quote))
+  root.querySelectorAll('blockquote').forEach((blockquote) => markMarkdownCallout(blockquote))
 
   root.querySelectorAll('aside.onebox, .onebox').forEach((onebox) => {
     const className = onebox.getAttribute('class') ?? ''

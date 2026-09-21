@@ -281,6 +281,7 @@ export function sanitizeArticleHtml(html: string): string {
       // Linux.do / Discourse: source classes are removed, so trusted semantic
       // roles are converted to this app-owned marker before sanitization.
       'data-linuxdo-role',
+      'data-linuxdo-callout',
       'data-linuxdo-original-src',
       'data-linuxdo-topic-id',
       'data-linuxdo-post-number',

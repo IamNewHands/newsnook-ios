@@ -1,6 +1,8 @@
 import { Bell, Loader2, Search, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
+import { ConfirmDialog } from '../../../components/ConfirmDialog'
+
 import type { LinuxDoBookmarkService } from '../bookmark/service'
 import type { LinuxDoPeopleService } from '../people/service'
 import {
@@ -337,6 +339,7 @@ export function BookmarksView({ session, onOpenTopic }: { session: LinuxDoSessio
   const [editName, setEditName] = useState('')
   const [editReminder, setEditReminder] = useState('')
   const [saving, setSaving] = useState(false)
+  const [deleteTargetId, setDeleteTargetId] = useState<number | undefined>()
 
   useEffect(() => {
     const username = session.currentUser?.username
@@ -393,19 +396,7 @@ export function BookmarksView({ session, onOpenTopic }: { session: LinuxDoSessio
                   }
                 }} className="linuxdo-control rounded-full bg-cinnabar px-3 py-2 text-[10px] text-white disabled:opacity-40">保存</button>
                 <button type="button" disabled={saving} onClick={() => setEditingId(undefined)} className="linuxdo-control rounded-full border border-haze px-3 py-2 text-[10px] text-paper-muted">取消</button>
-                <button type="button" disabled={saving} onClick={async () => {
-                  if (!window.confirm('确定删除这个书签吗？')) return
-                  setSaving(true)
-                  try {
-                    await bookmarkApi.delete(item.id)
-                    setItems((previous) => previous.filter((candidate) => candidate.id !== item.id))
-                    setEditingId(undefined)
-                  } catch (nextError) {
-                    setError(readableError(nextError))
-                  } finally {
-                    setSaving(false)
-                  }
-                }} className="linuxdo-control rounded-full border border-haze px-3 py-2 text-[10px] text-paper-faint disabled:opacity-40">删除</button>
+                <button type="button" disabled={saving} onClick={() => setDeleteTargetId(item.id)} className="linuxdo-control rounded-full border border-haze px-3 py-2 text-[10px] text-paper-faint disabled:opacity-40">删除</button>
               </div>
             </div> : null}
           </div>
@@ -421,6 +412,26 @@ export function BookmarksView({ session, onOpenTopic }: { session: LinuxDoSessio
           }).catch((nextError) => setError(readableError(nextError))).finally(() => setLoadingMore(false))
         }} className="linuxdo-control w-full rounded-full border border-haze px-4 py-2 text-[10.5px] text-paper-muted disabled:opacity-40">{loadingMore ? '加载中…' : '加载更多书签'}</button> : null}
       </div>
+      <ConfirmDialog
+        open={deleteTargetId !== undefined}
+        title="删除书签？"
+        message="删除后将同步到 Linux.do。"
+        confirmLabel={saving ? '删除中…' : '删除'}
+        cancelLabel="取消"
+        danger
+        onCancel={() => { if (!saving) setDeleteTargetId(undefined) }}
+        onConfirm={() => {
+          const id = deleteTargetId
+          if (id === undefined || saving) return
+          setSaving(true)
+          setError('')
+          void bookmarkApi.delete(id).then(() => {
+            setItems((previous) => previous.filter((candidate) => candidate.id !== id))
+            setEditingId(undefined)
+            setDeleteTargetId(undefined)
+          }).catch((nextError) => setError(readableError(nextError))).finally(() => setSaving(false))
+        }}
+      />
     </div>
   )
 }

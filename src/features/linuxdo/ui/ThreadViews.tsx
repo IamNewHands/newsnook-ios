@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 
 import { ImageLightbox } from '../../../components/ImageLightbox'
 import { ContextActionMenu } from '../../../components/ContextActionMenu'
+import { ConfirmDialog, OptionPickerDialog } from '../../../components/ConfirmDialog'
 import type { Point } from '../../../lib/contextActions'
 import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
 import { markdownToSafeHtml } from '../../../lib/markdown'
@@ -191,6 +192,7 @@ export function LinuxDoComposer({
   const [draftKey, setDraftKey] = useState('')
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
+  const [categoryPickerOpen, setCategoryPickerOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -312,10 +314,23 @@ export function LinuxDoComposer({
           <>
             <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="标题" className="mt-4 w-full rounded-2xl border border-haze bg-ink px-4 py-3 text-[14px] text-paper outline-none placeholder:text-paper-faint focus:border-cinnabar/50" />
             <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <select value={categoryId ?? ''} onChange={(event) => setCategoryId(event.target.value ? Number(event.target.value) : undefined)} className="linuxdo-control rounded-2xl border border-haze bg-ink px-3 py-2.5 text-[11.5px] text-paper-muted outline-none focus:border-cinnabar/50">
-                <option value="">选择分类</option>
-                {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-              </select>
+              <>
+                <button type="button" onClick={() => setCategoryPickerOpen(true)} className="linuxdo-control flex items-center justify-between rounded-2xl border border-haze bg-ink px-3 py-2.5 text-[11.5px] text-paper-muted transition-colors hover:border-cinnabar/35">
+                  <span>{categories.find((category) => category.id === categoryId)?.name || '选择分类'}</span>
+                  <span className="text-paper-faint" aria-hidden>⌄</span>
+                </button>
+                <OptionPickerDialog
+                  open={categoryPickerOpen}
+                  title="选择分类"
+                  value={String(categoryId ?? '')}
+                  options={[{ id: '', label: '不指定分类' }, ...categories.map((category) => ({ id: String(category.id), label: category.name }))]}
+                  onChange={(value) => {
+                    setCategoryId(value ? Number(value) : undefined)
+                    setCategoryPickerOpen(false)
+                  }}
+                  onCancel={() => setCategoryPickerOpen(false)}
+                />
+              </>
               <div className="rounded-2xl border border-haze bg-ink px-2 py-2">
                 <input value={tagQuery} onChange={(event) => setTagQuery(event.target.value)} placeholder="搜索标签" className="w-full bg-transparent px-1 pb-2 text-[11px] text-paper outline-none placeholder:text-paper-faint" />
                 {selectedTags.length ? <div className="mb-2 flex flex-wrap gap-1.5">{selectedTags.map((name) => <button key={name} type="button" onClick={() => setSelectedTags((previous) => previous.filter((item) => item !== name))} className="linuxdo-control rounded-full bg-cinnabar/15 px-2.5 py-1 text-[10px] text-cinnabar-soft">#{name} ×</button>)}</div> : null}
@@ -473,6 +488,9 @@ export function LinuxDoTopicView({
   const [returnPostNumber, setReturnPostNumber] = useState<number | undefined>()
   const [actionMenu, setActionMenu] = useState<{ anchor: Point; post: LinuxDoPost } | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [pendingPostIds, setPendingPostIds] = useState<Set<number>>(new Set())
+  const [deleteTarget, setDeleteTarget] = useState<LinuxDoPost | null>(null)
+  const [notificationPickerOpen, setNotificationPickerOpen] = useState(false)
   const toastTimerRef = useRef<number | null>(null)
 
   const showToast = useCallback((msg: string) => {
@@ -491,23 +509,38 @@ export function LinuxDoTopicView({
   }, [])
 
   const toggleLike = useCallback(async (post: LinuxDoPost) => {
-    if (!session.authenticated) return
+    if (!session.authenticated || pendingPostIds.has(post.id)) return
+    const previousPost = post
     const like = post.actions.find((action) => action.id === 2)
+    const nextActed = !like?.acted
+    setPendingPostIds((previous) => new Set(previous).add(post.id))
+    setPosts((previous) => previous.map((candidate) => candidate.id === post.id ? {
+      ...candidate,
+      actions: candidate.actions.some((action) => action.id === 2)
+        ? candidate.actions.map((action) => action.id === 2 ? { ...action, acted: nextActed, count: Math.max(0, (action.count ?? 0) + (nextActed ? 1 : -1)) } : action)
+        : candidate.actions.concat({ id: 2, acted: true, count: 1, canAct: true }),
+    } : candidate))
     try {
-      if (like?.acted) {
-        await linuxDoInteractions.unlike(post.id)
-        setPosts((previous) => previous.map((candidate) => candidate.id === post.id ? { ...candidate, actions: candidate.actions.map((action) => action.id === 2 ? { ...action, acted: false, count: Math.max(0, (action.count ?? 1) - 1) } : action) } : candidate))
-      } else {
-        await linuxDoInteractions.like(post.id)
-        setPosts((previous) => previous.map((candidate) => candidate.id === post.id ? { ...candidate, actions: candidate.actions.some((action) => action.id === 2) ? candidate.actions.map((action) => action.id === 2 ? { ...action, acted: true, count: (action.count ?? 0) + 1 } : action) : candidate.actions.concat({ id: 2, acted: true, count: 1, canAct: true }) } : candidate))
-      }
+      if (like?.acted) await linuxDoInteractions.unlike(post.id)
+      else await linuxDoInteractions.like(post.id)
     } catch (nextError) {
-      setError(nextError)
+      setPosts((previous) => previous.map((candidate) => candidate.id === post.id ? previousPost : candidate))
+      showToast('操作失败：' + readableError(nextError))
+    } finally {
+      setPendingPostIds((previous) => {
+        const next = new Set(previous)
+        next.delete(post.id)
+        return next
+      })
     }
-  }, [session.authenticated])
+  }, [pendingPostIds, session.authenticated, showToast])
 
   const toggleBookmark = useCallback(async (post: LinuxDoPost) => {
-    if (!session.authenticated) return
+    if (!session.authenticated || pendingPostIds.has(post.id)) return
+    const previousPost = post
+    const nextBookmarked = !post.bookmarked
+    setPendingPostIds((previous) => new Set(previous).add(post.id))
+    setPosts((previous) => previous.map((candidate) => candidate.id === post.id ? { ...candidate, bookmarked: nextBookmarked } : candidate))
     try {
       if (post.bookmarked && post.bookmarkId) {
         await linuxDoInteractions.deleteBookmark(post.bookmarkId)
@@ -520,20 +553,40 @@ export function LinuxDoTopicView({
         showToast('已加入书签')
       }
     } catch (nextError) {
-      setError(nextError)
+      setPosts((previous) => previous.map((candidate) => candidate.id === post.id ? previousPost : candidate))
+      showToast('收藏操作失败：' + readableError(nextError))
+    } finally {
+      setPendingPostIds((previous) => {
+        const next = new Set(previous)
+        next.delete(post.id)
+        return next
+      })
     }
-  }, [session.authenticated, showToast])
+  }, [pendingPostIds, session.authenticated, showToast])
 
   const deletePost = useCallback(async (post: LinuxDoPost) => {
-    if (!window.confirm('确定删除这条帖子吗？此操作将提交到 Linux.do。')) return
+    setDeleteTarget(post)
+  }, [])
+
+  const confirmDeletePost = useCallback(async () => {
+    const post = deleteTarget
+    if (!post || pendingPostIds.has(post.id)) return
+    setPendingPostIds((previous) => new Set(previous).add(post.id))
     try {
       await linuxDoTopics.deletePost(post.id)
       setPosts((previous) => previous.filter((candidate) => candidate.id !== post.id))
+      setDeleteTarget(null)
       showToast('帖子已删除')
     } catch (nextError) {
-      setError(nextError)
+      showToast('删除失败：' + readableError(nextError))
+    } finally {
+      setPendingPostIds((previous) => {
+        const next = new Set(previous)
+        next.delete(post.id)
+        return next
+      })
     }
-  }, [showToast])
+  }, [deleteTarget, pendingPostIds, showToast])
 
   useEffect(() => {
     if (!lightbox) return
@@ -616,17 +669,28 @@ export function LinuxDoTopicView({
           <div className="truncate text-[13px] font-semibold text-paper">{summary.title}</div>
           <div className="mt-0.5 text-[9.5px] text-paper-faint">{String(summary.replyCount) + ' 回复 · ' + compact(summary.views) + ' 浏览'}</div>
         </div>
-        {topic && session.authenticated ? <select value={topic.details?.notificationLevel ?? 1} onChange={(event) => {
-          const nextLevel = Number(event.target.value)
-          const previous = topic.details?.notificationLevel ?? 1
-          setTopic({ ...topic, details: { ...topic.details, notificationLevel: nextLevel } })
-          void linuxDoTopics.setNotificationLevel(topic.id, nextLevel).catch((nextError) => {
-            setTopic((current) => current ? { ...current, details: { ...current.details, notificationLevel: previous } } : current)
-            setError(nextError)
-          })
-        }} className="linuxdo-control rounded-full border border-haze bg-ink px-2.5 py-1.5 text-[10px] text-paper-muted outline-none">
-          <option value={0}>静音</option><option value={1}>普通</option><option value={2}>跟踪</option><option value={3}>关注</option>
-        </select> : null}
+        {topic && session.authenticated ? <>
+          <button type="button" onClick={() => setNotificationPickerOpen(true)} className="linuxdo-control rounded-full border border-haze bg-ink px-2.5 py-1.5 text-[10px] text-paper-muted transition-colors hover:border-cinnabar/35">
+            {['静音', '普通', '跟踪', '关注'][topic.details?.notificationLevel ?? 1] || '普通'}
+          </button>
+          <OptionPickerDialog
+            open={notificationPickerOpen}
+            title="主题通知"
+            value={String(topic.details?.notificationLevel ?? 1)}
+            options={[{ id: '0', label: '静音' }, { id: '1', label: '普通' }, { id: '2', label: '跟踪' }, { id: '3', label: '关注' }]}
+            onCancel={() => setNotificationPickerOpen(false)}
+            onChange={(value) => {
+              const nextLevel = Number(value)
+              const previous = topic.details?.notificationLevel ?? 1
+              setNotificationPickerOpen(false)
+              setTopic({ ...topic, details: { ...topic.details, notificationLevel: nextLevel } })
+              void linuxDoTopics.setNotificationLevel(topic.id, nextLevel).then(() => showToast('通知设置已更新')).catch((nextError) => {
+                setTopic((current) => current ? { ...current, details: { ...current.details, notificationLevel: previous } } : current)
+                showToast('通知设置失败：' + readableError(nextError))
+              })
+            }}
+          />
+        </> : null}
         {topic ? <button type="button" onClick={() => onCompose(topic)} className="linuxdo-control inline-flex items-center gap-1.5 rounded-full bg-cinnabar px-3.5 py-2 text-[11.5px] font-medium text-white"><MessageCircle size={13} />回复</button> : null}
       </div>
 
@@ -865,7 +929,8 @@ export function LinuxDoTopicView({
                     <footer className="linuxdo-control mt-3 sm:mt-3.5 flex items-center justify-between gap-1.5 sm:gap-2 border-t border-haze/40 pt-2 sm:pt-2.5 select-none">
                       <button
                         type="button"
-                        disabled={!session.authenticated}
+                        disabled={!session.authenticated || pendingPostIds.has(post.id)}
+                        aria-busy={pendingPostIds.has(post.id)}
                         onClick={() => void toggleLike(post)}
                         aria-label={(post.reactionUsersCount ?? like?.count ?? 0) + ' 个回应'}
                         className={'linuxdo-reaction-button inline-flex min-h-[30px] items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all ' + (like?.acted || post.currentUserReaction ? 'is-active' : 'text-paper-muted hover:text-paper')}
@@ -875,7 +940,8 @@ export function LinuxDoTopicView({
                       <div className="flex items-center gap-0.5 sm:gap-1">
                         <button
                           type="button"
-                          disabled={!session.authenticated}
+                          disabled={!session.authenticated || pendingPostIds.has(post.id)}
+                          aria-busy={pendingPostIds.has(post.id)}
                           onClick={() => void toggleLike(post)}
                           aria-label={like?.acted ? '取消赞' : '赞'}
                           className="linuxdo-control grid h-8 w-8 place-items-center rounded-full text-paper-muted transition-all hover:bg-paper/8 hover:text-cinnabar active:scale-90 disabled:opacity-35"
@@ -1004,6 +1070,19 @@ export function LinuxDoTopicView({
           ]}
         />
       ) : null}
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="删除帖子？"
+        message="删除后将同步到 Linux.do，且无法在 NewsNook 中撤销。"
+        confirmLabel={deleteTarget && pendingPostIds.has(deleteTarget.id) ? '删除中…' : '删除'}
+        cancelLabel="取消"
+        danger
+        onCancel={() => {
+          if (deleteTarget && pendingPostIds.has(deleteTarget.id)) return
+          setDeleteTarget(null)
+        }}
+        onConfirm={() => void confirmDeletePost()}
+      />
       {lightbox ? (() => {
         const current = lightbox.items[lightbox.index]
         if (!current) return null

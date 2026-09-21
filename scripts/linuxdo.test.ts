@@ -232,6 +232,50 @@ const clean = sanitizeLinuxDoCooked(dirty)
 assert.doesNotMatch(clean, /onclick/i)
 assert.doesNotMatch(clean, /javascript:/i)
 
+// Linux.do's web theme enhances GitHub-style Markdown alerts after cooking.
+// NewsNook must preserve the same semantics without depending on Discourse JS/CSS.
+const warningCallout = sanitizeLinuxDoCooked(
+  '<blockquote><p>[!warning] 提醒老用户：<strong>2.x 与 1.x 数据不兼容</strong>，请<a href="https://linux.do/t/topic/2843455">独立部署</a>。</p></blockquote>',
+)
+assert.match(warningCallout, /data-linuxdo-role="callout"/)
+assert.match(warningCallout, /data-linuxdo-callout="warning"/)
+assert.doesNotMatch(warningCallout, /\[!warning\]/i)
+assert.match(warningCallout, /<strong>2\.x 与 1\.x 数据不兼容<\/strong>/)
+assert.match(warningCallout, /<a href="https:\/\/linux\.do\/t\/topic\/2843455">独立部署<\/a>/)
+
+const successCallout = sanitizeLinuxDoCooked(
+  '<blockquote><p>[!Success]</p><p>遇到问题欢迎提 Issue，觉得有用也欢迎点个 <code>Star</code>。</p></blockquote>',
+)
+assert.match(successCallout, /data-linuxdo-callout="success"/)
+assert.doesNotMatch(successCallout, /\[!Success\]/)
+assert.doesNotMatch(successCallout, /<p><\/p>/)
+assert.match(successCallout, /<code>Star<\/code>/)
+
+for (const [marker, expected] of [
+  ['NOTE', 'note'],
+  ['info', 'note'],
+  ['TIP', 'tip'],
+  ['hint', 'tip'],
+  ['IMPORTANT', 'important'],
+  ['WARN', 'warning'],
+  ['CAUTION', 'caution'],
+  ['danger', 'caution'],
+  ['error', 'caution'],
+  ['check', 'success'],
+] as const) {
+  const callout = sanitizeLinuxDoCooked(`<blockquote><p>[!${marker}] body</p></blockquote>`)
+  assert.match(callout, new RegExp(`data-linuxdo-callout="${expected}"`))
+  assert.doesNotMatch(callout, /\[![a-z]+\]/i)
+}
+
+const ordinaryQuote = sanitizeLinuxDoCooked('<blockquote><p>普通引用</p><p>[!warning] 这里只是正文字符串</p></blockquote>')
+assert.doesNotMatch(ordinaryQuote, /data-linuxdo-role="callout"/)
+assert.match(ordinaryQuote, /\[!warning\]/i)
+
+const quotedCalloutMarker = sanitizeLinuxDoCooked('<aside class="quote" data-username="alice"><div class="title">alice:</div><blockquote><p>[!warning] 被引用的原文</p></blockquote></aside>')
+assert.match(quotedCalloutMarker, /data-linuxdo-role="quote"/)
+assert.doesNotMatch(quotedCalloutMarker, /data-linuxdo-role="callout"/)
+
 const discourseMedia = sanitizeLinuxDoCooked(`
   <p>before <img src="/images/emoji/twitter/smiley.png" class="emoji" alt="smiley" width="20" height="20"> after</p>
   <div class="lightbox-wrapper">
@@ -433,6 +477,10 @@ assert.match(cssSource, /data-linuxdo-role='quote'/)
 assert.match(cssSource, /data-linuxdo-role='onebox-topic'/)
 assert.match(cssSource, /data-linuxdo-role='mention'/)
 assert.match(cssSource, /data-linuxdo-role='spoiler'/)
+assert.match(cssSource, /data-linuxdo-role='callout'/)
+assert.match(cssSource, /data-linuxdo-callout='warning'/)
+assert.match(cssSource, /data-linuxdo-callout='success'/)
+assert.match(cssSource, /--linuxdo-callout-warning-bg/)
 const lightboxSource = readFileSync('src/components/ImageLightbox.tsx', 'utf8')
 assert.match(lightboxSource, /左右滑动切换/)
 assert.match(lightboxSource, /aria-label="上一张"/)
