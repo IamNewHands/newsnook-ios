@@ -1,5 +1,5 @@
 import { Browser } from '@capacitor/browser'
-import { ArrowLeft, Bookmark, Heart, ImagePlus, Link, Loader2, MessageCircle, MoreHorizontal, Pencil, Quote, Reply, Rocket, Send, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Bookmark, Check, ChevronDown, Hash, Heart, Link, Loader2, MessageCircle, MoreHorizontal, Pencil, Quote, Reply, Rocket, Send, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject } from 'react'
 
 import { ImageLightbox } from '../../../components/ImageLightbox'
@@ -7,11 +7,11 @@ import { ContextActionMenu } from '../../../components/ContextActionMenu'
 import { ConfirmDialog, OptionPickerDialog } from '../../../components/ConfirmDialog'
 import type { Point } from '../../../lib/contextActions'
 import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
-import { markdownToSafeHtml } from '../../../lib/markdown'
 import {
   linuxDoDiscovery,
   linuxDoDrafts,
   linuxDoInteractions,
+  linuxDoTemplates,
   linuxDoTopics,
   linuxDoUploads,
 } from '../runtime'
@@ -30,12 +30,42 @@ import { LinuxDoApiError } from '../types'
 import { ago, avatar, compact, readableError, tagGlyph } from './utils'
 import { resolveReplyTarget } from './threadModel'
 import { boostText, reactionGlyph, reactionTotal } from './engagementModel'
+import { ComposerEditor, type ComposerEditorHandle } from '../editor/ComposerEditor'
+import { CategoryPickerSheet, InsertMenuSheet, TagPickerSheet, TemplatePickerSheet } from '../editor/ComposerSheets'
+import { buildComposerDraftData, validateComposer } from '../editor/model'
+import { resolveLinuxDoTemplate, type LinuxDoComposerTemplate, type LinuxDoTemplateVariables } from '../template/service'
 
 async function openExternal(url: string): Promise<void> {
   try {
     await Browser.open({ url })
   } catch {
     window.open(url, '_blank', 'noopener,noreferrer')
+  }
+}
+
+function buildComposerTemplateVariables(
+  topic: LinuxDoTopic | undefined,
+  session: LinuxDoSessionSnapshot,
+  replyToPostNumber?: number,
+): LinuxDoTemplateVariables {
+  const posts = topic?.postStream.posts ?? []
+  const firstPost = posts.reduce<LinuxDoPost | undefined>((first, post) => !first || post.postNumber < first.postNumber ? post : first, undefined)
+  const lastPost = posts.reduce<LinuxDoPost | undefined>((last, post) => !last || post.postNumber > last.postNumber ? post : last, undefined)
+  const replyTo = replyToPostNumber ? posts.find((post) => post.postNumber === replyToPostNumber) : undefined
+  const topicUrl = topic ? `https://linux.do/t/${encodeURIComponent(topic.slug || 'topic')}/${topic.id}` : undefined
+  return {
+    my_username: session.currentUser?.username,
+    my_name: session.currentUser?.name,
+    context_title: topic?.title,
+    context_url: topicUrl,
+    topic_title: topic?.title,
+    topic_url: topicUrl,
+    original_poster_username: topic?.details?.createdBy?.username || firstPost?.username,
+    original_poster_name: topic?.details?.createdBy?.name || firstPost?.name,
+    reply_to_username: replyTo?.username,
+    reply_to_name: replyTo?.name,
+    last_poster_username: topic?.lastPosterUsername || lastPost?.username,
+    reply_to_or_last_poster_username: replyTo?.username || topic?.lastPosterUsername || lastPost?.username,
   }
 }
 
@@ -165,6 +195,7 @@ export function LinuxDoComposer({
   replyToPostNumber,
   editPost,
   onEdited,
+  requestCloseRef,
 }: {
   open: boolean
   topic?: LinuxDoTopic
@@ -175,6 +206,7 @@ export function LinuxDoComposer({
   replyToPostNumber?: number
   editPost?: LinuxDoPost
   onEdited?: (post: LinuxDoPost) => void
+  requestCloseRef?: MutableRefObject<(() => void) | null>
 }) {
   const [title, setTitle] = useState('')
   const [raw, setRaw] = useState('')
@@ -185,7 +217,6 @@ export function LinuxDoComposer({
   const [tags, setTags] = useState<LinuxDoTag[]>([])
   const [categoryId, setCategoryId] = useState<number | undefined>()
   const [selectedTags, setSelectedTags] = useState<string[]>([])
-  const [tagQuery, setTagQuery] = useState('')
   const [draftSequence, setDraftSequence] = useState(0)
   const draftSequenceRef = useRef(0)
   const lastSavedDraftRef = useRef('')
@@ -193,7 +224,13 @@ export function LinuxDoComposer({
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [categoryPickerOpen, setCategoryPickerOpen] = useState(false)
+  const [tagPickerOpen, setTagPickerOpen] = useState(false)
+  const [insertMenuOpen, setInsertMenuOpen] = useState(false)
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
+  const [closeConfirmOpen, setCloseConfirmOpen] = useState(false)
+  const [closing, setClosing] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
+  const editorRef = useRef<ComposerEditorHandle | null>(null)
 
   useEffect(() => {
     if (!open) {
@@ -203,12 +240,17 @@ export function LinuxDoComposer({
       setPreview(false)
       setCategoryId(undefined)
       setSelectedTags([])
-      setTagQuery('')
       setDraftSequence(0)
       draftSequenceRef.current = 0
       lastSavedDraftRef.current = ''
       setDraftKey('')
       setUploadProgress(0)
+      setCategoryPickerOpen(false)
+      setTagPickerOpen(false)
+      setInsertMenuOpen(false)
+      setTemplatePickerOpen(false)
+      setCloseConfirmOpen(false)
+      setClosing(false)
       return
     }
     const action = editPost ? 'edit' : topic ? 'reply' : 'createTopic'
@@ -237,15 +279,15 @@ export function LinuxDoComposer({
 
   useEffect(() => {
     if (!open || !session.authenticated || !draftKey || (!raw.trim() && !title.trim())) return
-    const draftData = {
-      reply: raw,
-      action: editPost ? 'edit' as const : topic ? 'reply' as const : 'createTopic' as const,
-      title: topic || editPost ? undefined : title,
-      categoryId: topic || editPost ? undefined : categoryId,
-      tags: topic || editPost ? undefined : selectedTags,
+    const draftData = buildComposerDraftData({
+      mode: editPost ? 'edit' : topic ? 'reply' : 'create',
+      title,
+      raw,
+      categoryId,
+      tags: selectedTags,
       postId: editPost?.id,
-      reply_to_post_number: replyToPostNumber,
-    }
+      replyToPostNumber,
+    })
     const fingerprint = JSON.stringify(draftData)
     if (fingerprint === lastSavedDraftRef.current) return
     const timer = window.setTimeout(() => {
@@ -269,14 +311,74 @@ export function LinuxDoComposer({
     return () => window.clearTimeout(timer)
   }, [open, session.authenticated, draftKey, raw, title, categoryId, selectedTags, topic, editPost, replyToPostNumber])
 
+  const searchComposerTags = useCallback((query: string) => {
+    const selectedTagIds: Array<string | number> = []
+    const selectedTagNames: string[] = []
+    for (const name of selectedTags) {
+      const match = tags.find((tag) => tag.name === name)
+      if (match?.id !== undefined) selectedTagIds.push(match.id)
+      else selectedTagNames.push(name)
+    }
+    return linuxDoDiscovery.searchTags(query, {
+      categoryId,
+      selectedTagIds,
+      selectedTags: selectedTagNames,
+      forInput: true,
+      prioritizeRecentTags: !query.trim(),
+    })
+  }, [categoryId, selectedTags, tags])
+
+  const openTemplatePicker = () => {
+    if (!session.authenticated) {
+      setError('请先登录 Linux.do，模板列表由 LinuxDO 按当前账号权限返回。')
+      return
+    }
+    if (session.currentUser?.canUseTemplates === false) {
+      setError('当前 LinuxDO 账号没有可用模板权限。')
+      return
+    }
+    setInsertMenuOpen(false)
+    setTemplatePickerOpen(true)
+  }
+
+  const insertTemplate = (template: LinuxDoComposerTemplate) => {
+    const resolved = resolveLinuxDoTemplate(
+      template,
+      buildComposerTemplateVariables(topic, session, replyToPostNumber),
+    )
+    if (!title.trim() && resolved.title.trim()) setTitle(resolved.title.trim())
+    editorRef.current?.insertBlock(resolved.content)
+    setTemplatePickerOpen(false)
+    void linuxDoTemplates.recordUse(template.id).catch((nextError) => {
+      setError(`模板已插入，但使用次数同步失败：${readableError(nextError)}`)
+    })
+  }
+
   if (!open) return null
+
+  const mode = editPost ? 'edit' : topic ? 'reply' : 'create'
+  const validation = validateComposer({ mode, title, raw })
+  const selectedCategory = categories.find((category) => category.id === categoryId)
+  const hasContent = Boolean(title.trim() || raw.trim() || categoryId || selectedTags.length)
+  const requestClose = () => {
+    if (sending || closing) return
+    if (hasContent) setCloseConfirmOpen(true)
+    else onClose()
+  }
+
+  if (requestCloseRef) requestCloseRef.current = requestClose
 
   const send = async () => {
     if (!session.authenticated) {
       setError('请先登录 Linux.do')
       return
     }
-    if (!raw.trim() || (!topic && !title.trim())) return
+    if (!validation.canSubmit) {
+      setError(mode === 'create' && validation.titleRemaining > 0
+        ? `标题还需 ${validation.titleRemaining} 个字`
+        : `正文还需 ${validation.bodyRemaining} 个字`)
+      return
+    }
     setSending(true)
     setError('')
     try {
@@ -299,63 +401,105 @@ export function LinuxDoComposer({
     }
   }
 
+  const closeAfterSavingDraft = async () => {
+    setCloseConfirmOpen(false)
+    if (!session.authenticated || !draftKey) {
+      onClose()
+      return
+    }
+
+    const draftData = buildComposerDraftData({
+      mode,
+      title,
+      raw,
+      categoryId,
+      tags: selectedTags,
+      postId: editPost?.id,
+      replyToPostNumber,
+    })
+    const fingerprint = JSON.stringify(draftData)
+    if (fingerprint === lastSavedDraftRef.current) {
+      onClose()
+      return
+    }
+
+    setClosing(true)
+    setError('')
+    try {
+      const nextSequence = await linuxDoDrafts.save(draftKey, draftSequenceRef.current, draftData, 'newsnook-linuxdo')
+      draftSequenceRef.current = nextSequence
+      lastSavedDraftRef.current = fingerprint
+      onClose()
+    } catch (nextError) {
+      setError(nextError instanceof LinuxDoApiError && nextError.status === 409
+        ? '草稿已在其他设备更新。当前内容仍保留在编辑器中，请复制后重新打开。'
+        : `草稿保存失败：${readableError(nextError)}`)
+    } finally {
+      setClosing(false)
+    }
+  }
+
+  const quotePost = topic?.postStream.posts[0]
+  const quoteText = quotePost
+    ? (quotePost.raw || new DOMParser().parseFromString(quotePost.cooked, 'text/html').body.textContent || '').trim()
+    : undefined
+
+  const chooseFile = () => fileRef.current?.click()
+  const uploadLabel = uploading
+    ? (uploadProgress < 0.8 ? `准备 ${Math.round(uploadProgress * 100)}%` : '正在上传')
+    : '图片 / 附件'
+
   return (
-    <div className="absolute inset-0 z-40 flex items-end bg-black/55 sm:items-center sm:justify-center">
-      <div className="w-full rounded-t-[28px] border border-haze bg-ink-raised px-4 pb-[max(18px,var(--sab))] pt-3 shadow-2xl sm:max-w-2xl sm:rounded-[28px] sm:p-5">
-        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-paper/15 sm:hidden" />
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-[16px] font-semibold text-paper">{editPost ? '编辑帖子' : topic ? '回复主题' : '发布新主题'}</h3>
-            <p className="mt-0.5 text-[10.5px] text-paper-faint">Markdown 编辑 · 写操作不会自动重试</p>
+    <div className="linuxdo-composer absolute inset-0 z-40 flex bg-black/55 sm:items-center sm:justify-center sm:p-4">
+      <div role="dialog" aria-modal="true" aria-label={editPost ? '编辑帖子' : topic ? '回复主题' : '发布新主题'} className="linuxdo-composer-shell flex h-full min-h-0 w-full flex-col overflow-hidden border-haze bg-ink-raised shadow-2xl sm:h-[min(92dvh,840px)] sm:max-w-4xl sm:rounded-[28px] sm:border">
+        <div className="shrink-0 border-b border-haze/60 bg-ink-raised/95 px-3 pt-[max(8px,var(--sat))] backdrop-blur-xl sm:px-5 sm:pt-3">
+          <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-paper/15 sm:hidden" aria-hidden />
+          <div className="flex min-h-12 items-center gap-3 pb-2.5">
+            <div className="min-w-0 flex-1">
+              <h3 className="font-display text-[18px] font-semibold tracking-[-0.01em] text-paper">{editPost ? '编辑帖子' : topic ? '回复主题' : '发布新主题'}</h3>
+              <p className="mt-0.5 truncate text-[10px] text-paper-faint">{topic ? topic.title : editPost ? `帖子 #${editPost.postNumber}` : 'Markdown 与富文本工具 · 自动保存草稿'}</p>
+            </div>
+            <button type="button" onClick={requestClose} className="linuxdo-control grid h-10 w-10 shrink-0 place-items-center rounded-full bg-paper/6 text-paper-muted" aria-label="关闭编辑器"><X size={17} /></button>
           </div>
-          <button type="button" onClick={onClose} className="linuxdo-control grid h-9 w-9 place-items-center rounded-full bg-paper/6 text-paper-muted"><X size={16} /></button>
         </div>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-hidden px-3 py-3 sm:px-5 sm:py-4">
         {!topic && !editPost ? (
           <>
-            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="标题" className="mt-4 w-full rounded-2xl border border-haze bg-ink px-4 py-3 text-[14px] text-paper outline-none placeholder:text-paper-faint focus:border-cinnabar/50" />
-            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <>
-                <button type="button" onClick={() => setCategoryPickerOpen(true)} className="linuxdo-control flex items-center justify-between rounded-2xl border border-haze bg-ink px-3 py-2.5 text-[11.5px] text-paper-muted transition-colors hover:border-cinnabar/35">
-                  <span>{categories.find((category) => category.id === categoryId)?.name || '选择分类'}</span>
-                  <span className="text-paper-faint" aria-hidden>⌄</span>
-                </button>
-                <OptionPickerDialog
-                  open={categoryPickerOpen}
-                  title="选择分类"
-                  value={String(categoryId ?? '')}
-                  options={[{ id: '', label: '不指定分类' }, ...categories.map((category) => ({ id: String(category.id), label: category.name }))]}
-                  onChange={(value) => {
-                    setCategoryId(value ? Number(value) : undefined)
-                    setCategoryPickerOpen(false)
-                  }}
-                  onCancel={() => setCategoryPickerOpen(false)}
-                />
-              </>
-              <div className="rounded-2xl border border-haze bg-ink px-2 py-2">
-                <input value={tagQuery} onChange={(event) => setTagQuery(event.target.value)} placeholder="搜索标签" className="w-full bg-transparent px-1 pb-2 text-[11px] text-paper outline-none placeholder:text-paper-faint" />
-                {selectedTags.length ? <div className="mb-2 flex flex-wrap gap-1.5">{selectedTags.map((name) => <button key={name} type="button" onClick={() => setSelectedTags((previous) => previous.filter((item) => item !== name))} className="linuxdo-control rounded-full bg-cinnabar/15 px-2.5 py-1 text-[10px] text-cinnabar-soft">#{name} ×</button>)}</div> : null}
-                <div className="max-h-24 overflow-y-auto"><div className="flex flex-wrap gap-1.5">{tags.filter((tag) => !tagQuery.trim() || tag.name.toLowerCase().includes(tagQuery.trim().toLowerCase())).slice(0, 24).map((tag) => {
-                  const active = selectedTags.includes(tag.name)
-                  return <button key={tag.name} type="button" disabled={active || selectedTags.length >= 5} onClick={() => setSelectedTags((previous) => previous.concat(tag.name))} className="linuxdo-control rounded-full bg-paper/5 px-2.5 py-1 text-[10px] text-paper-faint disabled:opacity-35">#{tag.name}</button>
-                })}</div></div>
-              </div>
+            <div className={'linuxdo-composer-title relative shrink-0 rounded-[18px] border bg-ink transition-colors ' + (validation.titleRemaining > 0 && title ? 'border-cinnabar/45' : 'border-haze focus-within:border-cinnabar/45')}>
+              <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="输入标题，清楚说明你想讨论什么" className="h-12 w-full bg-transparent px-3.5 pr-16 text-[14px] font-medium text-paper outline-none placeholder:font-normal placeholder:text-paper-faint" />
+              <span className={'absolute right-3 top-1/2 -translate-y-1/2 font-mono text-[9.5px] ' + (validation.titleRemaining > 0 ? 'text-cinnabar-soft' : 'text-paper-faint')}>{validation.titleCount}/6</span>
+            </div>
+            <div className="grid shrink-0 grid-cols-2 gap-2">
+              <button type="button" onClick={() => setCategoryPickerOpen(true)} className="linuxdo-composer-field linuxdo-control flex min-h-11 min-w-0 items-center gap-2 rounded-[16px] border border-haze bg-ink px-3 text-left">
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-paper/5 text-paper-faint"><Hash size={13} /></span>
+                <span className="min-w-0 flex-1 truncate text-[11.5px] text-paper-muted">{selectedCategory?.name || '选择分类'}</span>
+                <ChevronDown size={13} className="shrink-0 text-paper-faint" />
+              </button>
+              <button type="button" onClick={() => setTagPickerOpen(true)} className="linuxdo-composer-field linuxdo-control flex min-h-11 min-w-0 items-center gap-2 rounded-[16px] border border-haze bg-ink px-3 text-left">
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-paper/5 text-paper-faint"><Hash size={13} /></span>
+                <span className="min-w-0 flex-1 truncate text-[11.5px] text-paper-muted">{selectedTags.length ? selectedTags.map((name) => `#${name}`).join(' · ') : '添加标签'}</span>
+                <span className="shrink-0 font-mono text-[9px] text-paper-faint">{selectedTags.length}/5</span>
+              </button>
             </div>
           </>
         ) : (
-          <div className="mt-4 rounded-2xl bg-paper/[0.035] px-3.5 py-2.5 text-[12px] text-paper-muted">{editPost ? '编辑 #' + editPost.postNumber : '回复：' + topic?.title}</div>
+          <div className="flex shrink-0 items-center gap-2 rounded-2xl border border-haze/60 bg-paper/[0.035] px-3.5 py-2.5 text-[11.5px] text-paper-muted"><Check size={13} className="text-cinnabar" />{editPost ? '正在编辑 #' + editPost.postNumber : (replyToPostNumber ? `回复 #${replyToPostNumber} · ` : '回复主题 · ') + topic?.title}</div>
         )}
-        <div className="mt-3 flex items-center justify-between">
-          <div className="flex rounded-full bg-paper/5 p-1">
-            <button type="button" onClick={() => setPreview(false)} className={'linuxdo-control rounded-full px-3 py-1 text-[10.5px] ' + (!preview ? 'bg-cinnabar text-white' : 'text-paper-muted')}>编辑</button>
-            <button type="button" onClick={() => setPreview(true)} className={'linuxdo-control rounded-full px-3 py-1 text-[10.5px] ' + (preview ? 'bg-cinnabar text-white' : 'text-paper-muted')}>预览</button>
-          </div>
-          <span className="text-[10px] text-paper-faint">{draftSequence > 0 ? '草稿已同步 · Markdown' : 'Markdown'}</span>
-        </div>
-        {preview ? (
-          <article className="reader-prose mt-3 min-h-[220px] rounded-2xl border border-haze bg-ink px-4 py-3 text-paper" dangerouslySetInnerHTML={{ __html: markdownToSafeHtml(raw) }} />
-        ) : (
-          <textarea value={raw} onChange={(event) => setRaw(event.target.value)} placeholder={editPost ? '编辑帖子内容…' : topic ? '写下你的回复…' : '正文支持 Markdown…'} rows={9} className="mt-3 w-full resize-none rounded-2xl border border-haze bg-ink px-4 py-3 text-[13px] leading-6 text-paper outline-none placeholder:text-paper-faint focus:border-cinnabar/50" />
-        )}
+        <ComposerEditor
+          ref={editorRef}
+          value={raw}
+          onChange={setRaw}
+          preview={preview}
+          onPreviewChange={setPreview}
+          placeholder={editPost ? '编辑帖子内容…' : topic ? '写下你的回复…' : '在此输入正文。支持 Markdown、BBCode 与 HTML；也可以用工具栏快速排版。'}
+          uploading={uploading}
+          uploadLabel={uploadLabel}
+          onUpload={chooseFile}
+          onOpenInsert={() => setInsertMenuOpen(true)}
+          onOpenTemplate={openTemplatePicker}
+          footer={<span className={'font-mono text-[9.5px] ' + (validation.bodyRemaining > 0 ? 'text-cinnabar-soft' : 'text-paper-faint')}>{uploading ? uploadLabel : validation.bodyCount + '/20'}{draftSequence > 0 && !uploading ? ' · 草稿已保存' : ''}</span>}
+        />
         <input ref={fileRef} type="file" className="hidden" accept="image/*,.pdf,.zip,.txt" onChange={(event) => {
           const file = event.target.files?.[0]
           event.currentTarget.value = ''
@@ -365,21 +509,50 @@ export function LinuxDoComposer({
           setUploadProgress(0)
           void linuxDoUploads.upload(file, setUploadProgress).then((uploaded) => {
             const markdown = linuxDoUploads.markdown(uploaded, file)
-            setRaw((previous) => previous + (previous && !previous.endsWith('\n') ? '\n' : '') + markdown + '\n')
+            editorRef.current?.insertText(markdown + '\n')
           }).catch((nextError) => setError(readableError(nextError))).finally(() => { setUploading(false); setUploadProgress(0) })
         }} />
-        {error ? <p className="mt-2 text-[11px] text-cinnabar-soft">{error}</p> : null}
-        <div className="mt-3 flex items-center justify-between gap-3">
-          <button type="button" disabled={uploading} onClick={() => fileRef.current?.click()} className="linuxdo-control inline-flex items-center gap-1.5 rounded-full border border-haze px-3 py-2 text-[10.5px] text-paper-muted disabled:opacity-40">
-            {uploading ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />}
-            {uploading ? (uploadProgress < 0.8 ? '准备 ' + Math.round(uploadProgress * 100) + '%' : '正在上传') : '图片 / 附件'}
-          </button>
-          <button type="button" disabled={sending || uploading || !raw.trim() || (!topic && !editPost && !title.trim())} onClick={() => void send()} className="linuxdo-control inline-flex items-center gap-2 rounded-full bg-cinnabar px-4 py-2 text-[12px] font-medium text-white disabled:opacity-40">
+        {error ? <button type="button" onClick={() => setError('')} className="linuxdo-control shrink-0 rounded-xl border border-cinnabar/20 bg-cinnabar/8 px-3 py-2 text-left text-[10.5px] leading-relaxed text-cinnabar-soft">{error} · 点击关闭</button> : null}
+        <div className="flex shrink-0 items-center justify-between gap-3 pb-[max(4px,var(--sab))] sm:pb-0">
+          <span className="min-w-0 flex-1 truncate text-[9.5px] text-paper-faint">写操作不会自动重试 · 发布前请在预览中检查</span>
+          <button type="button" disabled={sending || closing || uploading || !validation.canSubmit} onClick={() => void send()} className="linuxdo-control inline-flex min-h-10 shrink-0 items-center gap-2 rounded-full bg-cinnabar px-5 text-[12px] font-semibold text-white shadow-[0_8px_24px_color-mix(in_srgb,var(--color-cinnabar)_24%,transparent)] disabled:opacity-35">
             {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
             {editPost ? '保存' : topic ? '回复' : '发布'}
           </button>
         </div>
+        </div>
       </div>
+
+      <CategoryPickerSheet open={categoryPickerOpen} categories={categories} value={categoryId} onChange={setCategoryId} onClose={() => setCategoryPickerOpen(false)} />
+      <TagPickerSheet open={tagPickerOpen} tags={tags} value={selectedTags} onChange={setSelectedTags} onSearch={searchComposerTags} onClose={() => setTagPickerOpen(false)} />
+      <InsertMenuSheet
+        open={insertMenuOpen}
+        canQuotePost={Boolean(topic && quotePost)}
+        canUseTemplates={Boolean(session.authenticated && session.currentUser?.canUseTemplates === true)}
+        onOpenTemplate={openTemplatePicker}
+        onClose={() => setInsertMenuOpen(false)}
+        onSelect={(kind) => editorRef.current?.insertSnippet(kind, {
+          topicId: topic?.id,
+          postNumber: quotePost?.postNumber,
+          username: quotePost?.username,
+          quotedRaw: quoteText,
+        })}
+      />
+      <TemplatePickerSheet
+        open={templatePickerOpen}
+        onInsert={insertTemplate}
+        onOpenSource={(template) => void openExternal(`https://linux.do/t/${encodeURIComponent(template.slug || 'topic')}/${template.id}`)}
+        onClose={() => setTemplatePickerOpen(false)}
+      />
+      <ConfirmDialog
+        open={closeConfirmOpen}
+        title="关闭编辑器？"
+        message={session.authenticated ? '当前内容会保留在 LinuxDo 草稿中，下次打开可以继续。' : '当前未登录，关闭后输入内容不会保留。'}
+        confirmLabel="关闭"
+        cancelLabel="继续编辑"
+        onConfirm={() => void closeAfterSavingDraft()}
+        onCancel={() => setCloseConfirmOpen(false)}
+      />
     </div>
   )
 }

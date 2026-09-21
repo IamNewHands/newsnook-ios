@@ -7,6 +7,7 @@ import { LinuxDoInteractionService } from './interaction/service'
 import { LinuxDoNotificationService } from './notification/service'
 import { LinuxDoPeopleService } from './people/service'
 import { LinuxDoSearchService } from './search/service'
+import { LinuxDoTemplateService } from './template/service'
 import { LinuxDoTopicService } from './topic/service'
 import { LinuxDoUploadService } from './upload/service'
 
@@ -17,6 +18,7 @@ export const linuxDoInteractions = new LinuxDoInteractionService(linuxDoApi)
 export const linuxDoNotifications = new LinuxDoNotificationService(linuxDoApi)
 export const linuxDoDiscovery = new LinuxDoDiscoveryService(linuxDoApi)
 export const linuxDoSearch = new LinuxDoSearchService(linuxDoApi)
+export const linuxDoTemplates = new LinuxDoTemplateService(linuxDoApi)
 export const linuxDoDrafts = new LinuxDoDraftService(linuxDoApi)
 export const linuxDoUploads = new LinuxDoUploadService()
 export const linuxDoPeople = new LinuxDoPeopleService(linuxDoApi)

@@ -239,6 +239,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
   const [workspaceError, setWorkspaceError] = useState('')
   const [notificationUnread, setNotificationUnread] = useState(0)
   const topicOverlayBackHandlerRef = useRef<(() => boolean) | null>(null)
+  const composerRequestCloseRef = useRef<(() => void) | null>(null)
   const [workspaceCategories, setWorkspaceCategories] = useState<Record<number, LinuxDoCategory>>({})
   useEffect(() => {
     void discovery.categories().then((cats) => setWorkspaceCategories(Object.fromEntries(cats.map((c) => [c.id, c])))).catch(() => undefined)
@@ -272,7 +273,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
     backHandlerRef.current = () => {
       if (topicOverlayBackHandlerRef.current?.()) return true
       if (boostPost) { setBoostPost(null); return true }
-      if (composerOpen) { closeComposer(); return true }
+      if (composerOpen) { composerRequestCloseRef.current?.(); return true }
       return goBack()
     }
     return () => { backHandlerRef.current = null }
@@ -352,7 +353,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
         <button type="button" onClick={() => setRoute({ kind: 'account' })} className={'linuxdo-nav-item ' + (route.kind === 'account' || route.kind === 'user' || route.kind === 'bookmarks' ? 'is-active' : '')} aria-label="我的"><UserRound size={18} /><span>我的</span></button>
       </nav>
 
-      <LinuxDoComposer open={composerOpen} topic={composerTopic} session={session} initialRaw={composerInitialRaw} replyToPostNumber={composerReplyTo} editPost={composerEditPost} onClose={closeComposer} onSent={(created, kind) => {
+      <LinuxDoComposer open={composerOpen} topic={composerTopic} session={session} initialRaw={composerInitialRaw} replyToPostNumber={composerReplyTo} editPost={composerEditPost} requestCloseRef={composerRequestCloseRef} onClose={closeComposer} onSent={(created, kind) => {
         if (kind === 'reply') {
           setTopicPostMutation(created)
         } else if (created.topicId) {

@@ -4,14 +4,16 @@ import {
   Compass,
   Flame,
   Grid2X2,
+  Loader2,
   RotateCw,
   Search,
   Sparkles,
   Tag,
   X,
 } from 'lucide-react'
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 
+import { sortLinuxDoTags } from '../discovery/service'
 import { linuxDoDiscovery as discovery } from '../runtime'
 import type {
   LinuxDoCategory,
@@ -115,7 +117,7 @@ function TagChip({
             isRank1 || isRank2 || isRank3 ? 'font-semibold opacity-90' : 'text-paper-faint'
           }`}
         >
-          {compact(tag.topicCount)}
+          ×{tag.topicCount}
         </span>
       ) : null}
     </button>
@@ -138,14 +140,43 @@ export function DiscoverView({
   const [activeScope, setActiveScope] = useState<LinuxDoDiscoveryScope | null>(initialScope ?? null)
   const [activeTab, setActiveTab] = useState<'featured' | 'categories' | 'tags'>('featured')
   const [tagQuery, setTagQuery] = useState('')
+  const [tagSearchResults, setTagSearchResults] = useState<LinuxDoTag[]>([])
+  const [tagSearchLoading, setTagSearchLoading] = useState(false)
+  const [tagSearchError, setTagSearchError] = useState('')
+  const [categoriesError, setCategoriesError] = useState('')
+  const [tagsError, setTagsError] = useState('')
+  const normalizedTagQuery = tagQuery.trim().toLocaleLowerCase('zh-CN')
+
+  const loadCategories = useCallback(async () => {
+    setCategoriesError('')
+    try {
+      setCategories(await discovery.categories())
+    } catch (error) {
+      setCategoriesError(readableError(error))
+    }
+  }, [])
+
+  const loadTags = useCallback(async () => {
+    setTagsError('')
+    try {
+      setTags(await discovery.tags())
+    } catch (error) {
+      setTagsError(readableError(error))
+    }
+  }, [])
 
   useEffect(() => {
-    void Promise.all([discovery.categories(), discovery.tags()])
-      .then(([nextCategories, nextTags]) => {
-        setCategories(nextCategories)
-        setTags(nextTags)
-      })
-      .finally(() => setLoading(false))
+    let active = true
+    void Promise.allSettled([discovery.categories(), discovery.tags()]).then(([categoryResult, tagResult]) => {
+      if (!active) return
+      if (categoryResult.status === 'fulfilled') setCategories(categoryResult.value)
+      else setCategoriesError(readableError(categoryResult.reason))
+      if (tagResult.status === 'fulfilled') setTags(tagResult.value)
+      else setTagsError(readableError(tagResult.reason))
+    }).finally(() => {
+      if (active) setLoading(false)
+    })
+    return () => { active = false }
   }, [])
 
   useEffect(() => {
@@ -153,6 +184,32 @@ export function DiscoverView({
       setActiveScope(initialScope)
     }
   }, [initialScope])
+
+  useEffect(() => {
+    if (activeTab !== 'tags' || !normalizedTagQuery) {
+      setTagSearchResults([])
+      setTagSearchLoading(false)
+      setTagSearchError('')
+      return
+    }
+    let active = true
+    setTagSearchResults([])
+    setTagSearchLoading(true)
+    setTagSearchError('')
+    const timer = window.setTimeout(() => {
+      void discovery.searchTags(tagQuery.trim()).then((results) => {
+        if (active) setTagSearchResults(sortLinuxDoTags(results))
+      }).catch((nextError) => {
+        if (active) setTagSearchError(readableError(nextError))
+      }).finally(() => {
+        if (active) setTagSearchLoading(false)
+      })
+    }, 250)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [activeTab, normalizedTagQuery, tagQuery])
 
   useEffect(() => {
     if (!activeScope) {
@@ -192,18 +249,14 @@ export function DiscoverView({
     ? categoriesById[activeScope.category.id] || activeScope.category
     : undefined
 
-  const sortedTags = useMemo(
-    () => [...tags].sort((a, b) => (b.topicCount ?? 0) - (a.topicCount ?? 0)),
-    [tags]
-  )
+  const sortedTags = useMemo(() => sortLinuxDoTags(tags), [tags])
 
   const hotTags = useMemo(() => sortedTags.slice(0, 10), [sortedTags])
 
-  const normalizedTagQuery = tagQuery.trim().toLowerCase()
   const filteredTags = useMemo(() => {
     if (!normalizedTagQuery) return sortedTags
-    return sortedTags.filter((t) => t.name.toLowerCase().includes(normalizedTagQuery))
-  }, [sortedTags, normalizedTagQuery])
+    return tagSearchResults
+  }, [sortedTags, normalizedTagQuery, tagSearchResults])
 
   if (loading) {
     return (
@@ -495,6 +548,11 @@ export function DiscoverView({
             </div>
             <span className="text-[10.5px] text-paper-faint font-mono">共 {categories.length} 个分类</span>
           </div>
+          {categoriesError ? (
+            <button type="button" onClick={() => void loadCategories()} className="linuxdo-control mb-3 flex w-full items-center justify-between rounded-2xl border border-cinnabar/20 bg-cinnabar/[0.06] px-3.5 py-3 text-left text-[11px] text-cinnabar-soft">
+              <span className="min-w-0 flex-1 truncate">分类加载失败：{categoriesError}</span><span className="ml-3 shrink-0 font-semibold">重试</span>
+            </button>
+          ) : null}
           <div className="grid grid-cols-1 gap-2.5 min-[380px]:grid-cols-2 sm:grid-cols-3">
             {categories.map((category) => (
               <CategoryCard
@@ -511,19 +569,21 @@ export function DiscoverView({
       {activeTab === 'tags' ? (
         <div className="mt-5 space-y-4">
           {/* 即时过滤搜索框 */}
-          <div className="relative">
-            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-paper-faint" />
+          <div className="linuxdo-tag-search flex h-11 items-center gap-2 rounded-2xl border border-haze bg-ink-raised/60 px-3 transition-colors focus-within:border-cinnabar/45">
+            <span className="grid h-8 w-8 shrink-0 place-items-center text-paper-faint" aria-hidden><Search size={15} /></span>
             <input
               value={tagQuery}
               onChange={(event) => setTagQuery(event.target.value)}
               placeholder="搜索社区标签（如 Docker, AI, 薅羊毛...）"
-              className="w-full rounded-2xl border border-haze bg-ink-raised/60 py-2.5 pl-10 pr-9 text-[12.5px] text-paper outline-none placeholder:text-paper-faint focus:border-cinnabar/45 transition-colors"
+              aria-label="搜索社区标签"
+              className="h-full min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 text-[12.5px] leading-[1.25] text-paper outline-none placeholder:text-paper-faint"
             />
             {tagQuery ? (
               <button
                 type="button"
                 onClick={() => setTagQuery('')}
-                className="linuxdo-control absolute right-2.5 top-1/2 -translate-y-1/2 grid h-5 w-5 place-items-center rounded-full bg-paper/10 text-paper-muted hover:text-paper"
+                className="linuxdo-control grid h-6 w-6 shrink-0 place-items-center rounded-full bg-paper/10 text-paper-muted hover:text-paper"
+                aria-label="清除标签搜索"
               >
                 <X size={12} />
               </button>
@@ -534,9 +594,13 @@ export function DiscoverView({
           {normalizedTagQuery ? (
             <div>
               <div className="mb-2 text-[11px] text-paper-faint">
-                找到 {filteredTags.length} 个相关标签
+                {tagSearchLoading ? '正在搜索 LinuxDo 标签…' : tagSearchError ? '标签搜索失败' : `找到 ${filteredTags.length} 个相关标签`}
               </div>
-              {filteredTags.length > 0 ? (
+              {tagSearchLoading ? (
+                <div className="flex items-center justify-center gap-2 py-12 text-[12px] text-paper-faint"><Loader2 size={15} className="animate-spin" />正在获取完整结果</div>
+              ) : tagSearchError ? (
+                <div className="rounded-2xl border border-cinnabar/20 bg-cinnabar/[0.07] px-4 py-5 text-center text-[12px] text-cinnabar-soft">{tagSearchError}</div>
+              ) : filteredTags.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {filteredTags.map((tag) => (
                     <TagChip
@@ -554,6 +618,11 @@ export function DiscoverView({
             </div>
           ) : (
             <>
+              {tagsError ? (
+                <button type="button" onClick={() => void loadTags()} className="linuxdo-control flex w-full items-center justify-between rounded-2xl border border-cinnabar/20 bg-cinnabar/[0.06] px-3.5 py-3 text-left text-[11px] text-cinnabar-soft">
+                  <span className="min-w-0 flex-1 truncate">标签目录加载失败：{tagsError}</span><span className="ml-3 shrink-0 font-semibold">重试</span>
+                </button>
+              ) : null}
               {/* 热门 Top 10 */}
               <div>
                 <div className="mb-2 flex items-center gap-1.5 text-[12px] font-bold text-paper">
@@ -584,7 +653,7 @@ export function DiscoverView({
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {tags.slice(0, 80).map((tag) => (
+                  {sortedTags.slice(0, 80).map((tag) => (
                     <TagChip
                       key={tag.name}
                       tag={tag}

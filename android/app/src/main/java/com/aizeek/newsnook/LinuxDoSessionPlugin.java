@@ -864,6 +864,7 @@ public class LinuxDoSessionPlugin extends Plugin {
         current.put("avatarTemplate", avatarUrl(user.optString("avatar_template", "")));
         current.put("trustLevel", user.optInt("trust_level", 0));
         current.put("unreadNotifications", user.optInt("unread_notifications", 0));
+        if (user.has("can_use_templates")) current.put("canUseTemplates", user.optBoolean("can_use_templates", false));
         return current;
     }
 

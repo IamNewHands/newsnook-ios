@@ -45,6 +45,7 @@ export function decodeCurrentUser(input: unknown): LinuxDoUser | undefined {
     avatarTemplate: avatar(user.avatar_template),
     trustLevel: typeof user.trust_level === 'number' ? user.trust_level : undefined,
     unreadNotifications: typeof user.unread_notifications === 'number' ? user.unread_notifications : undefined,
+    canUseTemplates: typeof user.can_use_templates === 'boolean' ? user.can_use_templates : undefined,
   }
 }
 
@@ -166,9 +167,14 @@ export function decodeTopic(input: unknown): LinuxDoTopic {
       stream: Array.isArray(stream.stream) ? stream.stream.map(Number) : [],
       posts: Array.isArray(stream.posts) ? stream.posts.map(decodePost) : [],
     },
+    lastPosterUsername: typeof root.last_poster_username === 'string' ? root.last_poster_username : undefined,
     details: root.details ? {
       canCreatePost: Boolean(root.details.can_create_post),
       notificationLevel: typeof root.details.notification_level === 'number' ? root.details.notification_level : undefined,
+      createdBy: root.details.created_by && typeof root.details.created_by.username === 'string' ? {
+        username: root.details.created_by.username,
+        name: typeof root.details.created_by.name === 'string' ? root.details.created_by.name : undefined,
+      } : undefined,
     } : undefined,
   }
 }
@@ -180,6 +186,7 @@ export function decodeCategories(input: unknown): LinuxDoCategory[] {
     id: Number(c.id),
     name: String(c.name ?? ''),
     slug: String(c.slug ?? ''),
+    parentId: typeof c.parent_category_id === 'number' ? c.parent_category_id : undefined,
     color: typeof c.color === 'string' ? c.color : undefined,
     textColor: typeof c.text_color === 'string' ? c.text_color : undefined,
     topicCount: typeof c.topic_count === 'number' ? c.topic_count : undefined,

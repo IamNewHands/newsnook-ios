@@ -13,6 +13,24 @@ export const linuxDoEndpoints = {
   category: (slug: string, id: number, page = 0) =>
     ORIGIN + '/c/' + encodeURIComponent(slug) + '/' + id + '.json?page=' + page,
   tags: ORIGIN + '/tags.json',
+  tagSearch: (query: string, options: {
+    limit?: number
+    categoryId?: number
+    selectedTagIds?: Array<string | number>
+    selectedTags?: string[]
+    forInput?: boolean
+    prioritizeRecentTags?: boolean
+  } = {}) => {
+    const params = new URLSearchParams()
+    params.set('q', query.trim())
+    if (options.limit !== undefined) params.set('limit', String(options.limit))
+    if (options.categoryId !== undefined) params.set('categoryId', String(options.categoryId))
+    if (options.forInput !== undefined) params.set('filterForInput', String(options.forInput))
+    if (options.prioritizeRecentTags !== undefined) params.set('prioritizeRecentTags', String(options.prioritizeRecentTags))
+    for (const id of options.selectedTagIds ?? []) params.append('selected_tag_ids[]', String(id))
+    for (const tag of options.selectedTags ?? []) params.append('selected_tags[]', tag)
+    return ORIGIN + '/tags/filter/search.json?' + params.toString()
+  },
   tag: (tag: string, page = 0) => ORIGIN + '/tag/' + encodeURIComponent(tag) + '.json?page=' + page,
   topic: (slug: string, id: number, postNumber?: number) => ORIGIN + '/t/' + encodeURIComponent(slug) + '/' + id + (postNumber ? '/' + postNumber : '') + '.json',
   posts: (topicId: number, ids: number[]) =>
@@ -36,6 +54,8 @@ export const linuxDoEndpoints = {
   topicNotification: (id: number) => ORIGIN + '/t/' + id + '/notifications.json',
   bookmarks: ORIGIN + '/bookmarks.json',
   bookmarkDelete: (bookmarkId: number) => ORIGIN + '/bookmarks/' + bookmarkId + '.json',
+  templates: ORIGIN + '/discourse_templates',
+  templateUse: (templateId: number) => ORIGIN + '/discourse_templates/' + templateId + '/use',
   drafts: ORIGIN + '/drafts.json',
   draft: (key: string) => ORIGIN + '/drafts/' + encodeURIComponent(key) + '.json',
   uploads: ORIGIN + '/uploads.json',

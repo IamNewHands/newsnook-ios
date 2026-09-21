@@ -301,6 +301,7 @@ export function sanitizeArticleHtml(html: string): string {
       'data-linuxdo-hashtag-slug',
       'data-linuxdo-hashtag-glyph',
       'data-linuxdo-category-color',
+      'data-linuxdo-preview-block',
       // 知乎段评：只保留本地注入的服务端 segment 元数据，供阅读层打开段评/点赞。
       'data-zhihu-segment-id',
       'data-zhihu-content-id',

@@ -18,16 +18,135 @@ const { linuxDoCapabilities } = await import('../src/features/linuxdo/capabiliti
 const { linuxDoEndpoints } = await import('../src/features/linuxdo/api/endpoints')
 const { sanitizeLinuxDoCooked } = await import('../src/features/linuxdo/content/sanitize')
 const { LinuxDoDraftService } = await import('../src/features/linuxdo/draft/service')
+const { LinuxDoDiscoveryService, sortLinuxDoTags } = await import('../src/features/linuxdo/discovery/service')
 const { LinuxDoUploadService } = await import('../src/features/linuxdo/upload/service')
 const { LinuxDoBookmarkService } = await import('../src/features/linuxdo/bookmark/service')
 const { LinuxDoPeopleService } = await import('../src/features/linuxdo/people/service')
 const { LinuxDoSearchService } = await import('../src/features/linuxdo/search/service')
+const { LinuxDoTemplateService, collectLinuxDoTemplateTags, filterLinuxDoTemplates, resolveLinuxDoTemplate } = await import('../src/features/linuxdo/template/service')
 const { LinuxDoNotificationService } = await import('../src/features/linuxdo/notification/service')
 const feedModel = await import('../src/features/linuxdo/ui/feedModel').catch(() => null)
 const discoveryScope = await import('../src/features/linuxdo/ui/discoveryScope').catch(() => null)
 const threadModel = await import('../src/features/linuxdo/ui/threadModel').catch(() => null)
 const loadingModel = await import('../src/features/linuxdo/ui/loadingModel').catch(() => null)
 const engagementModel = await import('../src/features/linuxdo/ui/engagementModel').catch(() => null)
+const composerModel = await import('../src/features/linuxdo/editor/model').catch(() => null)
+const composerPreview = await import('../src/features/linuxdo/editor/preview').catch(() => null)
+
+assert.ok(composerModel, 'linuxdo composer text model should exist')
+assert.deepEqual(
+  composerModel.applyComposerCommand('发布 NewsNook', { start: 3, end: 11 }, 'bold'),
+  { value: '发布 **NewsNook**', selection: { start: 5, end: 13 } },
+)
+assert.deepEqual(
+  composerModel.applyComposerCommand('第一行\n第二行', { start: 0, end: 7 }, 'ordered-list'),
+  { value: '1. 第一行\n2. 第二行', selection: { start: 3, end: 13 } },
+)
+assert.deepEqual(
+  composerModel.applyComposerCommand('', { start: 0, end: 0 }, 'link'),
+  { value: '[链接文字](https://)', selection: { start: 7, end: 15 } },
+)
+assert.match(
+  composerModel.insertComposerSnippet('', { start: 0, end: 0 }, 'details').value,
+  /^\[details="摘要"\]\n详细内容\n\[\/details\]$/,
+)
+assert.match(
+  composerModel.insertComposerSnippet('', { start: 0, end: 0 }, 'poll').value,
+  /\[poll type=regular results=always public=true chartType=bar\][\s\S]*\* 选项 2[\s\S]*\[\/poll\]/,
+)
+assert.match(composerModel.insertComposerSnippet('', { start: 0, end: 0 }, 'chart').value, /^\[chart type="bar"/)
+assert.match(composerModel.insertComposerSnippet('', { start: 0, end: 0 }, 'graphviz').value, /^\[graphviz engine=dot\]/)
+assert.equal(composerModel.insertComposerSnippet('', { start: 0, end: 0 }, 'toc').value, '<div data-theme-toc="true"></div>')
+assert.deepEqual(
+  composerModel.insertComposerText('前后', { start: 1, end: 1 }, '插入'),
+  { value: '前插入后', selection: { start: 3, end: 3 } },
+)
+assert.deepEqual(
+  composerModel.insertComposerBlock('前文\n后文', { start: 2, end: 2 }, '## 模板\n正文'),
+  { value: '前文\n\n## 模板\n正文\n\n后文', selection: { start: 12, end: 12 } },
+)
+assert.match(
+  composerModel.insertComposerSnippet('', { start: 0, end: 0 }, 'datetime', { now: new Date('2026-09-21T04:30:00.000Z') }).value,
+  /\[date=2026-09-21 time=12:30:00 timezone="Asia\/Shanghai"\]/,
+)
+assert.equal(composerModel.normalizeComposerTag('  #Open AI  '), 'open-ai')
+assert.equal(composerModel.normalizeComposerTag(' #Node.js / API '), 'node.js-api')
+assert.deepEqual(
+  composerModel.validateComposer({ mode: 'create', title: '短标题', raw: '不足二十字' }),
+  { canSubmit: false, titleCount: 3, bodyCount: 5, titleRemaining: 3, bodyRemaining: 15 },
+)
+assert.equal(composerModel.validateComposer({ mode: 'create', title: '这是合格标题', raw: '这是一段已经达到二十个字符要求并且能够正常发布的正文内容。' }).canSubmit, true)
+assert.equal(composerModel.validateComposer({ mode: 'reply', title: '', raw: '这是一段已经达到二十个字符要求并且能够正常发布的回复内容。' }).canSubmit, true)
+assert.deepEqual(
+  composerModel.buildComposerDraftData({
+    mode: 'create',
+    title: '待保存标题',
+    raw: '关闭前需要立即保存的正文',
+    categoryId: 4,
+    tags: ['newsnook', 'android'],
+  }),
+  {
+    reply: '关闭前需要立即保存的正文',
+    action: 'createTopic',
+    title: '待保存标题',
+    categoryId: 4,
+    tags: ['newsnook', 'android'],
+    postId: undefined,
+    reply_to_post_number: undefined,
+  },
+)
+assert.deepEqual(
+  composerModel.buildComposerDraftData({
+    mode: 'reply',
+    title: '不应写入',
+    raw: '回复内容',
+    categoryId: 4,
+    tags: ['ignored'],
+    replyToPostNumber: 3,
+  }),
+  {
+    reply: '回复内容',
+    action: 'reply',
+    title: undefined,
+    categoryId: undefined,
+    tags: undefined,
+    postId: undefined,
+    reply_to_post_number: 3,
+  },
+)
+
+assert.ok(composerPreview, 'linuxdo composer preview renderer should exist')
+const safeComposerPreview = composerPreview.renderLinuxDoComposerPreview(`
+# 标题
+
+| 名称 | 状态 |
+| --- | --- |
+| NewsNook | 完成 |
+
+[details="更多"]
+隐藏内容
+[/details]
+
+[spoiler]剧透[/spoiler]
+
+[poll type=regular]\n* 选项 A\n* 选项 B\n[/poll]
+
+[chart type="bar" title="示例"]\n项目 | 数量\nA | 12\nB | 18\n[/chart]
+
+[graphviz engine=dot]\ndigraph G { A -> B; }\n[/graphviz]
+
+\`\`\`mermaid\ngraph TD; A-->B\n\`\`\`
+
+<script>alert(1)</script>
+`)
+assert.match(safeComposerPreview, /data-linuxdo-role="table"/)
+assert.match(safeComposerPreview, /data-linuxdo-role="details"/)
+assert.match(safeComposerPreview, /data-linuxdo-role="spoiler"/)
+assert.match(safeComposerPreview, /data-linuxdo-role="poll"/)
+assert.match(safeComposerPreview, /data-linuxdo-preview-block="mermaid"/)
+assert.match(safeComposerPreview, /data-linuxdo-preview-block="chart"/)
+assert.match(safeComposerPreview, /data-linuxdo-preview-block="graphviz"/)
+assert.doesNotMatch(safeComposerPreview, /<script/i)
 
 assert.ok(feedModel, 'feed verification retry model should exist')
 const verificationEvents: string[] = []
@@ -107,11 +226,13 @@ const user = decodeCurrentUser({
     avatar_template: '/user_avatar/linux.do/frank/{size}/1_2.png',
     trust_level: 3,
     unread_notifications: 7,
+    can_use_templates: true,
   },
 })
 assert.equal(user?.username, 'frank')
 assert.equal(user?.trustLevel, 3)
 assert.equal(user?.unreadNotifications, 7)
+assert.equal(user?.canUseTemplates, true)
 assert.match(user?.avatarTemplate ?? '', /96/)
 
 const feed = decodeTopics({
@@ -153,7 +274,13 @@ const topic = decodeTopic({
   like_count: 5,
   created_at: '2026-09-20T00:00:00Z',
   last_posted_at: '2026-09-20T01:00:00Z',
+  last_poster_username: 'bob',
   tags: [{ id: 'linux', name: 'linux' }, { text: 'guide' }],
+  details: {
+    can_create_post: true,
+    notification_level: 2,
+    created_by: { username: 'alice', name: 'Alice' },
+  },
   post_stream: {
     stream: [501, 502],
     posts: [{
@@ -197,6 +324,9 @@ const topic = decodeTopic({
   },
 })
 assert.equal(topic.postStream.stream.length, 2)
+assert.equal(topic.lastPosterUsername, 'bob')
+assert.equal(topic.details?.createdBy?.username, 'alice')
+assert.equal(topic.details?.createdBy?.name, 'Alice')
 assert.equal(topic.postStream.posts[0]?.actions[0]?.acted, true)
 assert.equal(topic.postStream.posts[0]?.bookmarked, true)
 assert.equal(topic.postStream.posts[0]?.bookmarkId, 77)
@@ -216,10 +346,11 @@ assert.doesNotMatch(topic.postStream.posts[0]?.cooked ?? '', /onerror/i)
 
 const categories = decodeCategories({
   category_list: {
-    categories: [{ id: 9, name: '开发调优', slug: 'dev', topic_count: 123, description_text: '技术讨论' }],
+    categories: [{ id: 9, name: '开发调优', slug: 'dev', topic_count: 123, description_text: '技术讨论', parent_category_id: 4 }],
   },
 })
 assert.equal(categories[0]?.slug, 'dev')
+assert.equal(categories[0]?.parentId, 4)
 
 const notifications = decodeNotifications({
   notifications: [{ id: 8, notification_type: 5, read: false, created_at: '2026-09-20T00:00:00Z', topic_id: 100, fancy_title: 'Hello' }],
@@ -341,6 +472,17 @@ assert.doesNotMatch(discourseStructures, /class=/)
 assert.equal(linuxDoEndpoints.latest(2).endsWith('/latest.json?page=2'), true)
 assert.equal(linuxDoEndpoints.category('dev', 9, 3).endsWith('/c/dev/9.json?page=3'), true)
 assert.equal(linuxDoEndpoints.search('hello world').includes('q=hello%20world'), true)
+assert.equal(
+  linuxDoEndpoints.tagSearch('开源', {
+    limit: 20,
+    categoryId: 4,
+    selectedTagIds: [10, '11'],
+    selectedTags: ['人工智能'],
+    forInput: true,
+    prioritizeRecentTags: false,
+  }),
+  'https://linux.do/tags/filter/search.json?q=%E5%BC%80%E6%BA%90&limit=20&categoryId=4&filterForInput=true&prioritizeRecentTags=false&selected_tag_ids%5B%5D=10&selected_tag_ids%5B%5D=11&selected_tags%5B%5D=%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD',
+)
 
 const capabilities = linuxDoCapabilities()
 assert.equal(capabilities.bookmarks, true)
@@ -350,6 +492,8 @@ assert.equal(capabilities.boost.available, true)
 assert.equal(linuxDoEndpoints.boostCreate(501).endsWith('/discourse-boosts/posts/501/boosts.json'), true)
 assert.equal(linuxDoEndpoints.drafts.endsWith('/drafts.json'), true)
 assert.equal(linuxDoEndpoints.draft('topic_100').endsWith('/drafts/topic_100.json'), true)
+assert.equal(linuxDoEndpoints.templates, 'https://linux.do/discourse_templates')
+assert.equal(linuxDoEndpoints.templateUse(123), 'https://linux.do/discourse_templates/123/use')
 assert.equal(linuxDoEndpoints.userBookmarks('frank').endsWith('/u/frank/bookmarks.json'), true)
 assert.equal(linuxDoEndpoints.userSummary('frank'), 'https://linux.do/u/frank/summary.json')
 assert.equal(linuxDoEndpoints.userBadges('frank'), 'https://linux.do/user-badges/frank.json')
@@ -361,6 +505,150 @@ assert.equal(linuxDoEndpoints.userActivity('frank', 0).includes('filter='), fals
 assert.equal(linuxDoEndpoints.notifications(60, 30).endsWith('/notifications.json?offset=60&limit=30'), true)
 assert.equal(linuxDoEndpoints.topic('hello', 100, 42).endsWith('/t/hello/100/42.json'), true)
 assert.equal(linuxDoEndpoints.postRaw(501).endsWith('/posts/501/raw'), true)
+
+const tagSearchCalls: Array<{ url: string; auth?: string }> = []
+const discoveryService = new LinuxDoDiscoveryService({
+  getJson: async (url: string, options?: { auth?: string }) => {
+    tagSearchCalls.push({ url, auth: options?.auth })
+    if (url.endsWith('/tags.json')) {
+      return {
+        tags: [{ id: 1711, name: '开源', count: '215' }],
+        extras: {
+          tag_groups: [{ tags: [{ id: 2234, name: '开源推广', count: 3658 }, { id: 1936, name: '开源项目', count: 367 }] }],
+          categories: [{ tags: [{ id: 1936, name: '开源项目', count: 360 }, { id: 1750, name: '开源宇宙', count: 5 }] }],
+        },
+      }
+    }
+    return {
+      results: [
+        { id: 1711, text: '开源' },
+        { id: 2234, name: '开源推广', count: 3658 },
+        { id: 1936, text: '开源项目' },
+        { id: 1750, text: '开源宇宙', count: 0, disabled: true, title: '当前分类不可用' },
+      ],
+    }
+  },
+} as any)
+const catalogTags = await discoveryService.tags()
+assert.deepEqual(catalogTags.map((tag) => [tag.name, tag.topicCount]), [
+  ['开源推广', 3658],
+  ['开源项目', 367],
+  ['开源', 215],
+  ['开源宇宙', 5],
+])
+assert.deepEqual(
+  await discoveryService.searchTags('开源', {
+    categoryId: 4,
+    selectedTagIds: [99],
+    selectedTags: ['人工智能'],
+    forInput: true,
+  }),
+  [
+    { id: 2234, name: '开源推广', topicCount: 3658, disabled: false, disabledReason: undefined },
+    { id: 1936, name: '开源项目', topicCount: 367, disabled: false, disabledReason: undefined },
+    { id: 1711, name: '开源', topicCount: 215, disabled: false, disabledReason: undefined },
+    { id: 1750, name: '开源宇宙', topicCount: 0, disabled: true, disabledReason: '当前分类不可用' },
+  ],
+)
+assert.deepEqual(sortLinuxDoTags([
+  { name: '少', topicCount: 5 },
+  { name: '多', topicCount: 367 },
+  { name: '禁用', topicCount: 9999, disabled: true },
+]).map((tag) => tag.name), ['多', '少', '禁用'])
+assert.deepEqual(sortLinuxDoTags([
+  { name: '开源', topicCount: 215 },
+  { name: '开源宇宙', topicCount: 5 },
+  { name: '开源项目', topicCount: 367 },
+]).map((tag) => tag.name), ['开源项目', '开源', '开源宇宙'])
+const searchCall = tagSearchCalls.find((call) => call.url.includes('/tags/filter/search.json'))
+assert.ok(searchCall)
+assert.match(searchCall.url, /q=%E5%BC%80%E6%BA%90/)
+assert.match(searchCall.url, /selected_tag_ids%5B%5D=99/)
+assert.equal(searchCall.auth, 'optional')
+
+const recentOrderService = new LinuxDoDiscoveryService({
+  getJson: async () => ({
+    results: [
+      { id: 1, name: '最近使用', count: 2 },
+      { id: 2, name: '更热门', count: 9000 },
+    ],
+  }),
+} as any)
+assert.deepEqual(
+  (await recentOrderService.searchTags('', { prioritizeRecentTags: true, forInput: true })).map((tag) => tag.name),
+  ['最近使用', '更热门'],
+  'empty composer search should preserve Discourse recent-tag priority order',
+)
+
+const templateCalls: Array<{ method: 'GET' | 'POST'; url: string; auth?: string }> = []
+const templateService = new LinuxDoTemplateService({
+  getJson: async (url: string, options?: { auth?: string }) => {
+    templateCalls.push({ method: 'GET', url, auth: options?.auth })
+    return {
+      templates: [
+        { id: 101, title: '开源推广发帖模板', slug: 'open-source-template', content: '你好 @%{my_username}\n项目：%{topic_title,fallback:新项目}', tags: ['开源推广', '软件开发'], usages: 20 },
+        { id: 102, title: '公益推广发帖模板', slug: 'charity-template', content: '公益内容', tags: ['公益推广'], usages: 5 },
+        { id: 103, title: 'LINUX DO 抽奖模板', slug: 'lottery-template', content: '发起人：%{my_name,fallback:活动发起人}', tags: [], usages: 50 },
+      ],
+    }
+  },
+  postForm: async (url: string, _form: unknown, options?: { auth?: string }) => {
+    templateCalls.push({ method: 'POST', url, auth: options?.auth })
+    return { usage_count: 21 }
+  },
+} as any)
+const templates = await templateService.list()
+assert.equal(templates.length, 3)
+assert.equal(templates[0]?.title, '开源推广发帖模板')
+assert.deepEqual(templates[0]?.tags, ['开源推广', '软件开发'])
+assert.equal(templates[0]?.usages, 20)
+assert.deepEqual(
+  filterLinuxDoTemplates(templates, '', '*').map((template) => template.id),
+  [103, 101, 102],
+  'template list should match Discourse ordering by relevance, usage, then title',
+)
+assert.deepEqual(
+  filterLinuxDoTemplates(templates, '开源', '*').map((template) => template.id),
+  [101],
+)
+assert.deepEqual(
+  filterLinuxDoTemplates(templates, '', '公益推广').map((template) => template.id),
+  [102],
+)
+assert.deepEqual(
+  filterLinuxDoTemplates(templates, '', '__none__').map((template) => template.id),
+  [103],
+)
+assert.deepEqual(collectLinuxDoTemplateTags(templates), [
+  { name: '公益推广', count: 1 },
+  { name: '开源推广', count: 1 },
+  { name: '软件开发', count: 1 },
+])
+assert.deepEqual(
+  resolveLinuxDoTemplate(templates[0], {
+    my_username: 'frank',
+    my_name: 'Frank',
+  }),
+  {
+    title: '开源推广发帖模板',
+    content: '你好 @frank\n项目：新项目',
+  },
+)
+assert.deepEqual(
+  resolveLinuxDoTemplate(templates[2], {}),
+  {
+    title: 'LINUX DO 抽奖模板',
+    content: '发起人：活动发起人',
+  },
+)
+assert.deepEqual(
+  resolveLinuxDoTemplate({ title: '聊天 %{chat_channel_name}', content: '频道=%{chat_channel_name,fallback:无} / %{chat_thread_url}' }, {}),
+  { title: '聊天 ', content: '频道=无 / ' },
+  'composer must strip or apply fallbacks for official chat-only variables just like Discourse',
+)
+await templateService.recordUse(101)
+assert.ok(templateCalls.some((call) => call.method === 'GET' && call.url.endsWith('/discourse_templates') && call.auth === 'required'))
+assert.ok(templateCalls.some((call) => call.method === 'POST' && call.url.endsWith('/discourse_templates/101/use') && call.auth === 'required'))
 
 const draftService = new LinuxDoDraftService({} as any)
 assert.equal(draftService.keyFor({ action: 'createTopic' }), 'new_topic')
@@ -499,6 +787,8 @@ assert.equal(javaSource.includes('result.put("key"'), false)
 assert.match(javaSource, /followRedirects\(false\)/)
 assert.match(javaSource, /"Set-Cookie"\.equalsIgnoreCase/)
 assert.match(javaSource, /isApiAllowedUrl/)
+assert.match(javaSource, /can_use_templates/)
+assert.match(javaSource, /canUseTemplates/)
 assert.match(javaSource, /User-Api-Key/)
 assert.match(javaSource, /User-Api-Client-Id/)
 assert.match(authJavaSource, /AndroidKeyStore/)

@@ -7,12 +7,14 @@ export interface LinuxDoUser {
   avatarTemplate?: string
   trustLevel?: number
   unreadNotifications?: number
+  canUseTemplates?: boolean
 }
 
 export interface LinuxDoCategory {
   id: number
   name: string
   slug: string
+  parentId?: number
   color?: string
   textColor?: string
   topicCount?: number
@@ -20,9 +22,11 @@ export interface LinuxDoCategory {
 }
 
 export interface LinuxDoTag {
-  id?: string
+  id?: string | number
   name: string
   topicCount?: number
+  disabled?: boolean
+  disabledReason?: string
 }
 
 export interface LinuxDoTopicSummary {
@@ -118,7 +122,12 @@ export interface LinuxDoTopic {
   createdAt: string
   lastPostedAt: string
   postStream: { stream: number[]; posts: LinuxDoPost[] }
-  details?: { canCreatePost?: boolean; notificationLevel?: number }
+  lastPosterUsername?: string
+  details?: {
+    canCreatePost?: boolean
+    notificationLevel?: number
+    createdBy?: { username: string; name?: string }
+  }
 }
 
 export interface LinuxDoNotification {
