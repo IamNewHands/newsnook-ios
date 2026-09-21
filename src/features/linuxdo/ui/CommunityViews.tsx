@@ -1,25 +1,21 @@
-import { Bell, Compass, Flame, Grid2X2, Loader2, Search, Sparkles, Tag } from 'lucide-react'
+import { Bell, Loader2, Search } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import type { LinuxDoBookmarkService } from '../bookmark/service'
 import type { LinuxDoPeopleService } from '../people/service'
 import {
   linuxDoBookmarks as bookmarkApi,
-  linuxDoDiscovery as discovery,
   linuxDoNotifications as notificationsApi,
   linuxDoPeople as peopleApi,
   linuxDoSearch as searchApi,
 } from '../runtime'
 import type {
-  LinuxDoCategory,
   LinuxDoNotification,
   LinuxDoPost,
   LinuxDoSessionSnapshot,
-  LinuxDoTag,
   LinuxDoTopicSummary,
 } from '../types'
 import { TopicCard } from './shared'
-import { discoveryScopeKey, loadDiscoveryScope, type LinuxDoDiscoveryScope } from './discoveryScope'
 import { ago, avatar, readableError } from './utils'
 
 export function SearchView({ onOpen, onOpenUser }: { onOpen: (topic: LinuxDoTopicSummary, targetPostNumber?: number) => void; onOpenUser: (username: string) => void }) {
@@ -90,92 +86,37 @@ export function SearchView({ onOpen, onOpenUser }: { onOpen: (topic: LinuxDoTopi
   )
 }
 
-export function DiscoverView({ onOpen, initialScope }: { onOpen: (topic: LinuxDoTopicSummary) => void; initialScope?: LinuxDoDiscoveryScope }) {
-  const [categories, setCategories] = useState<LinuxDoCategory[]>([])
-  const [tags, setTags] = useState<LinuxDoTag[]>([])
-  const [items, setItems] = useState<LinuxDoTopicSummary[]>([])
-  const [loading, setLoading] = useState(true)
-  const [itemsLoading, setItemsLoading] = useState(false)
-  const [itemsError, setItemsError] = useState('')
-  const [activeScope, setActiveScope] = useState('')
+export { DiscoverView } from './DiscoverView'
 
-  useEffect(() => {
-    void Promise.all([discovery.categories(), discovery.tags()]).then(([nextCategories, nextTags]) => {
-      setCategories(nextCategories)
-      setTags(nextTags)
-    }).finally(() => setLoading(false))
-  }, [])
-
-  const openScope = async (key: string, loader: () => Promise<LinuxDoTopicSummary[]>) => {
-    setActiveScope(key)
-    setItemsLoading(true)
-    setItemsError('')
-    try {
-      setItems(await loader())
-    } catch (nextError) {
-      setItemsError(readableError(nextError))
-    } finally {
-      setItemsLoading(false)
-    }
-  }
-
-  const initialScopeKey = initialScope ? discoveryScopeKey(initialScope) : ''
-  useEffect(() => {
-    if (!initialScope) return
-    setActiveScope(initialScopeKey)
-    setItemsLoading(true)
-    setItemsError('')
-    void loadDiscoveryScope(discovery, initialScope)
-      .then(setItems)
-      .catch((nextError) => setItemsError(readableError(nextError)))
-      .finally(() => setItemsLoading(false))
-  }, [initialScope, initialScopeKey])
-
-  if (loading) return <div className="space-y-4 page-x pt-5" role="status" aria-label="正在加载分类与标签"><div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">{Array.from({ length: 6 }, (_, index) => <div key={index} className="linuxdo-skeleton h-20 rounded-[18px] border border-haze/50" />)}</div><div className="flex flex-wrap gap-2">{Array.from({ length: 10 }, (_, index) => <div key={index} className="linuxdo-skeleton h-7 w-20 rounded-full" />)}</div></div>
-
-  const hotTags = [...tags].sort((a, b) => (b.topicCount ?? 0) - (a.topicCount ?? 0)).slice(0, 12)
-
-  return (
-    <div className="min-h-0 flex-1 overflow-y-auto page-x pb-4 pt-4">
-      <section className="linuxdo-discover-hero rounded-[26px] border border-haze/70 bg-ink-raised p-5 shadow-md">
-        <div className="flex items-start justify-between gap-4"><div><div className="inline-flex items-center gap-2 rounded-full bg-cinnabar/10 px-3 py-1 text-[10px] font-semibold text-cinnabar"><Sparkles size={12} />探索 Linux.do</div><h2 className="mt-3 text-[22px] font-bold tracking-[-0.03em] text-paper">发现更适合你的讨论</h2><p className="mt-1.5 max-w-md text-[11px] leading-5 text-paper-muted">从真实分类和标签中探索主题，不制造虚假的精选数据。</p></div><div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-cinnabar/10 text-cinnabar"><Compass size={26} /></div></div>
-        <div className="mt-4 grid grid-cols-3 gap-2"><div className="rounded-2xl bg-ink-deep px-3 py-2.5"><div className="text-[16px] font-bold text-paper">{categories.length}</div><div className="text-[9px] text-paper-faint">分类</div></div><div className="rounded-2xl bg-ink-deep px-3 py-2.5"><div className="text-[16px] font-bold text-paper">{tags.length}</div><div className="text-[9px] text-paper-faint">标签</div></div><div className="rounded-2xl bg-ink-deep px-3 py-2.5"><div className="text-[16px] font-bold text-paper">{hotTags[0]?.topicCount ?? 0}</div><div className="text-[9px] text-paper-faint">热门话题量</div></div></div>
-      </section>
-
-      <div className="mb-2 mt-5 flex items-center gap-2"><Flame size={14} className="text-[#ff8a3d]" /><h2 className="text-[12px] font-semibold tracking-[0.08em] text-paper-muted">热门标签</h2></div>
-      <div className="flex flex-wrap gap-2">{hotTags.map((tag) => <button key={tag.name} type="button" disabled={itemsLoading} onClick={() => void openScope('tag:' + tag.name, () => discovery.tag(tag.name))} className={'linuxdo-control rounded-full border px-3 py-2 text-[10.5px] font-medium transition-all ' + (activeScope === 'tag:' + tag.name ? 'border-cinnabar/30 bg-cinnabar text-white shadow-sm' : 'border-haze/70 bg-ink-raised text-paper-muted shadow-sm')}>#{tag.name}{tag.topicCount ? <span className="ml-1.5 text-[9px] opacity-65">{tag.topicCount}</span> : null}</button>)}</div>
-
-      <div className="mb-2 mt-5 flex items-center gap-2"><Grid2X2 size={14} className="text-cinnabar-soft" /><h2 className="text-[12px] font-semibold tracking-[0.08em] text-paper-muted">推荐分类</h2></div>
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-        {categories.map((category) => (
-          <button key={category.id} type="button" disabled={itemsLoading} onClick={() => void openScope('category:' + category.id, () => discovery.category(category.slug, category.id))} className={'linuxdo-control rounded-[18px] border px-3.5 py-3 text-left transition-colors disabled:opacity-60 ' + (activeScope === 'category:' + category.id ? 'border-cinnabar/30 bg-cinnabar/[0.07] shadow-sm' : 'border-haze/70 bg-ink-raised shadow-sm hover:border-cinnabar/20')}>
-            <div className="text-[13px] font-semibold text-paper">{category.name}</div>
-            <div className="mt-1 line-clamp-2 text-[10px] leading-4 text-paper-faint">{category.description || '浏览该分类的最新讨论'}</div>
-          </button>
-        ))}
-      </div>
-      <div className="mb-2 mt-5 flex items-center gap-2"><Tag size={14} className="text-cinnabar-soft" /><h2 className="text-[12px] font-semibold tracking-[0.08em] text-paper-muted">全部标签</h2></div>
-      <div className="flex flex-wrap gap-2">
-        {tags.slice(0, 60).map((tag) => (
-          <button key={tag.name} type="button" disabled={itemsLoading} onClick={() => void openScope('tag:' + tag.name, () => discovery.tag(tag.name))} className={'linuxdo-control rounded-full border px-3 py-1.5 text-[10.5px] transition-colors disabled:opacity-60 ' + (activeScope === 'tag:' + tag.name ? 'border-cinnabar/35 bg-cinnabar/10 text-cinnabar-soft' : 'border-haze/70 text-paper-muted hover:bg-paper/6 hover:text-paper')}>
-            {'#' + tag.name + (tag.topicCount ? ' · ' + tag.topicCount : '')}
-          </button>
-        ))}
-      </div>
-      {itemsLoading ? <div className="mt-6 flex items-center justify-center gap-2 border-t border-haze/50 py-8 text-[10.5px] text-paper-faint" role="status" aria-live="polite"><Loader2 size={15} className="animate-spin" />正在加载讨论</div> : null}
-      {itemsError ? <button type="button" onClick={() => setItemsError('')} className="mt-6 w-full rounded-2xl border border-cinnabar/25 bg-cinnabar/[0.06] px-4 py-3 text-left text-[11px] text-cinnabar-soft">{itemsError} · 点击关闭</button> : null}
-      {!itemsLoading && items.length ? <div className="mt-6 space-y-3 border-t border-haze/50 pt-4">{items.map((topic, index) => <div key={topic.id} className="linuxdo-card-in" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }}><TopicCard topic={topic} onOpen={() => onOpen(topic)} /></div>)}</div> : null}
-      {!itemsLoading && activeScope && !itemsError && items.length === 0 ? <div className="mt-6 border-t border-haze/50 py-10 text-center text-[11px] text-paper-faint">这里暂时没有讨论</div> : null}
-    </div>
-  )
-}
-
-export function NotificationsView({ session, onOpen, onUnreadChange }: { session: LinuxDoSessionSnapshot; onOpen: (topic: LinuxDoTopicSummary, targetPostNumber?: number) => void; onUnreadChange: (count: number) => void }) {
-  const notificationLabel = (type: number) => ({
-    1: '有人提到了你', 2: '有人回复了你', 3: '有人引用了你', 4: '帖子被编辑', 5: '有人点赞', 6: '收到私信',
-    7: '收到私信邀请', 9: '关注主题有新帖', 11: '有人链接了你的内容', 12: '获得徽章', 13: '收到主题邀请',
-    18: '主题提醒', 24: '书签提醒', 25: '收到 Reaction', 29: '聊天中提到了你', 36: '关注的分类或标签有新内容', 43: '收到 Boost',
-  } as Record<number, string>)[type] || '新通知'
+export function NotificationsView({
+  session,
+  onOpen,
+  onUnreadChange,
+}: {
+  session: LinuxDoSessionSnapshot
+  onOpen: (topic: LinuxDoTopicSummary, targetPostNumber?: number) => void
+  onUnreadChange: (count: number) => void
+}) {
+  const notificationLabel = (type: number) =>
+    ({
+      1: '有人提到了你',
+      2: '有人回复了你',
+      3: '有人引用了你',
+      4: '帖子被编辑',
+      5: '有人点赞',
+      6: '收到私信',
+      7: '收到私信邀请',
+      9: '关注主题有新帖',
+      11: '有人链接了你的内容',
+      12: '获得徽章',
+      13: '收到主题邀请',
+      18: '主题提醒',
+      24: '书签提醒',
+      25: '收到 Reaction',
+      29: '聊天中提到了你',
+      36: '关注的分类或标签有新内容',
+      43: '收到 Boost',
+    })[type] || '新通知'
   const [items, setItems] = useState<LinuxDoNotification[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
