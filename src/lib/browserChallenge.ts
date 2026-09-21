@@ -25,7 +25,14 @@ function headerValue(headers: Record<string, string> | undefined, name: string):
 export function detectBrowserChallenge(
   response: BrowserChallengeResponse,
 ): BrowserChallengeKind | null {
-  if (response.status !== 403 && response.status !== 503) return null
+  if (response.status !== 403 && response.status !== 429 && response.status !== 503) return null
+
+  // `cf-mitigated: challenge` is Cloudflare's authoritative response signal.
+  // In particular, managed rate-limit challenges can use 429 rather than 403,
+  // and API clients may receive a terse/plain response body with no HTML markers.
+  if (headerValue(response.headers, 'cf-mitigated').toLowerCase().includes('challenge')) {
+    return 'cloudflare'
+  }
 
   const body = (response.body ?? '').slice(0, 128_000).toLowerCase()
   const server = headerValue(response.headers, 'server').toLowerCase()

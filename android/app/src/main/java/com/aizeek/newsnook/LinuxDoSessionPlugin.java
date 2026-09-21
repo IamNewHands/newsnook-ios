@@ -12,6 +12,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -35,6 +36,9 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import android.util.Base64;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -54,8 +58,10 @@ import org.json.JSONObject;
 /**
  * Linux.do first-party browser session.
  *
- * The embedded WebView is used only for Cloudflare verification and login. Normal
- * community UI stays in React and calls Discourse JSON APIs. CookieManager remains
+ * The visible embedded WebView is used for Cloudflare verification and login. Normal
+ * community UI stays in React and calls Discourse JSON APIs. When Cloudflare accepts
+ * the browser network identity but rejects OkHttp, a headless same-origin WebView can
+ * transparently carry API traffic for the current app session. CookieManager remains
  * the single browser-session source; no cookie is persisted by this plugin.
  */
 @CapacitorPlugin(name = "LinuxDoSession")
@@ -68,18 +74,127 @@ public class LinuxDoSessionPlugin extends Plugin {
     private static final long OTP_EXCHANGE_TIMEOUT_MILLIS = 2L * 60L * 1000L;
     private static final String SESSION_CACHE_PREFS = "linuxdo_session_cache";
     private static final String PREF_LAST_USER = "last_user";
+    private static final String BROWSER_BRIDGE_NAME = "NewsNookLinuxDoBridge";
+    private static final int BROWSER_RESPONSE_CHUNK_CHARS = 32 * 1024;
+    private static final int BROWSER_RESPONSE_MAX_CHARS = 16 * 1024 * 1024;
 
     private Dialog dialog;
     private WebView sessionWebView;
+    private WebView browserTransportWebView;
+    private boolean browserTransportReady;
+    private boolean browserTransportInitializing;
+    private final List<BrowserTransportReadyCallback> browserTransportWaiters = new ArrayList<>();
     private volatile PluginCall pendingCall;
     private volatile PluginCall pendingUserApiCall;
     private volatile LinuxDoUserApiAuth.Credential pendingOtpCredential;
     private final AtomicBoolean probing = new AtomicBoolean(false);
     private final AtomicBoolean exchangingOtp = new AtomicBoolean(false);
     private final ConcurrentHashMap<String, UploadSession> uploadSessions = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, BrowserFetchPending> browserFetches = new ConcurrentHashMap<>();
     private volatile String verifiedUserAgent = "";
     private volatile boolean finishing;
+    private volatile boolean preferBrowserTransport;
     private LinuxDoUserApiAuth userApiAuth;
+
+    private interface BrowserTransportReadyCallback {
+        void onReady(WebView webView);
+        void onFailure(String message);
+    }
+
+    private interface BrowserFetchCallback {
+        void onSuccess(BrowserFetchResponse response);
+        void onFailure(String message);
+    }
+
+    private static final class BrowserFetchResponse {
+        final int status;
+        final String data;
+        final JSObject headers;
+
+        BrowserFetchResponse(int status, String data, JSObject headers) {
+            this.status = status;
+            this.data = data;
+            this.headers = headers;
+        }
+    }
+
+    private static final class BrowserFetchPending {
+        final BrowserFetchCallback callback;
+        final StringBuilder body = new StringBuilder();
+        int status;
+        JSObject headers = new JSObject();
+        boolean overflow;
+
+        BrowserFetchPending(BrowserFetchCallback callback) {
+            this.callback = callback;
+        }
+
+        synchronized void start(int nextStatus, String headersJson) {
+            status = nextStatus;
+            try {
+                JSONObject source = new JSONObject(headersJson == null || headersJson.isEmpty() ? "{}" : headersJson);
+                java.util.Iterator<String> names = source.keys();
+                while (names.hasNext()) {
+                    String name = names.next();
+                    if ("set-cookie".equalsIgnoreCase(name) || "set-cookie2".equalsIgnoreCase(name)) continue;
+                    headers.put(name, source.optString(name, ""));
+                }
+            } catch (Exception ignored) {
+                headers = new JSObject();
+            }
+        }
+
+        synchronized void append(String chunk) {
+            if (overflow || chunk == null || chunk.isEmpty()) return;
+            if ((long) body.length() + chunk.length() > BROWSER_RESPONSE_MAX_CHARS) {
+                overflow = true;
+                body.setLength(0);
+                return;
+            }
+            body.append(chunk);
+        }
+
+        synchronized BrowserFetchResponse finish() {
+            if (overflow) return null;
+            return new BrowserFetchResponse(status, body.toString(), headers);
+        }
+    }
+
+    private final class BrowserFetchBridge {
+        @JavascriptInterface
+        public void onStart(String requestId, int status, String headersJson) {
+            BrowserFetchPending pending = browserFetches.get(requestId);
+            if (pending != null) pending.start(status, headersJson);
+        }
+
+        @JavascriptInterface
+        public void onChunk(String requestId, String chunk) {
+            BrowserFetchPending pending = browserFetches.get(requestId);
+            if (pending != null) pending.append(chunk);
+        }
+
+        @JavascriptInterface
+        public void onComplete(String requestId) {
+            BrowserFetchPending pending = browserFetches.remove(requestId);
+            if (pending == null) return;
+            BrowserFetchResponse response = pending.finish();
+            dispatchBrowserCallback(() -> {
+                if (response == null) {
+                    pending.callback.onFailure("Linux.do 浏览器响应过大");
+                    return;
+                }
+                CookieManager.getInstance().flush();
+                pending.callback.onSuccess(response);
+            });
+        }
+
+        @JavascriptInterface
+        public void onError(String requestId, String message) {
+            BrowserFetchPending pending = browserFetches.remove(requestId);
+            if (pending == null) return;
+            dispatchBrowserCallback(() -> pending.callback.onFailure(empty(message).isEmpty() ? "浏览器网络请求失败" : message));
+        }
+    }
 
     private static final class UploadSession {
         final File file;
@@ -300,7 +415,7 @@ public class LinuxDoSessionPlugin extends Plugin {
     @PluginMethod
     public void request(PluginCall call) {
         String url = call.getString("url", "");
-        String method = call.getString("method", "GET").toUpperCase();
+        String method = call.getString("method", "GET").toUpperCase(Locale.ROOT);
         String body = call.getString("body", "");
         JSObject requestHeaders = call.getObject("headers", new JSObject());
 
@@ -314,54 +429,384 @@ public class LinuxDoSessionPlugin extends Plugin {
         }
 
         getActivity().runOnUiThread(() -> {
+            if (preferBrowserTransport) {
+                performBrowserRequest(url, method, requestHeaders, body, new BrowserFetchCallback() {
+                    @Override
+                    public void onSuccess(BrowserFetchResponse response) {
+                        resolveRequest(call, response.status, response.data, response.headers);
+                    }
+
+                    @Override
+                    public void onFailure(String message) {
+                        // The browser transport is a session-level compatibility path,
+                        // not a permanent lock-in. If its infrastructure disappears,
+                        // fall back to the native path and let the normal CF detector
+                        // decide whether another browser verification is actually needed.
+                        preferBrowserTransport = false;
+                        performNativeRequest(call, url, method, requestHeaders, body);
+                    }
+                });
+                return;
+            }
+            performNativeRequest(call, url, method, requestHeaders, body);
+        });
+    }
+
+    private void performNativeRequest(
+        PluginCall call,
+        String url,
+        String method,
+        JSObject requestHeaders,
+        String body
+    ) {
+        CookieManager manager = CookieManager.getInstance();
+        String cookie = empty(manager.getCookie(ORIGIN));
+        String userAgent = currentUserAgent();
+
+        Request.Builder builder = new Request.Builder().url(url);
+        java.util.Iterator<String> keys = requestHeaders.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            if ("Cookie".equalsIgnoreCase(key) || "User-Agent".equalsIgnoreCase(key)) continue;
+            String value = requestHeaders.optString(key, "");
+            if (!value.isEmpty()) builder.header(key, value);
+        }
+        if (!cookie.isEmpty()) builder.header("Cookie", cookie);
+        if (!userAgent.isEmpty()) builder.header("User-Agent", userAgent);
+        if (method.equals("GET")) {
+            builder.get();
+        } else {
+            String contentType = requestHeaders.optString("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+            RequestBody requestBody = RequestBody.create(body, MediaType.parse(contentType));
+            if (method.equals("POST")) builder.post(requestBody);
+            else if (method.equals("PUT")) builder.put(requestBody);
+            else builder.delete(requestBody);
+        }
+
+        identityClient.newCall(builder.build()).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call ignored, IOException error) {
+                call.reject("Linux.do 网络请求失败", "LINUXDO_REQUEST_NETWORK");
+            }
+
+            @Override
+            public void onResponse(Call ignored, Response response) throws IOException {
+                syncResponseCookies(response);
+                String responseText;
+                try (ResponseBody responseBody = response.body()) {
+                    responseText = responseBody != null ? responseBody.string() : "";
+                }
+                JSObject responseHeaders = safeResponseHeaders(response);
+                int status = response.code();
+
+                if (!isCloudflareChallenge(status, responseText, responseHeaders)) {
+                    resolveRequest(call, status, responseText, responseHeaders);
+                    return;
+                }
+
+                // A browser may already be trusted while OkHttp is still challenged
+                // because Cloudflare also evaluates network/TLS identity. Probe the
+                // exact original request through the browser stack before interrupting
+                // the user with a verification screen. This is the same compatibility
+                // principle used by FluxDO's WebView HTTP adapter.
+                dispatchBrowserCallback(() ->
+                    performBrowserRequest(url, method, requestHeaders, body, new BrowserFetchCallback() {
+                        @Override
+                        public void onSuccess(BrowserFetchResponse browserResponse) {
+                            if (!isCloudflareChallenge(browserResponse.status, browserResponse.data, browserResponse.headers)) {
+                                preferBrowserTransport = true;
+                                resolveRequest(call, browserResponse.status, browserResponse.data, browserResponse.headers);
+                                return;
+                            }
+                            resolveRequest(call, status, responseText, responseHeaders);
+                        }
+
+                        @Override
+                        public void onFailure(String message) {
+                            resolveRequest(call, status, responseText, responseHeaders);
+                        }
+                    })
+                );
+            }
+        });
+    }
+
+    private void resolveRequest(PluginCall call, int status, String data, JSObject headers) {
+        JSObject result = new JSObject();
+        result.put("status", status);
+        result.put("data", data);
+        result.put("headers", headers);
+        call.resolve(result);
+    }
+
+    private JSObject safeResponseHeaders(Response response) {
+        JSObject headers = new JSObject();
+        for (String name : response.headers().names()) {
+            if ("Set-Cookie".equalsIgnoreCase(name) || "Set-Cookie2".equalsIgnoreCase(name)) continue;
+            headers.put(name, response.header(name, ""));
+        }
+        return headers;
+    }
+
+    private boolean isCloudflareChallenge(int status, String body, JSObject headers) {
+        if (status != 403 && status != 429 && status != 503) return false;
+        String mitigated = headerIgnoreCase(headers, "cf-mitigated").toLowerCase(Locale.ROOT);
+        if (mitigated.contains("challenge")) return true;
+
+        String sample = empty(body);
+        if (sample.length() > 128 * 1024) sample = sample.substring(0, 128 * 1024);
+        String lower = sample.toLowerCase(Locale.ROOT);
+        boolean marker =
+            lower.contains("cf_chl_opt")
+                || lower.contains("/cdn-cgi/challenge-platform")
+                || lower.contains("cf-chl-")
+                || lower.contains("challenge-form")
+                || lower.contains("cf-turnstile")
+                || lower.contains("<title>just a moment")
+                || lower.contains("enable javascript and cookies to continue")
+                || lower.contains("performing security verification");
+        if (!marker) return false;
+
+        String server = headerIgnoreCase(headers, "server").toLowerCase(Locale.ROOT);
+        return server.contains("cloudflare")
+            || !headerIgnoreCase(headers, "cf-ray").isEmpty()
+            || lower.contains("cloudflare")
+            || lower.contains("cdn-cgi");
+    }
+
+    private String headerIgnoreCase(JSObject headers, String target) {
+        java.util.Iterator<String> keys = headers.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            if (target.equalsIgnoreCase(key)) return headers.optString(key, "");
+        }
+        return "";
+    }
+
+    private void performBrowserRequest(
+        String url,
+        String method,
+        JSObject requestHeaders,
+        String body,
+        BrowserFetchCallback callback
+    ) {
+        if (!isApiAllowedUrl(url)) {
+            callback.onFailure("浏览器传输仅允许 linux.do 主站");
+            return;
+        }
+
+        ensureBrowserTransport(new BrowserTransportReadyCallback() {
+            @Override
+            public void onReady(WebView webView) {
+                String requestId = UUID.randomUUID().toString();
+                BrowserFetchPending pending = new BrowserFetchPending(callback);
+                browserFetches.put(requestId, pending);
+
+                JSONObject browserHeaders = browserSafeRequestHeaders(requestHeaders);
+                String bodyExpression = method.equals("GET") ? "undefined" : JSONObject.quote(body);
+                String script =
+                    "(function(){"
+                        + "const id=" + JSONObject.quote(requestId) + ";"
+                        + "const bridge=window." + BROWSER_BRIDGE_NAME + ";"
+                        + "const headers=" + browserHeaders.toString() + ";"
+                        + "fetch(" + JSONObject.quote(url) + ",{"
+                        + "method:" + JSONObject.quote(method) + ","
+                        + "headers:headers,"
+                        + "credentials:'include',"
+                        + "redirect:'follow',"
+                        + "cache:'no-store',"
+                        + "body:" + bodyExpression
+                        + "}).then(async function(response){"
+                        + "const h={};response.headers.forEach(function(v,k){h[k]=v;});"
+                        + "bridge.onStart(id,response.status,JSON.stringify(h));"
+                        + "const text=await response.text();"
+                        + "const size=" + BROWSER_RESPONSE_CHUNK_CHARS + ";"
+                        + "for(let i=0;i<text.length;i+=size){bridge.onChunk(id,text.slice(i,i+size));}"
+                        + "bridge.onComplete(id);"
+                        + "}).catch(function(error){bridge.onError(id,String(error&&error.message||error||'fetch failed'));});"
+                        + "})();";
+
+                try {
+                    webView.evaluateJavascript(script, null);
+                } catch (Exception error) {
+                    browserFetches.remove(requestId);
+                    callback.onFailure("无法启动 Linux.do 浏览器网络请求");
+                }
+            }
+
+            @Override
+            public void onFailure(String message) {
+                callback.onFailure(message);
+            }
+        });
+    }
+
+    private JSONObject browserSafeRequestHeaders(JSObject requestHeaders) {
+        JSONObject headers = new JSONObject();
+        java.util.Iterator<String> keys = requestHeaders.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            if (isForbiddenBrowserHeader(key)) continue;
+            String value = requestHeaders.optString(key, "");
+            if (value.isEmpty()) continue;
+            try {
+                headers.put(key, value);
+            } catch (Exception ignored) {
+                // Ignore malformed optional headers rather than failing the request.
+            }
+        }
+        return headers;
+    }
+
+    private boolean isForbiddenBrowserHeader(String name) {
+        String key = empty(name).toLowerCase(Locale.ROOT);
+        return key.equals("accept-charset")
+            || key.equals("accept-encoding")
+            || key.equals("connection")
+            || key.equals("content-length")
+            || key.equals("cookie")
+            || key.equals("cookie2")
+            || key.equals("date")
+            || key.equals("dnt")
+            || key.equals("expect")
+            || key.equals("host")
+            || key.equals("keep-alive")
+            || key.equals("origin")
+            || key.equals("referer")
+            || key.equals("te")
+            || key.equals("trailer")
+            || key.equals("transfer-encoding")
+            || key.equals("upgrade")
+            || key.equals("user-agent")
+            || key.equals("via");
+    }
+
+    private void ensureBrowserTransport(BrowserTransportReadyCallback callback) {
+        if (getActivity() == null || getActivity().isFinishing()) {
+            callback.onFailure("当前 Activity 无法建立浏览器网络通道");
+            return;
+        }
+        if (browserTransportWebView != null && browserTransportReady) {
+            callback.onReady(browserTransportWebView);
+            return;
+        }
+
+        browserTransportWaiters.add(callback);
+        if (browserTransportInitializing) return;
+        browserTransportInitializing = true;
+
+        try {
             CookieManager manager = CookieManager.getInstance();
-            String cookie = empty(manager.getCookie(ORIGIN));
-            String userAgent = currentUserAgent();
+            manager.setAcceptCookie(true);
 
-            Request.Builder builder = new Request.Builder().url(url);
-            java.util.Iterator<String> keys = requestHeaders.keys();
-            while (keys.hasNext()) {
-                String key = keys.next();
-                if ("Cookie".equalsIgnoreCase(key) || "User-Agent".equalsIgnoreCase(key)) continue;
-                String value = requestHeaders.optString(key, "");
-                if (!value.isEmpty()) builder.header(key, value);
-            }
-            if (!cookie.isEmpty()) builder.header("Cookie", cookie);
-            if (!userAgent.isEmpty()) builder.header("User-Agent", userAgent);
-            if (method.equals("GET")) {
-                builder.get();
-            } else {
-                String contentType = requestHeaders.optString("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
-                RequestBody requestBody = RequestBody.create(body, MediaType.parse(contentType));
-                if (method.equals("POST")) builder.post(requestBody);
-                else if (method.equals("PUT")) builder.put(requestBody);
-                else builder.delete(requestBody);
-            }
+            WebView webView = new WebView(getActivity());
+            WebSettings settings = webView.getSettings();
+            settings.setJavaScriptEnabled(true);
+            settings.setDomStorageEnabled(true);
+            settings.setDatabaseEnabled(true);
+            settings.setSupportMultipleWindows(false);
+            settings.setJavaScriptCanOpenWindowsAutomatically(false);
+            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+            settings.setAllowFileAccess(false);
+            settings.setAllowContentAccess(false);
+            manager.setAcceptThirdPartyCookies(webView, false);
+            webView.addJavascriptInterface(new BrowserFetchBridge(), BROWSER_BRIDGE_NAME);
+            verifiedUserAgent = empty(settings.getUserAgentString());
 
-            identityClient.newCall(builder.build()).enqueue(new Callback() {
+            browserTransportWebView = webView;
+            browserTransportReady = false;
+            webView.setWebViewClient(new WebViewClient() {
                 @Override
-                public void onFailure(Call ignored, IOException error) {
-                    call.reject("Linux.do 网络请求失败", "LINUXDO_REQUEST_NETWORK");
+                public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                    Uri uri = request != null ? request.getUrl() : null;
+                    return uri == null || !isAllowedUrl(uri.toString());
                 }
 
                 @Override
-                public void onResponse(Call ignored, Response response) throws IOException {
-                    syncResponseCookies(response);
-                    try (ResponseBody responseBody = response.body()) {
-                        JSObject result = new JSObject();
-                        result.put("status", response.code());
-                        result.put("data", responseBody != null ? responseBody.string() : "");
-                        JSObject headers = new JSObject();
-                        for (String name : response.headers().names()) {
-                            if ("Set-Cookie".equalsIgnoreCase(name) || "Set-Cookie2".equalsIgnoreCase(name)) continue;
-                            headers.put(name, response.header(name, ""));
-                        }
-                        result.put("headers", headers);
-                        call.resolve(result);
-                    }
+                public void onPageFinished(WebView view, String url) {
+                    super.onPageFinished(view, url);
+                    if (view != browserTransportWebView || browserTransportReady) return;
+                    browserTransportReady = true;
+                    browserTransportInitializing = false;
+                    List<BrowserTransportReadyCallback> waiters = new ArrayList<>(browserTransportWaiters);
+                    browserTransportWaiters.clear();
+                    for (BrowserTransportReadyCallback waiter : waiters) waiter.onReady(view);
                 }
             });
-        });
+
+            // A same-origin bootstrap gives fetch() the real browser network identity
+            // and the same CookieManager session, while keeping arbitrary site content
+            // and script out of this hidden transport WebView.
+            webView.loadDataWithBaseURL(
+                ORIGIN + "/",
+                "<!doctype html><html><head><meta charset=\"utf-8\"></head><body></body></html>",
+                "text/html",
+                "UTF-8",
+                null
+            );
+
+            webView.postDelayed(() -> {
+                if (webView != browserTransportWebView || browserTransportReady) return;
+                failBrowserTransportInitialization("建立 Linux.do 浏览器网络通道超时");
+            }, 15_000L);
+        } catch (Exception error) {
+            failBrowserTransportInitialization("无法建立 Linux.do 浏览器网络通道");
+        }
+    }
+
+    private void failBrowserTransportInitialization(String message) {
+        browserTransportInitializing = false;
+        browserTransportReady = false;
+        WebView failed = browserTransportWebView;
+        browserTransportWebView = null;
+        if (failed != null) {
+            try {
+                failed.removeJavascriptInterface(BROWSER_BRIDGE_NAME);
+                failed.stopLoading();
+                failed.destroy();
+            } catch (Exception ignored) {
+                // Best effort cleanup.
+            }
+        }
+        List<BrowserTransportReadyCallback> waiters = new ArrayList<>(browserTransportWaiters);
+        browserTransportWaiters.clear();
+        for (BrowserTransportReadyCallback waiter : waiters) waiter.onFailure(message);
+    }
+
+    private void destroyBrowserTransport(String reason) {
+        preferBrowserTransport = false;
+        browserTransportReady = false;
+        browserTransportInitializing = false;
+
+        for (BrowserFetchPending pending : browserFetches.values()) {
+            pending.callback.onFailure(reason);
+        }
+        browserFetches.clear();
+
+        List<BrowserTransportReadyCallback> waiters = new ArrayList<>(browserTransportWaiters);
+        browserTransportWaiters.clear();
+        for (BrowserTransportReadyCallback waiter : waiters) waiter.onFailure(reason);
+
+        WebView view = browserTransportWebView;
+        browserTransportWebView = null;
+        if (view == null) return;
+        try {
+            view.removeJavascriptInterface(BROWSER_BRIDGE_NAME);
+            view.stopLoading();
+            view.loadUrl("about:blank");
+            view.removeAllViews();
+            view.destroy();
+        } catch (Exception ignored) {
+            // Best effort cleanup.
+        }
+    }
+
+    private void dispatchBrowserCallback(Runnable callback) {
+        if (getActivity() == null) {
+            callback.run();
+            return;
+        }
+        getActivity().runOnUiThread(callback);
     }
 
     @PluginMethod
@@ -543,6 +988,7 @@ public class LinuxDoSessionPlugin extends Plugin {
     public void clearBrowserSession(PluginCall call) {
         getActivity().runOnUiThread(() -> {
             try {
+                destroyBrowserTransport("Linux.do 浏览器会话已清除");
                 clearLinuxDoCookies();
                 clearCachedSessionUser();
                 verifiedUserAgent = "";
@@ -1172,6 +1618,7 @@ public class LinuxDoSessionPlugin extends Plugin {
             }
             if (dialog != null) dialog.dismiss();
             destroyWebView();
+            destroyBrowserTransport("应用正在关闭");
             dialog = null;
         });
         super.handleOnDestroy();

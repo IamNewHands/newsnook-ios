@@ -239,6 +239,24 @@ assert.equal(
 )
 assert.equal(
   detectBrowserChallenge({
+    status: 429,
+    headers: { server: 'cloudflare', 'cf-mitigated': 'challenge' },
+    body: 'challenge response intentionally has no HTML markers',
+  }),
+  'cloudflare',
+  'Cloudflare managed challenges can use 429 and must not be misclassified as ordinary rate limits',
+)
+assert.equal(
+  detectBrowserChallenge({
+    status: 429,
+    headers: { server: 'cloudflare', 'retry-after': '30' },
+    body: 'rate limited',
+  }),
+  null,
+  'ordinary 429 responses must remain rate limits when Cloudflare does not mark them as a challenge',
+)
+assert.equal(
+  detectBrowserChallenge({
     status: 403,
     headers: { server: 'nginx' },
     body: '{"errors":["You are not permitted to view this resource."]}',
@@ -987,6 +1005,14 @@ assert.match(javaSource, /cachedSessionUser\(\)/)
 assert.match(javaSource, /response\.code\(\) == 401/)
 assert.match(javaSource, /definitiveLogout/)
 assert.match(javaSource, /syncResponseCookies\(response\)/)
+assert.match(javaSource, /cf-mitigated/)
+assert.match(javaSource, /preferBrowserTransport/)
+assert.match(javaSource, /performBrowserRequest/)
+assert.match(javaSource, /BROWSER_BRIDGE_NAME/)
+assert.match(javaSource, /credentials:'include'/)
+assert.match(javaSource, /loadDataWithBaseURL/)
+assert.match(javaSource, /isForbiddenBrowserHeader/)
+assert.match(javaSource, /destroyBrowserTransport/)
 assert.match(javaSource, /User-Api-Key/)
 assert.match(javaSource, /User-Api-Client-Id/)
 assert.match(authJavaSource, /AndroidKeyStore/)
