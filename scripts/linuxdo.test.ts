@@ -23,6 +23,64 @@ const { LinuxDoBookmarkService } = await import('../src/features/linuxdo/bookmar
 const { LinuxDoPeopleService } = await import('../src/features/linuxdo/people/service')
 const { LinuxDoSearchService } = await import('../src/features/linuxdo/search/service')
 const { LinuxDoNotificationService } = await import('../src/features/linuxdo/notification/service')
+const feedModel = await import('../src/features/linuxdo/ui/feedModel').catch(() => null)
+const discoveryScope = await import('../src/features/linuxdo/ui/discoveryScope').catch(() => null)
+const threadModel = await import('../src/features/linuxdo/ui/threadModel').catch(() => null)
+const loadingModel = await import('../src/features/linuxdo/ui/loadingModel').catch(() => null)
+const engagementModel = await import('../src/features/linuxdo/ui/engagementModel').catch(() => null)
+
+assert.ok(feedModel, 'feed verification retry model should exist')
+const verificationEvents: string[] = []
+assert.equal(await feedModel.retryAfterVerification(
+  async () => { verificationEvents.push('verify'); return true },
+  async () => { verificationEvents.push('reload') },
+), true)
+assert.deepEqual(verificationEvents, ['verify', 'reload'])
+assert.equal(await feedModel.retryAfterVerification(async () => false, async () => {
+  throw new Error('reload must not run after a cancelled verification')
+}), false)
+
+assert.ok(discoveryScope, 'discovery scope model should exist')
+const scopeCalls: unknown[] = []
+const scopeApi = {
+  category: async (...args: unknown[]) => { scopeCalls.push(['category', ...args]); return ['category-result'] },
+  tag: async (...args: unknown[]) => { scopeCalls.push(['tag', ...args]); return ['tag-result'] },
+}
+assert.equal(discoveryScope.discoveryScopeKey({ kind: 'category', category: { id: 4, name: '开发调优', slug: 'develop' } }), 'category:4')
+assert.deepEqual(await discoveryScope.loadDiscoveryScope(scopeApi, { kind: 'category', category: { id: 4, name: '开发调优', slug: 'develop' } }), ['category-result'])
+assert.deepEqual(await discoveryScope.loadDiscoveryScope(scopeApi, { kind: 'tag', name: '人工智能' }), ['tag-result'])
+assert.deepEqual(scopeCalls, [
+  ['category', 'develop', 4],
+  ['tag', '人工智能'],
+])
+
+assert.ok(threadModel, 'thread reply target model should exist')
+assert.equal(threadModel.resolveReplyTarget(
+  { replyToPostNumber: 1, replyToUser: { username: 'bob', name: 'Bob' } },
+  [{ postNumber: 1, username: 'alice', name: 'Alice', avatarTemplate: 'https://linux.do/alice.png' }],
+)?.username, 'bob')
+assert.equal(threadModel.resolveReplyTarget(
+  { replyToPostNumber: 1 },
+  [{ postNumber: 1, username: 'alice', name: 'Alice', avatarTemplate: 'https://linux.do/alice.png' }],
+)?.username, 'alice')
+
+assert.ok(loadingModel, 'linuxdo loading model should exist')
+assert.deepEqual(
+  (['initial', 'refreshing', 'more', 'idle'] as const).map((state) => loadingModel.linuxDoLoadingLabel(state)),
+  ['正在加载主题', '正在刷新最新主题', '正在加载更多内容', ''],
+)
+
+assert.ok(engagementModel, 'linuxdo post engagement model should exist')
+assert.deepEqual(
+  ['heart', '+1', 'clap', 'laughing', 'open_mouth', 'tieba_087'].map(engagementModel.reactionGlyph),
+  ['❤️', '👍', '👏', '😆', '😮', '✨'],
+)
+assert.equal(engagementModel.reactionTotal([
+  { id: 'heart', type: 'emoji', count: 41 },
+  { id: '+1', type: 'emoji', count: 3 },
+  { id: 'clap', type: 'emoji', count: 2 },
+]), 46)
+assert.equal(engagementModel.boostText('<p>挺牛逼的反正，重不重要不知道</p>'), '挺牛逼的反正，重不重要不知道')
 
 assert.equal(
   detectBrowserChallenge({
@@ -104,7 +162,34 @@ const topic = decodeTopic({
       username: 'alice',
       cooked: '<p>Hello <img src=x onerror="alert(1)"></p><script>alert(1)</script>',
       created_at: '2026-09-20T00:00:00Z',
+      reply_to_post_number: 1,
+      reply_to_user: {
+        id: 2,
+        username: 'bob',
+        name: 'Bob',
+        avatar_template: '/user_avatar/linux.do/bob/{size}/2.png',
+      },
       actions_summary: [{ id: 2, count: 4, acted: true, can_act: true }],
+      reactions: [
+        { id: 'heart', type: 'emoji', count: 41 },
+        { id: '+1', type: 'emoji', count: 3 },
+        { id: 'clap', type: 'emoji', count: 2 },
+      ],
+      current_user_reaction: { id: '+1', type: 'emoji', count: 3 },
+      reaction_users_count: 46,
+      boosts: [{
+        id: 700,
+        cooked: '<p>肯定重要</p>',
+        can_delete: false,
+        can_flag: true,
+        user: {
+          id: 2,
+          username: 'bob',
+          name: 'Bob',
+          avatar_template: '/user_avatar/linux.do/bob/{size}/2.png',
+        },
+      }],
+      can_boost: true,
       bookmarked: true,
       bookmark_id: 77,
       bookmark_name: 'later',
@@ -115,6 +200,16 @@ assert.equal(topic.postStream.stream.length, 2)
 assert.equal(topic.postStream.posts[0]?.actions[0]?.acted, true)
 assert.equal(topic.postStream.posts[0]?.bookmarked, true)
 assert.equal(topic.postStream.posts[0]?.bookmarkId, 77)
+assert.equal(topic.postStream.posts[0]?.replyToPostNumber, 1)
+assert.equal(topic.postStream.posts[0]?.replyToUser?.username, 'bob')
+assert.equal(topic.postStream.posts[0]?.replyToUser?.name, 'Bob')
+assert.match(topic.postStream.posts[0]?.replyToUser?.avatarTemplate ?? '', /bob\/96\/2\.png$/)
+assert.deepEqual(topic.postStream.posts[0]?.reactions?.map((reaction) => reaction.id), ['heart', '+1', 'clap'])
+assert.equal(topic.postStream.posts[0]?.currentUserReaction?.id, '+1')
+assert.equal(topic.postStream.posts[0]?.reactionUsersCount, 46)
+assert.equal(topic.postStream.posts[0]?.boosts?.[0]?.user.username, 'bob')
+assert.match(topic.postStream.posts[0]?.boosts?.[0]?.user.avatarTemplate ?? '', /bob\/96\/2\.png$/)
+assert.equal(topic.postStream.posts[0]?.canBoost, true)
 assert.deepEqual(topic.tags, ['linux', 'guide'])
 assert.doesNotMatch(topic.postStream.posts[0]?.cooked ?? '', /<script/i)
 assert.doesNotMatch(topic.postStream.posts[0]?.cooked ?? '', /onerror/i)
@@ -184,6 +279,20 @@ assert.match(discourseSemantics, /data-linuxdo-role="onebox-image"/)
 assert.match(discourseSemantics, /data-linuxdo-role="onebox-title"/)
 assert.match(discourseSemantics, /data-linuxdo-role="mention"/)
 assert.doesNotMatch(discourseSemantics, /data-linuxdo-role="content-image"[^>]*user_avatar\/linux\.do\/alice/)
+
+const discourseStructures = sanitizeLinuxDoCooked(`
+  <details><summary>展开说明</summary><p>详细内容</p></details>
+  <div class="poll"><div class="poll-info">投票结果</div><ul><li>选项 A</li></ul></div>
+  <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>NewsNook</td></tr></tbody></table>
+  <pre><code class="lang-ts">const safe = true</code></pre>
+  <p><a class="attachment" href="/uploads/default/original/1X/archive.zip">archive.zip</a></p>
+`)
+assert.match(discourseStructures, /data-linuxdo-role="details"/)
+assert.match(discourseStructures, /data-linuxdo-role="poll"/)
+assert.match(discourseStructures, /data-linuxdo-role="table"/)
+assert.match(discourseStructures, /data-linuxdo-role="code-block"/)
+assert.match(discourseStructures, /data-linuxdo-role="attachment"/)
+assert.doesNotMatch(discourseStructures, /class=/)
 
 assert.equal(linuxDoEndpoints.latest(2).endsWith('/latest.json?page=2'), true)
 assert.equal(linuxDoEndpoints.category('dev', 9, 3).endsWith('/c/dev/9.json?page=3'), true)

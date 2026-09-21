@@ -81,6 +81,8 @@ export function decodeTopics(input: unknown): LinuxDoTopicSummary[] {
 }
 
 export function decodePost(post: Json): LinuxDoPost {
+  const replyToUser = post.reply_to_user as Json | undefined
+  const currentUserReaction = post.current_user_reaction as Json | undefined
   return {
     id: Number(post.id),
     postNumber: Number(post.post_number ?? 0),
@@ -92,6 +94,43 @@ export function decodePost(post: Json): LinuxDoPost {
     cooked: sanitizeLinuxDoCooked(String(post.cooked ?? '')),
     raw: typeof post.raw === 'string' ? post.raw : undefined,
     replyToPostNumber: typeof post.reply_to_post_number === 'number' ? post.reply_to_post_number : undefined,
+    replyToUser: replyToUser && typeof replyToUser.username === 'string' ? {
+      id: typeof replyToUser.id === 'number' ? replyToUser.id : undefined,
+      username: replyToUser.username,
+      name: typeof replyToUser.name === 'string' ? replyToUser.name : undefined,
+      avatarTemplate: avatar(replyToUser.avatar_template),
+    } : undefined,
+    reactions: Array.isArray(post.reactions)
+      ? post.reactions.map((reaction: Json) => ({
+        id: String(reaction.id ?? ''),
+        type: String(reaction.type ?? 'emoji'),
+        count: Number(reaction.count ?? 0),
+      })).filter((reaction) => reaction.id && Number.isFinite(reaction.count) && reaction.count > 0)
+      : [],
+    currentUserReaction: currentUserReaction && typeof currentUserReaction.id === 'string' ? {
+      id: currentUserReaction.id,
+      type: String(currentUserReaction.type ?? 'emoji'),
+      count: Number(currentUserReaction.count ?? 0),
+    } : undefined,
+    reactionUsersCount: typeof post.reaction_users_count === 'number' ? post.reaction_users_count : undefined,
+    boosts: Array.isArray(post.boosts)
+      ? post.boosts.map((boost: Json) => {
+        const user = boost.user as Json | undefined
+        return {
+          id: Number(boost.id),
+          cooked: sanitizeLinuxDoCooked(String(boost.cooked ?? '')),
+          canDelete: Boolean(boost.can_delete),
+          canFlag: Boolean(boost.can_flag),
+          user: {
+            id: typeof user?.id === 'number' ? user.id : undefined,
+            username: String(user?.username ?? ''),
+            name: typeof user?.name === 'string' ? user.name : undefined,
+            avatarTemplate: avatar(user?.avatar_template),
+          },
+        }
+      }).filter((boost) => Number.isFinite(boost.id) && boost.id > 0)
+      : [],
+    canBoost: Boolean(post.can_boost),
     topicId: typeof post.topic_id === 'number' ? post.topic_id : undefined,
     topicSlug: typeof post.topic_slug === 'string' ? post.topic_slug : typeof post.slug === 'string' ? post.slug : undefined,
     topicTitle: typeof post.topic_title === 'string' ? post.topic_title : typeof post.blurb === 'string' ? undefined : typeof post.title === 'string' ? post.title : undefined,

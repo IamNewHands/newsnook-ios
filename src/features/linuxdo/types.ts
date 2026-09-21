@@ -47,6 +47,34 @@ export interface LinuxDoTopicSummary {
   archived?: boolean
 }
 
+export interface LinuxDoReplyTarget {
+  id?: number
+  username: string
+  name?: string
+  avatarTemplate?: string
+}
+
+export interface LinuxDoReaction {
+  id: string
+  type: string
+  count: number
+}
+
+export interface LinuxDoBoostUser {
+  id?: number
+  username: string
+  name?: string
+  avatarTemplate?: string
+}
+
+export interface LinuxDoBoost {
+  id: number
+  cooked: string
+  user: LinuxDoBoostUser
+  canDelete?: boolean
+  canFlag?: boolean
+}
+
 export interface LinuxDoPost {
   id: number
   postNumber: number
@@ -58,6 +86,12 @@ export interface LinuxDoPost {
   cooked: string
   raw?: string
   replyToPostNumber?: number
+  replyToUser?: LinuxDoReplyTarget
+  reactions?: LinuxDoReaction[]
+  currentUserReaction?: LinuxDoReaction
+  reactionUsersCount?: number
+  boosts?: LinuxDoBoost[]
+  canBoost?: boolean
   topicId?: number
   topicSlug?: string
   topicTitle?: string

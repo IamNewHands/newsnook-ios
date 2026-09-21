@@ -1,23 +1,47 @@
 import { Heart, MessageCircle } from 'lucide-react'
+import type { KeyboardEvent } from 'react'
 
-import type { LinuxDoTopicSummary } from '../types'
+import type { LinuxDoCategory, LinuxDoTopicSummary } from '../types'
 import { ago, avatar, compact } from './utils'
 
-export function TopicCard({ topic, onOpen, categoryName }: { topic: LinuxDoTopicSummary; onOpen: () => void; categoryName?: string }) {
+export function TopicCard({
+  topic,
+  onOpen,
+  category,
+  onOpenCategory,
+  onOpenTag,
+}: {
+  topic: LinuxDoTopicSummary
+  onOpen: () => void
+  category?: LinuxDoCategory
+  onOpenCategory?: (category: LinuxDoCategory) => void
+  onOpenTag?: (tag: string) => void
+}) {
   const author = topic.posters[0]
   const last = topic.posters[topic.posters.length - 1]
+  const openFromKeyboard = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    onOpen()
+  }
   return (
-    <button
-      type="button"
+    <article
+      role="link"
+      tabIndex={0}
+      aria-label={'打开主题：' + topic.title}
       onClick={onOpen}
-      className="linuxdo-control group w-full rounded-[22px] border border-haze/70 bg-ink-raised px-4 py-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-cinnabar/30 hover:shadow-md active:translate-y-0"
+      onKeyDown={openFromKeyboard}
+      className="linuxdo-control group w-full rounded-2xl border border-haze/50 bg-ink-raised/85 p-3.5 sm:p-4 text-left shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-180 hover:-translate-y-0.5 hover:border-cinnabar/30 hover:shadow-md active:translate-y-0"
     >
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 h-10 w-10 shrink-0 overflow-hidden rounded-full border border-haze bg-ink-deep shadow-sm">
+        <div className="mt-0.5 h-9 w-9 shrink-0 overflow-hidden rounded-full ring-1 ring-black/5 dark:ring-white/10 bg-ink-deep shadow-sm">
           {avatar(author?.avatarTemplate, author?.username)}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="mb-2 flex items-center justify-between gap-2 text-[10.5px] text-paper-faint"><span className="truncate font-medium text-paper-muted">{author?.username || 'Linux.do'}</span><span>{topic.lastPostedAt ? ago(topic.lastPostedAt) : ''}</span></div>
+          <div className="mb-1.5 flex items-center justify-between gap-2 text-[10.5px] text-paper-faint">
+            <span className="truncate font-medium text-paper-muted">{author?.username || 'Linux.do'}</span>
+            <span>{topic.lastPostedAt ? ago(topic.lastPostedAt) : ''}</span>
+          </div>
           <div className="flex items-start gap-2">
             <h3 className="line-clamp-2 flex-1 text-[15px] font-semibold leading-[1.45] text-paper">{topic.title}</h3>
             {topic.unseen || (topic.newPosts || 0) > 0 ? (
@@ -25,9 +49,9 @@ export function TopicCard({ topic, onOpen, categoryName }: { topic: LinuxDoTopic
             ) : null}
           </div>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {categoryName ? <span className="rounded-full bg-cinnabar/10 px-2 py-0.5 text-[10px] text-cinnabar-soft">{categoryName}</span> : null}
+            {category ? <button type="button" disabled={!onOpenCategory} onClick={(event) => { event.stopPropagation(); onOpenCategory?.(category) }} className="linuxdo-control rounded-full bg-cinnabar/10 px-2 py-0.5 text-[10px] text-cinnabar-soft disabled:pointer-events-none">{category.name}</button> : null}
             {topic.tags.slice(0, 3).map((tag) => (
-              <span key={tag} className="rounded-full border border-haze/70 bg-paper/[0.035] px-2 py-0.5 text-[10px] text-paper-muted">#{tag}</span>
+              <button key={tag} type="button" disabled={!onOpenTag} onClick={(event) => { event.stopPropagation(); onOpenTag?.(tag) }} className="linuxdo-control rounded-full border border-haze/70 bg-paper/[0.035] px-2 py-0.5 text-[10px] text-paper-muted disabled:pointer-events-none">#{tag}</button>
             ))}
           </div>
           <div className="mt-3 flex items-center justify-between gap-3 text-[10.5px] text-paper-faint">
@@ -42,7 +66,7 @@ export function TopicCard({ topic, onOpen, categoryName }: { topic: LinuxDoTopic
           </div>
         </div>
       </div>
-    </button>
+    </article>
   )
 }
 

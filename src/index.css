@@ -2244,9 +2244,8 @@ html[data-eink='1'] .lead-cover-veil {
 /* Linux.do product shell. It deliberately consumes NewsNook's semantic theme
  * tokens so every scheme, custom palette and light/dark mode keeps working. */
 .linuxdo-workspace {
-  background:
-    radial-gradient(circle at 12% -8%, color-mix(in srgb, var(--color-cinnabar) 10%, transparent), transparent 28rem),
-    linear-gradient(180deg, color-mix(in srgb, var(--color-ink-raised) 34%, var(--color-ink)) 0%, var(--color-ink) 48%, color-mix(in srgb, var(--color-ink-deep) 44%, var(--color-ink)) 100%);
+  background-color: var(--color-ink);
+  background-image: radial-gradient(circle at 50% -4%, color-mix(in srgb, var(--color-cinnabar) 6%, transparent), transparent 28rem);
   color: var(--color-paper);
 }
 
@@ -2715,6 +2714,64 @@ html[data-eink='1'] .lead-cover-veil {
   font-weight: 650;
 }
 
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='poll'] {
+  margin: 0.85em 0;
+  border: 1px solid var(--color-haze);
+  border-radius: 10px;
+  background: var(--color-ink-deep);
+  padding: 0.75em 0.9em;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='table'] {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  margin: 0.85em 0;
+  overflow-x: auto;
+  border-collapse: collapse;
+  -webkit-overflow-scrolling: touch;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='table'] th,
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='table'] td {
+  min-width: 7rem;
+  border: 1px solid var(--color-haze);
+  padding: 0.5em 0.7em;
+  text-align: left;
+  vertical-align: top;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='attachment'] {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  border: 1px solid var(--color-haze);
+  border-radius: 8px;
+  background: var(--color-ink-deep);
+  padding: 0.32em 0.65em;
+  color: var(--color-cinnabar-soft);
+  font-weight: 600;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+@keyframes linuxdo-skeleton-shimmer {
+  from { background-position: 160% 0; }
+  to { background-position: -60% 0; }
+}
+
+.linuxdo-skeleton {
+  background:
+    linear-gradient(
+      105deg,
+      color-mix(in srgb, var(--color-paper) 4%, transparent) 28%,
+      color-mix(in srgb, var(--color-paper) 14%, transparent) 42%,
+      color-mix(in srgb, var(--color-paper) 4%, transparent) 56%
+    );
+  background-size: 240% 100%;
+  animation: linuxdo-skeleton-shimmer 1.15s linear infinite;
+}
+
 @keyframes linuxdo-card-in {
   from {
     opacity: 0;
@@ -2770,10 +2827,61 @@ html[data-eink='1'] .lead-cover-veil {
 
 @media (prefers-reduced-motion: reduce) {
   .linuxdo-card-in,
+  .linuxdo-skeleton,
   .reader-prose.linuxdo-post-prose [data-linuxdo-role='image-block'].is-loading,
   .reader-prose.linuxdo-post-prose [data-linuxdo-role='image-paragraph'].is-loading {
     animation: none;
   }
+}
+
+html[data-eink='1'] .linuxdo-skeleton {
+  animation: none;
+  background: color-mix(in srgb, var(--color-paper) 6%, transparent);
+}
+
+.linuxdo-reaction-button {
+  background: color-mix(in srgb, var(--color-paper) 4.5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-haze) 60%, transparent);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 3%);
+  transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease;
+}
+
+.linuxdo-reaction-button:active {
+  transform: scale(0.96);
+}
+
+.linuxdo-reaction-button.is-active {
+  background: color-mix(in srgb, var(--color-cinnabar) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-cinnabar) 38%, transparent);
+  color: var(--color-cinnabar-soft);
+}
+
+.linuxdo-boost-cloud {
+  background: transparent;
+  box-shadow: none;
+}
+
+.linuxdo-boost-chip {
+  background: color-mix(in srgb, var(--color-paper) 3.5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-haze) 55%, transparent);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 2%);
+  transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease;
+}
+
+.linuxdo-boost-chip:hover {
+  border-color: color-mix(in srgb, var(--color-cinnabar) 32%, var(--color-haze));
+  background: color-mix(in srgb, var(--color-paper) 7%, transparent);
+}
+
+.linuxdo-boost-chip:active {
+  transform: scale(0.96);
+}
+
+html[data-eink='1'] .linuxdo-reaction-button,
+html[data-eink='1'] .linuxdo-boost-cloud,
+html[data-eink='1'] .linuxdo-boost-chip {
+  background: transparent;
+  box-shadow: none;
 }
 
 @media (min-width: 1024px) {

@@ -68,6 +68,11 @@ function markDiscourseSemantics(root: Element): void {
   root.querySelectorAll('a.mention').forEach((element) => element.setAttribute('data-linuxdo-role', 'mention'))
   root.querySelectorAll('a.mention-group').forEach((element) => element.setAttribute('data-linuxdo-role', 'mention-group'))
   root.querySelectorAll('.spoiler, .spoiled, [data-spoiler-state]').forEach((element) => element.setAttribute('data-linuxdo-role', 'spoiler'))
+  root.querySelectorAll('details').forEach((element) => element.setAttribute('data-linuxdo-role', 'details'))
+  root.querySelectorAll('.poll').forEach((element) => element.setAttribute('data-linuxdo-role', 'poll'))
+  root.querySelectorAll('table').forEach((element) => element.setAttribute('data-linuxdo-role', 'table'))
+  root.querySelectorAll('pre').forEach((element) => element.setAttribute('data-linuxdo-role', 'code-block'))
+  root.querySelectorAll('a.attachment').forEach((element) => element.setAttribute('data-linuxdo-role', 'attachment'))
 }
 
 function normalizeDiscourseMarkup(html: string): string {

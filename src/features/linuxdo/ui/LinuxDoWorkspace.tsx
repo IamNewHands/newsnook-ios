@@ -13,15 +13,18 @@ import {
   linuxDoTopics as topicsApi,
 } from '../runtime'
 import { TopicCard } from './shared'
+import { retryAfterVerification } from './feedModel'
+import type { LinuxDoDiscoveryScope } from './discoveryScope'
+import { linuxDoLoadingLabel } from './loadingModel'
 import { readableError } from './utils'
-import type { LinuxDoFeedMode, LinuxDoPost, LinuxDoSessionSnapshot, LinuxDoTopic, LinuxDoTopicSummary } from '../types'
+import type { LinuxDoCategory, LinuxDoFeedMode, LinuxDoPost, LinuxDoSessionSnapshot, LinuxDoTopic, LinuxDoTopicSummary } from '../types'
 import { LinuxDoApiError } from '../types'
 
 type Route =
   | { kind: 'feed'; mode: LinuxDoFeedMode }
   | { kind: 'topic'; topic: LinuxDoTopicSummary; targetPostNumber?: number }
   | { kind: 'search' }
-  | { kind: 'discover' }
+  | { kind: 'discover'; scope?: LinuxDoDiscoveryScope }
   | { kind: 'notifications' }
   | { kind: 'user'; username: string }
   | { kind: 'bookmarks' }
@@ -55,13 +58,15 @@ function FeedView({
   onMode,
   onOpen,
   onVerify,
+  onOpenScope,
   cacheRef,
 }: {
   mode: LinuxDoFeedMode
   session: LinuxDoSessionSnapshot
   onMode: (mode: LinuxDoFeedMode) => void
   onOpen: (topic: LinuxDoTopicSummary) => void
-  onVerify: () => void
+  onVerify: () => Promise<boolean>
+  onOpenScope: (scope: LinuxDoDiscoveryScope) => void
   cacheRef: MutableRefObject<LinuxDoFeedCache>
 }) {
   const [items, setItems] = useState<LinuxDoTopicSummary[]>([])
@@ -69,13 +74,14 @@ function FeedView({
   const [refreshing, setRefreshing] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<unknown>(null)
-  const [categoryNames, setCategoryNames] = useState<Record<number, string>>({})
+  const [categoriesById, setCategoriesById] = useState<Record<number, LinuxDoCategory>>({})
   const pageRef = useRef(0)
   const touchStartX = useRef<number | null>(null)
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const previousModeRef = useRef<LinuxDoFeedMode>(mode)
   const touchStartY = useRef<number | null>(null)
   const [pullDistance, setPullDistance] = useState(0)
+  const [verifying, setVerifying] = useState(false)
 
   const load = useCallback(async (reset: boolean) => {
     if (mode === 'unread' && !session.authenticated) {
@@ -110,7 +116,7 @@ function FeedView({
   }, [mode, session.authenticated, cacheRef])
 
   useEffect(() => {
-    void discovery.categories().then((categories) => setCategoryNames(Object.fromEntries(categories.map((category) => [category.id, category.name])))).catch(() => undefined)
+    void discovery.categories().then((categories) => setCategoriesById(Object.fromEntries(categories.map((category) => [category.id, category])))).catch(() => undefined)
   }, [])
 
   useEffect(() => {
@@ -134,6 +140,14 @@ function FeedView({
   }, [mode, load, cacheRef])
 
   const needsVerification = error instanceof LinuxDoApiError && error.kind === 'browser-verification'
+  const verifyAndReload = async () => {
+    setVerifying(true)
+    try {
+      await retryAfterVerification(onVerify, () => load(true))
+    } finally {
+      setVerifying(false)
+    }
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col" onTouchStart={(event) => { touchStartX.current = event.touches[0]?.clientX ?? null; touchStartY.current = event.touches[0]?.clientY ?? null }} onTouchMove={(event) => {
@@ -173,7 +187,7 @@ function FeedView({
         </div>
       </div>
 
-      {pullDistance > 0 || refreshing ? <div className="pointer-events-none flex items-center justify-center gap-2 overflow-hidden text-[10px] text-paper-faint transition-[height]" style={{ height: refreshing ? 34 : pullDistance }}>{refreshing ? <><Loader2 size={13} className="animate-spin" /><span>正在刷新最新主题</span></> : pullDistance >= 54 ? '松手刷新' : '下拉刷新'}</div> : null}
+      {pullDistance > 0 || refreshing ? <div className="pointer-events-none flex items-center justify-center gap-2 overflow-hidden text-[10px] text-paper-faint transition-[height]" style={{ height: refreshing ? 34 : pullDistance }}>{refreshing ? <><Loader2 size={13} className="animate-spin" /><span>{linuxDoLoadingLabel('refreshing')}</span></> : pullDistance >= 54 ? '松手刷新' : '下拉刷新'}</div> : null}
       <div
         ref={scrollerRef}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain page-x pb-4 pt-3"
@@ -184,8 +198,8 @@ function FeedView({
         }}
       >
         {loading ? (
-          <div className="space-y-3">
-            {Array.from({ length: 6 }, (_, index) => <div key={index} className="h-[126px] animate-pulse rounded-[20px] border border-haze/50 bg-paper/[0.035]" />)}
+          <div className="space-y-3" role="status" aria-label={linuxDoLoadingLabel('initial')}>
+            {Array.from({ length: 6 }, (_, index) => <div key={index} className="linuxdo-skeleton h-[126px] rounded-[20px] border border-haze/50" />)}
           </div>
         ) : error ? (
           <div className="mx-auto mt-20 max-w-sm rounded-[22px] border border-haze bg-ink-raised/50 px-5 py-6 text-center">
@@ -193,14 +207,15 @@ function FeedView({
             <p className="mt-2 text-[11.5px] leading-6 text-paper-faint">
               {needsVerification ? '安全验证由你在 Linux.do 第一方页面中完成，NewsNook 不尝试绕过 Cloudflare。' : '检查网络或登录状态后重试。'}
             </p>
-            <button type="button" onClick={needsVerification ? onVerify : () => void load(true)} className="linuxdo-control mt-4 rounded-full bg-cinnabar px-4 py-2 text-[12px] font-medium text-white">
-              {needsVerification ? '打开安全验证' : '重新加载'}
+            <button type="button" disabled={verifying} onClick={needsVerification ? () => void verifyAndReload() : () => void load(true)} className="linuxdo-control mt-4 inline-flex items-center gap-2 rounded-full bg-cinnabar px-4 py-2 text-[12px] font-medium text-white disabled:opacity-55">
+              {verifying ? <Loader2 size={13} className="animate-spin" /> : null}
+              {verifying ? '正在重新验证' : needsVerification ? '打开安全验证' : '重新加载'}
             </button>
           </div>
         ) : (
           <div className="space-y-3">
-            {items.map((topic, index) => <div key={topic.id} className="linuxdo-card-in" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }}><TopicCard topic={topic} categoryName={topic.categoryId ? categoryNames[topic.categoryId] : undefined} onOpen={() => onOpen(topic)} /></div>)}
-            {loadingMore ? <div className="flex justify-center py-5 text-paper-faint"><Loader2 size={17} className="animate-spin" /></div> : null}
+            {items.map((topic, index) => <div key={topic.id} className="linuxdo-card-in" style={{ animationDelay: `${Math.min(index, 8) * 28}ms` }}><TopicCard topic={topic} category={topic.categoryId ? categoriesById[topic.categoryId] : undefined} onOpen={() => onOpen(topic)} onOpenCategory={(category) => onOpenScope({ kind: 'category', category })} onOpenTag={(name) => onOpenScope({ kind: 'tag', name })} /></div>)}
+            {loadingMore ? <div className="flex justify-center py-5 text-paper-faint" role="status" aria-label={linuxDoLoadingLabel('more')}><Loader2 size={17} className="animate-spin" /></div> : null}
           </div>
         )}
       </div>
@@ -258,15 +273,16 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
     return () => { backHandlerRef.current = null }
   }, [backHandlerRef, boostPost, closeComposer, composerOpen, goBack])
 
-  const verify = async () => {
+  const verify = async (): Promise<boolean> => {
     try {
       const next = await verifyLinuxDoBrowserSession('https://linux.do/')
       api.setSession(next)
       setSession(next)
-      if (route.kind === 'feed') setRoute({ kind: 'feed', mode: route.mode })
+      return true
     } catch (nextError) {
       const message = readableError(nextError)
       if (!message.includes('取消')) setWorkspaceError(message)
+      return false
     }
   }
 
@@ -299,9 +315,9 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
 
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         {route.kind === 'feed' ? (
-          <FeedView mode={route.mode} session={session} cacheRef={feedCacheRef} onMode={(mode) => setRoute({ kind: 'feed', mode })} onOpen={(topic) => navigate({ kind: 'topic', topic })} onVerify={() => void verify()} />
+          <FeedView mode={route.mode} session={session} cacheRef={feedCacheRef} onMode={(mode) => setRoute({ kind: 'feed', mode })} onOpen={(topic) => navigate({ kind: 'topic', topic })} onOpenScope={(scope) => navigate({ kind: 'discover', scope })} onVerify={verify} />
         ) : route.kind === 'topic' ? (
-          <LinuxDoTopicView summary={route.topic} session={session} targetPostNumber={route.targetPostNumber} postMutation={topicPostMutation} overlayBackHandlerRef={topicOverlayBackHandlerRef} onBack={() => { if (!goBack()) setRoute({ kind: 'feed', mode: 'latest' }) }} onCompose={(topic, options) => { setComposerTopic(topic); setComposerEditPost(undefined); setComposerInitialRaw(options?.initialRaw || ''); setComposerReplyTo(options?.replyToPostNumber); setComposerOpen(true) }} onBoost={setBoostPost} onOpenUser={(username) => navigate({ kind: 'user', username })} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onEdit={(topic, post) => {
+          <LinuxDoTopicView summary={route.topic} session={session} targetPostNumber={route.targetPostNumber} postMutation={topicPostMutation} overlayBackHandlerRef={topicOverlayBackHandlerRef} onBack={() => { if (!goBack()) setRoute({ kind: 'feed', mode: 'latest' }) }} onCompose={(topic, options) => { setComposerTopic(topic); setComposerEditPost(undefined); setComposerInitialRaw(options?.initialRaw || ''); setComposerReplyTo(options?.replyToPostNumber); setComposerOpen(true) }} onBoost={setBoostPost} onOpenUser={(username) => navigate({ kind: 'user', username })} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenTag={(name) => navigate({ kind: 'discover', scope: { kind: 'tag', name } })} onEdit={(topic, post) => {
             setComposerTopic(topic)
             setComposerReplyTo(undefined)
             const openEditor = (raw: string) => { setComposerEditPost({ ...post, raw }); setComposerInitialRaw(raw); setComposerOpen(true) }
@@ -311,7 +327,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
         ) : route.kind === 'search' ? (
           <SearchView onOpen={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenUser={(username) => navigate({ kind: 'user', username })} />
         ) : route.kind === 'discover' ? (
-          <DiscoverView onOpen={(topic) => navigate({ kind: 'topic', topic })} />
+          <DiscoverView initialScope={route.scope} onOpen={(topic) => navigate({ kind: 'topic', topic })} />
         ) : route.kind === 'notifications' ? (
           <NotificationsView session={session} onUnreadChange={setNotificationUnread} onOpen={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} />
         ) : route.kind === 'user' ? (

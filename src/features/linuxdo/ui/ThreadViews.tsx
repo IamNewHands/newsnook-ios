@@ -1,8 +1,10 @@
 import { Browser } from '@capacitor/browser'
-import { ArrowLeft, Bookmark, Heart, ImagePlus, Loader2, MessageCircle, Pencil, Quote, Rocket, Send, Trash2, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject } from 'react'
+import { ArrowLeft, Bookmark, Heart, ImagePlus, Link, Loader2, MessageCircle, MoreHorizontal, Pencil, Quote, Reply, Rocket, Send, Trash2, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject } from 'react'
 
 import { ImageLightbox } from '../../../components/ImageLightbox'
+import { ContextActionMenu } from '../../../components/ContextActionMenu'
+import type { Point } from '../../../lib/contextActions'
 import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
 import { markdownToSafeHtml } from '../../../lib/markdown'
 import {
@@ -13,8 +15,10 @@ import {
   linuxDoUploads,
 } from '../runtime'
 import type {
+  LinuxDoBoost,
   LinuxDoCategory,
   LinuxDoPost,
+  LinuxDoReaction,
   LinuxDoSessionSnapshot,
   LinuxDoTag,
   LinuxDoTopic,
@@ -23,6 +27,8 @@ import type {
 import { decodeTagNames } from '../api/decode'
 import { LinuxDoApiError } from '../types'
 import { ago, avatar, compact, readableError } from './utils'
+import { resolveReplyTarget } from './threadModel'
+import { boostText, reactionGlyph, reactionTotal } from './engagementModel'
 
 async function openExternal(url: string): Promise<void> {
   try {
@@ -50,6 +56,87 @@ function LinuxDoPostBody({ html, onClick }: { html: string; onClick: (event: Rea
   )
 }
 
+function ReactionSummary({ reactions, fallbackCount }: { reactions: LinuxDoReaction[]; fallbackCount: number }) {
+  const total = reactionTotal(reactions) || fallbackCount
+  if (!reactions.length) {
+    return (
+      <>
+        <Heart size={13} className="text-paper-muted" />
+        <span className="font-mono text-[11px] font-medium leading-none">{total || '赞'}</span>
+      </>
+    )
+  }
+  return (
+    <>
+      <span className="flex -space-x-1" aria-hidden="true">
+        {reactions.slice(0, 4).map((reaction) => (
+          <span
+            key={reaction.id}
+            title={reaction.id + ' · ' + reaction.count}
+            className="grid h-[20px] min-w-[20px] place-items-center rounded-full bg-ink-raised px-0.5 text-[12px] leading-none shadow-[0_0_0_1.5px_var(--color-ink-raised)]"
+          >
+            {reactionGlyph(reaction.id)}
+          </span>
+        ))}
+      </span>
+      <span className="font-mono text-[11.5px] font-medium leading-none">{total}</span>
+    </>
+  )
+}
+
+function BoostCloud({ boosts, onOpenUser }: { boosts: LinuxDoBoost[]; onOpenUser: (username: string) => void }) {
+  const [expanded, setExpanded] = useState(false)
+  const items = useMemo(() => boosts.map((boost) => ({ boost, text: boostText(boost.cooked) })), [boosts])
+  if (!items.length) return null
+
+  const limit = 12
+  const showAll = expanded || items.length <= limit + 2
+  const visible = showAll ? items : items.slice(0, limit)
+  const remaining = items.length - visible.length
+
+  return (
+    <div className="linuxdo-boost-cloud mt-3 pt-1" aria-label={items.length + ' 条社区回应'}>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {visible.map(({ boost, text }) => (
+          <button
+            key={boost.id}
+            type="button"
+            disabled={!boost.user.username}
+            onClick={() => boost.user.username && onOpenUser(boost.user.username)}
+            className="linuxdo-boost-chip linuxdo-control inline-flex max-w-full items-center gap-1.5 rounded-full py-0.5 pl-1 pr-2.5 text-left disabled:pointer-events-none"
+            title={boost.user.name ? `${boost.user.name} (@${boost.user.username})` : boost.user.username}
+          >
+            <span className="h-4.5 w-4.5 shrink-0 overflow-hidden rounded-full bg-ink-deep ring-1 ring-black/10 dark:ring-white/10">
+              {avatar(boost.user.avatarTemplate, boost.user.username || 'boost')}
+            </span>
+            <span className="max-w-[16rem] truncate text-[11px] font-normal leading-tight text-paper/90">
+              {text}
+            </span>
+          </button>
+        ))}
+        {remaining > 0 && !showAll ? (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="linuxdo-control inline-flex items-center rounded-full border border-dashed border-cinnabar/35 bg-cinnabar/[0.04] px-2.5 py-1 text-[10px] font-medium text-cinnabar-soft transition-all hover:bg-cinnabar/[0.08] active:scale-95"
+          >
+            +{remaining} 展开
+          </button>
+        ) : null}
+        {expanded && items.length > limit + 2 ? (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="linuxdo-control inline-flex items-center rounded-full border border-haze/50 bg-paper/[0.03] px-2 py-1 text-[10px] text-paper-faint transition-all hover:text-paper-muted active:scale-95"
+          >
+            收起
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 export function LinuxDoComposer({
   open,
   topic,
@@ -73,9 +160,9 @@ export function LinuxDoComposer({
 }) {
   const [title, setTitle] = useState('')
   const [raw, setRaw] = useState('')
+  const [preview, setPreview] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
-  const [preview, setPreview] = useState(false)
   const [categories, setCategories] = useState<LinuxDoCategory[]>([])
   const [tags, setTags] = useState<LinuxDoTag[]>([])
   const [categoryId, setCategoryId] = useState<number | undefined>()
@@ -326,6 +413,7 @@ export function LinuxDoTopicView({
   onBoost,
   onOpenUser,
   onOpenTopic,
+  onOpenTag,
   onEdit,
   targetPostNumber,
   postMutation,
@@ -338,6 +426,7 @@ export function LinuxDoTopicView({
   onBoost: (post: LinuxDoPost) => void
   onOpenUser: (username: string) => void
   onOpenTopic: (topic: LinuxDoTopicSummary, targetPostNumber?: number) => void
+  onOpenTag: (name: string) => void
   onEdit: (topic: LinuxDoTopic, post: LinuxDoPost) => void
   targetPostNumber?: number
   postMutation?: LinuxDoPost
@@ -351,6 +440,69 @@ export function LinuxDoTopicView({
   const [jumpingPostNumber, setJumpingPostNumber] = useState<number | undefined>()
   const [lightbox, setLightbox] = useState<{ items: Array<{ src: string; actionSrc?: string; alt: string }>; index: number } | null>(null)
   const [returnPostNumber, setReturnPostNumber] = useState<number | undefined>()
+  const [actionMenu, setActionMenu] = useState<{ anchor: Point; post: LinuxDoPost } | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+  const toastTimerRef = useRef<number | null>(null)
+
+  const showToast = useCallback((msg: string) => {
+    if (toastTimerRef.current != null) window.clearTimeout(toastTimerRef.current)
+    setToast(msg)
+    toastTimerRef.current = window.setTimeout(() => {
+      toastTimerRef.current = null
+      setToast(null)
+    }, 2000)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current != null) window.clearTimeout(toastTimerRef.current)
+    }
+  }, [])
+
+  const toggleLike = useCallback(async (post: LinuxDoPost) => {
+    if (!session.authenticated) return
+    const like = post.actions.find((action) => action.id === 2)
+    try {
+      if (like?.acted) {
+        await linuxDoInteractions.unlike(post.id)
+        setPosts((previous) => previous.map((candidate) => candidate.id === post.id ? { ...candidate, actions: candidate.actions.map((action) => action.id === 2 ? { ...action, acted: false, count: Math.max(0, (action.count ?? 1) - 1) } : action) } : candidate))
+      } else {
+        await linuxDoInteractions.like(post.id)
+        setPosts((previous) => previous.map((candidate) => candidate.id === post.id ? { ...candidate, actions: candidate.actions.some((action) => action.id === 2) ? candidate.actions.map((action) => action.id === 2 ? { ...action, acted: true, count: (action.count ?? 0) + 1 } : action) : candidate.actions.concat({ id: 2, acted: true, count: 1, canAct: true }) } : candidate))
+      }
+    } catch (nextError) {
+      setError(nextError)
+    }
+  }, [session.authenticated])
+
+  const toggleBookmark = useCallback(async (post: LinuxDoPost) => {
+    if (!session.authenticated) return
+    try {
+      if (post.bookmarked && post.bookmarkId) {
+        await linuxDoInteractions.deleteBookmark(post.bookmarkId)
+        setPosts((previous) => previous.map((candidate) => candidate.id === post.id ? { ...candidate, bookmarked: false, bookmarkId: undefined, bookmarkName: undefined, bookmarkReminderAt: undefined } : candidate))
+        showToast('已取消收藏')
+      } else {
+        const created = await linuxDoInteractions.bookmarkPost(post.id)
+        const bookmarkId = Number(created?.id ?? created?.bookmark?.id ?? 0)
+        setPosts((previous) => previous.map((candidate) => candidate.id === post.id ? { ...candidate, bookmarked: true, bookmarkId: bookmarkId > 0 ? bookmarkId : candidate.bookmarkId } : candidate))
+        showToast('已加入书签')
+      }
+    } catch (nextError) {
+      setError(nextError)
+    }
+  }, [session.authenticated, showToast])
+
+  const deletePost = useCallback(async (post: LinuxDoPost) => {
+    if (!window.confirm('确定删除这条帖子吗？此操作将提交到 Linux.do。')) return
+    try {
+      await linuxDoTopics.deletePost(post.id)
+      setPosts((previous) => previous.filter((candidate) => candidate.id !== post.id))
+      showToast('帖子已删除')
+    } catch (nextError) {
+      setError(nextError)
+    }
+  }, [showToast])
 
   useEffect(() => {
     if (!lightbox) return
@@ -457,28 +609,64 @@ export function LinuxDoTopicView({
         setLoadingPosts(true)
         void linuxDoTopics.loadPosts(topic.id, remaining).then((extra) => setPosts((previous) => previous.concat(extra).sort((a, b) => a.postNumber - b.postNumber))).finally(() => setLoadingPosts(false))
       }}>
-        {loading ? <div className="space-y-3 py-5">{Array.from({ length: 4 }, (_, index) => <div key={index} className="rounded-[22px] border border-haze/50 bg-ink-raised/35 p-4"><div className="flex items-center gap-3"><div className="h-9 w-9 animate-pulse rounded-full bg-paper/[0.07]" /><div className="flex-1"><div className="h-3 w-28 animate-pulse rounded bg-paper/[0.07]" /><div className="mt-2 h-2.5 w-20 animate-pulse rounded bg-paper/[0.045]" /></div></div><div className="mt-5 h-3 w-[92%] animate-pulse rounded bg-paper/[0.06]" /><div className="mt-3 h-3 w-[76%] animate-pulse rounded bg-paper/[0.05]" /><div className="mt-3 h-32 animate-pulse rounded-2xl bg-paper/[0.035]" /></div>)}</div> : null}
+        {loading ? <div className="space-y-3 py-5" role="status" aria-label="正在加载主题回复">{Array.from({ length: 4 }, (_, index) => <div key={index} className="rounded-[22px] border border-haze/50 bg-ink-raised/35 p-4"><div className="flex items-center gap-3"><div className="linuxdo-skeleton h-9 w-9 rounded-full" /><div className="flex-1"><div className="linuxdo-skeleton h-3 w-28 rounded" /><div className="linuxdo-skeleton mt-2 h-2.5 w-20 rounded" /></div></div><div className="linuxdo-skeleton mt-5 h-3 w-[92%] rounded" /><div className="linuxdo-skeleton mt-3 h-3 w-[76%] rounded" /><div className="linuxdo-skeleton mt-3 h-32 rounded-2xl" /></div>)}</div> : null}
         {error ? <div className="py-24 text-center text-[13px] text-paper-muted">{readableError(error)}</div> : null}
         {topic ? (
           <>
             <header className="py-5">
               <h1 className="font-display text-[24px] font-semibold leading-[1.35] text-paper">{topic.title}</h1>
               <div className="mt-3 flex flex-wrap gap-1.5">
-                {topic.tags.map((name) => <span key={name} className="rounded-full border border-haze px-2.5 py-1 text-[10.5px] text-paper-muted">#{name}</span>)}
+                {topic.tags.map((name) => <button key={name} type="button" onClick={() => onOpenTag(name)} className="linuxdo-control rounded-full border border-haze px-2.5 py-1 text-[10.5px] text-paper-muted">#{name}</button>)}
               </div>
             </header>
             <div className="space-y-3">
               {posts.map((post) => {
                 const like = post.actions.find((action) => action.id === 2)
+                const replyTarget = resolveReplyTarget(post, posts)
+                const isTopicOwner = (summary?.posters?.[0]?.username && summary.posters[0].username === post.username) || post.postNumber === 1
                 return (
-                  <article key={post.id} id={'linuxdo-post-' + post.postNumber} className="rounded-[18px] border border-haze/70 bg-ink-raised px-3.5 py-3.5 shadow-sm">
-                    <header className="linuxdo-control flex items-center gap-3 select-none">
-                      <button type="button" onClick={() => onOpenUser(post.username)} className="h-10 w-10 overflow-hidden rounded-full border border-haze bg-ink-deep">{avatar(post.avatarTemplate, post.username)}</button>
-                      <button type="button" onClick={() => onOpenUser(post.username)} className="min-w-0 flex-1 text-left">
-                        <div className="truncate text-[13.5px] font-semibold text-paper">{post.name || post.username}</div>
-                        <div className="mt-0.5 text-[9.5px] text-paper-faint">{'@' + post.username + ' · ' + ago(post.createdAt)}</div>
+                  <article key={post.id} id={'linuxdo-post-' + post.postNumber} className="group rounded-2xl border border-haze/45 bg-ink-raised/85 p-3.5 sm:p-4 shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-150 hover:border-haze/70">
+                    <header className="linuxdo-control flex items-start gap-3 select-none">
+                      <button type="button" onClick={() => onOpenUser(post.username)} className="relative mt-0.5 h-9 w-9 shrink-0 overflow-hidden rounded-full ring-1 ring-black/5 dark:ring-white/10 bg-ink-deep transition-transform active:scale-95">
+                        {avatar(post.avatarTemplate, post.username)}
                       </button>
-                      <span className="font-mono text-[10px] text-paper-faint">{'#' + post.postNumber}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <button type="button" onClick={() => onOpenUser(post.username)} className="truncate text-[13.5px] font-semibold text-paper hover:underline">
+                            {post.name || post.username}
+                          </button>
+                          {isTopicOwner && (
+                            <span className="shrink-0 rounded-[5px] bg-cinnabar/12 px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-wider text-cinnabar dark:bg-cinnabar/20 dark:text-cinnabar-soft">
+                              楼主
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-paper-faint">
+                          <span className="truncate">{'@' + post.username}</span>
+                          <span aria-hidden="true">·</span>
+                          <span className="shrink-0">{ago(post.createdAt)}</span>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
+                        {post.replyToPostNumber && replyTarget ? (
+                          <button
+                            type="button"
+                            onClick={() => void jumpToPost(post.replyToPostNumber!, post.postNumber)}
+                            className="linuxdo-control inline-flex max-w-32 items-center gap-1 rounded-full border border-haze/60 bg-paper/[0.03] py-0.5 pl-1 pr-2 text-[10px] text-paper-muted transition-colors hover:border-cinnabar/30 hover:text-cinnabar"
+                            aria-label={'跳转到 ' + replyTarget.username + ' 的帖子 #' + post.replyToPostNumber}
+                          >
+                            <Reply size={11} className="shrink-0 text-cinnabar-soft" />
+                            <span className="h-4 w-4 shrink-0 overflow-hidden rounded-full bg-ink-deep">
+                              {avatar(replyTarget.avatarTemplate, replyTarget.username)}
+                            </span>
+                            <span className="truncate">{replyTarget.name || replyTarget.username}</span>
+                            <span className="font-mono text-[9px] text-paper-faint">#{post.replyToPostNumber}</span>
+                          </button>
+                        ) : null}
+                        <span className="font-mono text-[11px] font-medium text-paper-faint/70 tracking-tight">
+                          {'#' + post.postNumber}
+                        </span>
+                      </div>
                     </header>
                     <LinuxDoPostBody html={post.cooked} onClick={(event) => {
                       const target = event.target as HTMLElement
@@ -583,52 +771,68 @@ export function LinuxDoTopicView({
                         // Invalid links remain inert instead of navigating the app WebView.
                       }
                     }} />
-                    <footer className="linuxdo-control mt-3 flex flex-wrap items-center gap-1.5 border-t border-haze/50 pt-2.5 select-none">
-                      <button type="button" disabled={!session.authenticated} onClick={async () => {
-                        try {
-                          if (like?.acted) {
-                            await linuxDoInteractions.unlike(post.id)
-                            setPosts((previous) => previous.map((candidate) => candidate.id === post.id ? { ...candidate, actions: candidate.actions.map((action) => action.id === 2 ? { ...action, acted: false, count: Math.max(0, (action.count ?? 1) - 1) } : action) } : candidate))
-                          } else {
-                            await linuxDoInteractions.like(post.id)
-                            setPosts((previous) => previous.map((candidate) => candidate.id === post.id ? { ...candidate, actions: candidate.actions.some((action) => action.id === 2) ? candidate.actions.map((action) => action.id === 2 ? { ...action, acted: true, count: (action.count ?? 0) + 1 } : action) : candidate.actions.concat({ id: 2, acted: true, count: 1, canAct: true }) } : candidate))
-                          }
-                        } catch (nextError) { setError(nextError) }
-                      }} className={'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[10.5px] ' + (like?.acted ? 'bg-cinnabar/14 text-cinnabar-soft' : 'bg-paper/5 text-paper-muted')}>
-                        <Heart size={12} fill={like?.acted ? 'currentColor' : 'none'} />{like?.count || '赞'}
+                    <BoostCloud boosts={post.boosts ?? []} onOpenUser={onOpenUser} />
+                    <footer className="linuxdo-control mt-3.5 flex items-center justify-between gap-2 border-t border-haze/40 pt-2.5 select-none">
+                      <button
+                        type="button"
+                        disabled={!session.authenticated}
+                        onClick={() => void toggleLike(post)}
+                        aria-label={(post.reactionUsersCount ?? like?.count ?? 0) + ' 个回应'}
+                        className={'linuxdo-reaction-button inline-flex min-h-[30px] items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all ' + (like?.acted || post.currentUserReaction ? 'is-active' : 'text-paper-muted hover:text-paper')}
+                      >
+                        <ReactionSummary reactions={post.reactions ?? []} fallbackCount={like?.count ?? 0} />
                       </button>
-                      <button type="button" disabled={!session.authenticated} onClick={() => topic && onCompose(topic, { replyToPostNumber: post.postNumber })} className="inline-flex items-center gap-1.5 rounded-full bg-paper/5 px-3 py-1.5 text-[10.5px] text-paper-muted"><MessageCircle size={12} />回复</button>
-                      <button type="button" disabled={!session.authenticated} onClick={() => {
-                        if (!topic) return
-                        const text = new DOMParser().parseFromString(post.cooked, 'text/html').body.textContent?.trim().slice(0, 240) || ''
-                        const quoted = '> @' + post.username + '：' + text + '\n\n'
-                        onCompose(topic, { initialRaw: quoted, replyToPostNumber: post.postNumber })
-                      }} className="inline-flex items-center gap-1.5 rounded-full bg-paper/5 px-3 py-1.5 text-[10.5px] text-paper-muted"><Quote size={12} />引用</button>
-                      {post.canEdit ? <button type="button" onClick={() => topic && onEdit(topic, post)} className="inline-flex items-center gap-1.5 rounded-full bg-paper/5 px-3 py-1.5 text-[10.5px] text-paper-muted"><Pencil size={12} />编辑</button> : null}
-                      {post.canDelete ? <button type="button" onClick={async () => {
-                        if (!window.confirm('确定删除这条帖子吗？此操作将提交到 Linux.do。')) return
-                        try {
-                          await linuxDoTopics.deletePost(post.id)
-                          setPosts((previous) => previous.filter((candidate) => candidate.id !== post.id))
-                        } catch (nextError) {
-                          setError(nextError)
-                        }
-                      }} className="inline-flex items-center gap-1.5 rounded-full bg-paper/5 px-3 py-1.5 text-[10.5px] text-paper-muted"><Trash2 size={12} />删除</button> : null}
-                      <button type="button" disabled={!session.authenticated} onClick={async () => {
-                        try {
-                          if (post.bookmarked && post.bookmarkId) {
-                            await linuxDoInteractions.deleteBookmark(post.bookmarkId)
-                            setPosts((previous) => previous.map((candidate) => candidate.id === post.id ? { ...candidate, bookmarked: false, bookmarkId: undefined, bookmarkName: undefined, bookmarkReminderAt: undefined } : candidate))
-                          } else {
-                            const created = await linuxDoInteractions.bookmarkPost(post.id)
-                            const bookmarkId = Number(created?.id ?? created?.bookmark?.id ?? 0)
-                            setPosts((previous) => previous.map((candidate) => candidate.id === post.id ? { ...candidate, bookmarked: true, bookmarkId: bookmarkId > 0 ? bookmarkId : candidate.bookmarkId } : candidate))
-                          }
-                        } catch (nextError) {
-                          setError(nextError)
-                        }
-                      }} className={'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[10.5px] ' + (post.bookmarked ? 'bg-cinnabar/14 text-cinnabar-soft' : 'bg-paper/5 text-paper-muted')}><Bookmark size={12} fill={post.bookmarked ? 'currentColor' : 'none'} />{post.bookmarked ? '已收藏' : '书签'}</button>
-                      <button type="button" disabled={!session.authenticated} onClick={() => onBoost(post)} className="inline-flex items-center gap-1.5 rounded-full bg-paper/5 px-3 py-1.5 text-[10.5px] text-paper-muted"><Rocket size={12} />Boost</button>
+                      <div className="flex items-center gap-0.5 sm:gap-1">
+                        <button
+                          type="button"
+                          disabled={!session.authenticated}
+                          onClick={() => void toggleLike(post)}
+                          aria-label={like?.acted ? '取消赞' : '赞'}
+                          className="linuxdo-control grid h-8 w-8 place-items-center rounded-full text-paper-muted transition-all hover:bg-paper/8 hover:text-cinnabar active:scale-90 disabled:opacity-35"
+                        >
+                          <Heart
+                            size={15.5}
+                            strokeWidth={like?.acted ? 2 : 1.75}
+                            className={like?.acted ? 'text-cinnabar fill-cinnabar' : 'text-paper-muted'}
+                          />
+                        </button>
+                        {post.canBoost ? (
+                          <button
+                            type="button"
+                            disabled={!session.authenticated}
+                            onClick={() => onBoost(post)}
+                            aria-label="Boost 轻回应"
+                            className="linuxdo-control flex h-8 items-center gap-1 rounded-full px-2 text-[11px] text-paper-muted transition-all hover:bg-paper/8 hover:text-cinnabar active:scale-95 disabled:opacity-35"
+                          >
+                            <Rocket size={14.5} strokeWidth={1.75} className="text-cinnabar-soft" />
+                            <span className="hidden min-[360px]:inline">Boost</span>
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={!session.authenticated}
+                          onClick={() => topic && onCompose(topic, { replyToPostNumber: post.postNumber })}
+                          aria-label="回复此楼"
+                          className="linuxdo-control flex h-8 items-center gap-1 rounded-full px-2.5 text-[11.5px] font-medium text-paper-muted transition-all hover:bg-paper/8 hover:text-paper active:scale-95 disabled:opacity-35"
+                        >
+                          <Reply size={14.5} strokeWidth={1.8} />
+                          <span>回复</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            const rect = event.currentTarget.getBoundingClientRect()
+                            setActionMenu({
+                              anchor: { x: rect.right, y: rect.bottom + 4 },
+                              post,
+                            })
+                          }}
+                          aria-label="更多操作"
+                          className="linuxdo-control grid h-8 w-8 place-items-center rounded-full text-paper-muted transition-all hover:bg-paper/8 hover:text-paper active:scale-90"
+                        >
+                          <MoreHorizontal size={16} strokeWidth={1.8} />
+                        </button>
+                      </div>
                     </footer>
                   </article>
                 )
@@ -640,6 +844,76 @@ export function LinuxDoTopicView({
       </div>
       {jumpingPostNumber ? <div className="pointer-events-none absolute bottom-16 left-1/2 z-30 -translate-x-1/2 rounded-full border border-haze bg-ink-raised/95 px-3 py-2 text-[10px] text-paper-muted shadow-xl"><span className="inline-flex items-center gap-2"><Loader2 size={13} className="animate-spin" />正在定位 #{jumpingPostNumber}</span></div> : null}
       {returnPostNumber ? <button type="button" onClick={() => { const target = returnPostNumber; setReturnPostNumber(undefined); void jumpToPost(target) }} className="linuxdo-control absolute bottom-4 right-4 z-30 rounded-full border border-haze bg-ink-raised/95 px-3 py-2 text-[10.5px] text-paper shadow-xl">返回引用处 #{returnPostNumber}</button> : null}
+      {toast ? (
+        <div className="pointer-events-none fixed bottom-20 left-1/2 z-50 -translate-x-1/2 rounded-full border border-haze/70 bg-ink-raised/95 px-4 py-2 text-[12px] font-medium text-paper shadow-xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-150">
+          {toast}
+        </div>
+      ) : null}
+      {actionMenu ? (
+        <ContextActionMenu
+          open={Boolean(actionMenu)}
+          anchor={actionMenu.anchor}
+          title={`#${actionMenu.post.postNumber} · @${actionMenu.post.username}`}
+          caption={actionMenu.post.name || undefined}
+          onClose={() => setActionMenu(null)}
+          actions={[
+            ...(session.authenticated ? [
+              {
+                id: 'quote',
+                label: '引用此楼',
+                icon: Quote,
+                onSelect: () => {
+                  const p = actionMenu.post
+                  if (!topic) return
+                  const text = new DOMParser().parseFromString(p.cooked, 'text/html').body.textContent?.trim().slice(0, 240) || ''
+                  const quoted = '> @' + p.username + '：' + text + '\n\n'
+                  onCompose(topic, { initialRaw: quoted, replyToPostNumber: p.postNumber })
+                },
+              },
+              {
+                id: 'bookmark',
+                label: actionMenu.post.bookmarked ? '取消收藏' : '添加书签',
+                icon: Bookmark,
+                tone: (actionMenu.post.bookmarked ? 'accent' : 'default') as 'accent' | 'default',
+                onSelect: () => void toggleBookmark(actionMenu.post),
+              },
+              ...(actionMenu.post.canBoost ? [{
+                id: 'boost',
+                label: 'Boost 回应',
+                icon: Rocket,
+                onSelect: () => onBoost(actionMenu.post),
+              }] : []),
+            ] : []),
+            {
+              id: 'copy-link',
+              label: '复制楼层链接',
+              icon: Link,
+              onSelect: () => {
+                const p = actionMenu.post
+                const url = `https://linux.do/t/${topic?.slug || summary.slug || 'topic'}/${topic?.id || summary.id}/${p.postNumber}`
+                if (navigator.clipboard?.writeText) {
+                  void navigator.clipboard.writeText(url).then(() => showToast('已复制楼层链接'))
+                } else {
+                  showToast('已复制链接')
+                }
+              },
+            },
+            ...(actionMenu.post.canEdit ? [{
+              id: 'edit',
+              label: '编辑帖子',
+              icon: Pencil,
+              onSelect: () => topic && onEdit(topic, actionMenu.post),
+            }] : []),
+            ...(actionMenu.post.canDelete ? [{
+              id: 'delete',
+              label: '删除帖子',
+              icon: Trash2,
+              tone: 'danger' as const,
+              onSelect: () => void deletePost(actionMenu.post),
+            }] : []),
+          ]}
+        />
+      ) : null}
       {lightbox ? (() => {
         const current = lightbox.items[lightbox.index]
         if (!current) return null

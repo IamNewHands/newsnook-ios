@@ -19,6 +19,7 @@ import type {
   LinuxDoTopicSummary,
 } from '../types'
 import { TopicCard } from './shared'
+import { discoveryScopeKey, loadDiscoveryScope, type LinuxDoDiscoveryScope } from './discoveryScope'
 import { ago, avatar, readableError } from './utils'
 
 export function SearchView({ onOpen, onOpenUser }: { onOpen: (topic: LinuxDoTopicSummary, targetPostNumber?: number) => void; onOpenUser: (username: string) => void }) {
@@ -89,7 +90,7 @@ export function SearchView({ onOpen, onOpenUser }: { onOpen: (topic: LinuxDoTopi
   )
 }
 
-export function DiscoverView({ onOpen }: { onOpen: (topic: LinuxDoTopicSummary) => void }) {
+export function DiscoverView({ onOpen, initialScope }: { onOpen: (topic: LinuxDoTopicSummary) => void; initialScope?: LinuxDoDiscoveryScope }) {
   const [categories, setCategories] = useState<LinuxDoCategory[]>([])
   const [tags, setTags] = useState<LinuxDoTag[]>([])
   const [items, setItems] = useState<LinuxDoTopicSummary[]>([])
@@ -118,7 +119,19 @@ export function DiscoverView({ onOpen }: { onOpen: (topic: LinuxDoTopicSummary) 
     }
   }
 
-  if (loading) return <div className="space-y-4 page-x pt-5"><div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">{Array.from({ length: 6 }, (_, index) => <div key={index} className="h-20 animate-pulse rounded-[18px] border border-haze/50 bg-paper/[0.035]" />)}</div><div className="flex flex-wrap gap-2">{Array.from({ length: 10 }, (_, index) => <div key={index} className="h-7 w-20 animate-pulse rounded-full bg-paper/[0.035]" />)}</div></div>
+  const initialScopeKey = initialScope ? discoveryScopeKey(initialScope) : ''
+  useEffect(() => {
+    if (!initialScope) return
+    setActiveScope(initialScopeKey)
+    setItemsLoading(true)
+    setItemsError('')
+    void loadDiscoveryScope(discovery, initialScope)
+      .then(setItems)
+      .catch((nextError) => setItemsError(readableError(nextError)))
+      .finally(() => setItemsLoading(false))
+  }, [initialScope, initialScopeKey])
+
+  if (loading) return <div className="space-y-4 page-x pt-5" role="status" aria-label="正在加载分类与标签"><div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">{Array.from({ length: 6 }, (_, index) => <div key={index} className="linuxdo-skeleton h-20 rounded-[18px] border border-haze/50" />)}</div><div className="flex flex-wrap gap-2">{Array.from({ length: 10 }, (_, index) => <div key={index} className="linuxdo-skeleton h-7 w-20 rounded-full" />)}</div></div>
 
   const hotTags = [...tags].sort((a, b) => (b.topicCount ?? 0) - (a.topicCount ?? 0)).slice(0, 12)
 
