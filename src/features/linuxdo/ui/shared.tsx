@@ -2,7 +2,7 @@ import { Heart, MessageCircle } from 'lucide-react'
 import type { KeyboardEvent } from 'react'
 
 import type { LinuxDoCategory, LinuxDoTopicSummary } from '../types'
-import { ago, avatar, compact } from './utils'
+import { ago, avatar, compact, tagGlyph } from './utils'
 
 export function TopicCard({
   topic,
@@ -50,9 +50,21 @@ export function TopicCard({
           </div>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {category ? <button type="button" disabled={!onOpenCategory} onClick={(event) => { event.stopPropagation(); onOpenCategory?.(category) }} className="linuxdo-control rounded-full bg-cinnabar/10 px-2 py-0.5 text-[10px] text-cinnabar-soft disabled:pointer-events-none">{category.name}</button> : null}
-            {topic.tags.slice(0, 3).map((tag) => (
-              <button key={tag} type="button" disabled={!onOpenTag} onClick={(event) => { event.stopPropagation(); onOpenTag?.(tag) }} className="linuxdo-control rounded-full border border-haze/70 bg-paper/[0.035] px-2 py-0.5 text-[10px] text-paper-muted disabled:pointer-events-none">#{tag}</button>
-            ))}
+            {topic.tags.slice(0, 3).map((tag) => {
+              const glyph = tagGlyph(tag)
+              return (
+                <button
+                  key={tag}
+                  type="button"
+                  disabled={!onOpenTag}
+                  onClick={(event) => { event.stopPropagation(); onOpenTag?.(tag) }}
+                  className="linuxdo-control inline-flex items-center gap-1 rounded-full border border-haze/70 bg-paper/[0.035] px-2 py-0.5 text-[10px] text-paper-muted disabled:pointer-events-none"
+                >
+                  {glyph ? <span className="text-[9px] leading-none">{glyph}</span> : <span className="font-mono text-[9px] text-paper-faint">#</span>}
+                  <span>{tag}</span>
+                </button>
+              )
+            })}
           </div>
           <div className="mt-3 flex items-center justify-between gap-3 text-[10.5px] text-paper-faint">
             <span className="min-w-0 truncate">

@@ -1,4 +1,4 @@
-import { Bell, Loader2, Search } from 'lucide-react'
+import { Bell, Loader2, Search, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import type { LinuxDoBookmarkService } from '../bookmark/service'
@@ -67,14 +67,67 @@ export function SearchView({ onOpen, onOpenUser }: { onOpen: (topic: LinuxDoTopi
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto page-x pb-4 pt-4">
-      <div className="relative">
-        <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-paper-faint" />
-        <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && void run(1)} placeholder="搜索主题、帖子、用户" className="w-full rounded-[18px] border border-haze bg-ink-raised/50 py-3 pl-10 pr-20 text-[13px] text-paper outline-none placeholder:text-paper-faint focus:border-cinnabar/45" />
-        <button type="button" onClick={() => void run(1)} className="linuxdo-control absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-cinnabar px-3 py-1.5 text-[10.5px] font-medium text-white">搜索</button>
+      <div className="relative flex items-center gap-2 rounded-2xl border border-haze/80 bg-ink-raised/60 p-1.5 pl-3 transition-colors focus-within:border-cinnabar/60 focus-within:ring-1 focus-within:ring-cinnabar/20">
+        <Search size={16} className="shrink-0 text-paper-faint" />
+        <input
+          autoFocus
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => event.key === 'Enter' && void run(1)}
+          placeholder="搜索主题、帖子、用户"
+          className="min-w-0 flex-1 bg-transparent py-1.5 text-[13px] leading-normal text-paper outline-none placeholder:text-paper-faint"
+        />
+        {query ? (
+          <button
+            type="button"
+            onClick={() => { setQuery(''); setTopics([]); setPosts([]); setUsers([]); setLastQuery('') }}
+            className="linuxdo-control shrink-0 rounded-full p-1 text-paper-faint transition hover:text-paper"
+            aria-label="清空搜索词"
+          >
+            <X size={14} />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => void run(1)}
+          className="linuxdo-control shrink-0 rounded-xl bg-cinnabar px-3.5 py-1.5 text-[11px] font-medium text-white shadow-sm transition active:opacity-90"
+        >
+          搜索
+        </button>
       </div>
-      {history.length ? <div className="mt-3 flex items-center gap-2 overflow-x-auto scrollbar-none"><span className="shrink-0 text-[9.5px] text-paper-faint">最近</span>{history.map((item) => <button key={item} type="button" onClick={() => setQuery(item)} className="linuxdo-control shrink-0 rounded-full border border-haze px-2.5 py-1 text-[10px] text-paper-muted">{item}</button>)}<button type="button" onClick={() => { setHistory([]); localStorage.removeItem('newsnook-linuxdo-search-history') }} className="linuxdo-control shrink-0 text-[9.5px] text-paper-faint">清除</button></div> : null}
-      <div className="linuxdo-control mt-3 flex gap-1 rounded-full bg-paper/[0.035] p-1 select-none">
-        {([['topics','主题'],['posts','帖子'],['users','用户']] as const).map(([key,label]) => <button key={key} type="button" onClick={() => setActive(key)} className={'rounded-full px-3 py-1.5 text-[10.5px] ' + (active === key ? 'bg-cinnabar text-white shadow-sm' : 'text-paper-muted')}>{label}</button>)}
+      {history.length ? (
+        <div className="mt-3 flex items-center gap-2 overflow-x-auto scrollbar-none">
+          <span className="shrink-0 text-[9.5px] text-paper-faint">最近</span>
+          {history.map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => setQuery(item)}
+              className="linuxdo-control shrink-0 rounded-full border border-haze px-2.5 py-1 text-[10px] text-paper-muted"
+            >
+              {item}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => { setHistory([]); localStorage.removeItem('newsnook-linuxdo-search-history') }}
+            className="linuxdo-control shrink-0 text-[9.5px] text-paper-faint"
+          >
+            清除
+          </button>
+        </div>
+      ) : null}
+      <div className="linuxdo-control mt-3 grid grid-cols-3 gap-1 rounded-xl bg-paper/[0.04] p-1 select-none border border-haze/30">
+        {([['topics', '主题'], ['posts', '帖子'], ['users', '用户']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setActive(key)}
+            className={'flex items-center justify-center rounded-lg py-1.5 text-[11.5px] font-medium transition-all ' + (active === key ? 'bg-cinnabar text-white shadow-sm' : 'text-paper-muted hover:text-paper')}
+          >
+            {label}
+          </button>
+        ))}
       </div>
       {loading ? <div className="flex justify-center py-16"><Loader2 className="animate-spin text-paper-faint" /></div> : null}
       {error ? <p className="py-8 text-center text-[12px] text-cinnabar-soft">{error}</p> : null}

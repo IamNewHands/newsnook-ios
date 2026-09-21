@@ -26,7 +26,7 @@ import type {
 } from '../types'
 import { decodeTagNames } from '../api/decode'
 import { LinuxDoApiError } from '../types'
-import { ago, avatar, compact, readableError } from './utils'
+import { ago, avatar, compact, readableError, tagGlyph } from './utils'
 import { resolveReplyTarget } from './threadModel'
 import { boostText, reactionGlyph, reactionTotal } from './engagementModel'
 
@@ -45,6 +45,23 @@ function LinuxDoPostBody({ html, onClick }: { html: string; onClick: (event: Rea
     forceNativeFallback: true,
     imageReferer: 'https://linux.do/',
   })
+
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+    root.querySelectorAll<HTMLElement>('[data-linuxdo-role="poll-bar"]').forEach((bar) => {
+      const percent = bar.getAttribute('data-linuxdo-poll-percent')
+      if (percent) {
+        bar.style.width = `${percent}%`
+      }
+    })
+    root.querySelectorAll<HTMLElement>('[data-linuxdo-role="quote-category-dot"]').forEach((dot) => {
+      const color = dot.getAttribute('data-linuxdo-category-color')
+      if (color) {
+        dot.style.backgroundColor = color
+      }
+    })
+  }, [html])
 
   return (
     <div
@@ -414,6 +431,8 @@ export function LinuxDoTopicView({
   onOpenUser,
   onOpenTopic,
   onOpenTag,
+  onOpenCategory,
+  categoriesById,
   onEdit,
   targetPostNumber,
   postMutation,
@@ -427,11 +446,23 @@ export function LinuxDoTopicView({
   onOpenUser: (username: string) => void
   onOpenTopic: (topic: LinuxDoTopicSummary, targetPostNumber?: number) => void
   onOpenTag: (name: string) => void
+  onOpenCategory?: (category: LinuxDoCategory) => void
+  categoriesById?: Record<number, LinuxDoCategory>
   onEdit: (topic: LinuxDoTopic, post: LinuxDoPost) => void
   targetPostNumber?: number
   postMutation?: LinuxDoPost
   overlayBackHandlerRef: MutableRefObject<(() => boolean) | null>
 }) {
+  const [categoryMap, setCategoryMap] = useState<Record<number, LinuxDoCategory>>(categoriesById ?? {})
+  useEffect(() => {
+    if (categoriesById && Object.keys(categoriesById).length > 0) {
+      setCategoryMap(categoriesById)
+      return
+    }
+    void linuxDoDiscovery.categories().then((cats) => {
+      setCategoryMap(Object.fromEntries(cats.map((c) => [c.id, c])))
+    }).catch(() => undefined)
+  }, [categoriesById])
   const [topic, setTopic] = useState<LinuxDoTopic | null>(null)
   const [posts, setPosts] = useState<LinuxDoPost[]>([])
   const [loading, setLoading] = useState(true)
@@ -613,10 +644,49 @@ export function LinuxDoTopicView({
         {error ? <div className="py-24 text-center text-[13px] text-paper-muted">{readableError(error)}</div> : null}
         {topic ? (
           <>
-            <header className="py-5">
-              <h1 className="font-display text-[24px] font-semibold leading-[1.35] text-paper">{topic.title}</h1>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {topic.tags.map((name) => <button key={name} type="button" onClick={() => onOpenTag(name)} className="linuxdo-control rounded-full border border-haze px-2.5 py-1 text-[10.5px] text-paper-muted">#{name}</button>)}
+            <header className="py-4 sm:py-5 border-b border-haze/30">
+              <h1 className="font-sans font-bold text-[20px] sm:text-[22px] leading-[1.32] tracking-[-0.015em] text-paper">{topic.title}</h1>
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                {(() => {
+                  const catId = topic.categoryId ?? summary.categoryId
+                  const category = catId ? categoryMap[catId] : undefined
+                  if (!category) return null
+                  const catColor = category.color ? (category.color.startsWith('#') ? category.color : '#' + category.color) : undefined
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => onOpenCategory?.(category)}
+                      className="linuxdo-control group inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-semibold transition-all duration-150 active:scale-95"
+                      style={{
+                        backgroundColor: catColor ? `color-mix(in srgb, ${catColor} 15%, transparent)` : 'color-mix(in srgb, var(--color-paper) 8%, transparent)',
+                        color: catColor || 'var(--color-paper)',
+                      }}
+                    >
+                      <span className="font-mono text-[11px] font-bold opacity-90">
+                        {category.slug === 'develop' ? '</>' : '■'}
+                      </span>
+                      <span>{category.name}</span>
+                    </button>
+                  )
+                })()}
+                {topic.tags.map((name) => {
+                  const glyph = tagGlyph(name)
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => onOpenTag(name)}
+                      className="linuxdo-control inline-flex items-center gap-1 rounded-md border border-haze/70 bg-paper/[0.04] px-2.5 py-1 text-[11px] font-medium text-paper-muted transition-all duration-150 hover:border-cinnabar/30 hover:bg-paper/[0.08] hover:text-paper active:scale-95"
+                    >
+                      {glyph ? (
+                        <span className="text-[10px] leading-none">{glyph}</span>
+                      ) : (
+                        <span className="font-mono text-[10px] text-paper-faint">#</span>
+                      )}
+                      <span>{name}</span>
+                    </button>
+                  )
+                })}
               </div>
             </header>
             <div className="space-y-3">
@@ -696,16 +766,20 @@ export function LinuxDoTopicView({
                         return
                       }
 
-                      const quote = target.closest<HTMLElement>('[data-linuxdo-role="quote"]')
-                      if (quote) {
-                        const quotedPost = Number(quote.dataset.linuxdoPostNumber || 0)
-                        const quotedTopic = Number(quote.dataset.linuxdoTopicId || topic.id)
-                        if (quotedPost > 0) {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          if (!quotedTopic || quotedTopic === topic.id) void jumpToPost(quotedPost, post.postNumber)
-                          else onOpenTopic({ id: quotedTopic, slug: 'topic', title: quote.dataset.linuxdoUsername ? '@' + quote.dataset.linuxdoUsername + ' 的引用' : '引用主题', postsCount: 0, replyCount: 0, views: 0, likeCount: 0, createdAt: '', lastPostedAt: '', tags: [], posters: [] }, quotedPost)
-                          return
+                      const quoteCategory = target.closest<HTMLElement>('[data-linuxdo-role="quote-category"]')
+                      if (!quoteCategory) {
+                        const quoteHeader = target.closest<HTMLElement>('[data-linuxdo-role="quote-header"]')
+                        if (quoteHeader) {
+                          const quote = quoteHeader.closest<HTMLElement>('[data-linuxdo-role="quote"]')
+                          const quotedPost = Number(quote?.dataset.linuxdoPostNumber || 0)
+                          const quotedTopic = Number(quote?.dataset.linuxdoTopicId || topic.id)
+                          if (quotedPost > 0) {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            if (!quotedTopic || quotedTopic === topic.id) void jumpToPost(quotedPost, post.postNumber)
+                            else onOpenTopic({ id: quotedTopic, slug: 'topic', title: quote?.dataset.linuxdoUsername ? '@' + quote.dataset.linuxdoUsername + ' 的引用' : '引用主题', postsCount: 0, replyCount: 0, views: 0, likeCount: 0, createdAt: '', lastPostedAt: '', tags: [], posters: [] }, quotedPost)
+                            return
+                          }
                         }
                       }
 
@@ -763,6 +837,22 @@ export function LinuxDoTopicView({
                           if (userMatch) {
                             onOpenUser(decodeURIComponent(userMatch[1]))
                             return
+                          }
+
+                          const tagMatch = url.pathname.match(/^\/tag\/([^/?#]+)/)
+                          if (tagMatch) {
+                            onOpenTag(decodeURIComponent(tagMatch[1]))
+                            return
+                          }
+
+                          const catMatch = url.pathname.match(/^\/c\/(?:([^/?#]+)\/)?(\d+)/)
+                          if (catMatch) {
+                            const catId = Number(catMatch[2])
+                            const cat = categoryMap[catId] || (catMatch[1] ? { id: catId, name: decodeURIComponent(catMatch[1]), slug: catMatch[1] } : undefined)
+                            if (cat && onOpenCategory) {
+                              onOpenCategory(cat)
+                              return
+                            }
                           }
                         }
 

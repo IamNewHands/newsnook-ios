@@ -32,3 +32,21 @@ export function avatar(url?: string, name?: string): ReactNode {
   return <span className="text-[12px] font-semibold text-paper-muted">{(name || '?').slice(0, 1).toUpperCase()}</span>
 }
 
+export function tagGlyph(name: string): string {
+  if (!name || /^[\p{Extended_Pictographic}]/u.test(name)) return ''
+  const map: Record<string, string> = {
+    '人工智能': '🟣',
+    'AI': '🟣',
+    '软件开发': '📗',
+    '开源推广': '📗',
+    '资源荟萃': '📦',
+    '福利羊毛': '🎁',
+    '羊毛': '🎁',
+    '快问快答': '💡',
+    '精选': '⭐',
+    '职场': '💼',
+    '硬件': '💻',
+    '日常': '☕',
+  }
+  return map[name] || ''
+}

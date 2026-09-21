@@ -238,6 +238,10 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
   const [workspaceError, setWorkspaceError] = useState('')
   const [notificationUnread, setNotificationUnread] = useState(0)
   const topicOverlayBackHandlerRef = useRef<(() => boolean) | null>(null)
+  const [workspaceCategories, setWorkspaceCategories] = useState<Record<number, LinuxDoCategory>>({})
+  useEffect(() => {
+    void discovery.categories().then((cats) => setWorkspaceCategories(Object.fromEntries(cats.map((c) => [c.id, c])))).catch(() => undefined)
+  }, [])
 
   useEffect(() => {
     void api.restore().then((next) => { setSession(next); setNotificationUnread(next.currentUser?.unreadNotifications ?? 0) }).catch((nextError) => setWorkspaceError(readableError(nextError)))
@@ -317,7 +321,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
         {route.kind === 'feed' ? (
           <FeedView mode={route.mode} session={session} cacheRef={feedCacheRef} onMode={(mode) => setRoute({ kind: 'feed', mode })} onOpen={(topic) => navigate({ kind: 'topic', topic })} onOpenScope={(scope) => navigate({ kind: 'discover', scope })} onVerify={verify} />
         ) : route.kind === 'topic' ? (
-          <LinuxDoTopicView summary={route.topic} session={session} targetPostNumber={route.targetPostNumber} postMutation={topicPostMutation} overlayBackHandlerRef={topicOverlayBackHandlerRef} onBack={() => { if (!goBack()) setRoute({ kind: 'feed', mode: 'latest' }) }} onCompose={(topic, options) => { setComposerTopic(topic); setComposerEditPost(undefined); setComposerInitialRaw(options?.initialRaw || ''); setComposerReplyTo(options?.replyToPostNumber); setComposerOpen(true) }} onBoost={setBoostPost} onOpenUser={(username) => navigate({ kind: 'user', username })} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenTag={(name) => navigate({ kind: 'discover', scope: { kind: 'tag', name } })} onEdit={(topic, post) => {
+          <LinuxDoTopicView summary={route.topic} session={session} targetPostNumber={route.targetPostNumber} postMutation={topicPostMutation} overlayBackHandlerRef={topicOverlayBackHandlerRef} onBack={() => { if (!goBack()) setRoute({ kind: 'feed', mode: 'latest' }) }} onCompose={(topic, options) => { setComposerTopic(topic); setComposerEditPost(undefined); setComposerInitialRaw(options?.initialRaw || ''); setComposerReplyTo(options?.replyToPostNumber); setComposerOpen(true) }} onBoost={setBoostPost} onOpenUser={(username) => navigate({ kind: 'user', username })} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenTag={(name) => navigate({ kind: 'discover', scope: { kind: 'tag', name } })} onOpenCategory={(category) => navigate({ kind: 'discover', scope: { kind: 'category', category } })} categoriesById={workspaceCategories} onEdit={(topic, post) => {
             setComposerTopic(topic)
             setComposerReplyTo(undefined)
             const openEditor = (raw: string) => { setComposerEditPost({ ...post, raw }); setComposerInitialRaw(raw); setComposerOpen(true) }

@@ -438,4 +438,62 @@ assert.match(lightboxSource, /左右滑动切换/)
 assert.match(lightboxSource, /aria-label="上一张"/)
 assert.match(lightboxSource, /aria-label="下一张"/)
 
+// Quote sanitization tests (topic quote and user quote)
+const cookedTopicQuote = `
+<aside class="quote quote-modified" data-post="1" data-topic="2840224">
+  <div class="title">
+    <div class="quote-controls"></div>
+    <img alt="" width="24" height="24" src="https://cdn.ldstatic.com/letter_avatar\\/czm/48/6_22734026db12803ebb3e059622ac3534.png" class="avatar">
+    <div class="quote-title__text-content">
+      <a href="https://linux.do/t/topic/2840224">装了飞书、钉钉、企微皮肤的建议更新新版哈，有一个重要的更新</a> <a class="badge-category__wrapper " href="/c/gossip/11"><span data-category-id="11" style="--category-badge-color: #3AB54A; --category-badge-text-color: #000000;" data-drop-close="true" class="badge-category --style-icon "><svg class="fa d-icon svg-icon svg-node" aria-hidden="true"><svg id="droplet" viewBox="0 0 384 512"><path d="M192 512C86 512 0 426 0 320C0 228.8 130.2 57.7 166.6 11.7C172.6 4.2 181.5 0 191.1 0l1.8 0c9.6 0 18.5 4.2 24.5 11.7C253.8 57.7 384 228.8 384 320c0 106-86 192-192 192zM96 336c0-8.8-7.2-16-16-16s-16 7.2-16 16c0 61.9 50.1 112 112 112c8.8 0 16-7.2 16-16s-7.2-16-16-16c-44.2 0-80-35.8-80-80z"></path></svg></svg><span class="badge-category__name">搞七捻三</span></span></a>
+    </div>
+  </div>
+  <blockquote>
+    前情提要： 
+<a href="https://linux.do/t/topic/2813964" class="inline-onebox">【建议佬友们更新最新版】摸鱼神器 2.0 —— 飞书 App 风格 LinuxDo</a>
+  </blockquote>
+</aside>
+`
+const sanitizedTopicQuote = sanitizeLinuxDoCooked(cookedTopicQuote)
+assert.match(sanitizedTopicQuote, /data-linuxdo-role="quote"/)
+assert.match(sanitizedTopicQuote, /data-linuxdo-topic-id="2840224"/)
+assert.match(sanitizedTopicQuote, /data-linuxdo-post-number="1"/)
+assert.match(sanitizedTopicQuote, /data-linuxdo-role="quote-header"/)
+assert.match(sanitizedTopicQuote, /data-linuxdo-role="quote-avatar"/)
+assert.match(sanitizedTopicQuote, /data-linuxdo-role="quote-title-link"/)
+assert.match(sanitizedTopicQuote, /data-linuxdo-role="quote-category"/)
+assert.match(sanitizedTopicQuote, /data-linuxdo-category-color="#3AB54A"/)
+assert.match(sanitizedTopicQuote, /data-linuxdo-role="quote-category-dot"/)
+assert.match(sanitizedTopicQuote, /data-linuxdo-role="quote-category-name"/)
+assert.match(sanitizedTopicQuote, /搞七捻三/)
+assert.match(sanitizedTopicQuote, /data-linuxdo-role="quote-controls"/)
+assert.match(sanitizedTopicQuote, /data-linuxdo-role="quote-chevron"/)
+assert.match(sanitizedTopicQuote, /data-linuxdo-role="quote-body"/)
+assert.doesNotMatch(sanitizedTopicQuote, /<svg[^>]*droplet/i)
+assert.doesNotMatch(sanitizedTopicQuote, /data-linuxdo-role="badge-image"[^>]*letter_avatar\/czm/)
+
+const cookedUserQuote = `
+<aside class="quote no-group" data-username="czm" data-post="1" data-topic="2817831">
+  <div class="title">
+    <div class="quote-controls"></div>
+    <img alt="" width="24" height="24" src="https://cdn.ldstatic.com/letter_avatar\/czm/48/5_5575768a8748004e209b776fc1b2916d.png" class="avatar"> czm:
+  </div>
+  <blockquote>
+    <p>于是也手搓了一个</p>
+  </blockquote>
+</aside>
+`
+const sanitizedUserQuote = sanitizeLinuxDoCooked(cookedUserQuote)
+assert.match(sanitizedUserQuote, /data-linuxdo-role="quote-username"/)
+assert.match(sanitizedUserQuote, /czm:/)
+assert.match(sanitizedUserQuote, /data-linuxdo-role="quote-avatar"/)
+
+// CSS rules for quote rendering and links
+assert.match(cssSource, /\.reader-prose\.linuxdo-post-prose blockquote\s*\{\s*font-style:\s*normal\s*!important;/)
+assert.match(cssSource, /\.reader-prose\.linuxdo-post-prose a\s*\{[^}]*border-bottom:\s*none\s*!important;/)
+assert.match(cssSource, /data-linuxdo-role='quote-title-link'/)
+assert.match(cssSource, /data-linuxdo-role='quote-category-dot'/)
+assert.match(cssSource, /data-linuxdo-role='quote-chevron'/)
+
+
 console.log('linuxdo: ok')
