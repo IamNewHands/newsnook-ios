@@ -19,6 +19,7 @@ const { linuxDoEndpoints } = await import('../src/features/linuxdo/api/endpoints
 const { sanitizeLinuxDoCooked } = await import('../src/features/linuxdo/content/sanitize')
 const { LinuxDoDraftService } = await import('../src/features/linuxdo/draft/service')
 const { LinuxDoDiscoveryService, sortLinuxDoTags } = await import('../src/features/linuxdo/discovery/service')
+const { LinuxDoFeedService } = await import('../src/features/linuxdo/feed/service')
 const { LinuxDoInteractionService } = await import('../src/features/linuxdo/interaction/service')
 const { LINUXDO_UPLOAD_BATCH_LIMIT, LINUXDO_UPLOAD_CONCURRENCY, LinuxDoUploadService, mapWithConcurrency } = await import('../src/features/linuxdo/upload/service')
 const { LinuxDoBookmarkService } = await import('../src/features/linuxdo/bookmark/service')
@@ -549,6 +550,52 @@ assert.equal(linuxDoEndpoints.userActivity('frank', 0).includes('filter='), fals
 assert.equal(linuxDoEndpoints.notifications(60, 30).endsWith('/notifications.json?offset=60&limit=30'), true)
 assert.equal(linuxDoEndpoints.topic('hello', 100, 42).endsWith('/t/hello/100/42.json'), true)
 assert.equal(linuxDoEndpoints.postRaw(501).endsWith('/posts/501/raw'), true)
+assert.equal(linuxDoEndpoints.hot(2), 'https://linux.do/hot.json?page=2')
+assert.equal(linuxDoEndpoints.top(3), 'https://linux.do/top.json?page=3')
+assert.equal(linuxDoEndpoints.top(3, 'monthly'), 'https://linux.do/top.json?page=3&period=monthly')
+assert.equal(linuxDoEndpoints.posted(1), 'https://linux.do/posted.json?page=1')
+assert.equal(linuxDoEndpoints.read(4), 'https://linux.do/read.json?page=4')
+assert.equal(linuxDoEndpoints.bookmarkedTopics(2), 'https://linux.do/bookmarks.json?page=2')
+
+const feedCalls: Array<{ url: string; auth?: string }> = []
+const feedService = new LinuxDoFeedService({
+  getJson: async (url: string, options?: { auth?: string }) => {
+    feedCalls.push({ url, auth: options?.auth })
+    return {
+      users: [],
+      topic_list: {
+        more_topics_url: url.includes('page=0') ? '/next' : null,
+        topics: [{
+          id: feedCalls.length,
+          slug: 'feed-topic',
+          title: 'Feed Topic',
+          posts_count: 2,
+          reply_count: 1,
+          views: 10,
+          like_count: 2,
+          created_at: '2026-09-21T00:00:00Z',
+          last_posted_at: '2026-09-21T01:00:00Z',
+          tags: [],
+          posters: [],
+        }],
+      },
+    }
+  },
+} as any)
+assert.equal((await feedService.list('hot', 0)).hasMore, true)
+assert.equal((await feedService.list('top', 0)).hasMore, true)
+assert.equal((await feedService.list('new', 1)).hasMore, false)
+assert.equal((await feedService.list('unread', 1)).hasMore, false)
+assert.equal((await feedService.list('posted', 1)).hasMore, false)
+assert.equal((await feedService.list('read', 1)).hasMore, false)
+assert.equal((await feedService.list('bookmarks', 1)).hasMore, false)
+assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/hot.json?page=0' && call.auth === 'optional'))
+assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/top.json?page=0' && call.auth === 'optional'))
+assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/new.json?page=1' && call.auth === 'required'))
+assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/unread.json?page=1' && call.auth === 'required'))
+assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/posted.json?page=1' && call.auth === 'required'))
+assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/read.json?page=1' && call.auth === 'required'))
+assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/bookmarks.json?page=1' && call.auth === 'required'))
 
 const boostCalls: Array<{ url: string; form: Record<string, unknown>; auth?: string }> = []
 const interactionService = new LinuxDoInteractionService({
@@ -923,6 +970,7 @@ const composerEditorSource = readFileSync('src/features/linuxdo/editor/ComposerE
 const workspaceSource = readFileSync('src/features/linuxdo/ui/LinuxDoWorkspace.tsx', 'utf8')
 const discoverViewSource = readFileSync('src/features/linuxdo/ui/DiscoverView.tsx', 'utf8')
 const discoveryServiceSource = readFileSync('src/features/linuxdo/discovery/service.ts', 'utf8')
+const feedServiceSource = readFileSync('src/features/linuxdo/feed/service.ts', 'utf8')
 const passwordLoginSource = readFileSync('src/features/linuxdo/session/password.ts', 'utf8')
 const accountViewSource = readFileSync('src/features/linuxdo/ui/AccountView.tsx', 'utf8')
 assert.equal(javaSource.includes('result.put("cookie"'), false)
@@ -934,6 +982,11 @@ assert.match(javaSource, /can_use_templates/)
 assert.match(javaSource, /canUseTemplates/)
 assert.match(javaSource, /UploadProgressRequestBody/)
 assert.match(javaSource, /linuxDoUploadProgress/)
+assert.match(javaSource, /SESSION_CACHE_PREFS/)
+assert.match(javaSource, /cachedSessionUser\(\)/)
+assert.match(javaSource, /response\.code\(\) == 401/)
+assert.match(javaSource, /definitiveLogout/)
+assert.match(javaSource, /syncResponseCookies\(response\)/)
 assert.match(javaSource, /User-Api-Key/)
 assert.match(javaSource, /User-Api-Client-Id/)
 assert.match(authJavaSource, /AndroidKeyStore/)
@@ -998,6 +1051,22 @@ assert.match(workspaceSource, /onCreated=\{\(post, boost\) =>/)
 assert.match(workspaceSource, /boosts: \[\.\.\.\(post\.boosts \?\? \[\]\), boost\]/)
 assert.match(workspaceSource, /canBoost: false/)
 assert.match(workspaceSource, /Boost 已发送，并已显示在当前帖子中/)
+assert.match(workspaceSource, /\{ id: 'hot', label: '热门' \}/)
+assert.match(workspaceSource, /\{ id: 'top', label: '排行榜'/)
+assert.match(workspaceSource, /\{ id: 'posted', label: '我的帖子'/)
+assert.match(workspaceSource, /\{ id: 'read', label: '已读'/)
+assert.match(workspaceSource, /\{ id: 'bookmarks', label: '书签'/)
+assert.match(workspaceSource, /Math\.abs\(dx\) <= Math\.abs\(dy\) \* 1\.35/)
+assert.match(workspaceSource, /requestIdRef\.current \+= 1/)
+assert.match(workspaceSource, /currentModeRef\.current = nextMode/)
+assert.match(workspaceSource, /requestMode !== currentModeRef\.current/)
+assert.match(workspaceSource, /hasMoreRef\.current && !busyRef\.current/)
+assert.match(workspaceSource, /!error && hasMoreRef\.current/)
+assert.match(feedServiceSource, /linuxDoEndpoints\.hot\(page\)/)
+assert.match(feedServiceSource, /linuxDoEndpoints\.top\(page\)/)
+assert.match(feedServiceSource, /linuxDoEndpoints\.bookmarkedTopics\(page\)/)
+assert.match(feedServiceSource, /more_topics_url/)
+assert.doesNotMatch(feedServiceSource, /'weekly'/)
 assert.doesNotMatch(workspaceSource, /onFailed=/)
 assert.match(threadViewSource, /Boost 发送失败：/)
 assert.doesNotMatch(threadViewSource, /onFailed\?\./)

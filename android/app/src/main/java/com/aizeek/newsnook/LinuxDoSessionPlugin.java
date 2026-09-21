@@ -2,6 +2,7 @@ package com.aizeek.newsnook;
 
 import android.app.Dialog;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.Uri;
 import android.graphics.drawable.GradientDrawable;
@@ -65,6 +66,8 @@ public class LinuxDoSessionPlugin extends Plugin {
     private static final String SESSION_URL = "https://linux.do/session/current.json";
     private static final String OTP_CSRF_URL = ORIGIN + "/session/csrf.json?newsnook_otp_csrf=1";
     private static final long OTP_EXCHANGE_TIMEOUT_MILLIS = 2L * 60L * 1000L;
+    private static final String SESSION_CACHE_PREFS = "linuxdo_session_cache";
+    private static final String PREF_LAST_USER = "last_user";
 
     private Dialog dialog;
     private WebView sessionWebView;
@@ -222,6 +225,7 @@ public class LinuxDoSessionPlugin extends Plugin {
         LinuxDoUserApiAuth.Credential credential = userApiAuth.credential();
         if (credential == null) {
             userApiAuth.clearCredential();
+            clearCachedSessionUser();
             call.resolve();
             return;
         }
@@ -241,6 +245,7 @@ public class LinuxDoSessionPlugin extends Plugin {
             @Override
             public void onFailure(Call ignored, IOException error) {
                 userApiAuth.clearCredential();
+                clearCachedSessionUser();
                 call.resolve();
             }
 
@@ -250,6 +255,7 @@ public class LinuxDoSessionPlugin extends Plugin {
                     // Best-effort remote revoke. Local logout must always succeed.
                 } finally {
                     userApiAuth.clearCredential();
+                    clearCachedSessionUser();
                     call.resolve();
                 }
             }
@@ -538,6 +544,7 @@ public class LinuxDoSessionPlugin extends Plugin {
         getActivity().runOnUiThread(() -> {
             try {
                 clearLinuxDoCookies();
+                clearCachedSessionUser();
                 verifiedUserAgent = "";
                 CookieManager.getInstance().flush();
                 call.resolve();
@@ -883,6 +890,7 @@ public class LinuxDoSessionPlugin extends Plugin {
                 user = null;
             }
             JSONObject finalUser = user;
+            if (finalUser == null && finishDialog && call != pendingUserApiCall) clearCachedSessionUser();
             String cookie = empty(CookieManager.getInstance().getCookie(ORIGIN));
             String userAgent = currentUserAgent();
             resolveSnapshot(call, finishDialog, cookie, userAgent, finalUser);
@@ -913,6 +921,43 @@ public class LinuxDoSessionPlugin extends Plugin {
         });
     }
 
+    private SharedPreferences sessionCachePreferences() {
+        return getContext().getSharedPreferences(SESSION_CACHE_PREFS, 0);
+    }
+
+    private void cacheSessionUser(JSONObject user) {
+        if (user == null) return;
+        try {
+            JSONObject cached = new JSONObject();
+            cached.put("id", user.optInt("id", 0));
+            cached.put("username", user.optString("username", ""));
+            cached.put("name", user.optString("name", ""));
+            cached.put("avatar_template", user.optString("avatar_template", ""));
+            cached.put("trust_level", user.optInt("trust_level", 0));
+            cached.put("unread_notifications", user.optInt("unread_notifications", 0));
+            if (user.has("can_use_templates")) cached.put("can_use_templates", user.optBoolean("can_use_templates", false));
+            sessionCachePreferences().edit().putString(PREF_LAST_USER, cached.toString()).apply();
+        } catch (Exception ignored) {
+            // Session hints are best-effort and never replace the server as authority.
+        }
+    }
+
+    private JSONObject cachedSessionUser() {
+        String value = sessionCachePreferences().getString(PREF_LAST_USER, "");
+        if (value == null || value.isEmpty()) return null;
+        try {
+            JSONObject user = new JSONObject(value);
+            return user.optString("username", "").isEmpty() ? null : user;
+        } catch (Exception ignored) {
+            clearCachedSessionUser();
+            return null;
+        }
+    }
+
+    private void clearCachedSessionUser() {
+        sessionCachePreferences().edit().remove(PREF_LAST_USER).apply();
+    }
+
     private JSObject userObject(JSONObject user) {
         JSObject current = new JSObject();
         current.put("id", user.optInt("id", 0));
@@ -927,7 +972,13 @@ public class LinuxDoSessionPlugin extends Plugin {
 
     private void collectSnapshot(PluginCall call, boolean finishDialog) {
         if (call == null) return;
-        if (!probing.compareAndSet(false, true)) return;
+        if (!probing.compareAndSet(false, true)) {
+            JSONObject cached = cachedSessionUser();
+            getActivity().runOnUiThread(() ->
+                resolveSnapshot(call, finishDialog, "", currentUserAgent(), cached)
+            );
+            return;
+        }
 
         getActivity().runOnUiThread(() -> {
             CookieManager manager = CookieManager.getInstance();
@@ -944,30 +995,47 @@ public class LinuxDoSessionPlugin extends Plugin {
             identityClient.newCall(builder.build()).enqueue(new Callback() {
                 @Override
                 public void onFailure(Call ignored, IOException error) {
+                    JSONObject cached = cachedSessionUser();
                     probing.set(false);
                     getActivity().runOnUiThread(() ->
-                        resolveSnapshot(call, finishDialog, cookie, userAgent, null)
+                        resolveSnapshot(call, finishDialog, cookie, userAgent, cached)
                     );
                 }
 
                 @Override
                 public void onResponse(Call ignored, Response response) throws IOException {
+                    syncResponseCookies(response);
                     JSONObject user = null;
+                    boolean definitiveLogout = response.code() == 401;
+                    boolean parsed = false;
                     try (ResponseBody body = response.body()) {
                         String text = body != null ? body.string() : "";
                         if (response.isSuccessful() && !text.isEmpty()) {
                             JSONObject root = new JSONObject(text);
+                            parsed = true;
                             JSONObject current = root.optJSONObject("current_user");
                             if (current == null && root.has("user")) current = root.optJSONObject("user");
                             user = current;
+                            if (user == null && (root.has("current_user") || root.has("user"))) {
+                                definitiveLogout = true;
+                            }
                         }
                     } catch (Exception ignoredParse) {
                         user = null;
                     }
+
                     JSONObject finalUser = user;
+                    if (finalUser == null) {
+                        if (definitiveLogout) {
+                            clearCachedSessionUser();
+                        } else if (!parsed || !response.isSuccessful()) {
+                            finalUser = cachedSessionUser();
+                        }
+                    }
+                    JSONObject resolvedUser = finalUser;
                     probing.set(false);
                     getActivity().runOnUiThread(() ->
-                        resolveSnapshot(call, finishDialog, cookie, userAgent, finalUser)
+                        resolveSnapshot(call, finishDialog, cookie, userAgent, resolvedUser)
                     );
                 }
             });
@@ -983,6 +1051,7 @@ public class LinuxDoSessionPlugin extends Plugin {
     ) {
         boolean userApiExchange = call == pendingUserApiCall;
         LinuxDoUserApiAuth.Credential credential = pendingOtpCredential;
+        if (user != null) cacheSessionUser(user);
         if (userApiExchange && user == null) {
             pendingUserApiCall = null;
             pendingOtpCredential = null;

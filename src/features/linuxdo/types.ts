@@ -1,4 +1,4 @@
-export type LinuxDoFeedMode = 'latest' | 'top' | 'new' | 'unread'
+export type LinuxDoFeedMode = 'latest' | 'hot' | 'new' | 'unread' | 'top' | 'posted' | 'read' | 'bookmarks'
 export type LinuxDoTopicOrder = 'activity' | 'created' | 'posts' | 'views' | 'likes'
 
 export interface LinuxDoUser {

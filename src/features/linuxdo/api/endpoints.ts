@@ -5,10 +5,17 @@ export const linuxDoEndpoints = {
   sessionCurrent: ORIGIN + '/session/current.json',
   csrf: ORIGIN + '/session/csrf.json',
   latest: (page = 0) => ORIGIN + '/latest.json?page=' + page,
-  top: (period: 'daily' | 'weekly' | 'monthly' | 'all' = 'weekly', page = 0) =>
-    ORIGIN + '/top.json?period=' + period + '&page=' + page,
+  hot: (page = 0) => ORIGIN + '/hot.json?page=' + page,
+  top: (page = 0, period?: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'all') => {
+    const params = new URLSearchParams({ page: String(page) })
+    if (period) params.set('period', period)
+    return ORIGIN + '/top.json?' + params.toString()
+  },
   newTopics: (page = 0) => ORIGIN + '/new.json?page=' + page,
   unread: (page = 0) => ORIGIN + '/unread.json?page=' + page,
+  posted: (page = 0) => ORIGIN + '/posted.json?page=' + page,
+  read: (page = 0) => ORIGIN + '/read.json?page=' + page,
+  bookmarkedTopics: (page = 0) => ORIGIN + '/bookmarks.json?page=' + page,
   categories: ORIGIN + '/categories.json',
   category: (slug: string, id: number, page = 0, order?: 'activity' | 'created' | 'posts' | 'views' | 'likes') => {
     const params = new URLSearchParams({ page: String(page) })
