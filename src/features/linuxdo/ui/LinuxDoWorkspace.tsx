@@ -3,7 +3,9 @@ import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 
 
 import { PresetSwitcher, type PresetSwitcherProps } from '../../../components/PresetSwitcher'
 import { LinuxDoBoostComposer, LinuxDoComposer, LinuxDoTopicView } from './ThreadViews'
-import { BookmarksView, DiscoverView, NotificationsView, SearchView } from './CommunityViews'
+import { BookmarksView, NotificationsView, SearchView } from './CommunityViews'
+import { DiscoverView } from './DiscoverView'
+import { createLinuxDoDiscoveryCache } from './discoveryCache'
 import { UserProfileView } from './UserProfileView'
 import { AccountView } from './AccountView'
 import { verifyLinuxDoBrowserSession } from '../session/native'
@@ -228,6 +230,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
   const [route, setRoute] = useState<Route>({ kind: 'feed', mode: 'latest' })
   const [history, setHistory] = useState<Route[]>([])
   const feedCacheRef = useRef<LinuxDoFeedCache>(createFeedCache())
+  const discoverCacheRef = useRef(createLinuxDoDiscoveryCache())
   const [session, setSession] = useState<LinuxDoSessionSnapshot>({ authenticated: false, authMode: 'none' })
   const [composerTopic, setComposerTopic] = useState<LinuxDoTopic | undefined>()
   const [composerOpen, setComposerOpen] = useState(false)
@@ -262,6 +265,12 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
     return true
   }, [history])
 
+  const replaceDiscoverScope = useCallback((scope: LinuxDoDiscoveryScope | null) => {
+    setRoute((current) => current.kind === 'discover'
+      ? { kind: 'discover', scope: scope ?? undefined }
+      : current)
+  }, [])
+
   const closeComposer = useCallback(() => {
     setComposerOpen(false)
     setComposerInitialRaw('')
@@ -274,10 +283,14 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
       if (topicOverlayBackHandlerRef.current?.()) return true
       if (boostPost) { setBoostPost(null); return true }
       if (composerOpen) { composerRequestCloseRef.current?.(); return true }
+      if (route.kind === 'discover' && route.scope) {
+        setRoute({ kind: 'discover' })
+        return true
+      }
       return goBack()
     }
     return () => { backHandlerRef.current = null }
-  }, [backHandlerRef, boostPost, closeComposer, composerOpen, goBack])
+  }, [backHandlerRef, boostPost, composerOpen, goBack, route])
 
   const verify = async (): Promise<boolean> => {
     try {
@@ -306,7 +319,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
     <div className="linuxdo-workspace relative flex h-full min-h-0 flex-col overflow-hidden bg-ink text-paper">
       {route.kind !== 'topic' ? <header className="linuxdo-brand-header linuxdo-control shrink-0 border-b border-haze/60 bg-ink/95 page-x select-none">
         <div className="flex min-h-[60px] items-center gap-1.5 py-2 sm:gap-2">
-          <button type="button" onClick={() => { if (!goBack()) onExit() }} className="linuxdo-icon-button grid h-10 w-10 shrink-0 place-items-center rounded-full text-paper-muted" aria-label="返回 NewsNook"><ArrowLeft size={18} /></button>
+          <button type="button" onClick={() => { if (route.kind === 'discover' && route.scope) { setRoute({ kind: 'discover' }); return } if (!goBack()) onExit() }} className="linuxdo-icon-button grid h-10 w-10 shrink-0 place-items-center rounded-full text-paper-muted" aria-label="返回 NewsNook"><ArrowLeft size={18} /></button>
           <div className="min-w-0 flex-1 overflow-hidden">
             <div className="flex min-w-0 items-baseline gap-1.5 overflow-hidden whitespace-nowrap"><span className="shrink-0 text-[19px] font-bold tracking-[-0.03em] text-paper min-[400px]:text-[20px]">Linux.do</span><span className="hidden min-w-0 truncate text-[9.5px] font-medium text-paper-faint min-[400px]:inline">in NewsNook</span></div>
             <div className="mt-0.5 truncate text-[10.5px] text-paper-muted">{route.kind === 'feed' ? '更好的技术讨论，从这里开始' : title}</div>
@@ -333,7 +346,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
         ) : route.kind === 'search' ? (
           <SearchView onOpen={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenUser={(username) => navigate({ kind: 'user', username })} />
         ) : route.kind === 'discover' ? (
-          <DiscoverView initialScope={route.scope} onOpen={(topic) => navigate({ kind: 'topic', topic })} />
+          <DiscoverView initialScope={route.scope} cacheRef={discoverCacheRef} onScopeChange={replaceDiscoverScope} onOpen={(topic) => navigate({ kind: 'topic', topic })} />
         ) : route.kind === 'notifications' ? (
           <NotificationsView session={session} onUnreadChange={setNotificationUnread} onOpen={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} />
         ) : route.kind === 'user' ? (

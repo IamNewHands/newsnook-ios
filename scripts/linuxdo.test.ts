@@ -162,16 +162,21 @@ assert.equal(await feedModel.retryAfterVerification(async () => false, async () 
 assert.ok(discoveryScope, 'discovery scope model should exist')
 const scopeCalls: unknown[] = []
 const scopeApi = {
-  category: async (...args: unknown[]) => { scopeCalls.push(['category', ...args]); return ['category-result'] },
-  tag: async (...args: unknown[]) => { scopeCalls.push(['tag', ...args]); return ['tag-result'] },
+  category: async (...args: unknown[]) => { scopeCalls.push(['category', ...args]); return { items: ['category-result'], hasMore: true } },
+  tag: async (...args: unknown[]) => { scopeCalls.push(['tag', ...args]); return { items: ['tag-result'], hasMore: false } },
 }
 assert.equal(discoveryScope.discoveryScopeKey({ kind: 'category', category: { id: 4, name: '开发调优', slug: 'develop' } }), 'category:4')
-assert.deepEqual(await discoveryScope.loadDiscoveryScope(scopeApi, { kind: 'category', category: { id: 4, name: '开发调优', slug: 'develop' } }), ['category-result'])
-assert.deepEqual(await discoveryScope.loadDiscoveryScope(scopeApi, { kind: 'tag', name: '人工智能' }), ['tag-result'])
+assert.deepEqual(await discoveryScope.loadDiscoveryScope(scopeApi, { kind: 'category', category: { id: 4, name: '开发调优', slug: 'develop' } }), { items: ['category-result'], hasMore: true })
+assert.deepEqual(await discoveryScope.loadDiscoveryScope(scopeApi, { kind: 'tag', name: '人工智能' }, 2, 'views'), { items: ['tag-result'], hasMore: false })
 assert.deepEqual(scopeCalls, [
-  ['category', 'develop', 4],
-  ['tag', '人工智能'],
+  ['category', 'develop', 4, 0, 'activity'],
+  ['tag', '人工智能', 2, 'views'],
 ])
+assert.deepEqual(
+  discoveryScope.mergeDiscoveryTopics([{ id: 1 }, { id: 2 }], [{ id: 2 }, { id: 3 }]).map((topic: { id: number }) => topic.id),
+  [1, 2, 3],
+  'discovery pagination should deduplicate topics across pages',
+)
 
 assert.ok(threadModel, 'thread reply target model should exist')
 assert.equal(threadModel.resolveReplyTarget(
@@ -471,6 +476,8 @@ assert.doesNotMatch(discourseStructures, /class=/)
 
 assert.equal(linuxDoEndpoints.latest(2).endsWith('/latest.json?page=2'), true)
 assert.equal(linuxDoEndpoints.category('dev', 9, 3).endsWith('/c/dev/9.json?page=3'), true)
+assert.equal(linuxDoEndpoints.category('dev', 9, 3, 'views'), 'https://linux.do/c/dev/9.json?page=3&order=views')
+assert.equal(linuxDoEndpoints.tag('人工智能', 2, 'likes'), 'https://linux.do/tag/%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD.json?page=2&order=likes')
 assert.equal(linuxDoEndpoints.search('hello world').includes('q=hello%20world'), true)
 assert.equal(
   linuxDoEndpoints.tagSearch('开源', {
@@ -579,6 +586,41 @@ assert.deepEqual(
   ['最近使用', '更热门'],
   'empty composer search should preserve Discourse recent-tag priority order',
 )
+
+const discoveryPageCalls: string[] = []
+const discoveryPageService = new LinuxDoDiscoveryService({
+  getJson: async (url: string) => {
+    discoveryPageCalls.push(url)
+    const firstPage = url.includes('page=0')
+    return {
+      users: [],
+      topic_list: {
+        more_topics_url: firstPage ? '/next-page' : null,
+        topics: [{
+          id: firstPage ? 9001 : 9002,
+          slug: 'paged-topic',
+          title: firstPage ? '第一页主题' : '第二页主题',
+          posts_count: 2,
+          reply_count: 1,
+          views: 42,
+          like_count: 3,
+          created_at: '2026-09-21T00:00:00Z',
+          last_posted_at: '2026-09-21T01:00:00Z',
+          tags: ['人工智能'],
+          posters: [],
+        }],
+      },
+    }
+  },
+} as any)
+const discoveryFirstPage = await discoveryPageService.tag('人工智能', 0, 'views')
+assert.equal(discoveryFirstPage.hasMore, true)
+assert.equal(discoveryFirstPage.items[0]?.id, 9001)
+const discoverySecondPage = await discoveryPageService.category('develop', 4, 1, 'likes')
+assert.equal(discoverySecondPage.hasMore, false)
+assert.equal(discoverySecondPage.items[0]?.id, 9002)
+assert.ok(discoveryPageCalls.some((url) => url.includes('/tag/') && url.includes('page=0') && url.includes('order=views')))
+assert.ok(discoveryPageCalls.some((url) => url.includes('/c/develop/4.json') && url.includes('page=1') && url.includes('order=likes')))
 
 const templateCalls: Array<{ method: 'GET' | 'POST'; url: string; auth?: string }> = []
 const templateService = new LinuxDoTemplateService({
@@ -780,6 +822,9 @@ const authJavaSource = readFileSync('android/app/src/main/java/com/aizeek/newsno
 const manifestSource = readFileSync('android/app/src/main/AndroidManifest.xml', 'utf8')
 const clientSource = readFileSync('src/features/linuxdo/api/client.ts', 'utf8')
 const threadViewSource = readFileSync('src/features/linuxdo/ui/ThreadViews.tsx', 'utf8')
+const workspaceSource = readFileSync('src/features/linuxdo/ui/LinuxDoWorkspace.tsx', 'utf8')
+const discoverViewSource = readFileSync('src/features/linuxdo/ui/DiscoverView.tsx', 'utf8')
+const discoveryServiceSource = readFileSync('src/features/linuxdo/discovery/service.ts', 'utf8')
 const passwordLoginSource = readFileSync('src/features/linuxdo/session/password.ts', 'utf8')
 const accountViewSource = readFileSync('src/features/linuxdo/ui/AccountView.tsx', 'utf8')
 assert.equal(javaSource.includes('result.put("cookie"'), false)
@@ -839,6 +884,12 @@ assert.match(threadViewSource, /onNext=/)
 assert.match(threadViewSource, /\[data-linuxdo-role="quote"\]/)
 assert.match(threadViewSource, /\[data-linuxdo-role="onebox"\]/)
 assert.match(threadViewSource, /\[data-linuxdo-role="spoiler"\]/)
+assert.match(workspaceSource, /onScopeChange=\{replaceDiscoverScope\}/)
+assert.match(workspaceSource, /cacheRef=\{discoverCacheRef\}/)
+assert.match(workspaceSource, /navigate\(\{ kind: 'topic', topic \}\)/)
+assert.match(discoverViewSource, /DISCOVERY_ORDERS/)
+assert.match(discoverViewSource, /loadMoreActiveScope/)
+assert.match(discoveryServiceSource, /more_topics_url/)
 assert.match(passwordLoginSource, /verifyLinuxDoBrowserSession\('https:\/\/linux\.do\/login'\)/)
 assert.doesNotMatch(passwordLoginSource, /requestLinuxDoNative/)
 assert.doesNotMatch(passwordLoginSource, /localStorage|sessionStorage|console\.(?:log|debug|info|warn|error)/)

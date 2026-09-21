@@ -1,4 +1,5 @@
 export type LinuxDoFeedMode = 'latest' | 'top' | 'new' | 'unread'
+export type LinuxDoTopicOrder = 'activity' | 'created' | 'posts' | 'views' | 'likes'
 
 export interface LinuxDoUser {
   id: number
@@ -27,6 +28,11 @@ export interface LinuxDoTag {
   topicCount?: number
   disabled?: boolean
   disabledReason?: string
+}
+
+export interface LinuxDoTopicPage {
+  items: LinuxDoTopicSummary[]
+  hasMore: boolean
 }
 
 export interface LinuxDoTopicSummary {

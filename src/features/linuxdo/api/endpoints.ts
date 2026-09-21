@@ -10,8 +10,11 @@ export const linuxDoEndpoints = {
   newTopics: (page = 0) => ORIGIN + '/new.json?page=' + page,
   unread: (page = 0) => ORIGIN + '/unread.json?page=' + page,
   categories: ORIGIN + '/categories.json',
-  category: (slug: string, id: number, page = 0) =>
-    ORIGIN + '/c/' + encodeURIComponent(slug) + '/' + id + '.json?page=' + page,
+  category: (slug: string, id: number, page = 0, order?: 'activity' | 'created' | 'posts' | 'views' | 'likes') => {
+    const params = new URLSearchParams({ page: String(page) })
+    if (order) params.set('order', order)
+    return ORIGIN + '/c/' + encodeURIComponent(slug) + '/' + id + '.json?' + params.toString()
+  },
   tags: ORIGIN + '/tags.json',
   tagSearch: (query: string, options: {
     limit?: number
@@ -31,7 +34,11 @@ export const linuxDoEndpoints = {
     for (const tag of options.selectedTags ?? []) params.append('selected_tags[]', tag)
     return ORIGIN + '/tags/filter/search.json?' + params.toString()
   },
-  tag: (tag: string, page = 0) => ORIGIN + '/tag/' + encodeURIComponent(tag) + '.json?page=' + page,
+  tag: (tag: string, page = 0, order?: 'activity' | 'created' | 'posts' | 'views' | 'likes') => {
+    const params = new URLSearchParams({ page: String(page) })
+    if (order) params.set('order', order)
+    return ORIGIN + '/tag/' + encodeURIComponent(tag) + '.json?' + params.toString()
+  },
   topic: (slug: string, id: number, postNumber?: number) => ORIGIN + '/t/' + encodeURIComponent(slug) + '/' + id + (postNumber ? '/' + postNumber : '') + '.json',
   posts: (topicId: number, ids: number[]) =>
     ORIGIN + '/t/' + topicId + '/posts.json?' + ids.map((id) => 'post_ids[]=' + encodeURIComponent(String(id))).join('&'),

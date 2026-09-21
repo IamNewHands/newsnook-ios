@@ -11,23 +11,33 @@ import {
   Tag,
   X,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MutableRefObject } from 'react'
 
 import { sortLinuxDoTags } from '../discovery/service'
 import { linuxDoDiscovery as discovery } from '../runtime'
 import type {
   LinuxDoCategory,
   LinuxDoTag,
+  LinuxDoTopicOrder,
   LinuxDoTopicSummary,
 } from '../types'
 import { TopicCard } from './shared'
-import { loadDiscoveryScope, type LinuxDoDiscoveryScope } from './discoveryScope'
+import { discoveryScopeKey, loadDiscoveryScope, mergeDiscoveryTopics, type LinuxDoDiscoveryScope } from './discoveryScope'
+import type { LinuxDoDiscoverTab, LinuxDoDiscoveryCache } from './discoveryCache'
 import { compact, readableError } from './utils'
 
 function getCategoryColor(category?: LinuxDoCategory): string {
   if (!category?.color) return 'var(--color-cinnabar)'
   return category.color.startsWith('#') ? category.color : `#${category.color}`
 }
+
+const DISCOVERY_ORDERS: Array<{ id: LinuxDoTopicOrder; label: string }> = [
+  { id: 'activity', label: '活跃' },
+  { id: 'created', label: '最新' },
+  { id: 'posts', label: '回复' },
+  { id: 'views', label: '浏览' },
+  { id: 'likes', label: '获赞' },
+]
 
 function CategoryCard({
   category,
@@ -127,63 +137,103 @@ function TagChip({
 export function DiscoverView({
   onOpen,
   initialScope,
+  onScopeChange,
+  cacheRef,
 }: {
   onOpen: (topic: LinuxDoTopicSummary) => void
   initialScope?: LinuxDoDiscoveryScope
+  onScopeChange: (scope: LinuxDoDiscoveryScope | null) => void
+  cacheRef: MutableRefObject<LinuxDoDiscoveryCache>
 }) {
-  const [categories, setCategories] = useState<LinuxDoCategory[]>([])
-  const [tags, setTags] = useState<LinuxDoTag[]>([])
-  const [items, setItems] = useState<LinuxDoTopicSummary[]>([])
-  const [loading, setLoading] = useState(true)
-  const [itemsLoading, setItemsLoading] = useState(false)
+  const activeScope = initialScope ?? null
+  const initialScopeCache = activeScope ? cacheRef.current.scopes[discoveryScopeKey(activeScope)] : undefined
+  const [categories, setCategories] = useState<LinuxDoCategory[]>(() => cacheRef.current.categories)
+  const [tags, setTags] = useState<LinuxDoTag[]>(() => cacheRef.current.tags)
+  const [items, setItems] = useState<LinuxDoTopicSummary[]>(() => initialScopeCache?.items ?? [])
+  const [loading, setLoading] = useState(() => !cacheRef.current.taxonomyLoaded)
+  const [itemsLoading, setItemsLoading] = useState(() => Boolean(activeScope && !initialScopeCache))
+  const [itemsRefreshing, setItemsRefreshing] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(initialScopeCache?.hasMore ?? false)
   const [itemsError, setItemsError] = useState('')
-  const [activeScope, setActiveScope] = useState<LinuxDoDiscoveryScope | null>(initialScope ?? null)
-  const [activeTab, setActiveTab] = useState<'featured' | 'categories' | 'tags'>('featured')
-  const [tagQuery, setTagQuery] = useState('')
+  const [itemsErrorMode, setItemsErrorMode] = useState<'initial' | 'refresh' | 'more' | null>(null)
+  const [activeTab, setActiveTab] = useState<LinuxDoDiscoverTab>(() => cacheRef.current.hub.activeTab)
+  const [tagQuery, setTagQuery] = useState(() => cacheRef.current.hub.tagQuery)
+  const [order, setOrder] = useState<LinuxDoTopicOrder>(() => initialScopeCache?.order ?? 'activity')
   const [tagSearchResults, setTagSearchResults] = useState<LinuxDoTag[]>([])
   const [tagSearchLoading, setTagSearchLoading] = useState(false)
   const [tagSearchError, setTagSearchError] = useState('')
   const [categoriesError, setCategoriesError] = useState('')
   const [tagsError, setTagsError] = useState('')
+  const pageRef = useRef(initialScopeCache?.page ?? 0)
+  const scopeBusyRef = useRef(false)
+  const scopeRequestIdRef = useRef(0)
+  const hasMoreRef = useRef(initialScopeCache?.hasMore ?? false)
+  const scopedScrollerRef = useRef<HTMLDivElement | null>(null)
+  const hubScrollerRef = useRef<HTMLDivElement | null>(null)
   const normalizedTagQuery = tagQuery.trim().toLocaleLowerCase('zh-CN')
+  const activeScopeKey = activeScope ? discoveryScopeKey(activeScope) : ''
+
+  const changeScope = useCallback((scope: LinuxDoDiscoveryScope | null) => {
+    if (scope) {
+      const cached = cacheRef.current.scopes[discoveryScopeKey(scope)]
+      setOrder(cached?.order ?? 'activity')
+    }
+    onScopeChange(scope)
+  }, [cacheRef, onScopeChange])
 
   const loadCategories = useCallback(async () => {
     setCategoriesError('')
     try {
-      setCategories(await discovery.categories())
+      const next = await discovery.categories()
+      cacheRef.current.categories = next
+      setCategories(next)
     } catch (error) {
       setCategoriesError(readableError(error))
     }
-  }, [])
+  }, [cacheRef])
 
   const loadTags = useCallback(async () => {
     setTagsError('')
     try {
-      setTags(await discovery.tags())
+      const next = await discovery.tags()
+      cacheRef.current.tags = next
+      setTags(next)
     } catch (error) {
       setTagsError(readableError(error))
     }
-  }, [])
+  }, [cacheRef])
 
   useEffect(() => {
+    if (cacheRef.current.taxonomyLoaded) {
+      setLoading(false)
+      return
+    }
     let active = true
     void Promise.allSettled([discovery.categories(), discovery.tags()]).then(([categoryResult, tagResult]) => {
       if (!active) return
-      if (categoryResult.status === 'fulfilled') setCategories(categoryResult.value)
-      else setCategoriesError(readableError(categoryResult.reason))
-      if (tagResult.status === 'fulfilled') setTags(tagResult.value)
-      else setTagsError(readableError(tagResult.reason))
+      if (categoryResult.status === 'fulfilled') {
+        cacheRef.current.categories = categoryResult.value
+        setCategories(categoryResult.value)
+      } else setCategoriesError(readableError(categoryResult.reason))
+      if (tagResult.status === 'fulfilled') {
+        cacheRef.current.tags = tagResult.value
+        setTags(tagResult.value)
+      } else setTagsError(readableError(tagResult.reason))
+      cacheRef.current.taxonomyLoaded = true
     }).finally(() => {
       if (active) setLoading(false)
     })
     return () => { active = false }
-  }, [])
+  }, [cacheRef])
 
   useEffect(() => {
-    if (initialScope) {
-      setActiveScope(initialScope)
-    }
-  }, [initialScope])
+    cacheRef.current.hub.activeTab = activeTab
+  }, [activeTab, cacheRef])
+
+  useEffect(() => {
+    cacheRef.current.hub.tagQuery = tagQuery
+  }, [cacheRef, tagQuery])
 
   useEffect(() => {
     if (activeTab !== 'tags' || !normalizedTagQuery) {
@@ -211,34 +261,96 @@ export function DiscoverView({
     }
   }, [activeTab, normalizedTagQuery, tagQuery])
 
+  const loadActiveScope = useCallback(async (mode: 'initial' | 'refresh' | 'more') => {
+    if (!activeScope || !activeScopeKey || scopeBusyRef.current) return
+    if (mode === 'more' && !hasMoreRef.current) return
+
+    scopeBusyRef.current = true
+    const requestId = ++scopeRequestIdRef.current
+    if (mode === 'initial') setItemsLoading(true)
+    else if (mode === 'refresh') setItemsRefreshing(true)
+    else setLoadingMore(true)
+    setItemsError('')
+    setItemsErrorMode(null)
+
+    try {
+      const nextPage = mode === 'more' ? pageRef.current + 1 : 0
+      const next = await loadDiscoveryScope(discovery, activeScope, nextPage, order)
+      if (requestId !== scopeRequestIdRef.current) return
+      pageRef.current = nextPage
+      hasMoreRef.current = next.hasMore
+      setHasMore(next.hasMore)
+      setItems((previous) => {
+        const merged = mode === 'more' ? mergeDiscoveryTopics(previous, next.items) : next.items
+        const previousCache = cacheRef.current.scopes[activeScopeKey]
+        cacheRef.current.scopes[activeScopeKey] = {
+          scope: activeScope,
+          order,
+          items: merged,
+          page: nextPage,
+          hasMore: next.hasMore,
+          scrollTop: mode === 'initial' ? 0 : previousCache?.scrollTop ?? 0,
+        }
+        return merged
+      })
+    } catch (nextError) {
+      if (requestId !== scopeRequestIdRef.current) return
+      setItemsError(readableError(nextError))
+      setItemsErrorMode(mode)
+    } finally {
+      if (requestId === scopeRequestIdRef.current) {
+        scopeBusyRef.current = false
+        setItemsLoading(false)
+        setItemsRefreshing(false)
+        setLoadingMore(false)
+      }
+    }
+  }, [activeScope, activeScopeKey, cacheRef, order])
+
   useEffect(() => {
-    if (!activeScope) {
+    scopeRequestIdRef.current += 1
+    scopeBusyRef.current = false
+    if (!activeScope || !activeScopeKey) {
+      pageRef.current = 0
+      hasMoreRef.current = false
+      setHasMore(false)
       setItems([])
       setItemsError('')
+      setItemsErrorMode(null)
       setItemsLoading(false)
+      setItemsRefreshing(false)
+      setLoadingMore(false)
+      window.requestAnimationFrame(() => {
+        if (hubScrollerRef.current) hubScrollerRef.current.scrollTop = cacheRef.current.hub.scrollTop
+      })
       return
     }
-    setItemsLoading(true)
-    setItemsError('')
-    void loadDiscoveryScope(discovery, activeScope)
-      .then(setItems)
-      .catch((nextError) => setItemsError(readableError(nextError)))
-      .finally(() => setItemsLoading(false))
-  }, [activeScope])
 
-  const reloadActiveScope = async () => {
-    if (!activeScope) return
-    setItemsLoading(true)
-    setItemsError('')
-    try {
-      const next = await loadDiscoveryScope(discovery, activeScope)
-      setItems(next)
-    } catch (nextError) {
-      setItemsError(readableError(nextError))
-    } finally {
+    const cached = cacheRef.current.scopes[activeScopeKey]
+    if (cached && cached.order === order) {
+      pageRef.current = cached.page
+      hasMoreRef.current = cached.hasMore
+      setHasMore(cached.hasMore)
+      setItems(cached.items)
+      setItemsError('')
+      setItemsErrorMode(null)
       setItemsLoading(false)
+      window.requestAnimationFrame(() => {
+        if (scopedScrollerRef.current) scopedScrollerRef.current.scrollTop = cached.scrollTop
+      })
+      return
     }
-  }
+
+    pageRef.current = 0
+    hasMoreRef.current = true
+    setHasMore(true)
+    setItems([])
+    if (scopedScrollerRef.current) scopedScrollerRef.current.scrollTop = 0
+    void loadActiveScope('initial')
+  }, [activeScope, activeScopeKey, cacheRef, loadActiveScope, order])
+
+  const reloadActiveScope = () => loadActiveScope('refresh')
+  const loadMoreActiveScope = () => loadActiveScope('more')
 
   const categoriesById = useMemo(
     () => Object.fromEntries(categories.map((c) => [c.id, c])),
@@ -284,7 +396,7 @@ export function DiscoverView({
             <div className="flex min-w-0 items-center gap-2.5">
               <button
                 type="button"
-                onClick={() => setActiveScope(null)}
+                onClick={() => changeScope(null)}
                 className="linuxdo-control grid h-8 w-8 shrink-0 place-items-center rounded-full bg-paper/6 text-paper-muted transition-all hover:bg-paper/12 hover:text-paper active:scale-95"
                 aria-label="返回发现大厅"
               >
@@ -305,29 +417,61 @@ export function DiscoverView({
                   </h2>
                 </div>
                 <p className="truncate text-[10px] text-paper-faint">
-                  {isCategory
-                    ? (activeCategory?.description || (itemsLoading ? '正在加载讨论…' : `共 ${items.length} 篇相关讨论`))
-                    : (itemsLoading ? '正在加载讨论…' : `共 ${items.length} 篇相关讨论`)}
+                  {itemsLoading
+                    ? '正在加载讨论…'
+                    : isCategory && activeCategory?.description
+                      ? activeCategory.description
+                      : `已加载 ${items.length} 篇讨论${hasMore ? ' · 继续下滑加载更多' : ' · 已全部加载'}`}
                 </p>
               </div>
             </div>
             <button
               type="button"
-              disabled={itemsLoading}
+              disabled={itemsLoading || itemsRefreshing}
               onClick={() => void reloadActiveScope()}
               className="linuxdo-control grid h-8 w-8 shrink-0 place-items-center rounded-full bg-paper/6 text-paper-muted transition-all hover:bg-paper/12 hover:text-cinnabar active:scale-95 disabled:opacity-40"
-              aria-label="刷新"
+              aria-label={itemsRefreshing ? '正在刷新讨论' : '刷新讨论'}
             >
-              <RotateCw size={14} className={itemsLoading ? 'animate-spin' : ''} />
+              <RotateCw size={14} className={itemsLoading || itemsRefreshing ? 'animate-spin' : ''} />
             </button>
+          </div>
+          <div className="page-x flex items-center gap-1 overflow-x-auto pb-2.5 scrollbar-none" aria-label="讨论排序">
+            {DISCOVERY_ORDERS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setOrder(option.id)}
+                className={'linuxdo-control min-h-8 shrink-0 rounded-full px-3 py-1 text-[10.5px] font-medium transition-all ' + (order === option.id ? 'bg-cinnabar text-white shadow-sm' : 'bg-paper/[0.04] text-paper-muted hover:bg-paper/[0.08] hover:text-paper')}
+                aria-pressed={order === option.id}
+              >
+                {option.label}
+              </button>
+            ))}
           </div>
         </header>
 
         {/* 独立滚动区域 */}
-        <div className="min-h-0 flex-1 overflow-y-auto page-x pb-6 pt-3">
+        <div
+          ref={scopedScrollerRef}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain page-x pb-6 pt-3"
+          onScroll={(event) => {
+            const node = event.currentTarget
+            const cached = cacheRef.current.scopes[activeScopeKey]
+            if (cached) cached.scrollTop = node.scrollTop
+            if (hasMoreRef.current && !scopeBusyRef.current && node.scrollHeight - node.scrollTop - node.clientHeight < 420) {
+              void loadMoreActiveScope()
+            }
+          }}
+        >
 
         {/* 讨论列表 */}
-        {itemsLoading ? (
+        {itemsRefreshing && items.length > 0 ? (
+          <div className="mb-2 flex items-center justify-center gap-2 rounded-full bg-paper/[0.035] py-1.5 text-[10px] text-paper-faint" role="status">
+            <Loader2 size={12} className="animate-spin" />正在刷新当前排序
+          </div>
+        ) : null}
+
+        {itemsLoading && items.length === 0 ? (
           <div className="space-y-3" role="status" aria-label="正在加载讨论">
             {Array.from({ length: 5 }, (_, index) => (
               <div key={index} className="linuxdo-skeleton h-28 rounded-2xl border border-haze/50" />
@@ -335,7 +479,7 @@ export function DiscoverView({
           </div>
         ) : null}
 
-        {itemsError ? (
+        {itemsError && items.length === 0 ? (
           <div className="rounded-2xl border border-cinnabar/25 bg-cinnabar/[0.07] p-4 text-center">
             <p className="text-[12px] text-cinnabar-soft">{itemsError}</p>
             <button
@@ -348,7 +492,18 @@ export function DiscoverView({
           </div>
         ) : null}
 
-        {!itemsLoading && !itemsError && items.length > 0 ? (
+        {itemsError && items.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => void (itemsErrorMode === 'more' ? loadMoreActiveScope() : reloadActiveScope())}
+            className="linuxdo-control mb-2 flex w-full items-center justify-between rounded-2xl border border-cinnabar/20 bg-cinnabar/[0.06] px-3.5 py-2.5 text-left text-[10.5px] text-cinnabar-soft"
+          >
+            <span className="min-w-0 flex-1 truncate">{itemsError}</span>
+            <span className="ml-3 shrink-0 font-semibold">重试</span>
+          </button>
+        ) : null}
+
+        {!itemsLoading && items.length > 0 ? (
           <div className="space-y-3">
             {items.map((topic, index) => (
               <div
@@ -360,11 +515,28 @@ export function DiscoverView({
                   topic={topic}
                   category={topic.categoryId ? categoriesById[topic.categoryId] : undefined}
                   onOpen={() => onOpen(topic)}
-                  onOpenCategory={(cat) => setActiveScope({ kind: 'category', category: cat })}
-                  onOpenTag={(name) => setActiveScope({ kind: 'tag', name })}
+                  onOpenCategory={(cat) => changeScope({ kind: 'category', category: cat })}
+                  onOpenTag={(name) => changeScope({ kind: 'tag', name })}
                 />
               </div>
             ))}
+            <div className="pt-1">
+              {loadingMore ? (
+                <div className="flex items-center justify-center gap-2 py-4 text-[10.5px] text-paper-faint" role="status">
+                  <Loader2 size={14} className="animate-spin" />正在加载更多讨论
+                </div>
+              ) : hasMore ? (
+                <button
+                  type="button"
+                  onClick={() => void loadMoreActiveScope()}
+                  className="linuxdo-control w-full rounded-2xl border border-haze/60 bg-paper/[0.025] py-3 text-[11px] font-medium text-paper-muted transition-colors hover:bg-paper/[0.055] hover:text-paper"
+                >
+                  加载更多讨论
+                </button>
+              ) : (
+                <div className="py-4 text-center text-[10px] text-paper-faint">已加载全部 {items.length} 篇讨论</div>
+              )}
+            </div>
           </div>
         ) : null}
 
@@ -377,7 +549,7 @@ export function DiscoverView({
             <p className="mt-1 text-[11px] text-paper-faint">可以去其他版块或热门标签看看</p>
             <button
               type="button"
-              onClick={() => setActiveScope(null)}
+              onClick={() => changeScope(null)}
               className="linuxdo-control mt-4 rounded-full bg-paper/8 px-4 py-1.5 text-[11.5px] font-medium text-paper hover:bg-paper/12"
             >
               返回发现全览
@@ -391,7 +563,11 @@ export function DiscoverView({
 
   // --- 模态 A：探索大厅 (Hub Mode) ---
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto page-x pb-6 pt-4">
+    <div
+      ref={hubScrollerRef}
+      className="min-h-0 flex-1 overflow-y-auto overscroll-contain page-x pb-6 pt-4"
+      onScroll={(event) => { cacheRef.current.hub.scrollTop = event.currentTarget.scrollTop }}
+    >
       {/* 顶部社区氛围横幅 */}
       <section className="linuxdo-discover-hero rounded-[26px] p-5">
         <div className="flex items-start justify-between gap-4">
@@ -504,7 +680,7 @@ export function DiscoverView({
                   key={tag.name}
                   tag={tag}
                   rank={index + 1}
-                  onClick={() => setActiveScope({ kind: 'tag', name: tag.name })}
+                  onClick={() => changeScope({ kind: 'tag', name: tag.name })}
                 />
               ))}
             </div>
@@ -530,7 +706,7 @@ export function DiscoverView({
                 <CategoryCard
                   key={category.id}
                   category={category}
-                  onClick={() => setActiveScope({ kind: 'category', category })}
+                  onClick={() => changeScope({ kind: 'category', category })}
                 />
               ))}
             </div>
@@ -558,7 +734,7 @@ export function DiscoverView({
               <CategoryCard
                 key={category.id}
                 category={category}
-                onClick={() => setActiveScope({ kind: 'category', category })}
+                onClick={() => changeScope({ kind: 'category', category })}
               />
             ))}
           </div>
@@ -606,7 +782,7 @@ export function DiscoverView({
                     <TagChip
                       key={tag.name}
                       tag={tag}
-                      onClick={() => setActiveScope({ kind: 'tag', name: tag.name })}
+                      onClick={() => changeScope({ kind: 'tag', name: tag.name })}
                     />
                   ))}
                 </div>
@@ -635,7 +811,7 @@ export function DiscoverView({
                       key={tag.name}
                       tag={tag}
                       rank={index + 1}
-                      onClick={() => setActiveScope({ kind: 'tag', name: tag.name })}
+                      onClick={() => changeScope({ kind: 'tag', name: tag.name })}
                     />
                   ))}
                 </div>
@@ -657,7 +833,7 @@ export function DiscoverView({
                     <TagChip
                       key={tag.name}
                       tag={tag}
-                      onClick={() => setActiveScope({ kind: 'tag', name: tag.name })}
+                      onClick={() => changeScope({ kind: 'tag', name: tag.name })}
                     />
                   ))}
                 </div>

@@ -1,7 +1,7 @@
 import { linuxDoEndpoints } from '../api/endpoints'
 import { decodeCategories, decodeTagNames, decodeTopics } from '../api/decode'
 import type { LinuxDoApiClient } from '../api/client'
-import type { LinuxDoCategory, LinuxDoTag, LinuxDoTopicSummary } from '../types'
+import type { LinuxDoCategory, LinuxDoTag, LinuxDoTopicOrder, LinuxDoTopicPage } from '../types'
 
 export interface LinuxDoTagSearchOptions {
   limit?: number
@@ -46,8 +46,9 @@ export class LinuxDoDiscoveryService {
     return decodeCategories(await this.api.getJson(linuxDoEndpoints.categories, { auth: 'optional' }))
   }
 
-  async category(slug: string, id: number, page = 0): Promise<LinuxDoTopicSummary[]> {
-    return decodeTopics(await this.api.getJson(linuxDoEndpoints.category(slug, id, page), { auth: 'optional' }))
+  async category(slug: string, id: number, page = 0, order: LinuxDoTopicOrder = 'activity'): Promise<LinuxDoTopicPage> {
+    const payload = await this.api.getJson<any>(linuxDoEndpoints.category(slug, id, page, order), { auth: 'optional' })
+    return this.decodeTopicPage(payload)
   }
 
   async tags(): Promise<LinuxDoTag[]> {
@@ -76,8 +77,18 @@ export class LinuxDoDiscoveryService {
     return sortLinuxDoTags(results)
   }
 
-  async tag(name: string, page = 0): Promise<LinuxDoTopicSummary[]> {
-    return decodeTopics(await this.api.getJson(linuxDoEndpoints.tag(name, page), { auth: 'optional' }))
+  async tag(name: string, page = 0, order: LinuxDoTopicOrder = 'activity'): Promise<LinuxDoTopicPage> {
+    const payload = await this.api.getJson<any>(linuxDoEndpoints.tag(name, page, order), { auth: 'optional' })
+    return this.decodeTopicPage(payload)
+  }
+
+  private decodeTopicPage(payload: any): LinuxDoTopicPage {
+    const items = decodeTopics(payload)
+    const moreTopicsUrl = payload?.topic_list?.more_topics_url
+    return {
+      items,
+      hasMore: typeof moreTopicsUrl === 'string' && moreTopicsUrl.length > 0,
+    }
   }
 
   private rememberCatalog(tags: LinuxDoTag[]): void {
