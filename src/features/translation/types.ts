@@ -30,12 +30,22 @@ export interface CloudTranslationConfig {
   concurrency?: number
 }
 
+export interface AiProviderCapabilities {
+  /** 是否明确声明支持 OpenAI-compatible /audio/speech TTS。 */
+  tts: boolean
+}
+
 export interface AiProviderConfig {
   /** 稳定同步标识；用户改名称不会造成 Key 与功能选择错配。 */
   id: string
   name: string
   endpoint: string
   apiKey: string
+  /**
+   * 能力必须显式声明。聊天/翻译接口可用不代表 /audio/speech 一定存在。
+   * 老配置缺字段时由 normalizeAiPrefs 做兼容迁移。
+   */
+  capabilities: AiProviderCapabilities
 }
 
 export interface AiModelSelection {

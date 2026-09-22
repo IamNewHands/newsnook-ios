@@ -52,6 +52,7 @@
     "test:netease-ugc-video": "npx tsx scripts/netease-ugc-video.test.ts",
     "test:video-gestures": "rolldown scripts/video-gestures.test.ts --platform=node --format=esm --file=node_modules/.cache/newsnook/video-gestures.test.mjs && node node_modules/.cache/newsnook/video-gestures.test.mjs",
     "test:translation": "rolldown scripts/translation-service.test.ts --platform=node --format=esm --file=node_modules/.cache/newsnook/translation-service.test.mjs && node node_modules/.cache/newsnook/translation-service.test.mjs",
+    "test:read-aloud": "npx tsx scripts/read-aloud.test.ts",
     "test:feed-translation": "npx tsx scripts/feed-translation.test.ts",
     "test:deeplx": "npx tsx scripts/deeplx-provider.test.ts",
     "test:openai": "npx tsx scripts/openai-provider.test.ts",

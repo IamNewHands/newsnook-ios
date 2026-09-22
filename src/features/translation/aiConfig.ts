@@ -20,6 +20,7 @@ export const DEFAULT_AI_PREFS: AiPrefs = {
       name: 'OpenAI',
       endpoint: DEFAULT_AI_ENDPOINT,
       apiKey: '',
+      capabilities: { tts: true },
     },
   ],
   translation: {
@@ -73,8 +74,13 @@ function normalizeProvider(value: unknown, index: number, used: Set<string>): Ai
 
   const name = text(input.name) || (index === 0 ? 'OpenAI' : `AI 提供商 ${index + 1}`)
   const apiKey = typeof input.apiKey === 'string' ? input.apiKey.trim() : ''
+  const capabilitiesInput = asRecord(input.capabilities)
+  const tts =
+    typeof capabilitiesInput.tts === 'boolean'
+      ? capabilitiesInput.tts
+      : id === DEFAULT_AI_PROVIDER_ID
   if (!endpoint && !name && !apiKey) return null
-  return { id, name, endpoint, apiKey }
+  return { id, name, endpoint, apiKey, capabilities: { tts } }
 }
 
 function legacyAiPrefs(legacyOpenAi: CloudTranslationConfig): AiPrefs {
@@ -87,6 +93,7 @@ function legacyAiPrefs(legacyOpenAi: CloudTranslationConfig): AiPrefs {
         name: 'OpenAI',
         endpoint,
         apiKey: legacyOpenAi.apiKey.trim(),
+        capabilities: { tts: true },
       },
     ],
     translation: {
@@ -134,6 +141,7 @@ export function normalizeAiPrefs(value: unknown, legacyOpenAi: CloudTranslationC
       name: 'OpenAI',
       endpoint: legacyOpenAi.endpoint.trim() || DEFAULT_AI_ENDPOINT,
       apiKey: legacyOpenAi.apiKey.trim(),
+      capabilities: { tts: true },
     })
   }
 
