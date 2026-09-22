@@ -30,6 +30,18 @@ import type { NewsSource } from '../registry'
 
 export type FontFamilyId = 'sans' | 'serif' | 'system'
 
+/**
+ * 应用外壳（导航 / 设置 / 按钮 / 说明文字）的字体族。
+ * 取值都落在 iOS 与桌面系统自带的 CJK 字体上，不依赖联网下载。
+ */
+export type UiFontFamilyId = 'system' | 'heiti' | 'songti' | 'kaiti' | 'yuanti'
+
+/**
+ * 界面字重档位。汉字在 iOS 上默认 400 偏细，这里整体抬升 Tailwind 的
+ * `--font-weight-*` 主题变量，不逐个改写工具类。
+ */
+export type UiFontWeightId = 'regular' | 'medium' | 'bold'
+
 /** 首页信息流版式：经典单栏保持旧版阅读节奏，cards 为新版双栏编辑卡片。 */
 export type HomeFeedLayout = 'classic' | 'cards'
 
@@ -42,6 +54,20 @@ export interface TypographyPrefs {
   fontFamily: FontFamilyId
   /** 正文段落首行缩进两字符（2em） */
   firstLineIndent: boolean
+}
+
+/**
+ * 应用外壳（界面）字体：与 `TypographyPrefs` 分开——那边管正文排版，这里管界面本身。
+ * `scale` 由构建期把生成的 px 字号统一挂到 `--ui-scale` 上，源码里没有第二份字号表。
+ */
+export interface UiPrefs {
+  fontFamily: UiFontFamilyId
+  /** 界面字号倍率；1 为原样 */
+  scale: number
+  /** 界面字重档位；regular 与原样一致 */
+  weight: UiFontWeightId
+  /** 阅读正文页的悬浮上下翻页手柄（可拖动）；true 为开启 */
+  floatReaderNav: boolean
 }
 
 export const PRESTORE_PER_SOURCE_OPTIONS = [5, 10, 20, 50, 100] as const
@@ -75,6 +101,37 @@ export function normalizePrestorePrefs(raw: unknown): PrestorePrefs {
   }
 }
 
+export const DEFAULT_UI_PREFS: UiPrefs = {
+  fontFamily: 'system',
+  scale: 1,
+  weight: 'regular',
+  floatReaderNav: true,
+}
+
+/** 界面字号允许区间；超出即夹紧，避免旧备份里的极端值把界面撑坏 */
+export const UI_SCALE_RANGE = { min: 0.85, max: 1.5 } as const
+
+export function normalizeUiScale(value: unknown): number {
+  return clamp(value, DEFAULT_UI_PREFS.scale, UI_SCALE_RANGE.min, UI_SCALE_RANGE.max)
+}
+
+export function normalizeUiPrefs(raw: unknown): UiPrefs {
+  const input = (raw ?? {}) as Partial<UiPrefs>
+  return {
+    fontFamily: UI_FONT_OPTIONS.some((option) => option.id === input.fontFamily)
+      ? (input.fontFamily as UiFontFamilyId)
+      : DEFAULT_UI_PREFS.fontFamily,
+    scale: normalizeUiScale(input.scale),
+    weight: UI_FONT_WEIGHT_OPTIONS.some((option) => option.id === input.weight)
+      ? (input.weight as UiFontWeightId)
+      : DEFAULT_UI_PREFS.weight,
+    floatReaderNav:
+      typeof input.floatReaderNav === 'boolean'
+        ? input.floatReaderNav
+        : DEFAULT_UI_PREFS.floatReaderNav,
+  }
+}
+
 export interface Preferences {
   /** 内置分类体系版本；用于把旧内置布局一次性物化为用户自定义布局。 */
   categoryTaxonomyVersion: number
@@ -92,6 +149,8 @@ export interface Preferences {
   /** 用户自建或导入的自定义订阅源 */
   customSources?: NewsSource[]
   typography: TypographyPrefs
+  /** 应用外壳字体与字号；设备本地项，不参与云同步 */
+  ui: UiPrefs
   theme: ThemeMode
   /** 风格方案：与明暗正交的配色主题，见 lib/theme.ts */
   scheme: ThemeScheme
@@ -145,6 +204,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   customCategories: [],
   customSources: [],
   typography: DEFAULT_TYPOGRAPHY,
+  ui: DEFAULT_UI_PREFS,
   theme: DEFAULT_THEME_MODE,
   scheme: DEFAULT_THEME_SCHEME,
   homeFeedLayout: 'cards',
@@ -185,6 +245,80 @@ export const FONT_SCALE_OPTIONS: { label: string; value: number }[] = [
   { label: '标准', value: 1 },
   { label: '较大', value: 1.1 },
   { label: '大', value: 1.22 },
+]
+
+/**
+ * 界面字体选项。字体栈只列系统自带字体：
+ * iOS 有苹方 / 宋体 / 楷体 / 圆体，桌面端回落到 SimSun / KaiTi，Android 回落到 Noto。
+ * `system` 的取值刻意与 index.css 的 `:root` 默认值一致——默认档必须零观感变化。
+ */
+export const UI_FONT_OPTIONS: {
+  id: UiFontFamilyId
+  label: string
+  /** 界面正文字体栈，写入 --ui-font */
+  body: string
+  /** 界面标题字体栈，写入 --ui-font-display */
+  display: string
+}[] = [
+  {
+    id: 'system',
+    label: '默认',
+    body: "'Noto Sans SC', 'PingFang SC', system-ui, sans-serif",
+    display: "'Noto Serif SC', 'Songti SC', serif",
+  },
+  {
+    id: 'heiti',
+    label: '黑体',
+    body: "'Heiti SC', 'PingFang SC', 'Noto Sans SC', sans-serif",
+    display: "'Heiti SC', 'PingFang SC', sans-serif",
+  },
+  {
+    id: 'songti',
+    label: '宋体',
+    body: "'Songti SC', 'Noto Serif SC', 'SimSun', serif",
+    display: "'Songti SC', 'Noto Serif SC', serif",
+  },
+  {
+    id: 'kaiti',
+    label: '楷体',
+    body: "'Kaiti SC', 'STKaiti', 'KaiTi', serif",
+    display: "'Kaiti SC', 'STKaiti', 'KaiTi', serif",
+  },
+  {
+    id: 'yuanti',
+    label: '圆体',
+    body: "'Yuanti SC', 'YouYuan', 'PingFang SC', sans-serif",
+    display: "'Yuanti SC', 'YouYuan', 'PingFang SC', sans-serif",
+  },
+]
+
+/** 界面字号档位：界面里最小的一批字只有 10px，所以向上给了更大的步长 */
+export const UI_SCALE_OPTIONS: { label: string; value: number }[] = [
+  { label: '较小', value: 0.92 },
+  { label: '标准', value: 1 },
+  { label: '较大', value: 1.1 },
+  { label: '大', value: 1.2 },
+  { label: '特大', value: 1.32 },
+]
+
+/** 取界面字体选项；未知 id 回落到默认档，保证 CSS 变量永远有值 */
+export function resolveUiFontOption(id: UiFontFamilyId): (typeof UI_FONT_OPTIONS)[number] {
+  return UI_FONT_OPTIONS.find((option) => option.id === id) ?? UI_FONT_OPTIONS[0]
+}
+
+/**
+ * 界面字重档位。`data-ui-weight` 的取值直接对应 index.css 里的
+ * `:root[data-ui-weight='…']` 覆盖块，因此 id 不能随手改。
+ * regular 不加 data 属性也行（默认值就是 Tailwind 缺省），但为可读性仍然会写。
+ */
+export const UI_FONT_WEIGHT_OPTIONS: {
+  id: UiFontWeightId
+  label: string
+  caption: string
+}[] = [
+  { id: 'regular', label: '标准', caption: '与原样一致' },
+  { id: 'medium', label: '中粗', caption: '整体加粗一档' },
+  { id: 'bold', label: '加粗', caption: '整体加粗两档' },
 ]
 
 export const LINE_HEIGHT_OPTIONS: { label: string; value: number }[] = [

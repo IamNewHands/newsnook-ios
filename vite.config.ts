@@ -15,6 +15,7 @@ import { planNodeUpstream } from './src/features/proxy/nodeAgent.ts'
 import type { ProxyPrefs } from './src/features/proxy/types.ts'
 import { type NewsSource } from './src/sources/registry.ts'
 import { applyWebViewCssCompat } from './scripts/webview-css-compat.ts'
+import { applyUiScale } from './scripts/ui-scale-css.ts'
 
 const { version: appVersion } = JSON.parse(readFileSync('./package.json', 'utf-8')) as {
   version: string
@@ -700,7 +701,8 @@ function unlayerCssPlugin(): Plugin {
 
           // lightningcss 不降级 :where()（Chrome 88+）；剥离 @property 后部分
           // Android WebView 又匹配不到 Tailwind 的 @supports 变量兜底 → divide-y 等失效
-          file.source = applyWebViewCssCompat(css)
+          // 最后一步：把所有 px 字号挂到 --ui-scale 上，供「界面字体」设置项消费
+          file.source = applyUiScale(applyWebViewCssCompat(css))
         }
       }
     },

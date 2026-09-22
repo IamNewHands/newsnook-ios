@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { parseHTML } from 'linkedom'
 
 import { normalizeTranslationPrefs } from '../src/features/translation/config'
-import { DeepLXProvider, GoogleProvider } from '../src/features/translation/providers'
-import { TranslationService } from '../src/features/translation/service'
+import { DeepLXProvider, GoogleProvider, planBatches } from '../src/features/translation/providers'
+import { MAX_GROUP_CHARS, splitLongText, TranslationService } from '../src/features/translation/service'
 import type { TranslationProvider } from '../src/features/translation/types'
 
 const window = parseHTML('<html><body></body></html>')
@@ -302,6 +302,229 @@ await kindService.translateArticle(
   const last = kindsLog[kindsLog.length - 1]
   assert.equal(last, undefined)
 }
+
+// ---- 批次切分：一个段落永远不能被切开 ----
+
+// 没有分组信息时按 maxItems / maxChars 平切（保持旧行为）
+assert.deepEqual(planBatches([1, 1, 1, 1, 1], 2, 1000), [
+  { start: 0, end: 2 },
+  { start: 2, end: 4 },
+  { start: 4, end: 5 },
+])
+assert.deepEqual(planBatches([1, 1, 1], 10, 2), [
+  { start: 0, end: 2 },
+  { start: 2, end: 3 },
+])
+assert.deepEqual(planBatches([], 10, 100), [])
+
+// 有分组时只在组边界切批：组内的 3 项即使超过 maxItems 也不拆开
+assert.deepEqual(planBatches([1, 1, 1, 1, 1], 2, 1000, [0, 1, 1, 1, 2]), [
+  { start: 0, end: 4 },
+  { start: 4, end: 5 },
+])
+// 字符上限同样不能切开一个组
+assert.deepEqual(planBatches([1, 1, 1], 10, 2, [0, 1, 1]), [{ start: 0, end: 3 }])
+// 分组长度对不上时退回平切，不猜
+assert.deepEqual(planBatches([1, 1, 1], 2, 1000, [0, 1]), [
+  { start: 0, end: 2 },
+  { start: 2, end: 3 },
+])
+
+// 服务层要如实给出分组：标题一组，同一个段落里的多个文本节点同组
+const groupLog: (readonly number[] | undefined)[] = []
+const groupProbe: TranslationProvider = {
+  id: 'mlkit',
+  async translate(request) {
+    groupLog.push(request.groupIds)
+    return request.texts.map((text) => `译:${text}`)
+  },
+}
+await new TranslationService(groupProbe).translateArticle(
+  'Title',
+  '<p>Hello <strong>world</strong> tail</p><p>Next paragraph</p>',
+  { sourceLanguage: 'en', targetLanguage: 'zh-Hans', displayMode: 'replace' },
+)
+{
+  const groups = groupLog[groupLog.length - 1]
+  assert.ok(groups, '正文翻译必须给出段落分组')
+  assert.deepEqual(groups, [0, 1, 1, 1, 2])
+}
+
+// 端到端：内联标签把段落拆成 4 个文本节点，它们必须落在同一个请求里。
+// 8 个单节点段落 + 1 个 4 节点段落 = 13 项；没有分组时第 10 项会切断段落。
+const paragraph = '<p>Alpha <strong>Beta</strong> Gamma <em>Delta</em></p>'
+const batchLog: string[][] = []
+globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+  const body = JSON.parse(String(init?.body)) as { q: string[] }
+  batchLog.push(body.q)
+  return Response.json({
+    data: { translations: body.q.map((text) => ({ translatedText: `译:${text}` })) },
+  })
+}) as typeof fetch
+
+await new TranslationService(
+  new GoogleProvider({
+    apiKey: 'test-key',
+    endpoint: 'https://translation.googleapis.com/language/translate/v2',
+  }),
+).translateArticle(
+  'Title',
+  `${Array.from({ length: 8 }, (_, i) => `<p>Body ${i}</p>`).join('')}${paragraph}`,
+  { sourceLanguage: 'en', targetLanguage: 'zh-Hans', displayMode: 'replace' },
+)
+assert.equal(
+  batchLog.length,
+  1,
+  `段落被批次切开了，实际批次：${JSON.stringify(batchLog)}`,
+)
+assert.deepEqual(batchLog[0], [
+  'Title',
+  'Body 0',
+  'Body 1',
+  'Body 2',
+  'Body 3',
+  'Body 4',
+  'Body 5',
+  'Body 6',
+  'Body 7',
+  'Alpha',
+  'Beta',
+  'Gamma',
+  'Delta',
+])
+
+globalThis.fetch = originalFetch
+
+// ---- 单次请求的体积必须有上界 ----
+// 免费端点（Edge translatetext）的耗时随请求体积上涨，脚本转换更明显：
+// 实测繁→简在 ~20k 字符时要 15 秒、~28k 直接 500，而英译中同体积只要 ~7 秒。
+// 批次本来有字符上限，但它只在段落边界切——段落本身无上界时，
+// 「整篇正文塞在一个 div 里」就会变成一次几十 KB 的请求，于是超时。
+
+// 句末切分：优先切在句末标点后，每片不超过上限，拼回来一字不差
+const longSentences = Array.from(
+  { length: 40 },
+  (_, i) => `第${i}句测试文本，用来验证超长段落的切分位置。`,
+).join('')
+const pieces = splitLongText(longSentences, 200)
+assert.ok(pieces.length > 1, '超长文本必须被切开')
+assert.ok(
+  pieces.every((piece) => piece.length <= 200),
+  `切分后仍有超长片段：${pieces.map((piece) => piece.length).join(',')}`,
+)
+assert.ok(
+  pieces.every((piece) => piece.endsWith('。')),
+  '应当切在句末标点之后，而不是把句子劈开',
+)
+assert.equal(pieces.join(''), longSentences)
+assert.deepEqual(splitLongText('短文本', 200), ['短文本'])
+// 没有句末标点的长串按长度硬切
+assert.deepEqual(
+  splitLongText('x'.repeat(500), 200).map((piece) => piece.length),
+  [200, 200, 100],
+)
+
+// 服务层：整篇正文就是一个文本节点时也要切成多个条目
+const wallOfText = Array.from(
+  { length: 450 },
+  (_, i) => `第${i}句正文内容，用来把单个文本节点撑到超过一个请求该有的体积。`,
+).join('')
+const wallTexts: string[][] = []
+const wallProbe: TranslationProvider = {
+  id: 'mlkit',
+  async translate(request) {
+    wallTexts.push([...request.texts])
+    return request.texts.map((text) => `译:${text}`)
+  },
+}
+const wallResult = await new TranslationService(wallProbe).translateArticle(
+  'Title',
+  `<div>${wallOfText}</div>`,
+  { sourceLanguage: 'en', targetLanguage: 'zh-Hans', displayMode: 'replace' },
+)
+{
+  const bodyTexts = (wallTexts[0] ?? []).slice(1)
+  assert.ok(
+    bodyTexts.length > 1,
+    `超长正文被当成一个条目发出去了：${bodyTexts.map((text) => text.length).join(',')}`,
+  )
+  assert.ok(
+    Math.max(...bodyTexts.map((text) => text.length)) <= MAX_GROUP_CHARS,
+    `单个条目仍有 ${Math.max(...bodyTexts.map((text) => text.length))} 字符`,
+  )
+  // 切开再拼回来不能丢字、也不能重复
+  const bodyText = wallResult.html
+    .replace(/<div[^>]*>/g, '')
+    .replace(/<\/div>/g, '')
+    .split('译:')
+    .join('')
+  assert.equal(bodyText, wallOfText)
+}
+
+// 对比模式：一个语义块装下整篇时同样要切分，译文按块拼回同一个 span
+const compareTexts: string[][] = []
+const compareProbe: TranslationProvider = {
+  id: 'mlkit',
+  async translate(request) {
+    compareTexts.push([...request.texts])
+    return request.texts.map((text) => `译:${text}`)
+  },
+}
+const compareResult = await new TranslationService(compareProbe).translateArticle(
+  'Title',
+  `<div>${wallOfText}</div>`,
+  { sourceLanguage: 'en', targetLanguage: 'zh-Hans', displayMode: 'compare' },
+)
+{
+  const bodyTexts = (compareTexts[0] ?? []).slice(1)
+  assert.ok(
+    bodyTexts.length > 1,
+    `对比模式的超长语义块没有切分：${bodyTexts.map((text) => text.length).join(',')}`,
+  )
+  assert.ok(Math.max(...bodyTexts.map((text) => text.length)) <= MAX_GROUP_CHARS)
+  const span = /<span[^>]*class="reader-translation"[^>]*>([\s\S]*?)<\/span>/.exec(
+    compareResult.html,
+  )
+  assert.ok(span, '对比模式必须产出译文 span')
+  assert.equal(span[1].split('译:').join(''), wallOfText)
+}
+
+// 端到端：真正发出的每个请求都要在批次字符上限之内
+const wallBatches: string[][] = []
+globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+  const body = JSON.parse(String(init?.body)) as { q: string[] }
+  wallBatches.push(body.q)
+  return Response.json({
+    data: { translations: body.q.map((text) => ({ translatedText: `译:${text}` })) },
+  })
+}) as typeof fetch
+
+const wallRequest = await new TranslationService(
+  new GoogleProvider({
+    apiKey: 'test-key',
+    endpoint: 'https://translation.googleapis.com/language/translate/v2',
+  }),
+).translateArticle('Title', `<div>${wallOfText}</div>`, {
+  sourceLanguage: 'en',
+  targetLanguage: 'zh-Hans',
+  displayMode: 'replace',
+})
+
+globalThis.fetch = originalFetch
+assert.ok(wallBatches.length > 1, `超长正文只发了一次请求：${wallBatches.length}`)
+for (const batch of wallBatches) {
+  // DEFAULT_BATCH_CHARS = 6000
+  const chars = batch.reduce((sum, text) => sum + text.length, 0)
+  assert.ok(chars <= 6000, `单个请求 ${chars} 字符，超过批次上限`)
+}
+assert.equal(
+  wallRequest.html
+    .replace(/<div[^>]*>/g, '')
+    .replace(/<\/div>/g, '')
+    .split('译:')
+    .join(''),
+  wallOfText,
+)
 
 console.log('translation-service: ok')
 
