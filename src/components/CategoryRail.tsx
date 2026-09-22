@@ -294,7 +294,7 @@ export function CategoryRail({
                 WebkitTouchCallout: 'none',
                 touchAction: 'pan-x',
               }}
-              className="relative shrink-0 px-3 py-1.5 text-paper hover:opacity-90"
+              className="custom-long-press-target relative shrink-0 px-3 py-1.5 text-paper hover:opacity-90"
             >
               <span className={`block whitespace-nowrap font-display text-[14.5px] leading-none tracking-wide ${weight >= 0.5 ? 'font-medium' : 'font-normal'}`}>
                 {category.short}

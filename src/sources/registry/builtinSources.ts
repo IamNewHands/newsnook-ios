@@ -38,6 +38,45 @@ function neteaseList(tid: string): string {
   return `https://c.m.163.com/nc/article/list/${tid}/0-${NETEASE_PAGE_SIZE}.html`
 }
 
+function thepaperChannel(id: string, name: string, nodeId: number): NewsSource {
+  return {
+    id,
+    name,
+    label: name.replace(/^澎湃 · /, ''),
+    group: 'cn',
+    kind: 'thepaper',
+    url: 'https://api.thepaper.cn/contentapi/nodeCont/getByNodeIdPortal',
+    siteUrl: `https://www.thepaper.cn/list_${nodeId}`,
+    requestMethod: 'POST',
+    requestBodyType: 'json',
+    requestJson: { nodeId, pageNum: 1, pageSize: 20 },
+    requestHeaders: {
+      Origin: 'https://www.thepaper.cn',
+      Referer: 'https://www.thepaper.cn/',
+      Accept: 'application/json, text/plain, */*',
+    },
+    enabled: false,
+  }
+}
+
+function infzmChannel(id: string, name: string, termId: number): NewsSource {
+  return {
+    id,
+    name,
+    label: name.replace(/^南方周末 · /, ''),
+    group: 'cn',
+    kind: 'infzm',
+    url: `https://www.infzm.com/contents?term_id=${termId}&page=1`,
+    siteUrl: `https://www.infzm.com/contents?term_id=${termId}`,
+    // 南周会把 Android / Mobile UA 302 到旧版 /wap/#/... 路由；服务端随后把
+    // hash 编码进路径并返回 404，导致 App 四个频道全部抓取失败。固定桌面 UA，
+    // 让原生 CapacitorHttp、Vite 与 Cloudflare feed 代理都命中可解析的公开 HTML 列表。
+    userAgent: DESKTOP_UA,
+    requestHeaders: { Referer: 'https://www.infzm.com/' },
+    enabled: false,
+  }
+}
+
 function neteaseChannel(
   id: string,
   name: string,
@@ -220,6 +259,18 @@ export const SOURCES: NewsSource[] = [
   },
   // 晚点无 RSS；首页列表走 POST /site/index
   // 站点证书链不完整：Feed 代理已 secure:false；正文 /api/page 对 TLS 错误会 insecure 回退
+  // —— 中文深读：澎湃 / 南方周末 ——
+  // 澎湃仅收录 2026-09 实测仍持续更新的栏目；已停更的「思想湃」不注册。
+  thepaperChannel('thepaper-bookreview', '澎湃 · 上海书评', 26878),
+  thepaperChannel('thepaper-people', '澎湃 · 澎湃人物', 25427),
+  thepaperChannel('thepaper-research', '澎湃 · 澎湃研究所', 25445),
+  thepaperChannel('thepaper-ideas', '澎湃 · 思想市场', 25483),
+  thepaperChannel('thepaper-science', '澎湃 · 科学湃', 27234),
+  infzmChannel('infzm-depth', '南方周末 · 深度', 202),
+  infzmChannel('infzm-feature', '南方周末 · 特稿', 1006),
+  infzmChannel('infzm-interview', '南方周末 · 对话', 217),
+  infzmChannel('infzm-thinktank', '南方周末 · 智库', 219),
+
   {
     id: 'latepost',
     name: '晚点 LatePost',

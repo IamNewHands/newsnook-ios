@@ -65,16 +65,22 @@ function createExternalCard(document: Document, source: Element, url: URL): Elem
   const isVideo = isZhihuVideo || VIDEO_HOST_PATTERN.test(url.hostname) || /video/i.test(source.getAttribute('class') || '')
   const label = isVideo ? '视频' : '外链'
   const detectedTitle = bestLinkTitle(source, url)
-  const title = isZhihuVideo && /^(?:www\.)?zhihu\.com$/i.test(detectedTitle) ? '知乎视频' : detectedTitle
-  const card = document.createElement('a')
-  card.setAttribute('href', url.href)
-  card.setAttribute('data-reader-role', 'zhihu-link-card')
+  const title = isZhihuVideo && (
+    /^(?:www\.)?zhihu\.com$/i.test(detectedTitle)
+    || detectedTitle === source.getAttribute('href')
+  ) ? '知乎视频' : detectedTitle
+
+  // 视频不能先落成可点击 <a> 再等 effect “抢占”替换。Android WebView/React
+  // 任一生命周期差异都会把它永久留成链接卡片。这里直接输出稳定的视频宿主，
+  // InlineVideoPages 只负责往宿主内部 portal 播放器，不再替换正文根节点。
+  const card = document.createElement(isVideo ? 'div' : 'a')
+  card.setAttribute('data-reader-role', isVideo ? 'zhihu-video-page' : 'zhihu-link-card')
   card.setAttribute('data-related-title', title)
   if (isVideo) {
-    // 阅读层据此把站外视频页交给 NewsNook 的媒体嗅探 + InkVideoPlayer，
-    // 而不是把它当普通浏览器链接直接跳走。
     card.setAttribute('data-media-format', 'video-page')
     card.setAttribute('data-source-page', url.href)
+  } else {
+    card.setAttribute('href', url.href)
   }
 
   const image = source.querySelector('img[src]')
@@ -147,7 +153,7 @@ function wrapContentImages(rawHtml: string): string {
       if (image.closest('[data-reader-role="zhihu-image-host"]')) continue
       if (image.getAttribute('data-reader-role') === 'zhihu-link-image') continue
       if (image.getAttribute('data-reader-role') === 'badge') continue
-      if (image.closest('a[data-reader-role="zhihu-link-card"]')) continue
+      if (image.closest('[data-reader-role="zhihu-link-card"], [data-reader-role="zhihu-video-page"]')) continue
 
       const candidates = zhihuImageCandidates(image)
       if (candidates[0]) image.setAttribute('src', candidates[0])

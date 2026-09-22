@@ -16,12 +16,17 @@ import {
 import { fetchAbsoluteText, fetchSourceText } from '../lib/http'
 import { detectNextPageUrl } from '../features/catalogEngine/pagination'
 import { describeNonFeedPayload } from '../lib/feedPayload'
+import { normalizeLegacyVideoArticle } from '../lib/videoArticle'
 import {
   enrichJazzyearDates,
   enrichLatepostDates,
   enrichPaulGrahamDates,
   neteasePageEntryCount,
   parseSourcePayload,
+  parseThePaperCursor,
+  thePaperCursor,
+  thePaperCursorAdvances,
+  thePaperPageRequest,
   zhihuEditionDate,
 } from '../lib/parseFeed'
 import { parseSourceArticles } from '../lib/sourceArticles'
@@ -144,10 +149,12 @@ function pagingFromCache(
       }
     }
     case 'upstream-cursor': {
-      const cursor = persisted?.cursor ?? articleDateCursor(cached.items)
+      const cursor =
+        persisted?.cursor ?? (source.kind === 'zhihu' ? articleDateCursor(cached.items) : undefined)
       return {
         phase: persisted?.exhausted ? 'exhausted' : cursor ? 'ready' : 'uninitialized',
         cursor,
+        page: persisted?.page,
       }
     }
   }
@@ -163,7 +170,7 @@ function loadCachedSource(
 } {
   const source = findSource(sourceId, extraSources)
   const cached = loadCachedList(sourceId)
-  let items = cached?.items ?? []
+  let items = (cached?.items ?? []).map(normalizeLegacyVideoArticle)
   if (
     source &&
     cached &&
@@ -392,6 +399,17 @@ export function useFeeds(
         // Offset pages shift when new headlines arrive. Rewalk from page 1 and
         // dedupe against retained history so a refresh cannot create gaps.
         updatePaging(id, { phase: 'ready', page: 0 })
+      } else if (source.kind === 'thepaper') {
+        // 澎湃的 startTime 是服务端快照游标；刷新必须采用本次首页返回的新游标，
+        // 不能沿用旧缓存，否则会从旧快照继续翻页并产生缺口。
+        const cursor = thePaperCursor(payload)
+        const parsedCursor = parseThePaperCursor(cursor)
+        updatePaging(id, {
+          phase: parsedCursor ? (parsedCursor.hasNext ? 'ready' : 'exhausted') : 'error',
+          page: 0,
+          cursor,
+          error: parsedCursor ? undefined : '澎湃未返回有效分页游标',
+        })
       } else {
         const edition = zhihuEditionDate(payload)
         updatePaging(id, {
@@ -767,9 +785,8 @@ export function useFeeds(
               return
             }
 
-            // upstream-cursor（知乎日报）
-            // Old cache versions did not persist the date cursor. Initialize
-            // the head first, then continue to the historical page in this request.
+            // upstream-cursor：澎湃使用 startTime 快照游标；知乎日报使用日期游标。
+            // 旧缓存可能没有游标，先刷新首页建立游标，再在同一次交互继续向后翻。
             if (!state.cursor) {
               const headPayload = await fetchSourceText(source, controller.signal)
               if (controller.signal.aborted) return
@@ -778,27 +795,60 @@ export function useFeeds(
                 headPayload,
                 controller.signal,
               )
-              if (!headArticles.length) throw new Error('知乎日报最新一期为空')
+              if (!headArticles.length) {
+                throw new Error(source.kind === 'thepaper' ? '澎湃最新列表为空' : '知乎日报最新一期为空')
+              }
               applyHeadPage(id, source, headPayload, headArticles)
               state = pagingRef.current[id]
               updatePaging(id, { ...state, phase: 'loading', error: undefined })
             }
 
             const previousCursor = state.cursor
-            if (!previousCursor) throw new Error('知乎日报日期游标尚未初始化')
-            const payload = await fetchSourceText(source, controller.signal, {
-              url: zhihuBeforeUrl(previousCursor),
-            })
+            if (!previousCursor) {
+              throw new Error(source.kind === 'thepaper' ? '澎湃分页游标尚未初始化' : '知乎日报日期游标尚未初始化')
+            }
+
+            let payload: string
+            let nextCursor: string | undefined
+            let nextPage = state.page ?? 0
+            if (source.kind === 'thepaper') {
+              const requestJson = thePaperPageRequest(source, previousCursor, nextPage + 1)
+              if (!requestJson) {
+                updatePaging(id, { ...state, phase: 'exhausted' })
+                return
+              }
+              payload = await fetchSourceText(source, controller.signal, { requestJson })
+              nextCursor = thePaperCursor(payload)
+              if (!nextCursor || !thePaperCursorAdvances(previousCursor, nextCursor)) {
+                throw new Error('澎湃返回了未前进的历史分页游标')
+              }
+              nextPage += 1
+            } else {
+              payload = await fetchSourceText(source, controller.signal, {
+                url: zhihuBeforeUrl(previousCursor),
+              })
+              nextCursor = zhihuEditionDate(payload)
+              if (!nextCursor || nextCursor >= previousCursor) {
+                throw new Error('知乎日报返回了无效的历史日期游标')
+              }
+            }
+
             if (controller.signal.aborted) return
             const parsed = await parseSourceArticles(source, payload, controller.signal)
-            const nextCursor = zhihuEditionDate(payload)
-            if (!nextCursor || nextCursor >= previousCursor) {
-              throw new Error('知乎日报返回了无效的历史日期游标')
+            if (source.kind === 'thepaper') {
+              const parsedCursor = parseThePaperCursor(nextCursor)
+              if (!parsedCursor) throw new Error('澎湃返回了无效的历史分页游标')
+              updatePaging(id, {
+                phase: parsed.length && parsedCursor.hasNext ? 'ready' : 'exhausted',
+                page: nextPage,
+                cursor: nextCursor,
+              })
+            } else {
+              updatePaging(id, {
+                phase: parsed.length ? 'ready' : 'exhausted',
+                cursor: nextCursor,
+              })
             }
-            updatePaging(id, {
-              phase: parsed.length ? 'ready' : 'exhausted',
-              cursor: nextCursor,
-            })
 
             const existing = bucketsRef.current.get(id) ?? []
             if (!parsed.length) {
@@ -809,7 +859,9 @@ export function useFeeds(
               )
               return
             }
-            const { merged, added } = mergeOlderPage(existing, parsed)
+            const historical =
+              source.kind === 'thepaper' ? placeUndatedPageAfterExisting(existing, parsed) : parsed
+            const { merged, added } = mergeOlderPage(existing, historical)
             commitBucket(id, merged)
             if (added > 0) {
               anyAdded = true

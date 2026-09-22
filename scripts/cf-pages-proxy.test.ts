@@ -101,6 +101,72 @@ console.log('--- 测试 3: /api/feed/:id 路由与信源匹配 ---')
     assert.equal(resLatepost.status, 200)
     assert.equal(capturedInit?.method, 'POST')
     assert.match(String(capturedInit?.body), /limit=/)
+
+    // JSON POST 信源（澎湃）：代理必须保留 application/json 与结构化 body。
+    const reqThePaper = new Request('https://news.aizeek.com/api/feed/thepaper-bookreview?page=0', {
+      method: 'POST',
+    })
+    const resThePaper = await onRequest({
+      request: reqThePaper,
+      params: { path: ['feed', 'thepaper-bookreview'] },
+      functionPath: '/api/feed/thepaper-bookreview',
+      waitUntil: () => {},
+      next: async () => new Response(),
+      env: {},
+      data: {},
+    })
+    assert.equal(resThePaper.status, 200)
+    assert.equal(capturedInit?.method, 'POST')
+    const paperHeaders = capturedInit?.headers as Record<string, string>
+    assert.match(paperHeaders['Content-Type'] ?? '', /application\/json/i)
+    assert.deepEqual(JSON.parse(String(capturedInit?.body)), {
+      nodeId: 26878,
+      pageNum: 1,
+      pageSize: 20,
+    })
+
+    const paperCursorBody = {
+      nodeId: 26878,
+      pageNum: 2,
+      pageSize: 20,
+      startTime: 1788837532062,
+      excludeContIds: ['34000000'],
+    }
+    const reqThePaperPage2 = new Request(
+      'https://news.aizeek.com/api/feed/thepaper-bookreview',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(paperCursorBody),
+      },
+    )
+    await onRequest({
+      request: reqThePaperPage2,
+      params: { path: ['feed', 'thepaper-bookreview'] },
+      functionPath: '/api/feed/thepaper-bookreview',
+      waitUntil: () => {},
+      next: async () => new Response(),
+      env: {},
+      data: {},
+    })
+    assert.deepEqual(JSON.parse(String(capturedInit?.body)), paperCursorBody)
+
+    // 南方周末：移动 UA 会被官网 302 到失效的 /wap/#/... 路由，代理必须使用桌面 UA。
+    const reqInfzm = new Request('https://news.aizeek.com/api/feed/infzm-depth')
+    const resInfzm = await onRequest({
+      request: reqInfzm,
+      params: { path: ['feed', 'infzm-depth'] },
+      functionPath: '/api/feed/infzm-depth',
+      waitUntil: () => {},
+      next: async () => new Response(),
+      env: {},
+      data: {},
+    })
+    assert.equal(resInfzm.status, 200)
+    assert.match(capturedUrl, /infzm\.com\/contents\?term_id=202/)
+    const infzmHeaders = capturedInit?.headers as Record<string, string>
+    assert.match(infzmHeaders['User-Agent'] ?? '', /Windows NT 10\.0/)
+    assert.doesNotMatch(infzmHeaders['User-Agent'] ?? '', /Mobile|Android/i)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -138,6 +204,26 @@ console.log('--- 测试 4: /api/page 正文抓取代理 ---')
     assert.equal(resPage.headers.get('Access-Control-Allow-Origin'), '*')
     assert.equal(capturedUrl, 'https://example.com/news/123')
     assert.equal(capturedHeaders.Referer, 'https://example.com/')
+
+    const reqBilibili = new Request(
+      'https://news.aizeek.com/api/page?url=https%3A%2F%2Fwww.bilibili.com%2Fvideo%2FBV1TEST123&ua=' +
+        encodeURIComponent('Mozilla/5.0 (Linux; Android 14) Chrome/126 Mobile Safari/537.36'),
+    )
+    await onRequest({
+      request: reqBilibili,
+      params: { path: ['page'] },
+      functionPath: '/api/page',
+      waitUntil: () => {},
+      next: async () => new Response(),
+      env: {},
+      data: {},
+    })
+    assert.equal(capturedHeaders.Referer, 'https://www.bilibili.com/')
+    assert.match(
+      capturedHeaders['User-Agent'] ?? '',
+      /Windows NT 10\.0/,
+      '服务端抓 Bilibili 页面时不应沿用移动 UA 进入 H5/挑战壳',
+    )
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -149,12 +235,20 @@ console.log('--- 测试 5: /api/image 防盗链 Referer 处理 ---')
   const originalFetch = globalThis.fetch
   let capturedWechatHeaders: Record<string, string> = {}
   let capturedOtherHeaders: Record<string, string> = {}
+  let capturedNeteaseHeaders: Record<string, string> = {}
+  let capturedBilibiliHeaders: Record<string, string> = {}
+  let capturedNeteaseUrl = ''
 
   try {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.includes('qpic.cn')) {
         capturedWechatHeaders = (init?.headers as Record<string, string>) || {}
+      } else if (url.includes('126.net')) {
+        capturedNeteaseUrl = url
+        capturedNeteaseHeaders = (init?.headers as Record<string, string>) || {}
+      } else if (url.includes('hdslb.com')) {
+        capturedBilibiliHeaders = (init?.headers as Record<string, string>) || {}
       } else {
         capturedOtherHeaders = (init?.headers as Record<string, string>) || {}
       }
@@ -193,6 +287,41 @@ console.log('--- 测试 5: /api/image 防盗链 Referer 处理 ---')
       data: {},
     })
     assert.equal(capturedOtherHeaders.Referer, 'https://cdn.example.com/')
+
+    // 网易图片必须升级 HTTPS，并使用网易门户 Referer 绕过 ws.126.net 防盗链。
+    const reqNetease = new Request(
+      'https://news.aizeek.com/api/image?url=http%3A%2F%2Fdingyue.ws.126.net%2Fcover.jpg',
+    )
+    await onRequest({
+      request: reqNetease,
+      params: { path: ['image'] },
+      functionPath: '/api/image',
+      waitUntil: () => {},
+      next: async () => new Response(),
+      env: {},
+      data: {},
+    })
+    assert.equal(capturedNeteaseUrl, 'https://dingyue.ws.126.net/cover.jpg')
+    assert.equal(capturedNeteaseHeaders.Referer, 'https://www.163.com/')
+
+    const reqBilibili = new Request(
+      'https://news.aizeek.com/api/image?url=' +
+        encodeURIComponent('https://i1.hdslb.com/bfs/archive/example.jpg'),
+    )
+    await onRequest({
+      request: reqBilibili,
+      params: { path: ['image'] },
+      functionPath: '/api/image',
+      waitUntil: () => {},
+      next: async () => new Response(),
+      env: {},
+      data: {},
+    })
+    assert.equal(
+      capturedBilibiliHeaders.Referer,
+      'https://www.bilibili.com/',
+      'Bilibili CDN 代理必须使用门户 Referer，而不是 i1.hdslb.com 自身',
+    )
   } finally {
     globalThis.fetch = originalFetch
   }

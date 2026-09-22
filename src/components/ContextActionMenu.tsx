@@ -10,6 +10,7 @@ import { createPortal } from 'react-dom'
 import type { LucideIcon } from 'lucide-react'
 
 import { resolveContextMenuPosition, type Point } from '../lib/contextActions'
+import { useHardwareBackLayer } from '../hooks/useHardwareBackLayer'
 
 export interface ContextActionItem {
   id: string
@@ -38,6 +39,10 @@ export function ContextActionMenu({
   onClose,
 }: Props) {
   const menuRef = useRef<HTMLDivElement>(null)
+  useHardwareBackLayer(open, () => {
+    onClose()
+    return true
+  })
   const [position, setPosition] = useState<ReturnType<typeof resolveContextMenuPosition> | null>(
     null,
   )

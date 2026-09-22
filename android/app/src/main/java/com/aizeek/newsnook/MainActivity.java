@@ -265,6 +265,7 @@ public class MainActivity extends BridgeActivity {
 
         TranslationPluginRegistrar.register(this);
         registerPlugin(DeviceMediaControlsPlugin.class);
+        registerPlugin(ReadAloudPlugin.class);
         registerPlugin(DlnaCastPlugin.class);
         registerPlugin(VolumePageTurnPlugin.class);
         registerPlugin(ProxiedHttpPlugin.class);
@@ -272,6 +273,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(AppUpdatePlugin.class);
         registerPlugin(SecureStorePlugin.class);
         registerPlugin(ZhihuSessionPlugin.class);
+        registerPlugin(LinuxDoSessionPlugin.class);
         registerPlugin(SyncNotificationPlugin.class);
         bridgeBuilder.addWebViewListener(
             new WebViewListener() {

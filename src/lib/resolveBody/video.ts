@@ -9,18 +9,23 @@ import {
 } from '../../features/mediaSniffer/service'
 import { sanitizeArticleHtml } from '../sanitize'
 import type { Article } from '../types'
+import { trustedEmbeddedVideoFrameHtml } from '../videoArticle'
 import { escapeHtml, type MediaResolvedHandler, type ResolvedBody } from './shared'
 
-export function buildVideoBody(
-  article: Article,
-  pending: 'sniffing' | 'failed' = 'sniffing',
-): ResolvedBody {
-  const paragraphs = (article.summary || article.title)
+function videoDescriptionHtml(article: Article): string {
+  return (article.summary || article.title)
     .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => `<p>${escapeHtml(line)}</p>`)
     .join('')
+}
+
+export function buildVideoBody(
+  article: Article,
+  pending: 'sniffing' | 'failed' = 'sniffing',
+): ResolvedBody {
+  const paragraphs = videoDescriptionHtml(article)
 
   if (article.videoUrl) {
     return {
@@ -47,6 +52,19 @@ export function buildVideoBodyForTest(
   pending: 'sniffing' | 'failed' = 'sniffing',
 ): ResolvedBody {
   return buildVideoBody(article, pending)
+}
+
+/**
+ * Web 无法像 Android 原生 WebView 那样观察跨域播放器网络请求。
+ * Feed 已给出受信播放器时，直接保留源站官方播放器，而不是先依赖 /api/page 嗅探。
+ */
+export function buildTrustedEmbeddedVideoBody(article: Article): ResolvedBody | null {
+  const iframe = trustedEmbeddedVideoFrameHtml(article.contentHtml, article.title)
+  if (!iframe) return null
+  return {
+    contentHtml: sanitizeArticleHtml(`${iframe}${videoDescriptionHtml(article)}`),
+    bodySource: 'video',
+  }
 }
 
 function stripVideoDiscoveryPlaceholder(html: string): string {

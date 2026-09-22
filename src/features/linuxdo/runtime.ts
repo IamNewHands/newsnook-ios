@@ -1,0 +1,25 @@
+import { LinuxDoApiClient } from './api/client'
+import { LinuxDoBookmarkService } from './bookmark/service'
+import { LinuxDoDiscoveryService } from './discovery/service'
+import { LinuxDoDraftService } from './draft/service'
+import { LinuxDoFeedService } from './feed/service'
+import { LinuxDoInteractionService } from './interaction/service'
+import { LinuxDoNotificationService } from './notification/service'
+import { LinuxDoPeopleService } from './people/service'
+import { LinuxDoSearchService } from './search/service'
+import { LinuxDoTemplateService } from './template/service'
+import { LinuxDoTopicService } from './topic/service'
+import { LinuxDoUploadService } from './upload/service'
+
+export const linuxDoApi = new LinuxDoApiClient()
+export const linuxDoFeeds = new LinuxDoFeedService(linuxDoApi)
+export const linuxDoTopics = new LinuxDoTopicService(linuxDoApi)
+export const linuxDoInteractions = new LinuxDoInteractionService(linuxDoApi)
+export const linuxDoNotifications = new LinuxDoNotificationService(linuxDoApi)
+export const linuxDoDiscovery = new LinuxDoDiscoveryService(linuxDoApi)
+export const linuxDoSearch = new LinuxDoSearchService(linuxDoApi)
+export const linuxDoTemplates = new LinuxDoTemplateService(linuxDoApi)
+export const linuxDoDrafts = new LinuxDoDraftService(linuxDoApi)
+export const linuxDoUploads = new LinuxDoUploadService(linuxDoApi)
+export const linuxDoPeople = new LinuxDoPeopleService(linuxDoApi)
+export const linuxDoBookmarks = new LinuxDoBookmarkService(linuxDoApi)

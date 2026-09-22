@@ -18,6 +18,7 @@ export type LogNamespace =
   | 'http'
   | 'proxy'
   | 'reader'
+  | 'readAloud'
   | 'sniffer'
   | 'storage'
   | 'sync'
@@ -66,6 +67,7 @@ const ALL_NAMESPACES: LogNamespace[] = [
   'http',
   'proxy',
   'reader',
+  'readAloud',
   'sniffer',
   'storage',
   'sync',
@@ -264,6 +266,7 @@ export const log = {
   http: createLogger('http'),
   proxy: createLogger('proxy'),
   reader: createLogger('reader'),
+  readAloud: createLogger('readAloud'),
   sniffer: createLogger('sniffer'),
   storage: createLogger('storage'),
   sync: createLogger('sync'),

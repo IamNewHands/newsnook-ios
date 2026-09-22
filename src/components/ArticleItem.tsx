@@ -185,6 +185,11 @@ export const ArticleRow = memo(function ArticleRow({
                     : 'opacity-[0.98] group-active:opacity-100'
                 }`}
               />
+              {article.contentType === 'video' && (
+                <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 py-0.5 font-mono text-[8.5px] leading-none text-white/90 backdrop-blur-sm">
+                  视频
+                </span>
+              )}
             </span>
           )}
         </button>
@@ -301,16 +306,21 @@ export const ArticleRow = memo(function ArticleRow({
           <div className="w-full">
             {/* 大图展示 (如果有图) */}
             {cover && (
-              <div className="mb-3.5 overflow-hidden rounded-lg bg-ink border border-haze/60">
+              <div className="relative mb-3.5 overflow-hidden rounded-lg bg-ink border border-haze/60">
                 <InkImage
                   src={cover}
                   collapseOnError
-                  className={`h-38 w-full object-cover transition-all duration-500 group-hover:scale-105 ${
+                  className={`${article.contentType === 'video' ? 'aspect-video h-auto' : 'h-38'} w-full object-cover transition-all duration-500 group-hover:scale-105 ${
                     read
                       ? 'opacity-70 grayscale-[0.2] saturate-[0.8]'
                       : 'opacity-95 group-hover:opacity-100'
                   }`}
                 />
+                {article.contentType === 'video' && (
+                  <span className="absolute bottom-2 right-2 rounded-full border border-white/12 bg-black/55 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.08em] text-white/85 backdrop-blur-sm">
+                    视频
+                  </span>
+                )}
               </div>
             )}
 

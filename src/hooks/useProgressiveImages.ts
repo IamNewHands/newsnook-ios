@@ -86,16 +86,23 @@ export function useProgressiveImages(
 
     const zhihuHostOf = (img: HTMLImageElement) =>
       img.closest<HTMLElement>('[data-reader-role="zhihu-image-host"]')
+    const linuxDoHostOf = (img: HTMLImageElement) =>
+      img.closest<HTMLElement>('[data-linuxdo-role="image-block"], [data-linuxdo-role="image-paragraph"]')
 
     const clearVisualState = (img: HTMLImageElement) => {
       img.classList.remove('async-img-failed', 'async-img-done')
       img.classList.add('ink-shimmer')
       const host = zhihuHostOf(img)
       host?.classList.remove('is-failed', 'is-decorative')
+      const linuxDoHost = linuxDoHostOf(img)
+      linuxDoHost?.classList.remove('is-failed', 'is-loaded')
+      linuxDoHost?.classList.add('is-loading', 'ink-shimmer')
     }
 
     const applyRole = (img: HTMLImageElement) => {
       const stamped = img.getAttribute('data-reader-role')
+      const linuxDoRole = img.getAttribute('data-linuxdo-role')
+      if (linuxDoRole === 'content-image' || linuxDoRole === 'onebox-image') return
       if (stamped === 'badge') {
         img.classList.add('reader-img-badge')
         return
@@ -119,15 +126,21 @@ export function useProgressiveImages(
     const settle = (img: HTMLImageElement, ok: boolean) => {
       img.classList.remove('ink-shimmer')
       const host = zhihuHostOf(img)
+      const linuxDoHost = linuxDoHostOf(img)
+      linuxDoHost?.classList.remove('is-loading', 'ink-shimmer')
       if (!ok) {
         img.classList.add('async-img-failed')
         img.classList.remove('async-img-done')
         host?.classList.add('is-failed')
+        linuxDoHost?.classList.remove('is-loaded')
+        linuxDoHost?.classList.add('is-failed')
         return
       }
       img.classList.remove('async-img-failed')
       img.classList.add('async-img-done')
       host?.classList.remove('is-failed')
+      linuxDoHost?.classList.remove('is-failed')
+      linuxDoHost?.classList.add('is-loaded')
       applyRole(img)
     }
 
@@ -275,7 +288,9 @@ export function useProgressiveImages(
         return
       }
 
-      const failedHost = target.closest<HTMLElement>('[data-reader-role="zhihu-image-host"].is-failed')
+      const failedHost = target.closest<HTMLElement>(
+        '[data-reader-role="zhihu-image-host"].is-failed, [data-linuxdo-role="image-block"].is-failed, [data-linuxdo-role="image-paragraph"].is-failed',
+      )
       if (!failedHost || !root.contains(failedHost)) return
       const failedImage = failedHost.querySelector('img')
       if (!(failedImage instanceof HTMLImageElement)) return
@@ -303,7 +318,10 @@ export function useProgressiveImages(
 
       const urls = imageFallbackUrls(img)
       retryStates.set(img, { urls, index: 0, nativeTried: false, busy: false })
-      if (!premarkedBadge && !premarkedRelated) img.classList.add('async-img', 'ink-shimmer')
+      if (!premarkedBadge && !premarkedRelated) {
+        img.classList.add('async-img')
+        clearVisualState(img)
+      }
 
       const onLoad = () => {
         const state = retryStates.get(img)

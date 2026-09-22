@@ -29,6 +29,11 @@ assert.deepEqual(httpsUpgradeCandidates('http://cdn.example.com/live.m3u8'), [
 ])
 
 assert.deepEqual(
+  httpsUpgradeCandidates('http://81.69.248.93:1200/bilibili/user/video/67079745'),
+  ['http://81.69.248.93:1200/bilibili/user/video/67079745'],
+)
+
+assert.deepEqual(
   requestUrlCandidates('http://www.bbc.co.uk/zhongwen/simp/world/2014/09/article'),
   ['https://www.bbc.co.uk/zhongwen/simp/world/2014/09/article'],
 )

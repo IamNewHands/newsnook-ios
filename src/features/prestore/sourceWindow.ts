@@ -6,7 +6,14 @@ import {
 } from '../../lib/feedPagination'
 import { describeNonFeedPayload } from '../../lib/feedPayload'
 import { fetchSourceText } from '../../lib/http'
-import { neteasePageEntryCount, zhihuEditionDate } from '../../lib/parseFeed'
+import {
+  neteasePageEntryCount,
+  parseThePaperCursor,
+  thePaperCursor,
+  thePaperCursorAdvances,
+  thePaperPageRequest,
+  zhihuEditionDate,
+} from '../../lib/parseFeed'
 import { parseSourceArticles } from '../../lib/sourceArticles'
 import type { Article } from '../../lib/types'
 import {
@@ -72,19 +79,37 @@ async function fetchCursorWindow(
   let collected = sortArticles(
     requireArticles(headPayload, await parseSourceArticles(source, headPayload, signal)),
   )
-  let cursor = zhihuEditionDate(headPayload)
-  if (!cursor) throw new Error('知乎日报未返回有效日期游标')
+  let cursor = source.kind === 'thepaper' ? thePaperCursor(headPayload) : zhihuEditionDate(headPayload)
+  if (!cursor) {
+    throw new Error(source.kind === 'thepaper' ? '澎湃未返回有效分页游标' : '知乎日报未返回有效日期游标')
+  }
 
   for (let page = 1; page < MAX_CURSOR_PAGES && collected.length < desired; page += 1) {
-    const payload = await fetchSourceText(source, signal, { url: zhihuBeforeUrl(cursor) })
-    const parsed = await parseSourceArticles(source, payload, signal)
-    const nextCursor = zhihuEditionDate(payload)
-    if (!nextCursor || nextCursor >= cursor) {
-      throw new Error('知乎日报返回了无效的历史日期游标')
+    let payload: string
+    let nextCursor: string | undefined
+    if (source.kind === 'thepaper') {
+      const cursorInfo = parseThePaperCursor(cursor)
+      if (!cursorInfo?.hasNext) break
+      const requestJson = thePaperPageRequest(source, cursor, page)
+      if (!requestJson) break
+      payload = await fetchSourceText(source, signal, { requestJson })
+      nextCursor = thePaperCursor(payload)
+      if (!nextCursor || !thePaperCursorAdvances(cursor, nextCursor)) {
+        throw new Error('澎湃返回了未前进的历史分页游标')
+      }
+    } else {
+      payload = await fetchSourceText(source, signal, { url: zhihuBeforeUrl(cursor) })
+      nextCursor = zhihuEditionDate(payload)
+      if (!nextCursor || nextCursor >= cursor) {
+        throw new Error('知乎日报返回了无效的历史日期游标')
+      }
     }
+
+    const parsed = await parseSourceArticles(source, payload, signal)
     cursor = nextCursor
     if (!parsed.length) break
-    collected = mergeOlderPage(collected, parsed).merged
+    const historical = source.kind === 'thepaper' ? placeUndatedPageAfterExisting(collected, parsed) : parsed
+    collected = mergeOlderPage(collected, historical).merged
   }
   return collected.slice(0, desired)
 }

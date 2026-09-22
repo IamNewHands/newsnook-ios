@@ -5,6 +5,7 @@ import type { ZhihuCollectionSummary, ZhihuInteractionService } from '../interac
 import { canExecuteZhihuOperation } from '../protocol'
 import type { ZhihuEntityRef } from '../types'
 import { ZhihuErrorBanner } from './ZhihuUi'
+import { useHardwareBackLayer } from '../../../hooks/useHardwareBackLayer'
 
 interface Props {
   refValue: ZhihuEntityRef
@@ -23,6 +24,10 @@ export function ZhihuCollectionPicker({ refValue, service, authenticated, onColl
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [newTitle, setNewTitle] = useState('')
+  useHardwareBackLayer(open && authenticated, () => {
+    setOpen(false)
+    return true
+  })
 
   useEffect(() => {
     if (!open || !authenticated || !supported) return

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 
@@ -27,6 +27,7 @@ import {
 } from './lib/bodyCache'
 import { sortArticles } from './lib/feedPagination'
 import { recoverAppScrollAfterNavigation } from './lib/gestureStyles'
+import { dismissTopHardwareBackLayer } from './lib/hardwareBackStack'
 import { log } from './lib/logger'
 import {
   buildReadingProfile,
@@ -87,6 +88,7 @@ import { PresetListScreen } from './screens/settings/PresetListScreen'
 import { StorageScreen } from './screens/settings/StorageScreen'
 import { TypographyScreen } from './screens/settings/TypographyScreen'
 import { TranslationScreen } from './screens/settings/TranslationScreen'
+import { ReadAloudScreen } from './screens/settings/ReadAloudScreen'
 import { AiSettingsScreen } from './screens/settings/AiSettingsScreen'
 import { ProxyScreen } from './screens/settings/ProxyScreen'
 import { ConfirmDialog, OptionPickerDialog } from './components/ConfirmDialog'
@@ -109,7 +111,11 @@ import {
   translationProviderLabel,
 } from './features/translation/config'
 import { resolveAiFeatureConfig } from './features/translation/aiConfig'
+import { readAloudEngineLabel } from './features/readAloud/config'
+import { GlobalReadAloudBar } from './features/readAloud/ReadAloudBar'
+import { updateActiveReadAloudPreferences } from './features/readAloud/service'
 import { FAVORITES_CATEGORY_ID, RECOMMEND_CATEGORY_ID, type CategoryId } from './sources/categories'
+import { applySnapshotToPrefs } from './sources/presets'
 import {
   FOLLOWS_ENABLED_SOURCES,
   FONT_FAMILY_OPTIONS,
@@ -165,6 +171,12 @@ const ZhihuWorkspace = lazy(() =>
   })),
 )
 
+const LinuxDoWorkspace = lazy(() =>
+  import('./features/linuxdo/ui/LinuxDoWorkspace').then((module) => ({
+    default: module.LinuxDoWorkspace,
+  })),
+)
+
 const DEFAULT_ENABLED = SOURCES.filter((source) => source.enabled).map((source) => source.id)
 
 function emptyCacheSnapshot() {
@@ -195,7 +207,8 @@ type SettingsRoute =
   | { name: 'custom-scheme' }
   | { name: 'storage' }
   | { name: 'translation' }
-  | { name: 'ai'; returnTo?: 'translation' }
+  | { name: 'read-aloud' }
+  | { name: 'ai'; returnTo?: 'translation' | 'read-aloud' }
   | { name: 'proxy' }
   | { name: 'later' }
   | { name: 'history' }
@@ -269,6 +282,13 @@ export default function App() {
     () => resolveAiFeatureConfig({ ai: prefs.translation.ai }, 'speedRead'),
     [prefs.translation.ai],
   )
+  useEffect(() => {
+    void updateActiveReadAloudPreferences(
+      prefs.readAloud,
+      prefs.translation.ai,
+    )
+  }, [prefs.readAloud, prefs.translation.ai])
+
   const [tab, setTab] = useState<TabKey>('today')
   const [activeSiteId, setActiveSiteId] = useState<SiteId | null>(() => loadActiveSiteId())
   const siteBackHandlerRef = useRef<(() => boolean) | null>(null)
@@ -474,15 +494,18 @@ export default function App() {
 
   // 切换预设后回到新预设的第一个普通分类：推荐池随预设而变，不静默延续推荐 Tab
   const activePresetId = presets.state.activePresetId
+  const activePresetFirstCategoryId = useMemo(() => {
+    const active = presets.activePreset
+    if (!active) return defaultFeedCategoryId(regularCategories)
+    return defaultFeedCategoryId(visibleCategories(applySnapshotToPrefs(prefs, active.snapshot)))
+  }, [prefs, presets.activePreset, regularCategories])
   const prevPresetIdRef = useRef(activePresetId)
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (prevPresetIdRef.current === activePresetId) return
     prevPresetIdRef.current = activePresetId
-    if (categoryId === RECOMMEND_CATEGORY_ID) {
-      setCategoryId(defaultFeedCategoryId(regularCategories))
-      setCategoryFilterSourceId(null)
-    }
-  }, [activePresetId, categoryId, regularCategories])
+    setCategoryId(activePresetFirstCategoryId)
+    setCategoryFilterSourceId(null)
+  }, [activePresetFirstCategoryId, activePresetId])
 
   const categorySourceIds = useMemo(
     () => sourceIdsForCategoryWithPrefs(categoryId, prefs, enabledIds),
@@ -572,6 +595,9 @@ export default function App() {
     let removeListener: (() => Promise<void>) | undefined
 
     void CapacitorApp.addListener('backButton', () => {
+      if (dismissTopHardwareBackLayer()) {
+        return
+      }
       if (schemeOnboardingCloserRef.current?.()) {
         return
       }
@@ -1104,8 +1130,17 @@ export default function App() {
     const { providers, translation, speedRead } = prefs.translation.ai
     const translationModel = translation.model.trim() || '未选模型'
     const speedReadModel = speedRead.model.trim() || '未选模型'
-    return `${providers.length} 个提供商 · 翻译 ${translationModel} · 速读 ${speedReadModel}`
+    const ttsCount = providers.filter((provider) => provider.capabilities.tts).length
+    return `${providers.length} 个提供商 · 翻译 ${translationModel} · 速读 ${speedReadModel} · TTS ${ttsCount}`
   }, [prefs.translation.ai])
+
+  const readAloudSummary = useMemo(
+    () =>
+      `${readAloudEngineLabel(prefs.readAloud.engine)} · ${prefs.readAloud.rate.toFixed(2)}× · ${
+        prefs.readAloud.autoContinue ? '连续朗读' : '单段'
+      }`,
+    [prefs.readAloud],
+  )
 
   const proxySummary = useMemo(() => {
     const mode = proxyModeLabel(prefs.proxy.mode)
@@ -1197,13 +1232,31 @@ export default function App() {
       )
     }
 
+    if (settingsRoute.name === 'read-aloud') {
+      return (
+        <ReadAloudScreen
+          prefs={prefs.readAloud}
+          ai={prefs.translation.ai}
+          onChange={(readAloud) => update((prev) => ({ ...prev, readAloud }))}
+          onBack={() => setSettingsRoute(null)}
+          onOpenAiSettings={() => setSettingsRoute({ name: 'ai', returnTo: 'read-aloud' })}
+        />
+      )
+    }
+
     if (settingsRoute.name === 'ai') {
       return (
         <AiSettingsScreen
           prefs={prefs.translation}
           onChange={(translation) => update((prev) => ({ ...prev, translation }))}
           onBack={() =>
-            setSettingsRoute(settingsRoute.returnTo === 'translation' ? { name: 'translation' } : null)
+            setSettingsRoute(
+              settingsRoute.returnTo === 'translation'
+                ? { name: 'translation' }
+                : settingsRoute.returnTo === 'read-aloud'
+                  ? { name: 'read-aloud' }
+                  : null,
+            )
           }
         />
       )
@@ -1489,6 +1542,7 @@ export default function App() {
           typographySummary={typographySummary}
           appearanceSummary={appearanceSummary}
           translationSummary={translationSummary}
+          readAloudSummary={readAloudSummary}
           aiSummary={aiSummary}
           proxySummary={proxySummary}
           storageSummary={storageSummary}
@@ -1507,6 +1561,7 @@ export default function App() {
           onOpenTypographySettings={() => setSettingsRoute({ name: 'typography' })}
           onOpenAppearanceSettings={() => setSettingsRoute({ name: 'appearance' })}
           onOpenTranslationSettings={() => setSettingsRoute({ name: 'translation' })}
+          onOpenReadAloudSettings={() => setSettingsRoute({ name: 'read-aloud' })}
           onOpenAiSettings={() => setSettingsRoute({ name: 'ai' })}
           onOpenProxySettings={() => setSettingsRoute({ name: 'proxy' })}
           onOpenStorageSettings={() => setSettingsRoute({ name: 'storage' })}
@@ -1536,6 +1591,7 @@ export default function App() {
 
     return (
       <FeedScreen
+        key={`preset:${activePresetId}`}
         title={BRAND_TITLE}
         caption={
           activeFilterSource
@@ -1653,9 +1709,27 @@ export default function App() {
                 speedReadConfig={speedReadConfig}
               />
             </Suspense>
+          ) : activeSiteId === 'linuxdo' ? (
+            <Suspense
+              fallback={
+                <div role="status" className="flex h-full items-center justify-center font-mono text-[12px] text-paper-faint">
+                  正在打开 Linux.do 工作区…
+                </div>
+              }
+            >
+              <LinuxDoWorkspace
+                onExit={leaveActiveSite}
+                backHandlerRef={siteBackHandlerRef}
+                presetSwitcher={presetSwitcherConfig}
+              />
+            </Suspense>
           ) : (
             <>
               {renderTab()}
+
+              <GlobalReadAloudBar
+                currentReaderArticleId={reading?.id ?? null}
+              />
 
               {!focusSource && (
                 <TabBar
@@ -1711,6 +1785,7 @@ export default function App() {
             onCacheChange={notifyCacheChange}
             overlayCloserRef={readerOverlayCloserRef}
             translationPrefs={prefs.translation}
+            readAloudPrefs={prefs.readAloud}
             customSources={prefs.customSources}
             einkMode={Boolean(prefs.einkMode)}
             wifiOnlyAutoLoadMedia={Boolean(prefs.wifiOnlyAutoLoadMedia)}
@@ -1775,6 +1850,7 @@ export default function App() {
         onUpdate={appUpdate.onUpdate}
         onLater={appUpdate.onLater}
         onSkip={appUpdate.onSkip}
+        allowPermanentSkip={appUpdate.dialogOrigin === 'manual'}
       />
       <OptionPickerDialog
         open={appUpdate.trackPickerOpen}

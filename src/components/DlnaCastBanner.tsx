@@ -17,6 +17,7 @@ import {
   useDlnaCastSession,
 } from '../features/cast/session'
 import { isDlnaCastAvailable } from '../lib/dlnaCast'
+import { useHardwareBackLayer } from '../hooks/useHardwareBackLayer'
 
 function formatCastTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
@@ -34,6 +35,10 @@ export function DlnaCastBanner() {
   const [open, setOpen] = useState(false)
   const [seekDraft, setSeekDraft] = useState<number | null>(null)
   const [volumeDraft, setVolumeDraft] = useState<number | null>(null)
+  useHardwareBackLayer(open, () => {
+    setOpen(false)
+    return true
+  })
 
   useEffect(() => {
     if (!isDlnaCastAvailable()) return

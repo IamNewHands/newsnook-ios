@@ -2,6 +2,7 @@ import createDOMPurify from 'dompurify'
 import { parseHTML } from 'linkedom'
 
 import { isAudioMediaUrl } from './articleAudio'
+import { trustedEmbeddedVideoFrameHtml } from './videoArticle'
 
 type PurifyLike = { sanitize: (dirty: string, config?: object) => string }
 
@@ -127,11 +128,19 @@ function ensureYoutubeReferrerPolicy(block: string): string {
   )
 }
 
-/** 丢掉非 YouTube 的 iframe，并为白名单播放器补齐最小来源标识 */
+/**
+ * iframe 默认全部丢弃，仅保留明确白名单的视频播放器。
+ * YouTube 延续原有 staging 流程；Bilibili/Vimeo 等只重建最小安全 iframe，
+ * 不继承上游 style/event/任意权限属性。
+ */
 function keepAllowedEmbeds(html: string): string {
   return html.replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, (block) => {
     const src = block.match(/\bsrc\s*=\s*["']([^"']+)["']/i)?.[1]
-    return isAllowedYoutubeEmbedSrc(src) ? ensureYoutubeReferrerPolicy(block) : ''
+    if (isAllowedYoutubeEmbedSrc(src)) return ensureYoutubeReferrerPolicy(block)
+
+    const title =
+      block.match(/\btitle\s*=\s*["']([^"']+)["']/i)?.[1]?.trim() || '视频'
+    return trustedEmbeddedVideoFrameHtml(block, title) ?? ''
   })
 }
 
@@ -278,6 +287,30 @@ export function sanitizeArticleHtml(html: string): string {
       'data-source-page',
       'data-related-title',
       'data-reader-image-fallbacks',
+      // Linux.do / Discourse: source classes are removed, so trusted semantic
+      // roles are converted to this app-owned marker before sanitization.
+      'data-linuxdo-role',
+      'data-linuxdo-callout',
+      'data-linuxdo-original-src',
+      'data-linuxdo-topic-id',
+      'data-linuxdo-post-number',
+      'data-linuxdo-username',
+      'data-linuxdo-href',
+      'data-linuxdo-onebox-kind',
+      'data-linuxdo-poll-name',
+      'data-linuxdo-poll-status',
+      'data-linuxdo-poll-type',
+      'data-linuxdo-poll-voters',
+      'data-linuxdo-poll-votes',
+      'data-linuxdo-poll-percent',
+      'data-linuxdo-poll-option-id',
+      'data-linuxdo-policy-version',
+      'data-linuxdo-policy-status',
+      'data-linuxdo-hashtag-type',
+      'data-linuxdo-hashtag-slug',
+      'data-linuxdo-hashtag-glyph',
+      'data-linuxdo-category-color',
+      'data-linuxdo-preview-block',
       // 知乎段评：只保留本地注入的服务端 segment 元数据，供阅读层打开段评/点赞。
       'data-zhihu-segment-id',
       'data-zhihu-content-id',

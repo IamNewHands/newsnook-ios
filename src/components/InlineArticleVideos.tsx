@@ -1,4 +1,4 @@
-import { useEffect, useState, type MutableRefObject, type RefObject } from 'react'
+import { useLayoutEffect, useRef, useState, type MutableRefObject, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { RefreshCw } from 'lucide-react'
 
@@ -23,10 +23,23 @@ interface Props {
 }
 
 interface MountedInlineVideo extends InlineVideoDescriptor {
+  key: string
+  usesFallbackTitle: boolean
   host: HTMLDivElement
   anchor: Comment
   stopFullscreenWatch: () => void
   original: HTMLVideoElement
+}
+
+function releaseInlineVideo({ host, anchor, stopFullscreenWatch, original }: MountedInlineVideo): void {
+  stopFullscreenWatch()
+  const parent = anchor.parentNode
+  if (!parent) { host.remove(); return }
+  if (host.parentNode !== parent || host.previousSibling !== anchor) {
+    parent.insertBefore(host, anchor.nextSibling)
+  }
+  host.replaceWith(original)
+  anchor.remove()
 }
 
 /**
@@ -49,63 +62,80 @@ export function InlineArticleVideos({
 }: Props) {
   const [mounted, setMounted] = useState<MountedInlineVideo[]>([])
 
-  useEffect(() => {
+  const mountedRef = useRef<MountedInlineVideo[]>([])
+  const mountSequenceRef = useRef(0)
+
+  useLayoutEffect(() => {
     const root = rootRef.current
     if (!root || !enabled) {
+      for (const item of mountedRef.current) releaseInlineVideo(item)
+      mountedRef.current = []
       setMounted([])
       return
     }
 
-    const next: MountedInlineVideo[] = []
-    root.querySelectorAll<HTMLVideoElement>('video').forEach((video, index) => {
-      const descriptor = describeInlineVideo(
-        video,
-        fallbackTitle,
-        sourcePage || document.baseURI,
-      )
-      if (!descriptor) return
+    // HTML replacement and metadata updates must not create a new portal container
+    // for the same video. Reuse the host before paint; never scan our own <video>.
+    const scan = () => {
+      const previous = mountedRef.current
+      const rawVideos = [...root.querySelectorAll<HTMLVideoElement>('video')]
+        .filter(video => !video.closest('[data-reader-inline-video]'))
+      const next = previous.filter(item => root.contains(item.anchor))
+      if (!rawVideos.length && next.length === previous.length) return
 
-      // currentSrc reflects the browser-selected <source> when it is already
-      // available; otherwise the sanitized attribute parsed above is reliable.
-      const src = video.currentSrc?.trim() || descriptor.src
-      const host = document.createElement('div')
-      const anchor = document.createComment('reader-inline-video-anchor')
-      host.className = 'reader-inline-video'
-      host.setAttribute('data-reader-inline-video', String(index + 1))
-      video.replaceWith(anchor, host)
-      const stopFullscreenWatch = watchInlineVideoFullscreenHost(host, anchor)
-      next.push({ ...descriptor, src, host, anchor, stopFullscreenWatch, original: video })
-    })
+      for (const video of rawVideos) {
+        const descriptor = describeInlineVideo(video, '', sourcePage || document.baseURI)
+        if (!descriptor) continue
+        const src = video.currentSrc?.trim() || descriptor.src
+        const reused = previous.find(item => item.src === src
+          && !root.contains(item.anchor) && !next.some(entry => entry.host === item.host))
+        reused?.stopFullscreenWatch()
+        const host = reused?.host ?? document.createElement('div')
+        const anchor = document.createComment('reader-inline-video-anchor')
+        const usesFallbackTitle = !(
+          video.getAttribute('title')?.trim() || video.getAttribute('aria-label')?.trim()
+          || video.closest('figure')?.querySelector('figcaption')?.textContent?.trim()
+        )
+        host.className = 'reader-inline-video'
+        host.setAttribute('data-reader-inline-video', String(next.length + 1))
+        video.replaceWith(anchor, host)
+        const stopFullscreenWatch = watchInlineVideoFullscreenHost(host, anchor)
+        next.push({
+          ...descriptor, src, host, anchor, stopFullscreenWatch, original: video,
+          usesFallbackTitle, key: reused?.key ?? `inline-video-${mountSequenceRef.current++}`,
+        })
+      }
 
-    setMounted(next)
-
-    return () => {
-      // Native/fallback fullscreen temporarily promotes the portal host to <body>
-      // so reader containment cannot clip a fixed player. Put it back before
-      // restoring the original article DOM; this also keeps Strict Mode replay safe.
-      next.forEach(({ host, anchor, stopFullscreenWatch, original }) => {
-        stopFullscreenWatch()
-        const parent = anchor.parentNode
-        if (!parent) {
-          host.remove()
-          return
-        }
-        if (host.parentNode !== parent || host.previousSibling !== anchor) {
-          parent.insertBefore(host, anchor.nextSibling)
-        }
-        host.replaceWith(original)
-        anchor.remove()
-      })
+      const retainedHosts = new Set(next.map(item => item.host))
+      for (const item of previous) {
+        if (!retainedHosts.has(item.host)) releaseInlineVideo(item)
+      }
+      mountedRef.current = next
+      setMounted(next)
     }
-  }, [enabled, fallbackTitle, html, rootRef, sourcePage])
+
+    scan()
+    const observer = new MutationObserver(scan)
+    observer.observe(root, { childList: true, subtree: true })
+    // Changing HTML only reconnects the observer; player teardown belongs to
+    // an actual removed source, disable, or component unmount.
+    return () => observer.disconnect()
+  }, [enabled, html, rootRef, sourcePage])
+
+  useLayoutEffect(() => () => {
+    for (const item of mountedRef.current) releaseInlineVideo(item)
+    mountedRef.current = []
+  }, [])
 
   return mounted.map(({
     host,
+    key,
+    usesFallbackTitle,
     anchor: _anchor,
     stopFullscreenWatch: _stopFullscreenWatch,
     original: _original,
     ...video
-  }, index) =>
+  }) =>
     createPortal(
       video.pending && !video.src ? (
         <VideoSniffPlaceholder
@@ -117,7 +147,7 @@ export function InlineArticleVideos({
         <InkVideoPlayer
           src={video.src}
           poster={video.poster}
-          title={video.title}
+          title={usesFallbackTitle ? fallbackTitle || video.title : video.title}
           format={video.format}
           sourcePage={video.sourcePage || sourcePage}
           requestHeaders={video.requestHeaders}
@@ -131,7 +161,7 @@ export function InlineArticleVideos({
         />
       ),
       host,
-      `${index}:${video.src}`,
+      key,
     ),
   )
 }

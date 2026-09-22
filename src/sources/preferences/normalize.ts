@@ -10,6 +10,7 @@ import {
 } from '../../lib/theme'
 import { DEFAULT_CUSTOM_SCHEME, normalizeCustomScheme } from '../../lib/customScheme'
 import { normalizeTranslationPrefs } from '../../features/translation/config'
+import { normalizeReadAloudPrefs } from '../../features/readAloud/config'
 import { normalizeProxyPrefs } from '../../features/proxy/config'
 import {
   CATEGORIES,
@@ -187,6 +188,7 @@ export function normalizePreferences(raw: unknown): Preferences {
           ? 'cards'
           : 'classic',
     translation: normalizeTranslationPrefs(input.translation),
+    readAloud: normalizeReadAloudPrefs(input.readAloud),
     proxy: normalizeProxyPrefs(input.proxy),
     autoRefreshOnCategorySwitch:
       typeof input.autoRefreshOnCategorySwitch === 'boolean'

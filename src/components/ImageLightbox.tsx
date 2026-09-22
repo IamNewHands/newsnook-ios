@@ -7,7 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from 'react'
-import { Download, Share2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, Loader2, RefreshCcw, Share2, X } from 'lucide-react'
 
 import { saveImageToGallery, shareImage } from '../lib/imageActions'
 import { lockBodyScroll } from '../lib/bodyScrollLock'
@@ -15,8 +15,14 @@ import { recoverAppScrollSurfaces } from '../lib/gestureStyles'
 
 interface Props {
   src: string
+  /** 保存 / 分享时优先使用的原始地址；显示可继续使用 blob/fallback URL。 */
+  actionSrc?: string
   alt?: string
   onClose: () => void
+  onPrevious?: () => void
+  onNext?: () => void
+  index?: number
+  total?: number
   /** 系统返回：先关菜单，再关灯箱 */
   overlayCloserRef?: MutableRefObject<(() => boolean) | null>
 }
@@ -33,7 +39,7 @@ type BusyAction = 'save' | 'share' | null
 /**
  * 全屏看图：双指捏合、单指平移、双击缩放、下滑关闭；长按保存/分享。
  */
-export function ImageLightbox({ src, alt = '', onClose, overlayCloserRef }: Props) {
+export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, onNext, index = 0, total = 1, overlayCloserRef }: Props) {
   const stageRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
   const transformRef = useRef({ scale: 1, x: 0, y: 0 })
@@ -48,13 +54,15 @@ export function ImageLightbox({ src, alt = '', onClose, overlayCloserRef }: Prop
   const panStartRef = useRef<{ point: Point; x: number; y: number } | null>(null)
   const lastTapRef = useRef<{ time: number; point: Point } | null>(null)
   const movedRef = useRef(false)
-  const closingSwipeRef = useRef({ active: false, startY: 0, dy: 0 })
+  const closingSwipeRef = useRef({ active: false, startX: 0, startY: 0, dx: 0, dy: 0 })
   const longPressTimerRef = useRef<number | null>(null)
   const longPressPointRef = useRef<Point | null>(null)
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [busy, setBusy] = useState<BusyAction>(null)
   const [status, setStatus] = useState<string | null>(null)
+  const [imageState, setImageState] = useState<'loading' | 'loaded' | 'error'>('loading')
+  const [reloadKey, setReloadKey] = useState(0)
 
   const clearLongPress = useCallback(() => {
     if (longPressTimerRef.current != null) {
@@ -182,6 +190,12 @@ export function ImageLightbox({ src, alt = '', onClose, overlayCloserRef }: Prop
 
   useEffect(() => () => clearLongPress(), [clearLongPress])
 
+  useEffect(() => {
+    setImageState('loading')
+    setReloadKey(0)
+    resetTransform(false)
+  }, [src, resetTransform])
+
   const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y)
   const midpoint = (a: Point, b: Point): Point => ({
     x: (a.x + b.x) / 2,
@@ -237,7 +251,7 @@ export function ImageLightbox({ src, alt = '', onClose, overlayCloserRef }: Prop
         closingSwipeRef.current.active = false
       } else {
         panStartRef.current = null
-        closingSwipeRef.current = { active: true, startY: point.y, dy: 0 }
+        closingSwipeRef.current = { active: true, startX: point.x, startY: point.y, dx: 0, dy: 0 }
       }
     }
   }
@@ -291,19 +305,25 @@ export function ImageLightbox({ src, alt = '', onClose, overlayCloserRef }: Prop
       }
 
       if (closingSwipeRef.current.active) {
+        const dx = point.x - closingSwipeRef.current.startX
         const dy = point.y - closingSwipeRef.current.startY
+        closingSwipeRef.current.dx = dx
         closingSwipeRef.current.dy = dy
-        if (Math.abs(dy) > 6) {
+        if (Math.hypot(dx, dy) > 6) {
           movedRef.current = true
           clearLongPress()
         }
         const img = imgRef.current
         const backdrop = stageRef.current
         if (img && backdrop) {
-          const pull = Math.max(0, dy)
           img.style.transition = 'none'
-          img.style.transform = `translate3d(0, ${pull}px, 0) scale(1)`
-          backdrop.style.backgroundColor = `rgb(14 15 18 / ${Math.max(0.35, 0.92 - pull / 480)})`
+          if (Math.abs(dx) > Math.abs(dy) && (onPrevious || onNext)) {
+            img.style.transform = `translate3d(${dx}px, 0, 0) scale(1)`
+          } else {
+            const pull = Math.max(0, dy)
+            img.style.transform = `translate3d(0, ${pull}px, 0) scale(1)`
+            backdrop.style.backgroundColor = `rgb(14 15 18 / ${Math.max(0.35, 0.92 - pull / 480)})`
+          }
         }
       }
     }
@@ -321,8 +341,14 @@ export function ImageLightbox({ src, alt = '', onClose, overlayCloserRef }: Prop
       panStartRef.current = null
 
       if (closingSwipeRef.current.active) {
-        const dy = closingSwipeRef.current.dy
+        const { dx, dy } = closingSwipeRef.current
         closingSwipeRef.current.active = false
+        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 72 && !menuOpen) {
+          if (dx < 0 && onNext) onNext()
+          else if (dx > 0 && onPrevious) onPrevious()
+          resetTransform(false)
+          return
+        }
         if (dy > 96 && !menuOpen) {
           onClose()
           return
@@ -372,11 +398,12 @@ export function ImageLightbox({ src, alt = '', onClose, overlayCloserRef }: Prop
     setBusy(action)
     setStatus(null)
     try {
+      const source = actionSrc || src
       if (action === 'save') {
-        await saveImageToGallery(src)
+        await saveImageToGallery(source)
         setStatus('已保存到相册 有所闻')
       } else {
-        await shareImage(src, alt || '分享图片')
+        await shareImage(source, alt || '分享图片')
         setMenuOpen(false)
         setStatus(null)
       }
@@ -404,7 +431,7 @@ export function ImageLightbox({ src, alt = '', onClose, overlayCloserRef }: Prop
       style={{ touchAction: 'none' }}
     >
       <div
-        className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-end"
+        className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between"
         style={{ paddingTop: 'var(--sat)' }}
       >
         <button
@@ -415,6 +442,8 @@ export function ImageLightbox({ src, alt = '', onClose, overlayCloserRef }: Prop
         >
           <X size={18} strokeWidth={1.7} />
         </button>
+        {total > 1 ? <div className="pointer-events-auto rounded-full border border-haze bg-ink-raised/75 px-3 py-1.5 font-mono text-[11px] text-paper-muted backdrop-blur-md">{index + 1} / {total}</div> : <span />}
+        <div className="m-3 w-[42px]" />
       </div>
 
       <div
@@ -436,21 +465,58 @@ export function ImageLightbox({ src, alt = '', onClose, overlayCloserRef }: Prop
           }
         }}
       >
+        {imageState === 'loading' ? (
+          <div className="pointer-events-none absolute inset-0 grid place-items-center" role="status" aria-live="polite">
+            <div className="flex flex-col items-center gap-3 text-paper-faint">
+              <Loader2 size={24} className="animate-spin" />
+              <span className="font-mono text-[10px] tracking-[0.12em]">图片加载中</span>
+            </div>
+          </div>
+        ) : null}
+        {imageState === 'error' ? (
+          <div className="absolute inset-0 grid place-items-center px-6">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                setImageState('loading')
+                setReloadKey((value) => value + 1)
+              }}
+              className="flex items-center gap-2 rounded-full border border-haze bg-ink-raised/85 px-4 py-2.5 text-[12px] text-paper-muted backdrop-blur-md"
+            >
+              <RefreshCcw size={15} />重新加载图片
+            </button>
+          </div>
+        ) : null}
+        {total > 1 ? (
+          <>
+            <button type="button" disabled={!onPrevious} onClick={(event) => { event.stopPropagation(); onPrevious?.() }} aria-label="上一张" className="absolute left-3 z-10 grid h-11 w-11 place-items-center rounded-full border border-haze bg-ink-raised/65 text-paper backdrop-blur-md disabled:opacity-25"><ChevronLeft size={22} /></button>
+            <button type="button" disabled={!onNext} onClick={(event) => { event.stopPropagation(); onNext?.() }} aria-label="下一张" className="absolute right-3 z-10 grid h-11 w-11 place-items-center rounded-full border border-haze bg-ink-raised/65 text-paper backdrop-blur-md disabled:opacity-25"><ChevronRight size={22} /></button>
+          </>
+        ) : null}
         <img
+          key={`${src}:${reloadKey}`}
           ref={imgRef}
           src={src}
           alt={alt}
           draggable={false}
           referrerPolicy="no-referrer"
+          onLoad={() => setImageState('loaded')}
+          onError={() => setImageState('error')}
           className="max-h-full max-w-full select-none object-contain"
-          style={{ transformOrigin: 'center center', willChange: 'transform' }}
+          style={{
+            transformOrigin: 'center center',
+            willChange: 'transform',
+            opacity: imageState === 'loaded' ? 1 : 0,
+            transition: 'opacity 220ms var(--ease-ink)',
+          }}
         />
       </div>
 
       <p
         className="pointer-events-none text-center font-mono text-[10px] tracking-[0.14em] text-paper-faint safe-pb-12"
       >
-        长按保存或分享 · 双指缩放 · 下滑关闭
+        {total > 1 ? '左右滑动切换 · ' : ''}长按保存或分享 · 双指缩放 · 下滑关闭
       </p>
 
       {menuOpen && (

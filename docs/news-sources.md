@@ -2,7 +2,7 @@
 
 > **权威源**：`src/sources/registry.ts`（本文件只记探测结论、坑与落选理由）  
 > 列表分页策略与 kind 对应见 `pagingStrategyOf`；正文路径除注明外为「feed 自带全文，否则 Readability 抽 `originUrl`」。  
-> 复核基准：2026-08-25
+> 复核基准：2026-09-19
 
 ## 1. 分组总览
 
@@ -15,6 +15,10 @@
 - 列表 UA 固定 `NewsApp`
 - 汽车频道：`/nc/auto/list/5Yac5Zyz/0-20.html`（顶层键是 `list` 而非 TID，解析器按数组键兼容）
 - 正文走网易详情接口；图集 / 视频等特殊 `skipType` 按现有解析器处理
+- `dingyue` / `cms-bucket` / `bjnewsrec-cv` / `pic-bucket.ws.126.net` 列表图会对空或外站
+  Referer 返回不可解码的占位图。Web 对网易图链预先走 `/api/image`，代理固定携带
+  `Referer: https://www.163.com/`；Android WebView 直载失败后由原生 HTTP 用同一 Referer
+  重试。两端都先把网易 `http://` 图链升级为 HTTPS，其他图床仍默认直连、失败才代理兜底。
 
 ### 1.2 中文媒体 / 科普（group `cn` / `tech`）
 
@@ -33,7 +37,29 @@
 | `netease-fanpu` `netease-wuli` `netease-diqiu` | netease | 返朴 / 中科院物理所 / 地球知识局：公众号全文同步发布在网易号，走 dy TID 列表接口；正文 `full.html` 偶发 204，由 m/dy 落地页 + Readability 兜底；见 §6 |
 | `swarma` `qianhei` | wechat | 集智俱乐部 / 浅黑科技：wechat2rss 镜像，默认关闭由科普 / 科技深度分类与预设启用；见 §6 |
 
-### 1.3 财经快讯 / 盘面（group `cn`）
+### 1.3 中文深读（group `cn`）
+
+| id | kind | 探测要点 |
+|---|---|---|
+| `thepaper-bookreview` | thepaper | 澎湃「上海书评」；公开 `nodeCont/getByNodeIdPortal` JSON，`nodeId=26878` |
+| `thepaper-people` | thepaper | 澎湃「澎湃人物」；`nodeId=25427` |
+| `thepaper-research` | thepaper | 澎湃「澎湃研究所」；`nodeId=25445` |
+| `thepaper-ideas` | thepaper | 澎湃「思想市场」；`nodeId=25483` |
+| `thepaper-science` | thepaper | 澎湃「科学湃」；`nodeId=27234` |
+| `infzm-depth` | infzm | 南方周末「深度」；公开频道 HTML，`term_id=202` |
+| `infzm-feature` | infzm | 南方周末「特稿」；`term_id=1006` |
+| `infzm-interview` | infzm | 南方周末「对话」；`term_id=217` |
+| `infzm-thinktank` | infzm | 南方周末「智库」；`term_id=219` |
+
+实现边界：
+
+- 9 个信源默认关闭，统一归入「中文深读」分类，并由「深度智识」预设显式开启；不会改变新装用户的默认门户信息流。
+- 澎湃列表使用 JSON POST；分页不是普通 `pageNum=N`，而是严格沿用上一响应返回的 `startTime`（以及存在时的 `excludeContIds`）作为下一页快照游标。游标会随列表缓存持久化，刷新时重新建立快照。
+- 2026-09-19 实测「思想湃」(`nodeId=26525`) 最新内容仍停留在 2025-01，因此不注册，避免把停更栏目伪装成当前深度信源。
+- 南方周末使用公开 HTML 频道与 `page=N` 上游分页，列表历史日期常省略年份（如 `09-16`），解析器按抓取时间推断年份并处理跨年。
+- 正文统一走现有 `resolveBody` / Readability / 图片归一化 / 缓存链。仅处理当前访问会话能获得的公开内容；会员、付费墙、登录或反爬限制不绕过，命中时继续使用现有摘要 + 打开原文软降级。
+
+### 1.4 财经快讯 / 盘面（group `cn`）
 
 | id | kind | 探测要点 |
 |---|---|---|
@@ -42,7 +68,7 @@
 | `eastmoney-news` | eastmoney-news | `np-listapi` 按 `page_index` 翻页，需 Referer |
 | `wscn-live` | wscn-live | awtmt.com lives 接口，需 Accept + Referer |
 
-### 1.4 国际（group `intl`）
+### 1.5 国际（group `intl`）
 
 | id | kind | 探测要点 |
 |---|---|---|
@@ -55,7 +81,7 @@
 | `france24` | feed | `/en/rss` 已 301 到 HTML 目录页；用仍返回 `application/rss+xml` 的分区源（asia-pacific） |
 | `foreign-affairs` `nyrb` `bloomberg-opinion` `project-syndicate` `sinocism` `theinitium` | feed | 深度长文 / 智库；均标准 RSS，默认关闭 |
 
-### 1.5 科技深度（group `tech`）
+### 1.6 科技深度（group `tech`）
 
 | id | kind | 探测要点 |
 |---|---|---|
@@ -64,7 +90,7 @@
 
 > `hn` / `v2ex` 归 **AI 社区栏**（见 §5），不在本表。
 
-### 1.6 AI（group `ai`）
+### 1.7 AI（group `ai`）
 
 | id | kind | 探测要点 |
 |---|---|---|
@@ -86,7 +112,7 @@
 | `uisdc-aigc` | uisdc | 优设 AIGC 标签页，无 RSS；解析归档 HTML + `/page/N` 翻页，正文 Readability；见 §4 |
 | `woshipm-ai` | feed | 人人都是产品经理 AI 分类 WP feed，全文；见 §4 |
 
-### 1.7 专栏 / 轻松（group `special`）
+### 1.8 专栏 / 轻松（group `special`）
 
 | id | kind | 探测要点 |
 |---|---|---|

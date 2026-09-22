@@ -131,7 +131,13 @@ export function AiProviderSettings({ prefs, onChange }: Props) {
       ...prefs.ai,
       providers: [
         ...prefs.ai.providers,
-        { id, name: `AI 提供商 ${prefs.ai.providers.length + 1}`, endpoint: '', apiKey: '' },
+        {
+          id,
+          name: `AI 提供商 ${prefs.ai.providers.length + 1}`,
+          endpoint: '',
+          apiKey: '',
+          capabilities: { tts: false },
+        },
       ],
     })
     setExpandedProviderId(id)
@@ -319,6 +325,27 @@ export function AiProviderSettings({ prefs, onChange }: Props) {
                         </button>
                       }
                     />
+                    <label className="flex items-center justify-between gap-4 rounded-xl border border-haze bg-ink px-3.5 py-3">
+                      <span className="min-w-0">
+                        <span className="block text-[13px] text-paper">支持 AI TTS</span>
+                        <span className="mt-0.5 block font-mono text-[9.5px] leading-relaxed text-paper-faint">
+                          仅在该接口明确兼容 /audio/speech 时开启
+                        </span>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={provider.capabilities.tts}
+                        onChange={(event) =>
+                          updateProvider(provider.id, {
+                            capabilities: {
+                              ...provider.capabilities,
+                              tts: event.target.checked,
+                            },
+                          })
+                        }
+                        className="h-4 w-4 shrink-0 accent-[var(--color-cinnabar)]"
+                      />
+                    </label>
                   </div>
                 )}
               </li>

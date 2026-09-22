@@ -53,6 +53,18 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="newsnook" android:host="auth" />
             </intent-filter>
+
+            <!--
+                Linux.do/Discourse 标准委托认证回流。系统浏览器里可使用 GitHub / Google 等
+                Linux.do 当前开放的第三方登录，授权后返回 RSA 加密 payload 与一次性密码。
+                与 NewsNook 云账户 OAuth 回流严格分离，避免 token 路由串线。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="discourse" android:host="auth_redirect" />
+            </intent-filter>
         </activity>
 
         <service
@@ -60,6 +72,12 @@
             android:exported="false"
             android:stopWithTask="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <service
+            android:name=".ReadAloudPlaybackService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -79,9 +97,15 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission
         android:name="android.permission.NEARBY_WIFI_DEVICES"
         android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
 </manifest>
