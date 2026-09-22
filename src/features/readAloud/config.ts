@@ -21,7 +21,6 @@ const AUDIO_FORMATS = new Set<ReadAloudAudioFormat>([
   'wav',
   'aac',
   'flac',
-  'pcm',
 ])
 
 function text(value: unknown): string {

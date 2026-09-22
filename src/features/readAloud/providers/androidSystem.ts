@@ -20,11 +20,13 @@ const CAPABILITIES: ReadAloudProviderCapabilities = {
   pitch: true,
   // Android TTS 本身没有 pause；原生 service 用 stop + onRangeStart offset 重建实现语义暂停。
   pauseResume: true,
-  rangeProgress: true,
+  // onRangeStart 仅在较新 Android/TTS 引擎上可靠；事件可用时仍会记录 offset。
+  rangeProgress: false,
   exactTime: false,
   seekByCharacter: true,
   streaming: false,
-  offline: true,
+  // 是否离线取决于用户选中的系统 Voice，Provider 层不能统一宣称离线。
+  offline: false,
 }
 
 let sequence = 0
@@ -103,6 +105,7 @@ export class AndroidSystemTtsProvider implements ReadAloudProvider {
       utteranceId,
       text: segment.text,
       voiceId: options.voiceId || undefined,
+      languageTag: segment.lang,
       rate: options.rate,
       pitch: options.pitch,
       startOffset: options.startOffset,
@@ -121,6 +124,7 @@ export class AndroidSystemTtsProvider implements ReadAloudProvider {
           utteranceId,
           text: segment.text,
           voiceId: options.voiceId || undefined,
+          languageTag: segment.lang,
           rate: options.rate,
           pitch: options.pitch,
           startOffset: characterOffset,
@@ -131,7 +135,8 @@ export class AndroidSystemTtsProvider implements ReadAloudProvider {
   }
 
   async dispose(): Promise<void> {
-    await ReadAloudNative.stop().catch(() => {})
+    // Provider 可能只是临时用于枚举 Voice；不能在这里停止全局 native 播放。
+    // 真正的播放所有权属于 speak() 返回的 handle，由 Service 先 stop(handle) 再 dispose provider。
     const listeners = [...this.listeners]
     this.listeners.clear()
     await Promise.all(listeners.map((listener) => listener.remove()))

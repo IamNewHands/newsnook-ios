@@ -47,9 +47,11 @@ export class AndroidMediaSessionAdapter implements ReadAloudMediaControlAdapter 
       sourceName: metadata?.sourceName,
       artwork: metadata?.artwork,
       state:
-        snapshot.state === 'playing' || snapshot.state === 'loading'
-          ? 'playing'
-          : 'paused',
+        snapshot.state === 'loading'
+          ? 'loading'
+          : snapshot.state === 'playing'
+            ? 'playing'
+            : 'paused',
       segmentIndex: metadata?.segmentIndex,
       segmentCount: metadata?.segmentCount,
     }).catch(() => {})

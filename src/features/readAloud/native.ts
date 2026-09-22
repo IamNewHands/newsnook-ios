@@ -34,6 +34,7 @@ interface ReadAloudNativePlugin {
     utteranceId: string
     text: string
     voiceId?: string
+    languageTag?: string
     rate: number
     pitch: number
     startOffset?: number
@@ -41,12 +42,17 @@ interface ReadAloudNativePlugin {
   pause(): Promise<void>
   resume(): Promise<void>
   stop(): Promise<void>
+  playAudio(options: {
+    utteranceId: string
+    base64: string
+    mimeType: string
+  }): Promise<void>
   setMediaSession(options: {
     active: boolean
     title?: string
     sourceName?: string
     artwork?: string
-    state?: 'playing' | 'paused'
+    state?: 'loading' | 'playing' | 'paused'
     segmentIndex?: number
     segmentCount?: number
   }): Promise<void>

@@ -14,19 +14,22 @@ import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.media.MediaMetadata;
+import android.media.MediaPlayer;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import androidx.annotation.Nullable;
 import androidx.core.app.ServiceCompat;
 import androidx.core.content.ContextCompat;
+import java.io.File;
+import java.io.IOException;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
@@ -41,6 +44,7 @@ import java.util.concurrent.CopyOnWriteArraySet;
 public final class ReadAloudPlaybackService extends Service {
 
     static final String ACTION_SPEAK = "com.aizeek.newsnook.readaloud.SPEAK";
+    static final String ACTION_PLAY_AUDIO = "com.aizeek.newsnook.readaloud.PLAY_AUDIO";
     static final String ACTION_PAUSE = "com.aizeek.newsnook.readaloud.PAUSE";
     static final String ACTION_RESUME = "com.aizeek.newsnook.readaloud.RESUME";
     static final String ACTION_STOP = "com.aizeek.newsnook.readaloud.STOP";
@@ -54,9 +58,11 @@ public final class ReadAloudPlaybackService extends Service {
     static final String EXTRA_UTTERANCE_ID = "utteranceId";
     static final String EXTRA_TEXT = "text";
     static final String EXTRA_VOICE_ID = "voiceId";
+    static final String EXTRA_LANGUAGE_TAG = "languageTag";
     static final String EXTRA_RATE = "rate";
     static final String EXTRA_PITCH = "pitch";
     static final String EXTRA_START_OFFSET = "startOffset";
+    static final String EXTRA_AUDIO_PATH = "audioPath";
     static final String EXTRA_ACTIVE = "active";
     static final String EXTRA_TITLE = "title";
     static final String EXTRA_SOURCE = "sourceName";
@@ -68,6 +74,7 @@ public final class ReadAloudPlaybackService extends Service {
     private static final String CHANNEL_ID = "newsnook_read_aloud";
     private static final int NOTIFICATION_ID = 0x4e4e52;
     private static final Set<EventListener> EVENT_LISTENERS = new CopyOnWriteArraySet<>();
+    private static volatile boolean running;
 
     interface EventListener {
         void onEvent(
@@ -89,10 +96,15 @@ public final class ReadAloudPlaybackService extends Service {
     static void startCommand(Context context, Intent intent) {
         Context app = context.getApplicationContext();
         String action = intent.getAction();
-        if (ACTION_SPEAK.equals(action) || ACTION_MEDIA_UPDATE.equals(action)) {
+        if (
+            ACTION_SPEAK.equals(action)
+                || ACTION_PLAY_AUDIO.equals(action)
+                || ACTION_MEDIA_UPDATE.equals(action)
+        ) {
             ContextCompat.startForegroundService(app, intent.setClass(app, ReadAloudPlaybackService.class));
             return;
         }
+        if (!running) return;
         try {
             app.startService(intent.setClass(app, ReadAloudPlaybackService.class));
         } catch (RuntimeException error) {
@@ -103,7 +115,10 @@ public final class ReadAloudPlaybackService extends Service {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private TextToSpeech tts;
+    private MediaPlayer audioPlayer;
+    private boolean audioPrepared;
     private boolean ttsReady;
+    private int ttsGeneration;
     private boolean pendingSpeak;
     private boolean paused;
     private boolean sessionActive;
@@ -112,8 +127,11 @@ public final class ReadAloudPlaybackService extends Service {
     private boolean resumeOnFocusGain;
 
     private String logicalUtteranceId;
+    private String activeEngineUtteranceId = "";
+    private String audioPath = "";
     private String fullText = "";
     private String voiceId = "";
+    private String languageTag = "";
     private float rate = 1f;
     private float pitch = 1f;
     private int currentOffset;
@@ -136,8 +154,7 @@ public final class ReadAloudPlaybackService extends Service {
             public void onReceive(Context context, Intent intent) {
                 if (!AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())) return;
                 if (!sessionActive || !"playing".equals(mediaState)) return;
-                if (!fullText.isEmpty()) pauseInternal(false);
-                else setControllerOnlyState("paused");
+                pauseInternal(false);
                 emit("noisy", null, null, null);
             }
         };
@@ -148,11 +165,11 @@ public final class ReadAloudPlaybackService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        running = true;
         createNotificationChannel();
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         createMediaSession();
         registerNoisyReceiver();
-        createTts();
     }
 
     @Override
@@ -161,13 +178,40 @@ public final class ReadAloudPlaybackService extends Service {
 
         switch (intent.getAction()) {
             case ACTION_SPEAK:
+                releaseAudioPlayer(true);
                 readSpeakIntent(intent);
                 sessionActive = true;
                 paused = false;
                 mediaState = "playing";
                 promoteToForeground();
-                if (ttsReady) speakFrom(currentOffset);
-                else pendingSpeak = true;
+                if (ttsReady) {
+                    speakFrom(currentOffset);
+                } else {
+                    pendingSpeak = true;
+                    if (tts == null) createTts();
+                }
+                break;
+            case ACTION_PLAY_AUDIO:
+                activeEngineUtteranceId = "";
+                if (tts != null) {
+                    ++ttsGeneration;
+                    tts.stop();
+                    tts.shutdown();
+                    tts = null;
+                    ttsReady = false;
+                }
+                pendingSpeak = false;
+                releaseAudioPlayer(true);
+                fullText = "";
+                currentOffset = 0;
+                baseOffset = 0;
+                logicalUtteranceId = intent.getStringExtra(EXTRA_UTTERANCE_ID);
+                audioPath = safe(intent.getStringExtra(EXTRA_AUDIO_PATH));
+                sessionActive = true;
+                paused = false;
+                mediaState = "playing";
+                promoteToForeground();
+                playAudioFile();
                 break;
             case ACTION_PAUSE:
                 pauseInternal(false);
@@ -180,12 +224,10 @@ public final class ReadAloudPlaybackService extends Service {
                 break;
             case ACTION_MEDIA_PLAY:
                 resumeInternal(false);
-                if (fullText.isEmpty()) setControllerOnlyState("playing");
                 emit("play", null, null, null);
                 break;
             case ACTION_MEDIA_PAUSE:
                 pauseInternal(false);
-                if (fullText.isEmpty()) setControllerOnlyState("paused");
                 emit("pause", null, null, null);
                 break;
             case ACTION_MEDIA_STOP:
@@ -203,9 +245,11 @@ public final class ReadAloudPlaybackService extends Service {
                 }
                 break;
             case ACTION_MEDIA_PREVIOUS:
+                pauseInternal(false);
                 emit("previous", null, null, null);
                 break;
             case ACTION_MEDIA_NEXT:
+                pauseInternal(false);
                 emit("next", null, null, null);
                 break;
             default:
@@ -222,12 +266,15 @@ public final class ReadAloudPlaybackService extends Service {
 
     @Override
     public void onDestroy() {
+        running = false;
+        ++ttsGeneration;
         pendingSpeak = false;
         if (tts != null) {
             tts.stop();
             tts.shutdown();
             tts = null;
         }
+        releaseAudioPlayer(true);
         abandonAudioFocus();
         unregisterNoisyReceiver();
         if (mediaSession != null) {
@@ -242,12 +289,23 @@ public final class ReadAloudPlaybackService extends Service {
         super.onDestroy();
     }
 
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        // WebView/JS owns the article queue. If the whole task is explicitly swiped away,
+        // stop native playback rather than leaving a one-segment ghost session behind.
+        stopInternal(false, true);
+        super.onTaskRemoved(rootIntent);
+    }
+
     private void createTts() {
+        final int generation = ++ttsGeneration;
+        ttsReady = false;
         tts = new TextToSpeech(
             getApplicationContext(),
             status -> {
                 mainHandler.post(
                     () -> {
+                        if (!running || generation != ttsGeneration) return;
                         ttsReady = status == TextToSpeech.SUCCESS && tts != null;
                         if (!ttsReady) {
                             emit("error", logicalUtteranceId, null, "Android 系统 TTS 初始化失败");
@@ -255,7 +313,7 @@ public final class ReadAloudPlaybackService extends Service {
                             return;
                         }
                         configureTtsListener();
-                        if (pendingSpeak) {
+                        if (pendingSpeak && !paused && !fullText.isEmpty()) {
                             pendingSpeak = false;
                             speakFrom(currentOffset);
                         }
@@ -337,6 +395,7 @@ public final class ReadAloudPlaybackService extends Service {
         logicalUtteranceId = intent.getStringExtra(EXTRA_UTTERANCE_ID);
         fullText = safe(intent.getStringExtra(EXTRA_TEXT));
         voiceId = safe(intent.getStringExtra(EXTRA_VOICE_ID));
+        languageTag = safe(intent.getStringExtra(EXTRA_LANGUAGE_TAG));
         rate = clamp(intent.getFloatExtra(EXTRA_RATE, 1f), 0.5f, 2.5f);
         pitch = clamp(intent.getFloatExtra(EXTRA_PITCH, 1f), 0.5f, 2f);
         currentOffset = clampOffset(intent.getIntExtra(EXTRA_START_OFFSET, 0));
@@ -377,8 +436,11 @@ public final class ReadAloudPlaybackService extends Service {
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build()
         );
-        // 每段先回到系统语言默认 voice；跨设备同步来的 voiceId 不存在时也不会沿用上一段旧 voice。
-        tts.setLanguage(Locale.getDefault());
+        // 没有指定 voice 时按段落语言选择；跨设备不存在的 voice 也会回落到语言默认。
+        Locale requestedLocale = languageTag.isEmpty()
+            ? Locale.getDefault()
+            : Locale.forLanguageTag(languageTag);
+        tts.setLanguage(requestedLocale);
         if (!voiceId.isEmpty()) {
             for (android.speech.tts.Voice voice : tts.getVoices()) {
                 if (voiceId.equals(voice.getName())) {
@@ -390,6 +452,7 @@ public final class ReadAloudPlaybackService extends Service {
 
         Bundle params = new Bundle();
         String engineUtteranceId = engineUtteranceId();
+        activeEngineUtteranceId = engineUtteranceId;
         int result = tts.speak(
             fullText.substring(offset),
             TextToSpeech.QUEUE_FLUSH,
@@ -402,11 +465,126 @@ public final class ReadAloudPlaybackService extends Service {
         }
     }
 
+    private void playAudioFile() {
+        releaseAudioPlayer(false);
+        if (audioPath.isEmpty()) {
+            emit("error", logicalUtteranceId, null, "AI TTS 音频文件为空");
+            return;
+        }
+        File file = new File(audioPath);
+        if (!file.isFile()) {
+            emit("error", logicalUtteranceId, null, "AI TTS 音频缓存不存在");
+            return;
+        }
+        if (!requestAudioFocus()) {
+            emit("error", logicalUtteranceId, null, "无法获取媒体音频焦点");
+            return;
+        }
+
+        MediaPlayer player = new MediaPlayer();
+        audioPlayer = player;
+        audioPrepared = false;
+        try {
+            player.setAudioAttributes(
+                new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            );
+            player.setWakeMode(getApplicationContext(), PowerManager.PARTIAL_WAKE_LOCK);
+            player.setDataSource(file.getAbsolutePath());
+            player.setOnPreparedListener(
+                prepared -> {
+                    if (audioPlayer != prepared) return;
+                    audioPrepared = true;
+                    if (paused) return;
+                    try {
+                        prepared.start();
+                        mediaState = "playing";
+                        updateMediaSessionAndNotification();
+                        emit("started", logicalUtteranceId, null, null);
+                    } catch (IllegalStateException error) {
+                        emit("error", logicalUtteranceId, null, "AI TTS 音频无法开始播放");
+                    }
+                }
+            );
+            player.setOnCompletionListener(
+                completed -> {
+                    if (audioPlayer != completed) return;
+                    String completedId = logicalUtteranceId;
+                    mediaState = "paused";
+                    abandonAudioFocus();
+                    // 先释放当前文件，再通知 JS 切下一段，避免下一段启动后误删新缓存。
+                    releaseAudioPlayer(true);
+                    updateMediaSessionAndNotification();
+                    emit("ended", completedId, null, null);
+                }
+            );
+            player.setOnErrorListener(
+                (failed, what, extra) -> {
+                    if (audioPlayer != failed) return true;
+                    String failedId = logicalUtteranceId;
+                    mediaState = "paused";
+                    abandonAudioFocus();
+                    releaseAudioPlayer(true);
+                    updateMediaSessionAndNotification();
+                    emit(
+                        "error",
+                        failedId,
+                        null,
+                        "AI TTS 音频播放失败（" + what + "/" + extra + "）"
+                    );
+                    return true;
+                }
+            );
+            player.prepareAsync();
+        } catch (IOException | IllegalArgumentException | IllegalStateException error) {
+            releaseAudioPlayer(true);
+            abandonAudioFocus();
+            emit("error", logicalUtteranceId, null, "AI TTS 音频准备失败");
+        }
+    }
+
+    private void releaseAudioPlayer(boolean deleteFile) {
+        MediaPlayer player = audioPlayer;
+        audioPlayer = null;
+        audioPrepared = false;
+        if (player != null) {
+            try {
+                player.setOnPreparedListener(null);
+                player.setOnCompletionListener(null);
+                player.setOnErrorListener(null);
+                player.stop();
+            } catch (IllegalStateException ignored) {
+                // Not all MediaPlayer states allow stop; release is always safe.
+            }
+            player.release();
+        }
+
+        if (deleteFile && !audioPath.isEmpty()) {
+            try {
+                new File(audioPath).delete();
+            } catch (SecurityException ignored) {
+                // Cache cleanup is best effort.
+            }
+            audioPath = "";
+        }
+    }
+
     private void pauseInternal(boolean emitPlayControl) {
         if (!isSpeakingOrPaused()) return;
         paused = true;
         pendingSpeak = false;
-        if (tts != null) tts.stop();
+        if (!fullText.isEmpty() && tts != null) {
+            tts.stop();
+        }
+        if (audioPlayer != null) {
+            try {
+                if (audioPlayer.isPlaying()) audioPlayer.pause();
+            } catch (IllegalStateException ignored) {
+                // player is already transitioning/released
+            }
+        }
         abandonAudioFocus();
         mediaState = "paused";
         updateMediaSessionAndNotification();
@@ -414,11 +592,27 @@ public final class ReadAloudPlaybackService extends Service {
     }
 
     private void resumeInternal(boolean emitPlayControl) {
-        if (!paused || fullText.isEmpty()) return;
+        if (!paused) return;
         paused = false;
         mediaState = "playing";
         updateMediaSessionAndNotification();
-        speakFrom(currentOffset);
+        if (!fullText.isEmpty()) {
+            if (ttsReady) {
+                speakFrom(currentOffset);
+            } else {
+                pendingSpeak = true;
+                if (tts == null) createTts();
+            }
+        } else if (audioPlayer != null && audioPrepared) {
+            if (requestAudioFocus()) {
+                try {
+                    audioPlayer.start();
+                } catch (IllegalStateException error) {
+                    emit("error", logicalUtteranceId, null, "AI TTS 音频无法继续播放");
+                }
+            }
+        }
+        // MediaPlayer still preparing: onPrepared will observe paused=false and start there.
         if (emitPlayControl) emit("play", null, null, null);
     }
 
@@ -427,9 +621,11 @@ public final class ReadAloudPlaybackService extends Service {
         paused = false;
         sessionActive = false;
         if (tts != null) tts.stop();
+        releaseAudioPlayer(true);
         abandonAudioFocus();
         fullText = "";
         logicalUtteranceId = null;
+        activeEngineUtteranceId = "";
         currentOffset = 0;
         baseOffset = 0;
         mediaState = "paused";
@@ -455,14 +651,12 @@ public final class ReadAloudPlaybackService extends Service {
                 @Override
                 public void onPlay() {
                     resumeInternal(false);
-                    if (fullText.isEmpty()) setControllerOnlyState("playing");
                     emit("play", null, null, null);
                 }
 
                 @Override
                 public void onPause() {
                     pauseInternal(false);
-                    if (fullText.isEmpty()) setControllerOnlyState("paused");
                     emit("pause", null, null, null);
                 }
 
@@ -474,11 +668,13 @@ public final class ReadAloudPlaybackService extends Service {
 
                 @Override
                 public void onSkipToNext() {
+                    pauseInternal(false);
                     emit("next", null, null, null);
                 }
 
                 @Override
                 public void onSkipToPrevious() {
+                    pauseInternal(false);
                     emit("previous", null, null, null);
                 }
             },
@@ -506,14 +702,17 @@ public final class ReadAloudPlaybackService extends Service {
         }
         mediaSession.setMetadata(metadata.build());
 
-        int state = "playing".equals(mediaState)
-            ? PlaybackState.STATE_PLAYING
-            : PlaybackState.STATE_PAUSED;
-        mediaSession.setPlaybackState(playbackState(state));
+        mediaSession.setPlaybackState(playbackState(playbackStateForMediaState()));
         if (foreground) {
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) manager.notify(NOTIFICATION_ID, buildNotification());
         }
+    }
+
+    private int playbackStateForMediaState() {
+        if ("playing".equals(mediaState)) return PlaybackState.STATE_PLAYING;
+        if ("loading".equals(mediaState)) return PlaybackState.STATE_BUFFERING;
+        return PlaybackState.STATE_PAUSED;
     }
 
     private PlaybackState playbackState(int state) {
@@ -533,7 +732,7 @@ public final class ReadAloudPlaybackService extends Service {
     private void promoteToForeground() {
         if (mediaSession != null) {
             mediaSession.setActive(true);
-            mediaSession.setPlaybackState(playbackState(PlaybackState.STATE_PLAYING));
+            mediaSession.setPlaybackState(playbackState(playbackStateForMediaState()));
         }
         int serviceType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
             ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
@@ -543,7 +742,7 @@ public final class ReadAloudPlaybackService extends Service {
     }
 
     private Notification buildNotification() {
-        boolean playing = "playing".equals(mediaState);
+        boolean playing = "playing".equals(mediaState) || "loading".equals(mediaState);
         PendingIntent contentIntent = PendingIntent.getActivity(
             this,
             100,
@@ -674,12 +873,9 @@ public final class ReadAloudPlaybackService extends Service {
         if (focusChange == AudioManager.AUDIOFOCUS_GAIN) {
             if (resumeOnFocusGain) {
                 resumeOnFocusGain = false;
-                if (!fullText.isEmpty() && paused) {
-                    resumeInternal(false);
-                } else if (sessionActive) {
-                    setControllerOnlyState("playing");
-                }
+                resumeInternal(false);
                 emit("focus-gain", null, null, null);
+                // JS 同步自己的状态；重复 resume 到 native 会因 paused=false 安全 no-op。
                 emit("play", null, null, null);
             }
             return;
@@ -690,16 +886,14 @@ public final class ReadAloudPlaybackService extends Service {
             focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK
         ) {
             resumeOnFocusGain = sessionActive && "playing".equals(mediaState);
-            if (!fullText.isEmpty()) pauseInternal(false);
-            else setControllerOnlyState("paused");
+            pauseInternal(false);
             emit("focus-loss", null, null, null);
             return;
         }
 
         if (focusChange == AudioManager.AUDIOFOCUS_LOSS) {
             resumeOnFocusGain = false;
-            if (!fullText.isEmpty()) pauseInternal(false);
-            else setControllerOnlyState("paused");
+            pauseInternal(false);
             emit("focus-loss", null, null, null);
         }
     }
@@ -725,15 +919,12 @@ public final class ReadAloudPlaybackService extends Service {
         noisyReceiverRegistered = false;
     }
 
-    private void setControllerOnlyState(String state) {
-        mediaState = state;
-        updateMediaSessionAndNotification();
-        if ("paused".equals(state)) abandonAudioFocus();
-        else requestAudioFocus();
-    }
-
     private boolean isSpeakingOrPaused() {
-        return !fullText.isEmpty() && (pendingSpeak || paused || (tts != null && tts.isSpeaking()));
+        if (paused || pendingSpeak) return true;
+        if (!fullText.isEmpty() && tts != null && tts.isSpeaking()) return true;
+        // MediaPlayer 在 prepareAsync 阶段也必须可暂停；否则用户在 prepared 前按暂停会继续出声。
+        if (audioPlayer != null) return true;
+        return false;
     }
 
     private String engineUtteranceId() {
@@ -741,8 +932,7 @@ public final class ReadAloudPlaybackService extends Service {
     }
 
     private boolean matchesEngineUtterance(@Nullable String id) {
-        if (id == null || logicalUtteranceId == null) return false;
-        return id.startsWith("engine:" + logicalUtteranceId + ":");
+        return id != null && !activeEngineUtteranceId.isEmpty() && id.equals(activeEngineUtteranceId);
     }
 
     private int clampOffset(int offset) {

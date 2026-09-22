@@ -28,7 +28,7 @@ Object.defineProperty(globalThis, 'DOMParser', {
 const { normalizeReadAloudPrefs } = await import(
   '../src/features/readAloud/config'
 )
-const { segmentArticle } = await import(
+const { MAX_READ_ALOUD_SEGMENT_CHARS, segmentArticle } = await import(
   '../src/features/readAloud/segmenter'
 )
 const { ReadAloudService } = await import(
@@ -82,6 +82,15 @@ function testPrefsAndSegmentation(): void {
   assert.equal(prefs.ai.format, 'opus')
   assert.equal(prefs.autoContinue, false)
 
+  const legacyPcm = normalizeReadAloudPrefs({
+    ai: { format: 'pcm' },
+  })
+  assert.equal(
+    legacyPcm.ai.format,
+    'mp3',
+    '旧版 PCM 配置必须迁移到 Android/Web 都可直接播放的默认格式',
+  )
+
   const migrated = normalizePreferences({})
   assert.equal(migrated.readAloud.engine, 'auto')
   assert.equal(migrated.readAloud.ai.model, 'gpt-4o-mini-tts')
@@ -100,6 +109,7 @@ function testPrefsAndSegmentation(): void {
       <figure><img src="x"><figcaption>图片说明</figcaption></figure>
       <ul><li>列表项目</li></ul>
       <pre>代码不要读</pre>
+      <p aria-hidden="true">隐藏内容不要读</p>
       <script>脚本不要读</script>
     `,
   )
@@ -107,8 +117,31 @@ function testPrefsAndSegmentation(): void {
     document.segments.map((item) => item.kind),
     ['title', 'heading', 'paragraph', 'quote', 'caption', 'list-item'],
   )
+  assert.equal(document.segments[0]?.lang, 'zh-CN')
   assert.equal(document.segments[1]?.lang, 'zh-CN')
   assert.ok(!document.segments.some((item) => item.text.includes('代码不要读')))
+  assert.ok(!document.segments.some((item) => item.text.includes('隐藏内容不要读')))
+
+  const longParagraph = Array.from({ length: 420 }, (_, index) =>
+    `第${index + 1}句用于验证长段落安全切分。`,
+  ).join('')
+  const longDocument = segmentArticle(
+    'article-long',
+    '重复标题',
+    `<h1>重复标题</h1><p>${longParagraph}</p>`,
+  )
+  assert.equal(
+    longDocument.segments.filter((item) => item.kind === 'heading').length,
+    0,
+    '正文 h1 与文章标题相同时不应重复朗读',
+  )
+  assert.ok(longDocument.segments.length > 2)
+  assert.ok(
+    longDocument.segments.every(
+      (item) => item.text.length <= MAX_READ_ALOUD_SEGMENT_CHARS,
+    ),
+    '所有朗读段必须受最大字符数约束',
+  )
 }
 
 class FakeProvider implements Provider {
@@ -128,12 +161,20 @@ class FakeProvider implements Provider {
   pauseCount = 0
   resumeCount = 0
   stopCount = 0
+  prefetchCount = 0
+  cancelPrefetchCount = 0
 
   async isAvailable() {
     return true
   }
   async listVoices() {
     return []
+  }
+  async prefetch() {
+    this.prefetchCount += 1
+  }
+  async cancelPrefetch() {
+    this.cancelPrefetchCount += 1
   }
   async speak(
     _segment: import('../src/features/readAloud/types').ReadAloudSegment,
@@ -183,6 +224,8 @@ async function testServiceStateMachine(): Promise<void> {
   await service.start(document, prefs, ai, { resumeSaved: false })
   assert.equal(service.getSnapshot().state, 'playing')
   assert.equal(service.getSnapshot().segmentIndex, 0)
+  await tick()
+  assert.equal(provider.prefetchCount, 1, '开始当前段后应轻量预取下一段')
 
   const mediaUpdatesBeforeRange = media.updates.length
   provider.sessions[0]?.onRange?.(2)
@@ -208,9 +251,15 @@ async function testServiceStateMachine(): Promise<void> {
   await tick()
   assert.equal(service.getSnapshot().segmentIndex, 1)
 
+  const stopCountBeforeAutoContinue = provider.stopCount
   provider.sessions.at(-1)?.onEnd?.()
   await tick()
   assert.equal(service.getSnapshot().segmentIndex, 2)
+  assert.equal(
+    provider.stopCount,
+    stopCountBeforeAutoContinue,
+    '自然完成自动续读不能 stop 已完成 handle，否则 Android 会每段重启前台服务',
+  )
 
   const stopCountBeforeFinalNext = provider.stopCount
   await service.next()
@@ -222,7 +271,34 @@ async function testServiceStateMachine(): Promise<void> {
 
   await service.stop()
   assert.equal(service.getSnapshot().state, 'idle')
+  assert.ok(provider.cancelPrefetchCount > 0)
   assert.ok(media.updates.length > 0)
+  await service.dispose()
+}
+
+async function testEmptyDocumentStopsPrevious(): Promise<void> {
+  const provider = new FakeProvider()
+  const service = new ReadAloudService({
+    providerFactory: async () => provider,
+    mediaAdapter: new FakeMedia(),
+  })
+  const prefs = normalizeReadAloudPrefs({ engine: 'system' })
+  await service.start(
+    segmentArticle('before-empty', '标题', '<p>正在朗读的正文</p>'),
+    prefs,
+    DEFAULT_TRANSLATION_PREFS.ai,
+    { resumeSaved: false },
+  )
+  const stopsBefore = provider.stopCount
+  await service.start(
+    { articleId: 'empty', title: '空文章', segments: [] },
+    prefs,
+    DEFAULT_TRANSLATION_PREFS.ai,
+    { resumeSaved: false },
+  )
+  assert.ok(provider.stopCount > stopsBefore)
+  assert.equal(service.getSnapshot().state, 'error')
+  assert.equal(service.getSnapshot().articleId, 'empty')
   await service.dispose()
 }
 
@@ -476,10 +552,14 @@ async function testAiTts(): Promise<void> {
   const originalRevokeObjectURL = URL.revokeObjectURL
 
   let requestBody: any = null
+  let requestUrl = ''
+  let requestCount = 0
   let revoked = ''
   let objectSequence = 0
 
-  globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+  globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    requestCount += 1
+    requestUrl = String(input)
     requestBody = JSON.parse(String(init?.body ?? '{}'))
     return new Response(new Blob(['audio'], { type: 'audio/mpeg' }), {
       status: 200,
@@ -520,7 +600,7 @@ async function testAiTts(): Promise<void> {
   const providerConfig = {
     id: 'openai',
     name: 'OpenAI',
-    endpoint: 'https://api.openai.com/v1',
+    endpoint: 'https://api.openai.com/v1/chat/completions',
     apiKey: 'test-key',
     capabilities: { tts: true },
   }
@@ -544,8 +624,57 @@ async function testAiTts(): Promise<void> {
   assert.equal(requestBody.voice, 'coral')
   assert.equal(requestBody.speed, 1.2)
   assert.equal(requestBody.response_format, 'mp3')
+  assert.equal(
+    requestUrl,
+    'https://api.openai.com/v1/audio/speech',
+    'AI TTS 必须复用 OpenAI-compatible Base URL 归一化',
+  )
   await handle.stop()
   assert.equal(revoked, 'blob:test-1')
+
+  await __aiTtsTest.fetchSpeechBlob(
+    { ...providerConfig, endpoint: 'https://api.openai.com/v1/audio/speech' },
+    {
+      providerId: 'openai',
+      model: 'gpt-4o-mini-tts',
+      voice: 'coral',
+      format: 'mp3',
+    },
+    'normalized endpoint',
+    1,
+  )
+  assert.equal(
+    requestUrl,
+    'https://api.openai.com/v1/audio/speech',
+    '已填写 /audio/speech 时不能重复追加路径',
+  )
+
+  requestCount = 0
+  const cachedSegment = {
+    id: 'ai-cached',
+    index: 1,
+    kind: 'paragraph' as const,
+    text: 'prefetched next paragraph',
+  }
+  await provider.prefetch?.(cachedSegment, { rate: 1, pitch: 1 })
+  assert.equal(requestCount, 1)
+  const cachedHandle = await provider.speak(
+    cachedSegment,
+    { rate: 1, pitch: 1, startOffset: 0 },
+    {},
+  )
+  assert.equal(requestCount, 1, '播放下一段应消费预取结果，不重复请求 AI TTS')
+  await cachedHandle.stop()
+
+  await provider.prefetch?.(cachedSegment, { rate: 1, pitch: 1 })
+  assert.equal(requestCount, 2)
+  const resumedHandle = await provider.speak(
+    cachedSegment,
+    { rate: 1, pitch: 1, startOffset: 3 },
+    {},
+  )
+  assert.equal(requestCount, 3, '字符断点恢复不能错误复用整段预取音频')
+  await resumedHandle.stop()
 
   globalThis.fetch = (async () =>
     new Response(JSON.stringify({ error: { message: 'bad voice' } }), {
@@ -640,14 +769,34 @@ function testProviderSelectionAndAndroidContract(): void {
     ),
     'utf8',
   )
+  const plugin = fs.readFileSync(
+    path.join(
+      process.cwd(),
+      'android/app/src/main/java/com/aizeek/newsnook/ReadAloudPlugin.java',
+    ),
+    'utf8',
+  )
 
   assert.match(manifest, /FOREGROUND_SERVICE_MEDIA_PLAYBACK/)
   assert.match(manifest, /foregroundServiceType="mediaPlayback"/)
   assert.match(manifest, /android\.intent\.action\.TTS_SERVICE/)
   assert.match(service, /MediaSession/)
+  assert.match(service, /MediaPlayer/)
+  assert.match(service, /PowerManager\.PARTIAL_WAKE_LOCK/)
+  assert.match(service, /ACTION_PLAY_AUDIO/)
   assert.match(service, /ACTION_AUDIO_BECOMING_NOISY/)
   assert.match(service, /AudioFocusRequest/)
   assert.match(service, /onRangeStart/)
+  assert.match(service, /EXTRA_LANGUAGE_TAG/)
+  assert.match(service, /audioPrepared/)
+  assert.match(service, /ttsGeneration/)
+  assert.match(service, /onTaskRemoved/)
+  assert.match(plugin, /File\.createTempFile/)
+  assert.match(plugin, /EXTRA_AUDIO_PATH/)
+  assert.match(plugin, /EXTRA_LANGUAGE_TAG/)
+  assert.match(plugin, /Executors\.newSingleThreadExecutor/)
+  assert.match(plugin, /getDisplayName\(Locale\.getDefault\(\)\)/)
+  assert.match(plugin, /engineName/)
   assert.match(mainActivity, /registerPlugin\(ReadAloudPlugin\.class\)/)
 
   const app = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf8')
@@ -659,15 +808,24 @@ function testProviderSelectionAndAndroidContract(): void {
     path.join(process.cwd(), 'src/screens/MeScreen.tsx'),
     'utf8',
   )
+  const settings = fs.readFileSync(
+    path.join(process.cwd(), 'src/screens/settings/ReadAloudScreen.tsx'),
+    'utf8',
+  )
   assert.match(app, /name: 'read-aloud'/)
   assert.match(app, /readAloudPrefs=\{prefs\.readAloud\}/)
   assert.match(reader, /useReadAloud/)
   assert.match(reader, /ReadAloudBar/)
   assert.match(me, /title="朗读"/)
+  assert.match(settings, /OptionPickerDialog/)
+  assert.match(settings, /PromptDialog/)
+  assert.doesNotMatch(settings, /<select|<datalist/)
+  assert.doesNotMatch(settings, /window\.(alert|confirm|prompt)/)
 }
 
 testPrefsAndSegmentation()
 await testServiceStateMachine()
+await testEmptyDocumentStopsPrevious()
 await testProviderSwitch()
 await testProviderFailure()
 await testWebSpeechProvider()

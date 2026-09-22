@@ -18,7 +18,7 @@ export type ReadAloudSegmentKind =
   | 'caption'
   | 'list-item'
 
-export type ReadAloudAudioFormat = 'mp3' | 'opus' | 'wav' | 'aac' | 'flac' | 'pcm'
+export type ReadAloudAudioFormat = 'mp3' | 'opus' | 'wav' | 'aac' | 'flac'
 
 export interface ReadAloudSegment {
   id: string
@@ -46,9 +46,12 @@ export interface ReadAloudPosition {
 
 export interface ReadAloudVoice {
   id: string
+  /** 面向用户的声音名称；Android 使用系统 Locale 的本地化显示名。 */
   name: string
   lang: string
   local?: boolean
+  /** 底层引擎 voice 标识，仅用于区分/搜索，不应作为主标题。 */
+  engineName?: string
 }
 
 export interface ReadAloudProviderCapabilities {
@@ -97,6 +100,12 @@ export interface ReadAloudProvider {
     options: ReadAloudSpeakOptions,
     events: ReadAloudSpeakEvents,
   ): Promise<ReadAloudHandle>
+  /** 可选的一段前瞻缓存；只允许轻量预取，Provider 必须自行限制资源占用。 */
+  prefetch?(
+    segment: ReadAloudSegment,
+    options: Omit<ReadAloudSpeakOptions, 'signal' | 'startOffset'>,
+  ): Promise<void>
+  cancelPrefetch?(): Promise<void> | void
   dispose(): Promise<void>
 }
 

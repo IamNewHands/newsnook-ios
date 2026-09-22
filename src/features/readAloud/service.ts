@@ -114,8 +114,28 @@ export class ReadAloudService {
     ai: AiPrefs,
     options?: { resumeSaved?: boolean },
   ): Promise<void> {
+    if (this.document && this.document.articleId !== document.articleId) {
+      await this.provider?.cancelPrefetch?.()
+    }
     if (!document.segments.length) {
-      this.fail(new Error('这篇文章没有可朗读的正文。'))
+      // 新文章没有正文时也必须先结束旧文章，尤其 Web Speech/HTMLAudio 不会被 MediaSession 自动停掉。
+      await this.stop()
+      this.document = document
+      this.prefs = prefs
+      this.ai = ai
+      this.setSnapshot({
+        state: 'error',
+        providerId: undefined,
+        articleId: document.articleId,
+        title: document.title,
+        sourceName: document.sourceName,
+        artwork: document.artwork,
+        segmentIndex: 0,
+        segmentCount: 0,
+        characterOffset: 0,
+        elapsedMs: undefined,
+        error: '这篇文章没有可朗读的正文。',
+      })
       return
     }
 
@@ -242,6 +262,7 @@ export class ReadAloudService {
         log.readAloud.warn('stop failed', error)
       }
     }
+    await this.provider?.cancelPrefetch?.()
     if (generation !== this.generation) return
 
     this.persistPosition(true)
@@ -325,7 +346,10 @@ export class ReadAloudService {
     const previous = this.provider
     this.provider = null
     this.providerKey = ''
-    if (previous) await previous.dispose()
+    if (previous) {
+      await previous.cancelPrefetch?.()
+      await previous.dispose()
+    }
 
     const provider = await this.providerFactory(context)
     this.provider = provider
@@ -426,6 +450,7 @@ export class ReadAloudService {
       if (this.snapshot.state === 'loading') {
         this.setSnapshot({ state: 'playing' })
       }
+      void this.prefetchNext(provider, segmentIndex)
     } catch (error) {
       if (generation !== this.generation) return
       if (
@@ -440,6 +465,27 @@ export class ReadAloudService {
     }
   }
 
+  private async prefetchNext(
+    provider: ReadAloudProvider,
+    segmentIndex: number,
+  ): Promise<void> {
+    if (!provider.prefetch || !this.document || !this.prefs) return
+    const next = this.document.segments[segmentIndex + 1]
+    if (!next) return
+    try {
+      await provider.prefetch(next, {
+        voiceId:
+          provider.id === 'ai'
+            ? this.prefs.ai.voice
+            : this.prefs.systemVoiceId || undefined,
+        rate: this.prefs.rate,
+        pitch: this.prefs.pitch,
+      })
+    } catch (error) {
+      log.readAloud.debug('prefetch skipped', error)
+    }
+  }
+
   private async onSegmentEnded(generation: number): Promise<void> {
     if (
       generation !== this.generation ||
@@ -448,6 +494,12 @@ export class ReadAloudService {
     ) {
       return
     }
+
+    // Provider 已通过 onEnd 告知自然完成。不要再 stop() 已完成 handle，
+    // 否则 Android 会每段 teardown/restart foreground service，造成段间空洞。
+    const completedHandle = this.handle
+    this.handle = null
+    await completedHandle?.dispose?.().catch(() => {})
 
     const segment = this.document.segments[this.snapshot.segmentIndex]
     if (segment) {
@@ -464,12 +516,12 @@ export class ReadAloudService {
       return
     }
 
-    this.handle = null
     this.setSnapshot({ state: 'ended', elapsedMs: undefined })
   }
 
   private fail(error: Error): void {
     log.readAloud.warn('read aloud failed', error)
+    void this.provider?.cancelPrefetch?.()
     this.setSnapshot({
       state: 'error',
       error: error.message,
@@ -536,6 +588,7 @@ export class ReadAloudService {
       await handle.stop().catch(() => {})
       await handle.dispose?.().catch(() => {})
     }
+    await this.provider?.cancelPrefetch?.()
     await this.provider?.dispose().catch(() => {})
     this.provider = null
     this.providerKey = ''

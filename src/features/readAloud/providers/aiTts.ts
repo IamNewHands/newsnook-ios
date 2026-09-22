@@ -1,6 +1,12 @@
-import { Capacitor, CapacitorHttp } from '@capacitor/core'
+import {
+  Capacitor,
+  CapacitorHttp,
+  type PluginListenerHandle,
+} from '@capacitor/core'
 
+import { normalizeOpenAiBaseUrl } from '../../translation/openai'
 import type { AiProviderConfig } from '../../translation/types'
+import { isNativeReadAloudAvailable, ReadAloudNative } from '../native'
 import type {
   ReadAloudAiSelection,
   ReadAloudHandle,
@@ -18,7 +24,7 @@ const CAPABILITIES: ReadAloudProviderCapabilities = {
   pitch: false,
   pauseResume: true,
   rangeProgress: false,
-  exactTime: true,
+  exactTime: !Capacitor.isNativePlatform(),
   seekByCharacter: false,
   streaming: false,
   offline: false,
@@ -26,6 +32,13 @@ const CAPABILITIES: ReadAloudProviderCapabilities = {
 
 const CONNECT_TIMEOUT_MS = 15_000
 const READ_TIMEOUT_MS = 90_000
+let aiSequence = 0
+
+interface SpeechPayload {
+  blob: Blob
+  mimeType: string
+  nativeBase64?: string
+}
 
 function abortError(): DOMException {
   return new DOMException('朗读已取消', 'AbortError')
@@ -43,18 +56,24 @@ function assertConfig(
   if (!selection.model.trim()) throw new Error('AI TTS 未选择模型')
   if (!selection.voice.trim()) throw new Error('AI TTS 未选择声音')
 
+  const normalizedBase = normalizeOpenAiBaseUrl(provider.endpoint.trim())
   let base: URL
   try {
-    base = new URL(provider.endpoint.trim())
+    base = new URL(normalizedBase)
   } catch {
     throw new Error('AI TTS Base URL 格式不正确')
   }
   if (base.protocol !== 'https:') {
     throw new Error('为保护 API Key，AI TTS Base URL 必须使用 HTTPS')
   }
-  return new URL(
-    `${base.toString().replace(/\/+$/, '')}/audio/speech`,
-  )
+  let path = base.pathname.replace(/\/+$/, '')
+  if (/\/audio\/speech$/i.test(path)) {
+    path = path.replace(/\/audio\/speech$/i, '')
+  }
+  base.pathname = `${path || ''}/audio/speech`.replace(/\/{2,}/g, '/')
+  base.search = ''
+  base.hash = ''
+  return base
 }
 
 function decodeBase64(base64: string): ArrayBuffer {
@@ -68,12 +87,14 @@ function decodeBase64(base64: string): ArrayBuffer {
 }
 
 function mimeFor(format: ReadAloudAiSelection['format']): string {
-  if (format === 'mp3') return 'audio/mpeg'
-  if (format === 'opus') return 'audio/ogg; codecs=opus'
-  if (format === 'wav') return 'audio/wav'
-  if (format === 'aac') return 'audio/aac'
-  if (format === 'flac') return 'audio/flac'
-  return 'audio/L16'
+  const mimeTypes: Record<ReadAloudAiSelection['format'], string> = {
+    mp3: 'audio/mpeg',
+    opus: 'audio/ogg; codecs=opus',
+    wav: 'audio/wav',
+    aac: 'audio/aac',
+    flac: 'audio/flac',
+  }
+  return mimeTypes[format]
 }
 
 async function responseDetail(response: Response): Promise<string> {
@@ -88,13 +109,13 @@ async function responseDetail(response: Response): Promise<string> {
   }
 }
 
-async function fetchSpeechBlob(
+async function fetchSpeechPayload(
   provider: AiProviderConfig,
   selection: ReadAloudAiSelection,
   text: string,
   rate: number,
   signal?: AbortSignal,
-): Promise<Blob> {
+): Promise<SpeechPayload> {
   const url = assertConfig(provider, selection)
   if (signal?.aborted) throw abortError()
 
@@ -157,9 +178,12 @@ async function fetchSpeechBlob(
       response.headers?.['content-type'] ||
       response.headers?.['Content-Type'] ||
       mimeFor(selection.format)
-    return new Blob([decodeBase64(raw)], {
-      type: String(contentType).split(';')[0],
-    })
+    const mimeType = String(contentType).split(';')[0]
+    return {
+      blob: new Blob([decodeBase64(raw)], { type: mimeType }),
+      mimeType,
+      nativeBase64: raw,
+    }
   }
 
   const controller = new AbortController()
@@ -188,7 +212,10 @@ async function fetchSpeechBlob(
     }
     const blob = await response.blob()
     if (!blob.size) throw new Error('AI TTS 返回了空音频')
-    return blob
+    return {
+      blob,
+      mimeType: blob.type || mimeFor(selection.format),
+    }
   } catch (error) {
     if (signal?.aborted) throw abortError()
     if (timedOut) {
@@ -201,6 +228,30 @@ async function fetchSpeechBlob(
   }
 }
 
+async function fetchSpeechBlob(
+  provider: AiProviderConfig,
+  selection: ReadAloudAiSelection,
+  text: string,
+  rate: number,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  return (await fetchSpeechPayload(provider, selection, text, rate, signal)).blob
+}
+
+function speechCacheKey(
+  selection: ReadAloudAiSelection,
+  text: string,
+  rate: number,
+): string {
+  return [
+    selection.model.trim(),
+    selection.voice.trim(),
+    selection.format,
+    rate.toFixed(3),
+    text,
+  ].join('\u0000')
+}
+
 export class AiTtsProvider implements ReadAloudProvider {
   readonly id = 'ai' as const
   readonly capabilities = CAPABILITIES
@@ -209,6 +260,9 @@ export class AiTtsProvider implements ReadAloudProvider {
   private objectUrl: string | null = null
   private readonly provider: AiProviderConfig
   private readonly selection: ReadAloudAiSelection
+  private prefetchController: AbortController | null = null
+  private prefetchKey = ''
+  private prefetchPromise: Promise<SpeechPayload | null> | null = null
 
   constructor(
     provider: AiProviderConfig,
@@ -219,11 +273,14 @@ export class AiTtsProvider implements ReadAloudProvider {
   }
 
   async isAvailable(): Promise<boolean> {
+    const playbackAvailable = Capacitor.isNativePlatform()
+      ? isNativeReadAloudAvailable()
+      : typeof Audio !== 'undefined'
     return (
       this.provider.capabilities.tts &&
       Boolean(this.provider.endpoint.trim()) &&
       Boolean(this.provider.apiKey.trim()) &&
-      typeof Audio !== 'undefined'
+      playbackAvailable
     )
   }
 
@@ -244,38 +301,150 @@ export class AiTtsProvider implements ReadAloudProvider {
     }
   }
 
-  async speak(
+  async prefetch(
     segment: ReadAloudSegment,
-    options: ReadAloudSpeakOptions,
-    events: ReadAloudSpeakEvents,
-  ): Promise<ReadAloudHandle> {
-    if (options.signal?.aborted) throw abortError()
-    this.releaseAudio()
-
-    const startOffset = Math.max(
-      0,
-      Math.min(options.startOffset ?? 0, segment.text.length),
-    )
-    const input = segment.text.slice(startOffset)
-    if (!input.trim()) {
-      queueMicrotask(() => events.onEnd?.())
-      return {
-        pause: async () => {},
-        resume: async () => {},
-        stop: async () => {},
-      }
+    options: Omit<ReadAloudSpeakOptions, 'signal' | 'startOffset'>,
+  ): Promise<void> {
+    const text = segment.text.trim()
+    if (!text) return
+    const key = speechCacheKey(this.selection, text, options.rate)
+    if (this.prefetchKey === key && this.prefetchPromise) {
+      await this.prefetchPromise
+      return
     }
 
-    const blob = await fetchSpeechBlob(
+    await this.cancelPrefetch()
+    const controller = new AbortController()
+    this.prefetchController = controller
+    this.prefetchKey = key
+    this.prefetchPromise = fetchSpeechPayload(
+      this.provider,
+      this.selection,
+      text,
+      options.rate,
+      controller.signal,
+    ).catch(() => null)
+    await this.prefetchPromise
+  }
+
+  async cancelPrefetch(): Promise<void> {
+    this.prefetchController?.abort()
+    this.prefetchController = null
+    this.prefetchKey = ''
+    this.prefetchPromise = null
+  }
+
+  private async speechPayload(
+    input: string,
+    rate: number,
+    startOffset: number,
+    signal?: AbortSignal,
+  ): Promise<SpeechPayload> {
+    const key = speechCacheKey(this.selection, input, rate)
+    if (
+      startOffset === 0 &&
+      this.prefetchKey === key &&
+      this.prefetchPromise
+    ) {
+      const pending = this.prefetchPromise
+      this.prefetchController = null
+      this.prefetchKey = ''
+      this.prefetchPromise = null
+      const payload = await pending
+      if (signal?.aborted) throw abortError()
+      if (payload) return payload
+    } else if (this.prefetchPromise) {
+      await this.cancelPrefetch()
+    }
+
+    return fetchSpeechPayload(
       this.provider,
       this.selection,
       input,
-      options.rate,
-      options.signal,
+      rate,
+      signal,
     )
-    if (options.signal?.aborted) throw abortError()
+  }
 
-    const objectUrl = URL.createObjectURL(blob)
+  private async speakNative(
+    payload: SpeechPayload,
+    options: ReadAloudSpeakOptions,
+    events: ReadAloudSpeakEvents,
+  ): Promise<ReadAloudHandle> {
+    if (!payload.nativeBase64 || !isNativeReadAloudAvailable()) {
+      throw new Error('Android 原生 AI TTS 播放能力不可用')
+    }
+
+    const utteranceId = `newsnook-ai-${Date.now()}-${++aiSequence}`
+    let stopped = false
+    let listener: PluginListenerHandle | null = null
+
+    const cleanup = async () => {
+      options.signal?.removeEventListener('abort', abort)
+      const current = listener
+      listener = null
+      if (current) await current.remove()
+    }
+    const abort = () => {
+      stopped = true
+      void ReadAloudNative.stop()
+      void cleanup()
+    }
+
+    listener = await ReadAloudNative.addListener(
+      'readAloudEvent',
+      (event) => {
+        if (event.utteranceId !== utteranceId) return
+        if (event.type === 'started') events.onStart?.()
+        if (event.type === 'ended' && !stopped) {
+          events.onEnd?.()
+          void cleanup()
+        }
+        if (event.type === 'error' && !stopped) {
+          events.onError?.(
+            new Error(event.message || 'Android AI TTS 音频播放失败'),
+          )
+          void cleanup()
+        }
+      },
+    )
+    options.signal?.addEventListener('abort', abort, { once: true })
+
+    try {
+      await ReadAloudNative.playAudio({
+        utteranceId,
+        base64: payload.nativeBase64,
+        mimeType: payload.mimeType,
+      })
+      if (options.signal?.aborted) {
+        stopped = true
+        await ReadAloudNative.stop().catch(() => {})
+        await cleanup()
+        throw abortError()
+      }
+    } catch (error) {
+      await cleanup()
+      throw error
+    }
+
+    return {
+      pause: () => ReadAloudNative.pause(),
+      resume: () => ReadAloudNative.resume(),
+      stop: async () => {
+        stopped = true
+        await ReadAloudNative.stop()
+        await cleanup()
+      },
+      dispose: cleanup,
+    }
+  }
+
+  private async speakWeb(
+    payload: SpeechPayload,
+    options: ReadAloudSpeakOptions,
+    events: ReadAloudSpeakEvents,
+  ): Promise<ReadAloudHandle> {
+    const objectUrl = URL.createObjectURL(payload.blob)
     const audio = new Audio(objectUrl)
     this.objectUrl = objectUrl
     this.audio = audio
@@ -313,7 +482,11 @@ export class AiTtsProvider implements ReadAloudProvider {
       const code = audio.error?.code
       cleanup()
       events.onError?.(
-        new Error(code ? `AI TTS 音频播放失败（code ${code}）` : 'AI TTS 音频播放失败'),
+        new Error(
+          code
+            ? `AI TTS 音频播放失败（code ${code}）`
+            : 'AI TTS 音频播放失败',
+        ),
       )
     }
 
@@ -344,8 +517,46 @@ export class AiTtsProvider implements ReadAloudProvider {
     }
   }
 
-  async dispose(): Promise<void> {
+  async speak(
+    segment: ReadAloudSegment,
+    options: ReadAloudSpeakOptions,
+    events: ReadAloudSpeakEvents,
+  ): Promise<ReadAloudHandle> {
+    if (options.signal?.aborted) throw abortError()
     this.releaseAudio()
+
+    const startOffset = Math.max(
+      0,
+      Math.min(options.startOffset ?? 0, segment.text.length),
+    )
+    const input = segment.text.slice(startOffset)
+    if (!input.trim()) {
+      queueMicrotask(() => events.onEnd?.())
+      return {
+        pause: async () => {},
+        resume: async () => {},
+        stop: async () => {},
+      }
+    }
+
+    const payload = await this.speechPayload(
+      input,
+      options.rate,
+      startOffset,
+      options.signal,
+    )
+    if (options.signal?.aborted) throw abortError()
+
+    if (Capacitor.isNativePlatform()) {
+      return this.speakNative(payload, options, events)
+    }
+    return this.speakWeb(payload, options, events)
+  }
+
+  async dispose(): Promise<void> {
+    await this.cancelPrefetch()
+    this.releaseAudio()
+    // native 播放由 speak() handle 所有，Provider dispose 可能发生在临时/非活动实例上。
   }
 }
 

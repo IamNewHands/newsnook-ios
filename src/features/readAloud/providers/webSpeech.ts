@@ -13,7 +13,8 @@ const CAPABILITIES: ReadAloudProviderCapabilities = {
   rate: true,
   pitch: true,
   pauseResume: true,
-  rangeProgress: true,
+  // boundary 事件跨浏览器并不可靠；实现会尽量消费，但能力矩阵不作保证。
+  rangeProgress: false,
   exactTime: false,
   seekByCharacter: false,
   streaming: false,
