@@ -106,6 +106,18 @@ assert.equal(withHls?.type, 'hls')
 assert.equal(withHls?.url, 'https://cdn.example/index.m3u8')
 
 {
+  const reader = readFileSync(
+    join(process.cwd(), 'src/screens/ReaderScreen.tsx'),
+    'utf8',
+  )
+  assert.match(
+    reader,
+    /feedEmbeddedPlayerUrl[\s\S]*?<OriginPlayerSurface[\s\S]*?pageUrl=\{feedEmbeddedPlayerUrl \|\| resolvedOriginUrl \|\| article\.originUrl!\}/,
+    'custom video feeds must prefer the lightweight embedded player page over rendering a full video website in the slot',
+  )
+}
+
+{
   const surface = readFileSync(
     join(process.cwd(), 'src/components/OriginPlayerSurface.tsx'),
     'utf8',

@@ -1204,6 +1204,19 @@ assert.match(accountViewSource, /await authenticateLinuxDo\(\)/)
 assert.match(accountViewSource, /await cancelLinuxDoAuthentication\(\)/)
 assert.doesNotMatch(accountViewSource, /Browser\.open\(\{ url: 'https:\/\/linux\.do\/login'/)
 const cssSource = readFileSync('src/index.css', 'utf8')
+const paragraphCssFixture = parseHTML(
+  '<html><body><div class="reader-prose"><p>啊哈哈，这个就好呀！<br>一个L站顶几十个的rss</p></div></body></html>',
+).document.querySelector('p')
+assert.ok(paragraphCssFixture)
+const hiddenReaderParagraphSelectors = Array.from(
+  cssSource.matchAll(/([^{}]+)\{[^{}]*\bdisplay:\s*none\s*;/g),
+).flatMap((match) => match[1]!.split(',').map((selector) => selector.trim()))
+  .filter((selector) => selector.includes('.reader-prose') && /\bp\b/.test(selector))
+assert.equal(
+  hiddenReaderParagraphSelectors.some((selector) => paragraphCssFixture.matches(selector)),
+  false,
+  'a text paragraph with one line break must remain visible',
+)
 assert.match(cssSource, /\.reader-prose\.linuxdo-post-prose p\s*\{\s*text-indent:\s*0\s*!important;/)
 assert.match(cssSource, /font-size:\s*15\.5px/)
 assert.match(cssSource, /data-linuxdo-role='quote'/)

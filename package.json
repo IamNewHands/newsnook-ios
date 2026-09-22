@@ -46,6 +46,7 @@
     "test:origin-player-live-sniff": "npx tsx scripts/origin-player-live-sniff.test.ts",
     "test:podcast": "npx tsx scripts/podcast-audio.test.ts",
     "test:huxiu-video": "rolldown scripts/huxiu-video.test.ts --platform=node --format=esm --file=node_modules/.cache/newsnook/huxiu-video.test.mjs && node node_modules/.cache/newsnook/huxiu-video.test.mjs",
+    "test:rss-video-feed": "npx tsx scripts/rss-video-feed.test.ts",
     "test:netease-ugc-video": "npx tsx scripts/netease-ugc-video.test.ts",
     "test:video-gestures": "rolldown scripts/video-gestures.test.ts --platform=node --format=esm --file=node_modules/.cache/newsnook/video-gestures.test.mjs && node node_modules/.cache/newsnook/video-gestures.test.mjs",
     "test:translation": "rolldown scripts/translation-service.test.ts --platform=node --format=esm --file=node_modules/.cache/newsnook/translation-service.test.mjs && node node_modules/.cache/newsnook/translation-service.test.mjs",

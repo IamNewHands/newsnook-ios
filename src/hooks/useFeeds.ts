@@ -16,6 +16,7 @@ import {
 import { fetchAbsoluteText, fetchSourceText } from '../lib/http'
 import { detectNextPageUrl } from '../features/catalogEngine/pagination'
 import { describeNonFeedPayload } from '../lib/feedPayload'
+import { normalizeLegacyVideoArticle } from '../lib/videoArticle'
 import {
   enrichJazzyearDates,
   enrichLatepostDates,
@@ -169,7 +170,7 @@ function loadCachedSource(
 } {
   const source = findSource(sourceId, extraSources)
   const cached = loadCachedList(sourceId)
-  let items = cached?.items ?? []
+  let items = (cached?.items ?? []).map(normalizeLegacyVideoArticle)
   if (
     source &&
     cached &&

@@ -832,7 +832,6 @@ html[data-eink='1'] .preset-switcher-sheet {
 
 /* Defensive fallback for cached articles created before empty-block cleanup. */
 .reader-prose p:empty,
-.reader-prose p:has(> br:only-child),
 .reader-prose ul:empty,
 .reader-prose ol:empty {
   display: none;

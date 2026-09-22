@@ -56,6 +56,7 @@ import {
 import { resolveArticleBody, type BodySource } from '../lib/resolveBody'
 import { articleCoverUrl } from '../lib/articleAudio'
 import { articleRelativeTime } from '../lib/time'
+import { extractEmbeddedVideoPageUrl } from '../lib/videoArticle'
 import type { Article } from '../lib/types'
 import type { TypographyPrefs } from '../sources/preferences'
 import { resolveAiFeatureConfig } from '../features/translation/aiConfig'
@@ -128,6 +129,10 @@ export function ReaderScreen({
     sourceId: article.sourceId,
     contentType: article.contentType,
   })
+  const feedEmbeddedPlayerUrl = useMemo(
+    () => article.contentType === 'video' ? extractEmbeddedVideoPageUrl(article.contentHtml) : undefined,
+    [article.contentHtml, article.contentType],
+  )
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [html, setHtml] = useState('')
   const [bodySource, setBodySource] = useState<BodySource | null>(null)
@@ -1482,10 +1487,10 @@ export function ReaderScreen({
               </div>
             )}
 
-            {useOriginSurface && (resolvedOriginUrl || article.originUrl) && (
+            {useOriginSurface && (feedEmbeddedPlayerUrl || resolvedOriginUrl || article.originUrl) && (
               <OriginPlayerSurface
-                pageUrl={resolvedOriginUrl || article.originUrl!}
-                referrer={resolvedOriginUrl || article.originUrl}
+                pageUrl={feedEmbeddedPlayerUrl || resolvedOriginUrl || article.originUrl!}
+                referrer={resolvedOriginUrl || article.originUrl || feedEmbeddedPlayerUrl}
                 title={article.title}
                 poster={article.image}
                 openOriginal={() => void openOriginal()}
