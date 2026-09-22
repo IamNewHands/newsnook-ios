@@ -18,6 +18,7 @@ import {
   SettingsSection,
   SettingsShell,
 } from '../../components/SettingsShell'
+import { ToggleSwitch } from '../../components/ToggleSwitch'
 import {
   DEFAULT_READ_ALOUD_PREFS,
   readAloudEngineLabel,
@@ -356,35 +357,22 @@ export function ReadAloudScreen({
             )}
 
             <div className="flex items-center justify-between gap-4">
-              <span>
+              <span className="min-w-0 flex-1">
                 <span className="block text-[13px] text-paper">自动连续朗读</span>
                 <span className="mt-0.5 block font-mono text-[9.5px] text-paper-faint">
                   当前段结束后自动进入下一段
                 </span>
               </span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={prefs.autoContinue}
-                aria-label="自动连续朗读"
-                onClick={() =>
+              <ToggleSwitch
+                checked={prefs.autoContinue}
+                label="自动连续朗读"
+                onChange={() =>
                   onChange({
                     ...prefs,
                     autoContinue: !prefs.autoContinue,
                   })
                 }
-                className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${
-                  prefs.autoContinue
-                    ? 'border-cinnabar/60 bg-cinnabar/70'
-                    : 'border-haze bg-ink-raised'
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 h-4.5 w-4.5 rounded-full bg-white shadow-sm transition-transform ${
-                    prefs.autoContinue ? 'translate-x-[21px]' : 'translate-x-[3px]'
-                  }`}
-                />
-              </button>
+              />
             </div>
           </div>
         </SettingsSection>
