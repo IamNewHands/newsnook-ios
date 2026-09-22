@@ -103,7 +103,13 @@ export function AccountView({
 
       <section className="rounded-[24px] border border-haze/70 bg-ink-raised p-5 shadow-sm">
         <div className="flex items-center gap-4">
-          <div className="h-14 w-14 overflow-hidden rounded-full border border-haze bg-ink-deep">{avatar(session.currentUser?.avatarTemplate, session.currentUser?.username)}</div>
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-haze bg-ink-deep">
+            {session.authenticated ? (
+              avatar(session.currentUser?.avatarTemplate, session.currentUser?.name || session.currentUser?.username)
+            ) : (
+              <UserRound size={26} strokeWidth={1.5} className="text-paper-muted" />
+            )}
+          </div>
           <div className="min-w-0 flex-1">
             <div className="truncate text-[17px] font-semibold text-paper">{session.authenticated ? session.currentUser?.name || session.currentUser?.username : '未登录'}</div>
             <div className="mt-1 text-[11px] text-paper-faint">{session.authenticated ? '@' + session.currentUser?.username + ' · 第一方会话' : '使用 Linux.do 账号登录 App'}</div>

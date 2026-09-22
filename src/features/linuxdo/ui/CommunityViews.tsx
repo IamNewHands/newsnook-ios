@@ -1,7 +1,7 @@
 import { Browser } from '@capacitor/browser'
 import { Capacitor } from '@capacitor/core'
 import { Bell, Loader2, Search, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 
 import { ConfirmDialog } from '../../../components/ConfirmDialog'
 
@@ -29,23 +29,51 @@ import type {
   LinuxDoTopicSummary,
 } from '../types'
 import { TopicCard } from './shared'
+import type { LinuxDoSearchCache, LinuxDoSearchTab } from './searchCache'
 import { ago, avatar, readableError } from './utils'
 
-export function SearchView({ onOpen, onOpenUser }: { onOpen: (topic: LinuxDoTopicSummary, targetPostNumber?: number) => void; onOpenUser: (username: string) => void }) {
-  const [query, setQuery] = useState('')
+export function SearchView({ onOpen, onOpenUser, cacheRef }: {
+  onOpen: (topic: LinuxDoTopicSummary, targetPostNumber?: number) => void
+  onOpenUser: (username: string) => void
+  cacheRef: MutableRefObject<LinuxDoSearchCache>
+}) {
+  const initialCache = cacheRef.current
+  const [query, setQuery] = useState(() => initialCache.query)
   const [loading, setLoading] = useState(false)
-  const [topics, setTopics] = useState<LinuxDoTopicSummary[]>([])
-  const [posts, setPosts] = useState<LinuxDoPost[]>([])
-  const [users, setUsers] = useState<Array<{ id: number; username: string; name?: string; avatarTemplate?: string }>>([])
-  const [active, setActive] = useState<'topics' | 'posts' | 'users'>('topics')
+  const [topics, setTopics] = useState<LinuxDoTopicSummary[]>(() => initialCache.topics)
+  const [posts, setPosts] = useState<LinuxDoPost[]>(() => initialCache.posts)
+  const [users, setUsers] = useState(() => initialCache.users)
+  const [active, setActive] = useState<LinuxDoSearchTab>(() => initialCache.activeTab)
   const [error, setError] = useState('')
-  const [page, setPage] = useState(1)
+  const [page, setPage] = useState(() => initialCache.page)
   const [loadingMore, setLoadingMore] = useState(false)
-  const [hasMore, setHasMore] = useState(false)
-  const [lastQuery, setLastQuery] = useState('')
+  const [hasMore, setHasMore] = useState(() => initialCache.hasMore)
+  const [lastQuery, setLastQuery] = useState(() => initialCache.lastQuery)
+  const scrollerRef = useRef<HTMLDivElement | null>(null)
   const [history, setHistory] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('newsnook-linuxdo-search-history') || '[]') as string[] } catch { return [] }
   })
+
+  useEffect(() => {
+    cacheRef.current = {
+      ...cacheRef.current,
+      query,
+      lastQuery,
+      topics,
+      posts,
+      users,
+      activeTab: active,
+      page,
+      hasMore,
+    }
+  }, [active, cacheRef, hasMore, lastQuery, page, posts, query, topics, users])
+
+  useEffect(() => {
+    const scrollTop = cacheRef.current.scrollTop
+    window.requestAnimationFrame(() => {
+      if (scrollerRef.current) scrollerRef.current.scrollTop = scrollTop
+    })
+  }, [cacheRef])
 
   const run = async (nextPage = 1) => {
     const normalized = query.trim()
@@ -56,6 +84,8 @@ export function SearchView({ onOpen, onOpenUser }: { onOpen: (topic: LinuxDoTopi
     try {
       const next = await searchApi.search(normalized, nextPage)
       if (nextPage === 1) {
+        cacheRef.current.scrollTop = 0
+        if (scrollerRef.current) scrollerRef.current.scrollTop = 0
         const nextHistory = [normalized, ...history.filter((item) => item !== normalized)].slice(0, 8)
         setHistory(nextHistory)
         localStorage.setItem('newsnook-linuxdo-search-history', JSON.stringify(nextHistory))
@@ -79,21 +109,35 @@ export function SearchView({ onOpen, onOpenUser }: { onOpen: (topic: LinuxDoTopi
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto page-x pb-4 pt-4">
+    <div
+      ref={scrollerRef}
+      onScroll={(event) => { cacheRef.current.scrollTop = event.currentTarget.scrollTop }}
+      className="min-h-0 flex-1 overflow-y-auto page-x pb-4 pt-4"
+    >
       <div className="relative flex items-center gap-2 rounded-2xl border border-haze/80 bg-ink-raised/60 p-1.5 pl-3 transition-colors focus-within:border-cinnabar/60 focus-within:ring-1 focus-within:ring-cinnabar/20">
         <Search size={16} className="shrink-0 text-paper-faint" />
         <input
-          autoFocus
+          autoFocus={!lastQuery}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => event.key === 'Enter' && void run(1)}
           placeholder="搜索主题、帖子、用户"
-          className="min-w-0 flex-1 bg-transparent py-1.5 text-[13px] leading-normal text-paper outline-none placeholder:text-paper-faint"
+          className="min-w-0 flex-1 border-0 bg-transparent py-1.5 text-[13px] leading-normal text-paper outline-none focus:outline-none focus-visible:outline-none placeholder:text-paper-faint"
         />
         {query ? (
           <button
             type="button"
-            onClick={() => { setQuery(''); setTopics([]); setPosts([]); setUsers([]); setLastQuery('') }}
+            onClick={() => {
+              setQuery('')
+              setTopics([])
+              setPosts([])
+              setUsers([])
+              setLastQuery('')
+              setPage(1)
+              setHasMore(false)
+              cacheRef.current.scrollTop = 0
+              if (scrollerRef.current) scrollerRef.current.scrollTop = 0
+            }}
             className="linuxdo-control shrink-0 rounded-full p-1 text-paper-faint transition hover:text-paper"
             aria-label="清空搜索词"
           >
@@ -146,7 +190,7 @@ export function SearchView({ onOpen, onOpenUser }: { onOpen: (topic: LinuxDoTopi
       {error ? <p className="py-8 text-center text-[12px] text-cinnabar-soft">{error}</p> : null}
       {!loading && active === 'topics' ? <div className="mt-4 space-y-3">{topics.map((topic) => <TopicCard key={topic.id} topic={topic} onOpen={() => onOpen(topic)} />)}</div> : null}
       {!loading && active === 'posts' ? <div className="mt-4 space-y-2.5">{posts.map((post) => <button key={post.id} type="button" disabled={!post.topicId} onClick={() => post.topicId && onOpen({ id: post.topicId, slug: post.topicSlug || 'topic', title: post.topicTitle || 'Linux.do 主题', postsCount: 0, replyCount: 0, views: 0, likeCount: 0, createdAt: post.createdAt, lastPostedAt: post.createdAt, tags: [], posters: [] }, post.postNumber)} className="linuxdo-control w-full rounded-[18px] border border-haze/60 bg-ink-raised/40 px-4 py-3 text-left disabled:opacity-70"><div className="text-[10px] text-paper-faint">{'@' + post.username + ' · #' + post.postNumber}</div><div className="linuxdo-post-prose mt-2 line-clamp-4 text-[12px] text-paper-muted" dangerouslySetInnerHTML={{ __html: post.cooked }} /></button>)}</div> : null}
-      {!loading && active === 'users' ? <div className="mt-4 space-y-2.5">{users.map((user) => <button key={user.id} type="button" onClick={() => onOpenUser(user.username)} className="linuxdo-control flex w-full items-center gap-3 rounded-[18px] border border-haze/60 bg-ink-raised/40 px-4 py-3 text-left"><div className="h-9 w-9 overflow-hidden rounded-full border border-haze bg-paper/5">{avatar(user.avatarTemplate, user.username)}</div><div><div className="text-[12.5px] font-medium text-paper">{user.name || user.username}</div><div className="text-[10px] text-paper-faint">{'@' + user.username}</div></div></button>)}</div> : null}
+      {!loading && active === 'users' ? <div className="mt-4 space-y-2.5">{users.map((user) => <button key={user.id} type="button" onClick={() => onOpenUser(user.username)} className="linuxdo-control flex w-full items-center gap-3 rounded-[18px] border border-haze/60 bg-ink-raised/40 px-4 py-3 text-left"><div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-haze bg-paper/5">{avatar(user.avatarTemplate, user.username)}</div><div><div className="text-[12.5px] font-medium text-paper">{user.name || user.username}</div><div className="text-[10px] text-paper-faint">{'@' + user.username}</div></div></button>)}</div> : null}
       {!loading && lastQuery && hasMore ? <button type="button" disabled={loadingMore || query.trim() !== lastQuery} onClick={() => void run(page + 1)} className="linuxdo-control mt-4 w-full rounded-full border border-haze px-4 py-2 text-[10.5px] text-paper-muted disabled:opacity-40">{loadingMore ? '加载中…' : '加载更多结果'}</button> : null}
     </div>
   )
@@ -179,7 +223,7 @@ export function NotificationsView({
   const [nextOffset, setNextOffset] = useState<number | undefined>()
   const [error, setError] = useState('')
   const [filter, setFilter] = useState<LinuxDoNotificationFilter>('all')
-  const [unreadCount, setUnreadCount] = useState(session.currentUser?.unreadNotifications ?? 0)
+  const [unreadCount, setUnreadCount] = useState(session.currentUser?.allUnreadNotificationsCount ?? session.currentUser?.unreadNotifications ?? 0)
   const [markingAll, setMarkingAll] = useState(false)
   const [markingIds, setMarkingIds] = useState<Set<number>>(() => new Set())
   const [detailItem, setDetailItem] = useState<LinuxDoNotification | null>(null)

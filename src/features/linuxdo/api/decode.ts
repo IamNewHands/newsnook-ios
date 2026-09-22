@@ -32,7 +32,12 @@ export function decodeTagNames(value: unknown): string[] {
 }
 
 function avatar(template: unknown): string | undefined {
-  return typeof template === 'string' ? 'https://linux.do' + template.replace('{size}', '96') : undefined
+  if (typeof template !== 'string' || !template.trim()) return undefined
+  const raw = template.trim().replace('{size}', '96')
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw
+  if (raw.startsWith('//')) return 'https:' + raw
+  if (raw.startsWith('/')) return 'https://linux.do' + raw
+  return 'https://linux.do/' + raw
 }
 
 export function decodeCurrentUser(input: unknown): LinuxDoUser | undefined {
@@ -46,6 +51,7 @@ export function decodeCurrentUser(input: unknown): LinuxDoUser | undefined {
     avatarTemplate: avatar(user.avatar_template),
     trustLevel: typeof user.trust_level === 'number' ? user.trust_level : undefined,
     unreadNotifications: typeof user.unread_notifications === 'number' ? user.unread_notifications : undefined,
+    allUnreadNotificationsCount: typeof user.all_unread_notifications_count === 'number' ? user.all_unread_notifications_count : undefined,
     canUseTemplates: typeof user.can_use_templates === 'boolean' ? user.can_use_templates : undefined,
   }
 }

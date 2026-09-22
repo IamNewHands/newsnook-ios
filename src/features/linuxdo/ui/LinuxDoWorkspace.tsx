@@ -6,6 +6,7 @@ import { LinuxDoBoostComposer, LinuxDoComposer, LinuxDoTopicView } from './Threa
 import { BookmarksView, NotificationsView, SearchView } from './CommunityViews'
 import { DiscoverView } from './DiscoverView'
 import { createLinuxDoDiscoveryCache } from './discoveryCache'
+import { createLinuxDoSearchCache } from './searchCache'
 import { UserProfileView } from './UserProfileView'
 import { AccountView } from './AccountView'
 import { verifyLinuxDoBrowserSession } from '../session/native'
@@ -506,6 +507,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
   const [history, setHistory] = useState<Route[]>([])
   const feedCacheRef = useRef<LinuxDoFeedCache>(createFeedCache())
   const discoverCacheRef = useRef(createLinuxDoDiscoveryCache())
+  const searchCacheRef = useRef(createLinuxDoSearchCache())
   const [session, setSession] = useState<LinuxDoSessionSnapshot>({ authenticated: false, authMode: 'none' })
   const [composerTopic, setComposerTopic] = useState<LinuxDoTopic | undefined>()
   const [composerOpen, setComposerOpen] = useState(false)
@@ -530,13 +532,23 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
   }, [])
 
   const applyNotificationUnread = useCallback((count: number) => {
+    const normalized = Math.max(0, Math.trunc(Number.isFinite(count) ? count : 0))
     notificationUnreadRevisionRef.current += 1
-    setNotificationUnread(Math.max(0, Math.trunc(Number.isFinite(count) ? count : 0)))
+    setNotificationUnread(normalized)
+    setSession((previous) => previous.currentUser
+      ? {
+        ...previous,
+        currentUser: {
+          ...previous.currentUser,
+          allUnreadNotificationsCount: normalized,
+        },
+      }
+      : previous)
   }, [])
 
   const applyWorkspaceSession = useCallback((next: LinuxDoSessionSnapshot) => {
     setSession(next)
-    applyNotificationUnread(next.currentUser?.unreadNotifications ?? 0)
+    applyNotificationUnread(next.currentUser?.allUnreadNotificationsCount ?? next.currentUser?.unreadNotifications ?? 0)
     resetPersonalizedFeedCaches()
   }, [applyNotificationUnread, resetPersonalizedFeedCaches])
 
@@ -562,11 +574,11 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
     const revision = notificationUnreadRevisionRef.current
     try {
       const count = await notificationsApi.unreadCount()
-      if (revision === notificationUnreadRevisionRef.current) setNotificationUnread(count)
+      if (revision === notificationUnreadRevisionRef.current) applyNotificationUnread(count)
     } catch {
       // Notification count is auxiliary UI state; the active screen reports actionable errors.
     }
-  }, [session.authenticated])
+  }, [applyNotificationUnread, session.authenticated])
 
   useEffect(() => {
     if (!session.authenticated) return
@@ -694,7 +706,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
             else void topicsApi.raw(post.id).then(openEditor).catch((nextError) => setWorkspaceError(readableError(nextError)))
           }} />
         ) : route.kind === 'search' ? (
-          <SearchView onOpen={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenUser={(username) => navigate({ kind: 'user', username })} />
+          <SearchView cacheRef={searchCacheRef} onOpen={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenUser={(username) => navigate({ kind: 'user', username })} />
         ) : route.kind === 'discover' ? (
           <DiscoverView initialScope={route.scope} cacheRef={discoverCacheRef} onScopeChange={replaceDiscoverScope} onOpen={(topic) => navigate({ kind: 'topic', topic })} />
         ) : route.kind === 'notifications' ? (

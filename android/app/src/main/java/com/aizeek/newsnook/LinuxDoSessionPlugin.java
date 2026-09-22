@@ -1381,6 +1381,7 @@ public class LinuxDoSessionPlugin extends Plugin {
             cached.put("avatar_template", user.optString("avatar_template", ""));
             cached.put("trust_level", user.optInt("trust_level", 0));
             cached.put("unread_notifications", user.optInt("unread_notifications", 0));
+            cached.put("all_unread_notifications_count", user.optInt("all_unread_notifications_count", user.optInt("unread_notifications", 0)));
             if (user.has("can_use_templates")) cached.put("can_use_templates", user.optBoolean("can_use_templates", false));
             sessionCachePreferences().edit().putString(PREF_LAST_USER, cached.toString()).apply();
         } catch (Exception ignored) {
@@ -1412,6 +1413,7 @@ public class LinuxDoSessionPlugin extends Plugin {
         current.put("avatarTemplate", avatarUrl(user.optString("avatar_template", "")));
         current.put("trustLevel", user.optInt("trust_level", 0));
         current.put("unreadNotifications", user.optInt("unread_notifications", 0));
+        current.put("allUnreadNotificationsCount", user.optInt("all_unread_notifications_count", user.optInt("unread_notifications", 0)));
         if (user.has("can_use_templates")) current.put("canUseTemplates", user.optBoolean("can_use_templates", false));
         return current;
     }

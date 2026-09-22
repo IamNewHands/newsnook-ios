@@ -2318,11 +2318,20 @@ html[data-eink='1'] .lead-cover-veil {
 
 .linuxdo-workspace button:focus-visible,
 .linuxdo-workspace a:focus-visible,
-.linuxdo-workspace select:focus-visible,
-.linuxdo-workspace input:focus-visible,
-.linuxdo-workspace textarea:focus-visible {
+.linuxdo-workspace select:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-cinnabar) 65%, transparent);
   outline-offset: 2px;
+}
+
+.linuxdo-workspace input:focus-visible:not([class*="outline-none"]),
+.linuxdo-workspace textarea:focus-visible:not([class*="outline-none"]) {
+  outline: 2px solid color-mix(in srgb, var(--color-cinnabar) 65%, transparent);
+  outline-offset: 2px;
+}
+
+.linuxdo-workspace input[class*="outline-none"],
+.linuxdo-workspace textarea[class*="outline-none"] {
+  outline: none !important;
 }
 
 /* Linux.do: Discourse-specific semantics are converted to app-owned data roles

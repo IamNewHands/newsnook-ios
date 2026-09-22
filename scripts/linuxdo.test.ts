@@ -25,6 +25,7 @@ const { LINUXDO_UPLOAD_BATCH_LIMIT, LINUXDO_UPLOAD_CONCURRENCY, LinuxDoUploadSer
 const { LinuxDoBookmarkService } = await import('../src/features/linuxdo/bookmark/service')
 const { LinuxDoPeopleService } = await import('../src/features/linuxdo/people/service')
 const { LinuxDoSearchService } = await import('../src/features/linuxdo/search/service')
+const { createLinuxDoSearchCache } = await import('../src/features/linuxdo/ui/searchCache')
 const { LinuxDoTemplateService, collectLinuxDoTemplateTags, filterLinuxDoTemplates, resolveLinuxDoTemplate } = await import('../src/features/linuxdo/template/service')
 const { LinuxDoNotificationService } = await import('../src/features/linuxdo/notification/service')
 const notificationModel = await import('../src/features/linuxdo/notification/model')
@@ -273,12 +274,14 @@ const user = decodeCurrentUser({
     avatar_template: '/user_avatar/linux.do/frank/{size}/1_2.png',
     trust_level: 3,
     unread_notifications: 7,
+    all_unread_notifications_count: 9,
     can_use_templates: true,
   },
 })
 assert.equal(user?.username, 'frank')
 assert.equal(user?.trustLevel, 3)
 assert.equal(user?.unreadNotifications, 7)
+assert.equal(user?.allUnreadNotificationsCount, 9)
 assert.equal(user?.canUseTemplates, true)
 assert.match(user?.avatarTemplate ?? '', /96/)
 
@@ -1027,6 +1030,8 @@ const search = await searchService.search('matched')
 assert.equal(search.posts[0]?.topicId, 44)
 assert.equal(search.posts[0]?.topicSlug, 'search-hit')
 assert.match(search.posts[0]?.cooked ?? '', /matched/)
+const searchCache = createLinuxDoSearchCache()
+assert.deepEqual({ query: searchCache.query, activeTab: searchCache.activeTab, page: searchCache.page, hasMore: searchCache.hasMore, scrollTop: searchCache.scrollTop }, { query: '', activeTab: 'topics', page: 1, hasMore: false, scrollTop: 0 })
 
 const notificationWrites: Array<{ url: string; form: Record<string, unknown> }> = []
 const serverUnreadNotificationIds = new Set([12, 13, 14, 15, 16, 17, 18])
@@ -1037,16 +1042,28 @@ const notificationService = new LinuxDoNotificationService({
     if (Number.isInteger(id) && id > 0) serverUnreadNotificationIds.delete(id)
     else serverUnreadNotificationIds.clear()
   },
-  getJson: async (url: string) => url.includes('filter=unread')
-    ? {
-      total_rows_notifications: serverUnreadNotificationIds.size,
-      notifications: serverUnreadNotificationIds.size
-        ? [{ id: [...serverUnreadNotificationIds][0], notification_type: 25, read: false, created_at: '2026-09-21T01:00:00Z', topic_id: 100 }]
-        : [],
+  getJson: async (url: string) => {
+    if (url === linuxDoEndpoints.sessionCurrent) {
+      return {
+        current_user: {
+          id: 42,
+          username: 'frank',
+          unread_notifications: Math.min(2, serverUnreadNotificationIds.size),
+          all_unread_notifications_count: serverUnreadNotificationIds.size,
+        },
+      }
     }
-    : { notifications: [] },
+    return url.includes('filter=unread')
+      ? {
+        total_rows_notifications: 700,
+        notifications: serverUnreadNotificationIds.size
+          ? [{ id: [...serverUnreadNotificationIds][0], notification_type: 25, read: false, created_at: '2026-09-21T01:00:00Z', topic_id: 100 }]
+          : [],
+      }
+      : { notifications: [] }
+  },
 } as any)
-assert.equal(await notificationService.unreadCount(), 7)
+assert.equal(await notificationService.unreadCount(), 7, 'badge count must use Discourse all_unread_notifications_count, not notification-list pagination totals')
 await notificationService.markRead(12)
 assert.equal(await notificationService.unreadCount(), 6, 'single mark-read must persist on the next unread-count refresh')
 await notificationService.markAllRead()
@@ -1056,6 +1073,19 @@ assert.deepEqual(notificationWrites, [
 ])
 assert.equal('notification_id' in notificationWrites[0]!.form, false)
 assert.equal(await notificationService.unreadCount(), 0, 'mark-all-read must persist after a server refresh')
+const fallbackNotificationService = new LinuxDoNotificationService({
+  getJson: async (url: string) => {
+    if (url === linuxDoEndpoints.sessionCurrent) throw new Error('session/current unavailable')
+    return {
+      total_rows_notifications: 88,
+      notifications: [
+        { id: 301, notification_type: 25, read: false, created_at: '2026-09-21T02:00:00Z', topic_id: 100 },
+        { id: 302, notification_type: 2, read: false, created_at: '2026-09-21T02:01:00Z', topic_id: 101 },
+      ],
+    }
+  },
+} as any)
+assert.equal(await fallbackNotificationService.unreadCount(), 2, 'unread fallback must count returned unread rows and ignore total_rows_notifications')
 
 const javaSource = readFileSync('android/app/src/main/java/com/aizeek/newsnook/LinuxDoSessionPlugin.java', 'utf8')
 const authJavaSource = readFileSync('android/app/src/main/java/com/aizeek/newsnook/LinuxDoUserApiAuth.java', 'utf8')
@@ -1077,6 +1107,8 @@ assert.match(javaSource, /followRedirects\(false\)/)
 assert.match(javaSource, /"Set-Cookie"\.equalsIgnoreCase/)
 assert.match(javaSource, /isApiAllowedUrl/)
 assert.match(javaSource, /can_use_templates/)
+assert.match(javaSource, /all_unread_notifications_count/)
+assert.match(javaSource, /allUnreadNotificationsCount/)
 assert.match(javaSource, /canUseTemplates/)
 assert.match(javaSource, /UploadProgressRequestBody/)
 assert.match(javaSource, /linuxDoUploadProgress/)
@@ -1152,6 +1184,10 @@ assert.match(composerEditorSource, /正在上传 \{uploadItems\.length\} 个文�
 assert.match(composerEditorSource, /已完成 \{uploadCompleted\}\/\{uploadItems\.length\}/)
 assert.match(workspaceSource, /onScopeChange=\{replaceDiscoverScope\}/)
 assert.match(workspaceSource, /cacheRef=\{discoverCacheRef\}/)
+assert.match(workspaceSource, /searchCacheRef = useRef\(createLinuxDoSearchCache\(\)\)/)
+assert.match(workspaceSource, /<SearchView cacheRef=\{searchCacheRef\}/)
+assert.match(communityViewsSource, /cacheRef\.current\.scrollTop = event\.currentTarget\.scrollTop/)
+assert.match(communityViewsSource, /autoFocus=\{!lastQuery\}/)
 assert.match(workspaceSource, /navigate\(\{ kind: 'topic', topic \}\)/)
 assert.match(workspaceSource, /onCreated=\{\(post, boost\) =>/)
 assert.match(workspaceSource, /boosts: \[\.\.\.\(post\.boosts \?\? \[\]\), boost\]/)
@@ -1297,7 +1333,31 @@ assert.match(cssSource, /max-width:\s*860px;/)
 const threadViewsSource = readFileSync(new URL('../src/features/linuxdo/ui/ThreadViews.tsx', import.meta.url), 'utf8')
 assert.match(threadViewsSource, /rounded-xl sm:rounded-2xl border border-haze\/45 bg-ink-raised\/85 p-3 sm:p-4/)
 
+const userWithCdnAvatar = decodeCurrentUser({
+  current_user: {
+    id: 43,
+    username: 'cdn_user',
+    avatar_template: 'https://cdn.linux.do/user_avatar/cdn_user/{size}/1.png',
+  },
+})
+assert.equal(userWithCdnAvatar?.avatarTemplate, 'https://cdn.linux.do/user_avatar/cdn_user/96/1.png')
+
+const userWithProtoAvatar = decodeCurrentUser({
+  current_user: {
+    id: 44,
+    username: 'proto_user',
+    avatar_template: '//cdn.linux.do/user_avatar/proto_user/{size}/1.png',
+  },
+})
+assert.equal(userWithProtoAvatar?.avatarTemplate, 'https://cdn.linux.do/user_avatar/proto_user/96/1.png')
+
+const utilsSource = readFileSync(new URL('../src/features/linuxdo/ui/utils.tsx', import.meta.url), 'utf8')
+assert.match(utilsSource, /flex h-full w-full items-center justify-center overflow-hidden select-none/)
+assert.match(accountViewSource, /UserRound size=\{26\}/)
+assert.match(accountViewSource, /flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full/)
 const sharedViewsSource = readFileSync(new URL('../src/features/linuxdo/ui/shared.tsx', import.meta.url), 'utf8')
 assert.match(sharedViewsSource, /rounded-xl sm:rounded-2xl border border-haze\/50 bg-ink-raised\/85 p-3 sm:p-4/)
+assert.match(sharedViewsSource, /flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center overflow-hidden rounded-full/)
+assert.match(cssSource, /\.linuxdo-workspace input\[class\*="outline-none"\]\s*,\s*\.linuxdo-workspace textarea\[class\*="outline-none"\]\s*\{\s*outline:\s*none\s*!important;/)
 
 console.log('linuxdo: ok')

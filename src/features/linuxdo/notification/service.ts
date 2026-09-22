@@ -1,5 +1,5 @@
 import { linuxDoEndpoints } from '../api/endpoints'
-import { decodeNotifications } from '../api/decode'
+import { decodeCurrentUser, decodeNotifications } from '../api/decode'
 import type { LinuxDoApiClient } from '../api/client'
 import type { LinuxDoNotification } from '../types'
 
@@ -36,8 +36,21 @@ export class LinuxDoNotificationService {
   }
 
   async unreadCount(signal?: AbortSignal): Promise<number> {
-    const result = await this.list(0, 1, { signal, filter: 'unread' })
-    if (result.totalRows !== undefined) return result.totalRows
+    try {
+      const current = decodeCurrentUser(await this.api.getJson<any>(
+        linuxDoEndpoints.sessionCurrent,
+        { auth: 'required', signal },
+      ))
+      const count = current?.allUnreadNotificationsCount ?? current?.unreadNotifications
+      if (count !== undefined) return Math.max(0, Math.trunc(count))
+    } catch {
+      // Some sessions can still read notifications when session/current is
+      // temporarily unavailable. Fall back to the filtered notification list,
+      // but never use total_rows_notifications: that is pagination metadata,
+      // not the Discourse unread badge count.
+    }
+
+    const result = await this.list(0, 99, { signal, filter: 'unread' })
     return result.items.reduce((count, item) => count + (item.read ? 0 : 1), 0)
   }
 

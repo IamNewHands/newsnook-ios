@@ -155,7 +155,7 @@ function BoostCloud({ boosts, onOpenUser }: { boosts: LinuxDoBoost[]; onOpenUser
             className="linuxdo-boost-chip linuxdo-control inline-flex max-w-full items-center gap-1.5 rounded-full py-0.5 pl-1 pr-2.5 text-left disabled:pointer-events-none"
             title={boost.user.name ? `${boost.user.name} (@${boost.user.username})` : boost.user.username}
           >
-            <span className="h-4.5 w-4.5 shrink-0 overflow-hidden rounded-full bg-ink-deep ring-1 ring-black/10 dark:ring-white/10">
+            <span className="flex h-4.5 w-4.5 shrink-0 items-center justify-center overflow-hidden rounded-full bg-ink-deep ring-1 ring-black/10 dark:ring-white/10">
               {avatar(boost.user.avatarTemplate, boost.user.username || 'boost')}
             </span>
             <span className="max-w-[16rem] truncate text-[11px] font-normal leading-tight text-paper/90">
@@ -1072,7 +1072,7 @@ export function LinuxDoTopicView({
                 return (
                   <article key={post.id} id={'linuxdo-post-' + post.postNumber} className="group rounded-xl sm:rounded-2xl border border-haze/45 bg-ink-raised/85 p-3 sm:p-4 shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-150 hover:border-haze/70">
                     <header className="linuxdo-control flex items-start gap-2.5 sm:gap-3 select-none">
-                      <button type="button" onClick={() => onOpenUser(post.username)} className="relative mt-0.5 h-8 w-8 sm:h-9 sm:w-9 shrink-0 overflow-hidden rounded-full ring-1 ring-black/5 dark:ring-white/10 bg-ink-deep transition-transform active:scale-95">
+                      <button type="button" onClick={() => onOpenUser(post.username)} className="relative mt-0.5 flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-black/5 dark:ring-white/10 bg-ink-deep transition-transform active:scale-95">
                         {avatar(post.avatarTemplate, post.username)}
                       </button>
                       <div className="min-w-0 flex-1">
@@ -1101,7 +1101,7 @@ export function LinuxDoTopicView({
                             aria-label={'跳转到 ' + replyTarget.username + ' 的帖子 #' + post.replyToPostNumber}
                           >
                             <Reply size={11} className="shrink-0 text-cinnabar-soft" />
-                            <span className="h-4 w-4 shrink-0 overflow-hidden rounded-full bg-ink-deep">
+                            <span className="flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-full bg-ink-deep">
                               {avatar(replyTarget.avatarTemplate, replyTarget.username)}
                             </span>
                             <span className="truncate">{replyTarget.name || replyTarget.username}</span>

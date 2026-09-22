@@ -34,7 +34,7 @@ export function TopicCard({
       className="linuxdo-control group w-full rounded-xl sm:rounded-2xl border border-haze/50 bg-ink-raised/85 p-3 sm:p-4 text-left shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-180 hover:-translate-y-0.5 hover:border-cinnabar/30 hover:shadow-md active:translate-y-0"
     >
       <div className="flex items-start gap-2.5 sm:gap-3">
-        <div className="mt-0.5 h-8 w-8 sm:h-9 sm:w-9 shrink-0 overflow-hidden rounded-full ring-1 ring-black/5 dark:ring-white/10 bg-ink-deep shadow-sm">
+        <div className="mt-0.5 flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-black/5 dark:ring-white/10 bg-ink-deep shadow-sm">
           {avatar(author?.avatarTemplate, author?.username)}
         </div>
         <div className="min-w-0 flex-1">

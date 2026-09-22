@@ -8,6 +8,7 @@ export interface LinuxDoUser {
   avatarTemplate?: string
   trustLevel?: number
   unreadNotifications?: number
+  allUnreadNotificationsCount?: number
   canUseTemplates?: boolean
 }
 

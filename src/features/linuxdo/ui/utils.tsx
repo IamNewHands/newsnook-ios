@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 
 import { LinuxDoApiError } from '../types'
 
@@ -27,9 +27,35 @@ export function readableError(error: unknown): string {
   return '加载失败'
 }
 
+export function LinuxDoAvatar({
+  url,
+  name,
+}: {
+  url?: string
+  name?: string
+}) {
+  const [failed, setFailed] = useState(false)
+  const initial = (name || '?').trim().slice(0, 1).toUpperCase() || '?'
+
+  return (
+    <span className="flex h-full w-full items-center justify-center overflow-hidden select-none">
+      {url && !failed ? (
+        <img
+          src={url}
+          alt={name || ''}
+          loading="lazy"
+          onError={() => setFailed(true)}
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        <span className="font-semibold text-paper-muted leading-none text-[11px] sm:text-[12px]">{initial}</span>
+      )}
+    </span>
+  )
+}
+
 export function avatar(url?: string, name?: string): ReactNode {
-  if (url) return <img src={url} alt="" className="h-full w-full object-cover" />
-  return <span className="text-[12px] font-semibold text-paper-muted">{(name || '?').slice(0, 1).toUpperCase()}</span>
+  return <LinuxDoAvatar url={url} name={name} />
 }
 
 export function tagGlyph(name: string): string {
