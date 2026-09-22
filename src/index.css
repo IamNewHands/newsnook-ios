@@ -832,7 +832,6 @@ html[data-eink='1'] .preset-switcher-sheet {
 
 /* Defensive fallback for cached articles created before empty-block cleanup. */
 .reader-prose p:empty,
-.reader-prose p:has(> br:only-child),
 .reader-prose ul:empty,
 .reader-prose ol:empty {
   display: none;
@@ -1315,9 +1314,10 @@ button *,
   background: rgb(0 0 0 / 50%);
 }
 
-/* 原站 YouTube embed：不二次封装，仅做响应式占位 */
+/* 原站受信视频 embed：Web 无原生嗅探时直接保留官方播放器，统一响应式占位。 */
 .reader-prose iframe[src*='youtube.com/embed'],
-.reader-prose iframe[src*='youtube-nocookie.com/embed'] {
+.reader-prose iframe[src*='youtube-nocookie.com/embed'],
+.reader-prose iframe[data-reader-role='trusted-video-embed'] {
   display: block;
   width: 100%;
   max-width: 100%;

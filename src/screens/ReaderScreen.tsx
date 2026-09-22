@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from 'react'
 import { Browser } from '@capacitor/browser'
 import { Capacitor } from '@capacitor/core'
-import { ArrowLeft, BookmarkCheck, BookmarkPlus, Globe, Languages, LoaderCircle, MessageSquare, MoreHorizontal, RefreshCw, ScrollText, X } from 'lucide-react'
+import { ArrowLeft, BookmarkCheck, BookmarkPlus, Globe, Languages, LoaderCircle, MessageSquare, MoreHorizontal, RefreshCw, ScrollText, Volume2, X } from 'lucide-react'
 
 import { AiSpeedReadPanel } from '../components/AiSpeedReadPanel'
 import { ImageLightbox } from '../components/ImageLightbox'
@@ -56,6 +56,7 @@ import {
 import { resolveArticleBody, type BodySource } from '../lib/resolveBody'
 import { articleCoverUrl } from '../lib/articleAudio'
 import { articleRelativeTime } from '../lib/time'
+import { extractEmbeddedVideoPageUrl } from '../lib/videoArticle'
 import type { Article } from '../lib/types'
 import type { TypographyPrefs } from '../sources/preferences'
 import { resolveAiFeatureConfig } from '../features/translation/aiConfig'
@@ -68,6 +69,10 @@ import {
 import type { TranslatedArticleContent, TranslationPrefs } from '../features/translation/types'
 import { hasSpeedReadableText } from '../features/speedRead/service'
 import { useSpeedRead } from '../features/speedRead/useSpeedRead'
+import { ReadAloudBar } from '../features/readAloud/ReadAloudBar'
+import { segmentArticle } from '../features/readAloud/segmenter'
+import { useReadAloud } from '../features/readAloud/useReadAloud'
+import type { ReadAloudPrefs } from '../features/readAloud/types'
 import { fetchCommentCount, supportsComments } from '../features/comments/service'
 import { CommentsDrawer } from '../features/comments/components/CommentsDrawer'
 import { articleFromRelatedLink } from '../features/catalogEngine/toArticles'
@@ -83,6 +88,7 @@ interface Props {
   /** 返回 true 表示已消费系统返回（例如关闭大图），供 App 回退栈使用 */
   overlayCloserRef?: MutableRefObject<(() => boolean) | null>
   translationPrefs: TranslationPrefs
+  readAloudPrefs: ReadAloudPrefs
   customSources?: NewsSource[]
   /** 墨水屏模式：分页阅读；false/缺省时保持滚动阅读 */
   einkMode?: boolean
@@ -107,6 +113,7 @@ export function ReaderScreen({
   onCacheChange,
   overlayCloserRef,
   translationPrefs,
+  readAloudPrefs,
   customSources,
   einkMode = false,
   fontScale = 1,
@@ -128,6 +135,10 @@ export function ReaderScreen({
     sourceId: article.sourceId,
     contentType: article.contentType,
   })
+  const feedEmbeddedPlayerUrl = useMemo(
+    () => article.contentType === 'video' ? extractEmbeddedVideoPageUrl(article.contentHtml) : undefined,
+    [article.contentHtml, article.contentType],
+  )
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [html, setHtml] = useState('')
   const [bodySource, setBodySource] = useState<BodySource | null>(null)
@@ -713,6 +724,49 @@ export function ReaderScreen({
     [article, resolvedTitle],
   )
 
+  const readAloudDocument = useMemo(
+    () =>
+      loadState === 'ready'
+        ? segmentArticle(article.id, displayedTitle, displayedHtml, {
+            sourceName: article.sourceName,
+            artwork: article.image,
+          })
+        : null,
+    [
+      article.id,
+      article.image,
+      article.sourceName,
+      displayedHtml,
+      displayedTitle,
+      loadState,
+    ],
+  )
+  const readAloud = useReadAloud(
+    readAloudDocument,
+    readAloudPrefs,
+    translationPrefs.ai,
+  )
+  const readAloudState = readAloud.snapshot.state
+  const readAloudCurrent = readAloud.isCurrentArticle
+  const readAloudBusy =
+    readAloudCurrent &&
+    (readAloudState === 'loading' || readAloudState === 'playing')
+  const toggleReadAloud = useCallback(() => {
+    if (!readAloudCurrent) {
+      void readAloud.start(true)
+      return
+    }
+    if (readAloudState === 'loading' || readAloudState === 'playing') {
+      void readAloud.pause()
+      return
+    }
+    if (readAloudState === 'paused') {
+      void readAloud.resume()
+      return
+    }
+    void readAloud.start(readAloudState !== 'ended')
+  }, [readAloud, readAloudCurrent, readAloudState])
+
   // 同一份偏好复用一个实例：AI 翻译部分失败后「重试」只补失败段，不重发已成功段
   const translationService = useMemo(
     () => createTranslationService(translationPrefs),
@@ -1291,6 +1345,37 @@ export function ReaderScreen({
               )}
               <button
                 type="button"
+                disabled={loadState !== 'ready' || !readAloudDocument?.segments.length}
+                onClick={toggleReadAloud}
+                aria-label={readAloudBusy ? '暂停朗读' : readAloudCurrent && readAloudState === 'paused' ? '继续朗读' : '朗读文章'}
+                aria-pressed={readAloudBusy}
+                className="flex h-9 items-center gap-1 px-1 transition-colors duration-200 disabled:opacity-35"
+              >
+                {readAloudCurrent && readAloudState === 'loading' ? (
+                  <LoaderCircle size={14} strokeWidth={1.7} className="animate-spin text-cinnabar-soft" />
+                ) : (
+                  <Volume2
+                    size={14}
+                    strokeWidth={1.7}
+                    className={readAloudCurrent && readAloudState !== 'idle' ? 'text-cinnabar' : 'text-paper-muted'}
+                  />
+                )}
+                <span
+                  className={`hidden font-mono text-[10px] tracking-[0.08em] min-[430px]:inline ${
+                    readAloudCurrent && readAloudState !== 'idle' ? 'text-cinnabar-soft' : 'text-paper-muted'
+                  }`}
+                >
+                  {readAloudCurrent && readAloudState === 'loading'
+                    ? '准备中'
+                    : readAloudBusy
+                      ? '暂停'
+                      : readAloudCurrent && readAloudState === 'paused'
+                        ? '继续'
+                        : '朗读'}
+                </span>
+              </button>
+              <button
+                type="button"
                 onClick={() => onToggleLater(laterArticle)}
                 aria-pressed={saved}
                 aria-label={saved ? '取消收藏' : '收藏'}
@@ -1334,6 +1419,19 @@ export function ReaderScreen({
             </div>
           </div>
         </header>
+
+        <ReadAloudBar
+          snapshot={readAloud.snapshot}
+          activeForArticle={
+            readAloudCurrent && readAloud.snapshot.state !== 'idle'
+          }
+          onStart={() => void readAloud.start(false)}
+          onPause={() => void readAloud.pause()}
+          onResume={() => void readAloud.resume()}
+          onPrevious={() => void readAloud.previous()}
+          onNext={() => void readAloud.next()}
+          onStop={() => void readAloud.stop()}
+        />
 
         <div className="relative min-h-0 flex-1">
           <div
@@ -1482,10 +1580,10 @@ export function ReaderScreen({
               </div>
             )}
 
-            {useOriginSurface && (resolvedOriginUrl || article.originUrl) && (
+            {useOriginSurface && (feedEmbeddedPlayerUrl || resolvedOriginUrl || article.originUrl) && (
               <OriginPlayerSurface
-                pageUrl={resolvedOriginUrl || article.originUrl!}
-                referrer={resolvedOriginUrl || article.originUrl}
+                pageUrl={feedEmbeddedPlayerUrl || resolvedOriginUrl || article.originUrl!}
+                referrer={resolvedOriginUrl || article.originUrl || feedEmbeddedPlayerUrl}
                 title={article.title}
                 poster={article.image}
                 openOriginal={() => void openOriginal()}

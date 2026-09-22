@@ -9,6 +9,7 @@ import { ChevronLeft, ListVideo } from 'lucide-react'
 import type { MediaResourceDescriptor } from '../../features/mediaSniffer/types'
 import { lockBodyScroll } from '../../lib/bodyScrollLock'
 import { useHardwareBackLayer } from '../../hooks/useHardwareBackLayer'
+import { playbackIdentity } from './lifecycle'
 
 type MediaResourcePageContextValue = {
   open?: (resource: MediaResourceDescriptor, resources: MediaResourceDescriptor[]) => void
@@ -39,8 +40,7 @@ function isSameResource(
   left: MediaResourceDescriptor,
   right: MediaResourceDescriptor,
 ): boolean {
-  if (left.id && right.id) return left.id === right.id
-  return left.type === right.type && left.url === right.url
+  return playbackIdentity(left.url, left.type) === playbackIdentity(right.url, right.type)
 }
 
 function MediaResourceRow({

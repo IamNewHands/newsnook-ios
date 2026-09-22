@@ -265,6 +265,7 @@ public class MainActivity extends BridgeActivity {
 
         TranslationPluginRegistrar.register(this);
         registerPlugin(DeviceMediaControlsPlugin.class);
+        registerPlugin(ReadAloudPlugin.class);
         registerPlugin(DlnaCastPlugin.class);
         registerPlugin(VolumePageTurnPlugin.class);
         registerPlugin(ProxiedHttpPlugin.class);

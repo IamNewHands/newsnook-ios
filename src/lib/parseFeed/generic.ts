@@ -7,6 +7,7 @@ import { XMLParser } from 'fast-xml-parser'
 
 import type { NewsSource } from '../../sources/registry'
 import type { Article } from '../types'
+import { isLikelyVideoArticleUrl } from '../videoArticle'
 import {
   asRecord,
   audioUrlFromNode,
@@ -16,6 +17,7 @@ import {
   stripTags,
   text,
   toArray,
+  videoMediaFromNode,
   type Unknown,
 } from './shared'
 
@@ -60,6 +62,11 @@ function parseJsonFeed(source: NewsSource, payload: string, fetchedAt: number): 
       stripTags(html)
     const link = text(node.url) || text(node.external_url) || text(node.id)
     const image = text(node.image) || imageOf(node, html)
+    const video = videoMediaFromNode(node, html)
+    const contentType =
+      video.directUrl || video.playerPageUrl || isLikelyVideoArticleUrl(link)
+        ? 'video'
+        : undefined
 
     const article = buildArticle(
       source,
@@ -71,6 +78,8 @@ function parseJsonFeed(source: NewsSource, payload: string, fetchedAt: number): 
         dateRaw: text(node.date_published) || text(node.date_modified),
         image,
         audioUrl: audioUrlFromNode(node, html),
+        contentType,
+        videoUrl: video.directUrl,
       },
       fetchedAt,
     )
@@ -126,10 +135,12 @@ export function parseXmlFeed(source: NewsSource, payload: string, fetchedAt: num
     )
     const link = isAtom ? linkOfAtomEntry(node) : text(node.link) || text(node.guid)
     const dateRaw = text(pick(node, 'pubDate', 'published', 'updated', 'date'))
-    // 虎嗅官方 RSS 用自定义 <type>video_article</type> 标识视频稿，
-    // description 只有一句导语，视频地址需要在打开正文时从详情接口补齐。
+    const video = videoMediaFromNode(node, html)
+    // 虎嗅官方 RSS 用自定义 <type>video_article</type>；通用 Feed 则根据
+    // enclosure / attachment / iframe / 明确的视频详情页识别，避免把播放器 DOM 当普通正文。
     const contentType =
-      source.id === 'huxiu' && text(node.type).toLowerCase() === 'video_article'
+      (source.id === 'huxiu' && text(node.type).toLowerCase() === 'video_article') ||
+      Boolean(video.directUrl || video.playerPageUrl || isLikelyVideoArticleUrl(link))
         ? 'video'
         : undefined
 
@@ -144,6 +155,7 @@ export function parseXmlFeed(source: NewsSource, payload: string, fetchedAt: num
         image: imageOf(node, html),
         audioUrl: audioUrlFromNode(node, html),
         contentType,
+        videoUrl: video.directUrl,
       },
       fetchedAt,
     )

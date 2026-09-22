@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Check } from 'lucide-react'
+import { Check, Search } from 'lucide-react'
 
 import { lockBodyScroll } from '../lib/bodyScrollLock'
 import { useHardwareBackLayer } from '../hooks/useHardwareBackLayer'
@@ -16,6 +16,7 @@ const DIALOG_CONFIRM_CLASS =
 export interface OptionPickerItem<T extends string = string> {
   id: T
   label: string
+  description?: string
 }
 
 interface OptionPickerDialogProps<T extends string> {
@@ -25,6 +26,9 @@ interface OptionPickerDialogProps<T extends string> {
   options: OptionPickerItem<T>[]
   onChange: (value: T) => void
   onCancel: () => void
+  /** 大列表（如系统 TTS voice）可启用主题内搜索，避免退回原生 select。 */
+  searchPlaceholder?: string
+  emptyLabel?: string
 }
 
 /** 应用内单选弹窗，替代原生 select（Android WebView 会弹出系统白底对话框） */
@@ -35,8 +39,19 @@ export function OptionPickerDialog<T extends string>({
   options,
   onChange,
   onCancel,
+  searchPlaceholder,
+  emptyLabel = '没有匹配项',
 }: OptionPickerDialogProps<T>) {
   const titleId = useId()
+  const [query, setQuery] = useState('')
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const filteredOptions = searchPlaceholder
+    ? options.filter((option) =>
+        (option.label + ' ' + (option.description ?? ''))
+          .toLocaleLowerCase()
+          .includes(normalizedQuery),
+      )
+    : options
   useHardwareBackLayer(open, () => {
     onCancel()
     return true
@@ -44,6 +59,7 @@ export function OptionPickerDialog<T extends string>({
 
   useEffect(() => {
     if (!open) return
+    setQuery('')
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onCancel()
     }
@@ -55,9 +71,9 @@ export function OptionPickerDialog<T extends string>({
     }
   }, [open, onCancel])
 
-  if (!open) return null
+  if (!open || typeof document === 'undefined') return null
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60 p-0 backdrop-blur-sm md:items-center md:p-4"
       role="presentation"
@@ -80,8 +96,22 @@ export function OptionPickerDialog<T extends string>({
         >
           {title}
         </h3>
+        {searchPlaceholder && (
+          <div className="shrink-0 border-b border-haze/50 px-4 py-3">
+            <label className="flex min-h-10 items-center gap-2 rounded-xl border border-haze bg-ink px-3 focus-within:border-cinnabar/50">
+              <Search size={14} strokeWidth={1.8} className="shrink-0 text-paper-faint" aria-hidden />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={searchPlaceholder}
+                className="min-w-0 flex-1 bg-transparent text-[13px] text-paper outline-none placeholder:text-paper-faint/55"
+                autoComplete="off"
+              />
+            </label>
+          </div>
+        )}
         <ul className="scroll-hidden min-h-0 flex-1 divide-y divide-haze overflow-y-auto overscroll-contain" role="listbox">
-          {options.map((option) => {
+          {filteredOptions.map((option) => {
             const checked = option.id === value
             return (
               <li key={option.id}>
@@ -92,7 +122,14 @@ export function OptionPickerDialog<T extends string>({
                   onClick={() => onChange(option.id)}
                   className="flex w-full items-center gap-3 px-5 py-3.5 text-left transition-colors hover:bg-paper/5"
                 >
-                  <span className="min-w-0 flex-1 text-[14.5px] text-paper">{option.label}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[14.5px] text-paper">{option.label}</span>
+                    {option.description && (
+                      <span className="mt-0.5 block truncate font-mono text-[9.5px] text-paper-faint">
+                        {option.description}
+                      </span>
+                    )}
+                  </span>
                   {checked ? (
                     <Check size={16} strokeWidth={2.2} className="shrink-0 text-cinnabar" />
                   ) : (
@@ -102,9 +139,15 @@ export function OptionPickerDialog<T extends string>({
               </li>
             )
           })}
+          {filteredOptions.length === 0 && (
+            <li className="px-5 py-8 text-center font-mono text-[10.5px] text-paper-faint">
+              {emptyLabel}
+            </li>
+          )}
         </ul>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

@@ -45,6 +45,22 @@ if (/referrerpolicy="no-referrer"/i.test(cleaned)) {
 }
 console.log('sanitize youtube whitelist: ok')
 
+{
+  const bilibili = sanitizeArticleHtml(
+    '<iframe width="640" height="360" allow="camera; microphone; autoplay" ' +
+      'src="https://www.bilibili.com/blackboard/html5mobileplayer.html?bvid=BV1TEST123"></iframe>' +
+      '<iframe src="https://player.bilibili.com/not-a-player.html?bvid=BV1TEST123"></iframe>' +
+      '<iframe src="https://evil.example/embed/x"></iframe>',
+  )
+  assert.match(bilibili, /bilibili\.com\/blackboard\/html5mobileplayer\.html/)
+  assert.match(bilibili, /data-reader-role="trusted-video-embed"/)
+  assert.match(bilibili, /allow="autoplay; fullscreen; picture-in-picture"/)
+  assert.doesNotMatch(bilibili, /camera|microphone/)
+  assert.doesNotMatch(bilibili, /not-a-player|evil\.example/)
+  assert.doesNotMatch(bilibili, /width="640"|height="360"/)
+}
+console.log('sanitize trusted video embed whitelist: ok')
+
 const staged = stageYoutubeEmbedsInHtml(cleaned)
 const { document } = parseHTML(`<article>${staged}</article>`)
 const stagedIframes = Array.from(document.querySelectorAll('iframe'))

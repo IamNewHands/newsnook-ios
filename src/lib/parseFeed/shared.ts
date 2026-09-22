@@ -8,6 +8,12 @@ import { collectAudioSrc, isAudioMediaUrl } from '../articleAudio'
 import { feedArticleId } from '../articleId'
 import { normalizeArticleTitle } from '../articleTitle'
 import { cleanSummaryText } from '../cleanSummary'
+import {
+  extractDirectVideoUrlFromHtml,
+  extractEmbeddedVideoPageUrl,
+  isDirectVideoMediaUrl,
+  isLikelyEmbeddedVideoPageUrl,
+} from '../videoArticle'
 import type { NewsSource } from '../../sources/registry'
 import type { Article } from '../types'
 
@@ -158,12 +164,68 @@ export function audioUrlFromNode(node: Unknown, html: string): string | undefine
   return collectAudioSrc(html)
 }
 
+export function videoMediaFromNode(
+  node: Unknown,
+  html: string,
+): { directUrl?: string; playerPageUrl?: string } {
+  let playerPageUrl: string | undefined
+
+  for (const rec of enclosureRecords(node)) {
+    const url = httpUrl(rec['@_url'])
+    const type = typeof rec['@_type'] === 'string' ? rec['@_type'] : ''
+    if (url && isDirectVideoMediaUrl(url, type)) return { directUrl: url, playerPageUrl }
+    if (url && /^text\/html\b/i.test(type) && isLikelyEmbeddedVideoPageUrl(url)) {
+      playerPageUrl ??= url
+    }
+  }
+
+  for (const raw of toArray(node.link)) {
+    const rec = asRecord(raw)
+    if (!rec) continue
+    const rel = String(rec['@_rel'] || '')
+    const href = httpUrl(rec['@_href'])
+    const type = typeof rec['@_type'] === 'string' ? rec['@_type'] : ''
+    if (href && rel === 'enclosure' && isDirectVideoMediaUrl(href, type)) {
+      return { directUrl: href, playerPageUrl }
+    }
+    if (
+      href &&
+      rel === 'enclosure' &&
+      /^text\/html\b/i.test(type) &&
+      isLikelyEmbeddedVideoPageUrl(href)
+    ) {
+      playerPageUrl ??= href
+    }
+  }
+
+  for (const raw of toArray(node.attachments)) {
+    const rec = asRecord(raw)
+    if (!rec) continue
+    const url = httpUrl(text(rec.url))
+    const type = text(rec.mime_type) || text(rec.mimeType)
+    if (url && isDirectVideoMediaUrl(url, type)) return { directUrl: url, playerPageUrl }
+    if (url && /^text\/html\b/i.test(type) && isLikelyEmbeddedVideoPageUrl(url)) {
+      playerPageUrl ??= url
+    }
+  }
+
+  return {
+    directUrl: extractDirectVideoUrlFromHtml(html),
+    playerPageUrl: playerPageUrl ?? extractEmbeddedVideoPageUrl(html),
+  }
+}
+
 export function imageOf(node: Unknown, html: string): string | undefined {
   const candidates: Array<string | undefined> = []
   for (const rec of enclosureRecords(node)) {
     const url = httpUrl(rec['@_url'])
     const type = typeof rec['@_type'] === 'string' ? rec['@_type'] : ''
-    if (url && !isAudioMediaUrl(url, type) && !/^video\//i.test(type)) {
+    if (
+      url &&
+      !isAudioMediaUrl(url, type) &&
+      !isDirectVideoMediaUrl(url, type) &&
+      !isLikelyEmbeddedVideoPageUrl(url)
+    ) {
       candidates.push(url)
     }
   }

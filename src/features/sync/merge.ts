@@ -15,6 +15,7 @@ import { normalizeSourceKind, type NewsSource, type SourceGroup } from '../../so
 import { normalizePreferences, type Preferences } from '../../sources/preferences'
 import { ensureValidActivePreset, normalizePresetsState, type PresetsState } from '../../sources/presets'
 import { normalizeTranslationPrefs } from '../translation/config'
+import { normalizeReadAloudPrefs } from '../readAloud/config'
 import {
   LEGACY_OPENAI_SECRET_KEY,
   SETTING_KEYS,
@@ -164,6 +165,11 @@ function applySettings(prefs: Preferences, merged: Map<string, MergedEntity>): P
   if (translation !== undefined) {
     // 先完成旧 cloud.openai → 新 ai.providers 迁移，再回填动态 Secret。
     next.translation = normalizeTranslationPrefs(translation)
+  }
+
+  const readAloud = readSetting(SETTING_KEYS.readAloud)
+  if (readAloud !== undefined) {
+    next.readAloud = normalizeReadAloudPrefs(readAloud)
   }
 
   const proxy = readSetting(SETTING_KEYS.proxy)

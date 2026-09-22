@@ -28,6 +28,8 @@ function buildStamp(): string {
 
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+const BILIBILI_PAGE_HOST_RE = /(?:^|\.)bilibili\.com$/i
+const BILIBILI_ASSET_HOST_RE = /(?:^|\.)(?:hdslb\.com|bilivideo\.com)$/i
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 
@@ -388,6 +390,8 @@ function upstreamProxy(): Plugin {
           const isNetease = /(?:^|\.)(?:163\.com|netease\.com|126\.net)$/i.test(
             targetUrl.hostname,
           )
+          const isBilibiliPage = BILIBILI_PAGE_HOST_RE.test(targetUrl.hostname)
+          const isBilibiliAsset = BILIBILI_ASSET_HOST_RE.test(targetUrl.hostname)
           if (isImage && isNetease && targetUrl.protocol === 'http:') targetUrl.protocol = 'https:'
 
           if (isPost) {
@@ -419,7 +423,14 @@ function upstreamProxy(): Plugin {
             /(?:^|\.)(?:mmbiz\.qpic\.cn|mmecoa\.qpic\.cn|qlogo\.cn)$/i.test(targetUrl.hostname)
           // 网易 flv CDN：带 localhost Origin 会 403，代理侧不传 Origin，只带站点 Referer
           const headers: Record<string, string> = {
-            'User-Agent': isNetease && !isMedia ? 'NewsApp' : requestedUa || BROWSER_UA,
+            // Bilibili server-side page fetch with a mobile UA is less stable and may return
+            // a challenge/H5 shell. Use the same desktop browser UA as its official web player.
+            'User-Agent':
+              isNetease && !isMedia
+                ? 'NewsApp'
+                : isBilibiliPage
+                  ? BROWSER_UA
+                  : requestedUa || BROWSER_UA,
             Accept: isImage
               ? 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8'
               : isMedia
@@ -434,9 +445,11 @@ function upstreamProxy(): Plugin {
                 ? isMedia
                   ? 'https://3g.163.com/'
                   : 'https://www.163.com/'
-                : targetUrl.hostname.endsWith('.translate.goog')
-                  ? 'https://translate.google.com/'
-                  : `${targetUrl.origin}/`
+                : isBilibiliPage || isBilibiliAsset
+                  ? 'https://www.bilibili.com/'
+                  : targetUrl.hostname.endsWith('.translate.goog')
+                    ? 'https://translate.google.com/'
+                    : `${targetUrl.origin}/`
           }
 
           const upstream = await fetchUpstream(targetUrl.href, { headers })

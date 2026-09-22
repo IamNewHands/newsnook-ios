@@ -25,6 +25,7 @@ export const SETTING_KEYS = {
   scheme: 'scheme',
   customScheme: 'customScheme',
   translation: 'translation',
+  readAloud: 'readAloud',
   proxy: 'proxy',
   autoRefresh: 'autoRefreshOnCategorySwitch',
   recommend: 'recommendEnabled',
@@ -338,6 +339,7 @@ function projectSettings(target: LocalProjection, input: ProjectionInput): void 
     project(target, 'setting', SETTING_KEYS.customScheme, { value: prefs.customScheme })
   }
   project(target, 'setting', SETTING_KEYS.translation, { value: translationSetting(prefs) })
+  project(target, 'setting', SETTING_KEYS.readAloud, { value: prefs.readAloud })
   project(target, 'setting', SETTING_KEYS.proxy, { value: proxySetting(prefs) })
   project(target, 'setting', SETTING_KEYS.autoRefresh, {
     value: prefs.autoRefreshOnCategorySwitch !== false,

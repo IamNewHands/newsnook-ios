@@ -88,6 +88,7 @@ import { PresetListScreen } from './screens/settings/PresetListScreen'
 import { StorageScreen } from './screens/settings/StorageScreen'
 import { TypographyScreen } from './screens/settings/TypographyScreen'
 import { TranslationScreen } from './screens/settings/TranslationScreen'
+import { ReadAloudScreen } from './screens/settings/ReadAloudScreen'
 import { AiSettingsScreen } from './screens/settings/AiSettingsScreen'
 import { ProxyScreen } from './screens/settings/ProxyScreen'
 import { ConfirmDialog, OptionPickerDialog } from './components/ConfirmDialog'
@@ -110,6 +111,9 @@ import {
   translationProviderLabel,
 } from './features/translation/config'
 import { resolveAiFeatureConfig } from './features/translation/aiConfig'
+import { readAloudEngineLabel } from './features/readAloud/config'
+import { GlobalReadAloudBar } from './features/readAloud/ReadAloudBar'
+import { updateActiveReadAloudPreferences } from './features/readAloud/service'
 import { FAVORITES_CATEGORY_ID, RECOMMEND_CATEGORY_ID, type CategoryId } from './sources/categories'
 import { applySnapshotToPrefs } from './sources/presets'
 import {
@@ -203,7 +207,8 @@ type SettingsRoute =
   | { name: 'custom-scheme' }
   | { name: 'storage' }
   | { name: 'translation' }
-  | { name: 'ai'; returnTo?: 'translation' }
+  | { name: 'read-aloud' }
+  | { name: 'ai'; returnTo?: 'translation' | 'read-aloud' }
   | { name: 'proxy' }
   | { name: 'later' }
   | { name: 'history' }
@@ -277,6 +282,13 @@ export default function App() {
     () => resolveAiFeatureConfig({ ai: prefs.translation.ai }, 'speedRead'),
     [prefs.translation.ai],
   )
+  useEffect(() => {
+    void updateActiveReadAloudPreferences(
+      prefs.readAloud,
+      prefs.translation.ai,
+    )
+  }, [prefs.readAloud, prefs.translation.ai])
+
   const [tab, setTab] = useState<TabKey>('today')
   const [activeSiteId, setActiveSiteId] = useState<SiteId | null>(() => loadActiveSiteId())
   const siteBackHandlerRef = useRef<(() => boolean) | null>(null)
@@ -1118,8 +1130,17 @@ export default function App() {
     const { providers, translation, speedRead } = prefs.translation.ai
     const translationModel = translation.model.trim() || '未选模型'
     const speedReadModel = speedRead.model.trim() || '未选模型'
-    return `${providers.length} 个提供商 · 翻译 ${translationModel} · 速读 ${speedReadModel}`
+    const ttsCount = providers.filter((provider) => provider.capabilities.tts).length
+    return `${providers.length} 个提供商 · 翻译 ${translationModel} · 速读 ${speedReadModel} · TTS ${ttsCount}`
   }, [prefs.translation.ai])
+
+  const readAloudSummary = useMemo(
+    () =>
+      `${readAloudEngineLabel(prefs.readAloud.engine)} · ${prefs.readAloud.rate.toFixed(2)}× · ${
+        prefs.readAloud.autoContinue ? '连续朗读' : '单段'
+      }`,
+    [prefs.readAloud],
+  )
 
   const proxySummary = useMemo(() => {
     const mode = proxyModeLabel(prefs.proxy.mode)
@@ -1211,13 +1232,31 @@ export default function App() {
       )
     }
 
+    if (settingsRoute.name === 'read-aloud') {
+      return (
+        <ReadAloudScreen
+          prefs={prefs.readAloud}
+          ai={prefs.translation.ai}
+          onChange={(readAloud) => update((prev) => ({ ...prev, readAloud }))}
+          onBack={() => setSettingsRoute(null)}
+          onOpenAiSettings={() => setSettingsRoute({ name: 'ai', returnTo: 'read-aloud' })}
+        />
+      )
+    }
+
     if (settingsRoute.name === 'ai') {
       return (
         <AiSettingsScreen
           prefs={prefs.translation}
           onChange={(translation) => update((prev) => ({ ...prev, translation }))}
           onBack={() =>
-            setSettingsRoute(settingsRoute.returnTo === 'translation' ? { name: 'translation' } : null)
+            setSettingsRoute(
+              settingsRoute.returnTo === 'translation'
+                ? { name: 'translation' }
+                : settingsRoute.returnTo === 'read-aloud'
+                  ? { name: 'read-aloud' }
+                  : null,
+            )
           }
         />
       )
@@ -1503,6 +1542,7 @@ export default function App() {
           typographySummary={typographySummary}
           appearanceSummary={appearanceSummary}
           translationSummary={translationSummary}
+          readAloudSummary={readAloudSummary}
           aiSummary={aiSummary}
           proxySummary={proxySummary}
           storageSummary={storageSummary}
@@ -1521,6 +1561,7 @@ export default function App() {
           onOpenTypographySettings={() => setSettingsRoute({ name: 'typography' })}
           onOpenAppearanceSettings={() => setSettingsRoute({ name: 'appearance' })}
           onOpenTranslationSettings={() => setSettingsRoute({ name: 'translation' })}
+          onOpenReadAloudSettings={() => setSettingsRoute({ name: 'read-aloud' })}
           onOpenAiSettings={() => setSettingsRoute({ name: 'ai' })}
           onOpenProxySettings={() => setSettingsRoute({ name: 'proxy' })}
           onOpenStorageSettings={() => setSettingsRoute({ name: 'storage' })}
@@ -1686,6 +1727,10 @@ export default function App() {
             <>
               {renderTab()}
 
+              <GlobalReadAloudBar
+                currentReaderArticleId={reading?.id ?? null}
+              />
+
               {!focusSource && (
                 <TabBar
                   active={tab}
@@ -1740,6 +1785,7 @@ export default function App() {
             onCacheChange={notifyCacheChange}
             overlayCloserRef={readerOverlayCloserRef}
             translationPrefs={prefs.translation}
+            readAloudPrefs={prefs.readAloud}
             customSources={prefs.customSources}
             einkMode={Boolean(prefs.einkMode)}
             wifiOnlyAutoLoadMedia={Boolean(prefs.wifiOnlyAutoLoadMedia)}

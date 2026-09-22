@@ -51,6 +51,7 @@ import {
 } from './resolveBody/shared'
 import {
   applyMediaDescriptor,
+  buildTrustedEmbeddedVideoBody,
   buildVideoBody,
   scheduleMediaDiscovery,
   withVideoDiscoveryFailed,
@@ -229,15 +230,15 @@ export async function resolveArticleBody(
 
   if (article.contentType === 'video') {
     if (article.videoUrl) return buildVideoBody(article)
-    if (!article.originUrl) return buildVideoBody(article, 'failed')
 
-    // Android 自建源：原站可见表面 + 持续旁路，不走短时隐藏嗅探自动换 <video>
-    if (
-      shouldUseOriginPlayerSurface({
-        sourceId: article.sourceId,
-        contentType: article.contentType,
-      })
-    ) {
+    const useOriginSurface = shouldUseOriginPlayerSurface({
+      sourceId: article.sourceId,
+      contentType: article.contentType,
+    })
+
+    // Android 自建源：Reader 外层显示原站可见 WebView + 持续旁路嗅探。
+    // 正文只保留描述，避免再塞一个 iframe/占位播放器造成双播放器。
+    if (useOriginSurface) {
       const base: ResolvedBody = {
         contentHtml: sanitizeArticleHtml(
           (article.summary || article.title)
@@ -249,6 +250,7 @@ export async function resolveArticleBody(
         ),
         bodySource: 'video',
       }
+      if (!article.originUrl) return base
       if (onMediaResolved) {
         void fetchAbsoluteText(article.originUrl, {
           signal,
@@ -282,6 +284,13 @@ export async function resolveArticleBody(
         signal,
       )
     }
+
+    // Web 没有 Android 的跨域 WebView 网络观察器。Feed 已经给出官方播放器时，
+    // 直接使用受信 iframe，避免先请求 /api/page；上游反爬/网络失败也不应让播放器消失。
+    const embeddedBody = buildTrustedEmbeddedVideoBody(article)
+    if (embeddedBody) return embeddedBody
+
+    if (!article.originUrl) return buildVideoBody(article, 'failed')
 
     if (onMediaResolved) {
       const base = buildVideoBody(article)

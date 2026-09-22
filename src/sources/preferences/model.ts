@@ -12,6 +12,8 @@ import {
 import type { CustomSchemePrefs } from '../../lib/customScheme'
 import { DEFAULT_TRANSLATION_PREFS } from '../../features/translation/config'
 import type { TranslationPrefs } from '../../features/translation/types'
+import { DEFAULT_READ_ALOUD_PREFS } from '../../features/readAloud/config'
+import type { ReadAloudPrefs } from '../../features/readAloud/types'
 import { DEFAULT_PROXY_PREFS } from '../../features/proxy/config'
 import type { ProxyPrefs } from '../../features/proxy/types'
 import {
@@ -95,6 +97,7 @@ export interface Preferences {
   /** 首页信息流版式。新安装默认 cards；历史偏好缺字段时迁移为 classic。 */
   homeFeedLayout: HomeFeedLayout
   translation: TranslationPrefs
+  readAloud: ReadAloudPrefs
   proxy: ProxyPrefs
   /** 切换/滑动到分类页时是否自动刷新（关闭时保留滚动阅读位置） */
   autoRefreshOnCategorySwitch?: boolean
@@ -147,6 +150,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   scheme: DEFAULT_THEME_SCHEME,
   homeFeedLayout: 'cards',
   translation: DEFAULT_TRANSLATION_PREFS,
+  readAloud: DEFAULT_READ_ALOUD_PREFS,
   proxy: DEFAULT_PROXY_PREFS,
   autoRefreshOnCategorySwitch: true,
   recommendEnabled: true,

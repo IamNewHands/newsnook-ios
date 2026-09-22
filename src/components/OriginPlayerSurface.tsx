@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import { X } from 'lucide-react'
 
 import {
@@ -100,6 +100,10 @@ export function OriginPlayerSurface({
 }: Props) {
   const [mode, setMode] = useState<Mode>('origin')
   const [candidate, setCandidate] = useState<MediaDescriptor | null>(null)
+  // Live ranking feeds the resource picker; playback stays on the chosen snapshot.
+  const [activeCandidate, setActiveCandidate] = useState<MediaDescriptor | null>(null)
+  const handoffVersionRef = useRef<object>({})
+  const preparingRef = useRef(false)
   const [sessionError, setSessionError] = useState<string | null>(null)
   const observationsRef = useRef<MediaObservation[]>([])
   const slotRef = useRef<HTMLDivElement | null>(null)
@@ -118,6 +122,9 @@ export function OriginPlayerSurface({
           return true
         }
         if (mode !== 'custom') return false
+        handoffVersionRef.current = {}
+        preparingRef.current = false
+        setActiveCandidate(null)
         setMode('origin')
         void setNativeLiveSessionVisible(true)
         lastBoundsKeyRef.current = ''
@@ -139,6 +146,9 @@ export function OriginPlayerSurface({
     const lateTimers: number[] = []
     observationsRef.current = []
     autoSwitchedRef.current = false
+    handoffVersionRef.current = {}
+    preparingRef.current = false
+    setActiveCandidate(null)
     setCandidate(null)
     setSessionError(null)
     setMode('origin')
@@ -184,6 +194,8 @@ export function OriginPlayerSurface({
 
     return () => {
       stopped = true
+      handoffVersionRef.current = {}
+      preparingRef.current = false
       sessionReadyRef.current = false
       for (const id of lateTimers) window.clearTimeout(id)
       void stopSession?.()
@@ -223,29 +235,40 @@ export function OriginPlayerSurface({
     }
   }, [mode, pageUrl])
 
-  const openCustom = async () => {
-    if (!candidate) return
-    await prepareNativeMediaPlayback({
-      url: candidate.url,
-      sourcePage: candidate.pageUrl,
-      format: candidate.type,
-      headers: candidate.requestHeaders,
-      origins: candidate.origins,
-      extraUrls: candidate.relatedUrls,
-    }).catch(() => undefined)
-    await setNativeLiveSessionVisible(false)
-    setMode('custom')
-  }
+  const openCustom = useCallback(async () => {
+    if (!candidate || preparingRef.current) return
+    const chosen = candidate
+    const version = handoffVersionRef.current
+    preparingRef.current = true
+    try {
+      await prepareNativeMediaPlayback({
+        url: chosen.url,
+        sourcePage: chosen.pageUrl,
+        format: chosen.type,
+        headers: chosen.requestHeaders,
+        origins: chosen.origins,
+        extraUrls: chosen.relatedUrls,
+      }).catch(() => undefined)
+      if (version !== handoffVersionRef.current) return
+      await setNativeLiveSessionVisible(false)
+      if (version !== handoffVersionRef.current) return
+      setActiveCandidate(chosen)
+      setMode('custom')
+    } finally {
+      if (version === handoffVersionRef.current) preparingRef.current = false
+    }
+  }, [candidate])
 
   useEffect(() => {
     if (!autoUseReader || !candidate || mode !== 'origin' || autoSwitchedRef.current) return
     autoSwitchedRef.current = true
     void openCustom()
-  // openCustom intentionally captures the current candidate; candidate/mode changes retrigger this effect.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoUseReader, candidate, mode])
+  }, [autoUseReader, candidate, mode, openCustom])
 
   const backToOrigin = () => {
+    handoffVersionRef.current = {}
+    preparingRef.current = false
+    setActiveCandidate(null)
     setMode('origin')
     void setNativeLiveSessionVisible(true)
     lastBoundsKeyRef.current = ''
@@ -262,16 +285,16 @@ export function OriginPlayerSurface({
           ref={slotRef}
           className={`relative w-full bg-[#0c0d10] ${mode === 'origin' ? 'reader-video-aspect' : ''}`}
         >
-          {mode === 'custom' && candidate ? (
+          {mode === 'custom' && activeCandidate ? (
             <InkVideoPlayer
-              src={candidate.url}
+              src={activeCandidate.url}
               poster={poster}
               title={title}
-              format={candidate.type}
-              sourcePage={candidate.pageUrl}
-              requestHeaders={candidate.requestHeaders}
-              extraUrls={candidate.relatedUrls}
-              resources={candidate.resources}
+              format={activeCandidate.type}
+              sourcePage={activeCandidate.pageUrl}
+              requestHeaders={activeCandidate.requestHeaders}
+              extraUrls={activeCandidate.relatedUrls}
+              resources={candidate?.resources ?? activeCandidate.resources}
               onRefreshSource={backToOrigin}
               onPlaybackError={backToOrigin}
               fullscreenHandleRef={playerFullscreenRef}

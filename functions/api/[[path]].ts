@@ -18,6 +18,8 @@ export type PagesFunction<
 
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+const BILIBILI_PAGE_HOST_RE = /(?:^|\.)bilibili\.com$/i
+const BILIBILI_ASSET_HOST_RE = /(?:^|\.)(?:hdslb\.com|bilivideo\.com)$/i
 
 function corsHeaders(): Headers {
   const headers = new Headers()
@@ -130,16 +132,19 @@ export const onRequest: PagesFunction = async (context) => {
       const requestedAccept = url.searchParams.get('accept')
       const isNetease =
         target.includes('163.com') || target.includes('netease.com') || target.includes('126.net')
+      const isBilibiliPage = BILIBILI_PAGE_HOST_RE.test(targetUrl.hostname)
 
       const headers: Record<string, string> = {
-        'User-Agent': isNetease ? 'NewsApp' : requestedUa || BROWSER_UA,
+        'User-Agent': isNetease ? 'NewsApp' : isBilibiliPage ? BROWSER_UA : requestedUa || BROWSER_UA,
         Accept:
           requestedAccept ||
           'text/html,application/xhtml+xml,application/xml,application/json;q=0.9,*/*;q=0.8',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        Referer: targetUrl.hostname.endsWith('.translate.goog')
-          ? 'https://translate.google.com/'
-          : `${targetUrl.origin}/`,
+        Referer: isBilibiliPage
+          ? 'https://www.bilibili.com/'
+          : targetUrl.hostname.endsWith('.translate.goog')
+            ? 'https://translate.google.com/'
+            : `${targetUrl.origin}/`,
       }
 
       const upstream = await fetch(target, { headers, redirect: 'follow' })
@@ -192,6 +197,7 @@ export const onRequest: PagesFunction = async (context) => {
       const isMedia = firstSegment === 'media'
       const requestedUa = url.searchParams.get('ua')
       const isNetease = /(?:^|\.)(?:163\.com|netease\.com|126\.net)$/i.test(targetUrl.hostname)
+      const isBilibiliAsset = BILIBILI_ASSET_HOST_RE.test(targetUrl.hostname)
       if (!isMedia && isNetease && targetUrl.protocol === 'http:') targetUrl.protocol = 'https:'
       const isWechatImage =
         !isMedia &&
@@ -207,7 +213,9 @@ export const onRequest: PagesFunction = async (context) => {
           ? isMedia
             ? 'https://3g.163.com/'
             : 'https://www.163.com/'
-          : `${targetUrl.origin}/`
+          : isBilibiliAsset
+            ? 'https://www.bilibili.com/'
+            : `${targetUrl.origin}/`
       }
 
       const upstream = await fetch(targetUrl.href, { headers, redirect: 'follow' })

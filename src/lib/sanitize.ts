@@ -2,6 +2,7 @@ import createDOMPurify from 'dompurify'
 import { parseHTML } from 'linkedom'
 
 import { isAudioMediaUrl } from './articleAudio'
+import { trustedEmbeddedVideoFrameHtml } from './videoArticle'
 
 type PurifyLike = { sanitize: (dirty: string, config?: object) => string }
 
@@ -127,11 +128,19 @@ function ensureYoutubeReferrerPolicy(block: string): string {
   )
 }
 
-/** 丢掉非 YouTube 的 iframe，并为白名单播放器补齐最小来源标识 */
+/**
+ * iframe 默认全部丢弃，仅保留明确白名单的视频播放器。
+ * YouTube 延续原有 staging 流程；Bilibili/Vimeo 等只重建最小安全 iframe，
+ * 不继承上游 style/event/任意权限属性。
+ */
 function keepAllowedEmbeds(html: string): string {
   return html.replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, (block) => {
     const src = block.match(/\bsrc\s*=\s*["']([^"']+)["']/i)?.[1]
-    return isAllowedYoutubeEmbedSrc(src) ? ensureYoutubeReferrerPolicy(block) : ''
+    if (isAllowedYoutubeEmbedSrc(src)) return ensureYoutubeReferrerPolicy(block)
+
+    const title =
+      block.match(/\btitle\s*=\s*["']([^"']+)["']/i)?.[1]?.trim() || '视频'
+    return trustedEmbeddedVideoFrameHtml(block, title) ?? ''
   })
 }
 

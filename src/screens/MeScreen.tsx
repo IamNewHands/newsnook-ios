@@ -16,6 +16,7 @@ import {
   ServerCog,
   Search,
   Type,
+  Volume2,
 } from 'lucide-react'
 
 import { useReducedMotion } from '../hooks/useReducedMotion'
@@ -32,6 +33,7 @@ interface Props {
   typographySummary: string
   appearanceSummary: string
   translationSummary: string
+  readAloudSummary: string
   aiSummary: string
   proxySummary: string
   storageSummary: string
@@ -47,6 +49,7 @@ interface Props {
   onOpenTypographySettings: () => void
   onOpenAppearanceSettings: () => void
   onOpenTranslationSettings: () => void
+  onOpenReadAloudSettings: () => void
   onOpenAiSettings: () => void
   onOpenProxySettings: () => void
   onOpenStorageSettings: () => void
@@ -104,6 +107,7 @@ export function MeScreen({
   typographySummary,
   appearanceSummary,
   translationSummary,
+  readAloudSummary,
   aiSummary,
   proxySummary,
   storageSummary,
@@ -119,6 +123,7 @@ export function MeScreen({
   onOpenTypographySettings,
   onOpenAppearanceSettings,
   onOpenTranslationSettings,
+  onOpenReadAloudSettings,
   onOpenAiSettings,
   onOpenProxySettings,
   onOpenStorageSettings,
@@ -240,6 +245,12 @@ export function MeScreen({
             caption={translationSummary}
             onClick={onOpenTranslationSettings}
             dataTour="me-translation"
+          />
+          <SettingsRow
+            icon={Volume2}
+            title="朗读"
+            caption={readAloudSummary}
+            onClick={onOpenReadAloudSettings}
           />
           <SettingsRow
             icon={ServerCog}

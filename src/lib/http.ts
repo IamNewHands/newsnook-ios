@@ -551,8 +551,8 @@ export function googleTranslateProxyUrl(url: string, targetLang = 'en'): string 
   }
 }
 
-/** 优先尝试 https；视频 CDN 等需保留原始 http。
- * 非明文白名单域名只试 https，避免 Android Cleartext 直接失败。 */
+/** 优先尝试 https；但显式非默认端口代表用户指定的具体服务端点，不能只改协议不改端口。
+ * 视频 CDN 等明确需要明文 HTTP 的资源也保留原始地址。 */
 export function httpsUpgradeCandidates(url: string): string[] {
   if (!url.startsWith('http://')) return [url]
   try {
@@ -560,6 +560,7 @@ export function httpsUpgradeCandidates(url: string): string[] {
     const host = parsed.hostname.toLowerCase()
     const path = parsed.pathname.toLowerCase()
     const keepHttp =
+      Boolean(parsed.port) ||
       host.includes('flv') ||
       path.endsWith('.m3u8') ||
       path.endsWith('.mp4') ||
