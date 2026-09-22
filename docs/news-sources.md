@@ -408,3 +408,51 @@ claude.com 两个路径带不带斜杠均 200。
 
 验证：`npm run test:ai-firstparty`（注册 / 分类 / 分流 / 分页断言 + 三个解析器 fixture 与兜底路径），
 `npm run test:high-signal`、`npm run test:layout-presets`、`npm run test:category-source-usage`。
+
+## 8. 评论 / 跟贴覆盖（2026-09-22）
+
+入口与抽屉见 `src/features/comments/`；本节只记「哪些来源有评论、走的哪条通道、为什么某些来源没有」。
+分级：**A** = 免登录纯 HTTP 可直接取；**B** = 需要特定头 / 参数 / 签名；**C** = 需登录或强反爬；
+**D** = 站点没有公开可程序化获取的评论（不注册 provider，界面上不出现任何入口）。
+
+### 8.1 已接入（11 个 provider）
+
+| provider | 覆盖来源 | 通道 | 取词 | 级 |
+|---|---|---|---|---|
+| `netease` | 25 个网易频道 | 网易跟贴接口 | 跟贴 | A |
+| `eastmoney` | `eastmoney-news` `eastmoney-kx` | 东财股吧跟贴 | 跟贴 | A |
+| `zhihu` | `zhihu-daily` 等 | 知乎评论接口 | 评论 | A |
+| `jandan` | `jandan` | 煎蛋吐槽 | 吐槽 | A |
+| `hackerNews` | `hn` | Firebase HN API | 讨论 | A |
+| `wordpress` | 11 个已登记主机（`pansci.asia` `huanqiukexue.com` `qbitai.com` `aiera.com.cn` `syncedreview.com` `marktechpost.com` `zhidx.com` `woshipm.com` `jack-clark.net` `themarginalian.org` `theue.me`） | `wp-json/wp/v2/comments?post=` | 评论 | A |
+| `substack` | `*.substack.com` + 10 个自有域名 | `/api/v1/post/<id>/comments` | 评论 | A |
+| `gcores` | `gcores` | `gapi/v1/<articles\|radios>/<id>/comments`（须 `Accept: application/vnd.api+json`） | 评论 | A |
+| `v2ex` | `v2ex` | `api/replies/show.json`（v1，免登录） | 回复 | A |
+| `solidot` | `solidot` | 文章页 `<!-- comments start -->` 服务端直出 HTML | 评论 | A |
+| `zhishifenzi` | `zhishifenzi` | 文章页 `.comments_content` 服务端直出 HTML | 评论 | A |
+
+平台族（WordPress / Substack）与 `gcores` `v2ex` `solidot` `zhishifenzi` 标记 `requiresCommentCount`：
+**确知评论数 > 0 才渲染入口**，零评论文章连按钮都不出现（用户要求「有才显示，没有就不展示」）。
+`wordpress` 与 `substack` 的计数随列表接口一起返回；`solidot` `zhishifenzi` 的计数与评论同在文章页 HTML 里。
+
+### 8.2 未接入的落选理由（逐站实测 2026-09-22）
+
+| 来源 | 结论 | 证据 |
+|---|---|---|
+| `ithome` | B · 待续 | 计数接口可用：`cmt.ithome.com/api/comment/count?newsid=<id>` 返回 `ccd.innerHTML = '6'`；但列表接口未定位（`/api/comment/list`、`/apiv2/comment/list` 等 10 种形状均 404，`comment.es5.min.js` 只暴露 `submit` / `complain` / `logout`） |
+| `huxiu` | B · 待续 | `api-comment.huxiu.com` 主机存在，`/v1/comment/list`、`/comment/list` 均返回 code2「页面不存在」；文章页 HTML 无评论线索 |
+| `tmtpost` `leiphone` `guokr` `jiqizhixin` `geekpark` `kr36` `ifanr` | B · 待续 | 文章页为客户端渲染，HTML 内无评论接口线索；`leiphone` 页内 `data-article_cmtNum` 只有计数没有列表，SeaJS 模块名未知 |
+| `jazzyear` | C | `/api/comment-list` 存在但返回 401 `Unauthorized` |
+| `sspai` | C | `api/v1/comment/list?article_id=` 返回 `{"error":3004,"msg":"请登录"}` |
+| `quanta`（及所有 Disqus 站） | C | 确认用 Disqus（短名 `quanta-mag`），但 `disqus.com/embed/comments/` 已不下发 `api_key`，无 key 无法取列表 |
+| `arstechnica` | C | 文章页直接 405 |
+| `verge` | B · 待续 | 文章页 336KB，无评论接口线索（站点用 Coral） |
+| `appinn` | D | WordPress REST 被站点封禁：`rest_forbidden` 401 → 不登记进平台族 |
+| BBC / DW / SCMP / NPR / Guardian / France24 / Al Jazeera / Google News / 各 AI 官方博客 / 公众号镜像 / 专栏类 | D | 站点无公开评论接口，或源本身就是纯 RSS 聚合 |
+| `cls-telegraph` `wscn-live` | D | 电报 / 快讯类，原站没有跟贴入口（已有断言守住） |
+
+### 8.3 防误匹配断言
+
+`scripts/comments-provider.test.ts` 的测试 9 锁住 D 类代表来源必须 `supportsComments === false`，
+避免日后新增主机匹配把「无评论来源」误伤成有入口；同时锁住 A 类代表来源的取词。
+验证：`npm run test:comments`。

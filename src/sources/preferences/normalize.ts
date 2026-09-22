@@ -33,6 +33,7 @@ import {
   isAggregateCategoryId,
   FONT_FAMILY_OPTIONS,
   normalizePrestorePrefs,
+  normalizeUiPrefs,
   uniqueValid,
   type FontFamilyId,
   type CategoryNameOverride,
@@ -201,6 +202,8 @@ export function normalizePreferences(raw: unknown): Preferences {
     wifiOnlyAutoLoadMedia:
       typeof input.wifiOnlyAutoLoadMedia === 'boolean' ? input.wifiOnlyAutoLoadMedia : false,
     prestore: normalizePrestorePrefs(input.prestore),
+    // 旧偏好无此字段时回到「默认字体 + 原字号」，升级后观感不变
+    ui: normalizeUiPrefs(input.ui),
     typography: {
       fontScale: clamp(typography.fontScale, DEFAULT_TYPOGRAPHY.fontScale, 0.8, 1.4),
       lineHeight: clamp(typography.lineHeight, DEFAULT_TYPOGRAPHY.lineHeight, 1.4, 2.4),

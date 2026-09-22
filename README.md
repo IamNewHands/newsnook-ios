@@ -13,6 +13,7 @@
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/github/license/t59688/newsnook?style=flat-square"></a>
   <a href="https://github.com/t59688/newsnook/issues"><img alt="GitHub Issues" src="https://img.shields.io/github/issues/t59688/newsnook?style=flat-square"></a>
   <img alt="Android" src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square&logo=android&logoColor=white">
+  <img alt="iOS" src="https://img.shields.io/badge/platform-iOS-000000?style=flat-square&logo=apple&logoColor=white">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript&logoColor=white">
   <img alt="PRs Welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square">
 </p>
@@ -27,6 +28,19 @@
 </p>
 
 ---
+
+> **本仓库是 iOS 移植分支**
+>
+> 上游 [t59688/newsnook](https://github.com/t59688/newsnook) 是 Android 客户端。本仓库在其基础上叠加 iOS 层，
+> 并用 GitHub Actions 云编译**未签名 IPA**：
+>
+> - **下载**：[Releases](https://github.com/IamNewHands/newsnook-ios/releases)，版本号形如 `ios-v<上游版本>`
+> - **安装**：下载 IPA 后用 SideStore / LiveContainer / SideInstaller 以你自己的 Apple ID 本地签名（产物不含任何证书，也不需要你提供证书）
+> - **翻译开箱可用**：Google / Microsoft 免密钥通道不用填任何 Key，iOS 18 及以上还有系统内置的离线翻译；正文顶栏可直接切换翻译通道
+> - **编译与自动化**：[`docs/ios-build.md`](./docs/ios-build.md)
+> - **自动跟版**：每天检查上游**稳定版** tag，发现新版本就重贴 iOS 层、构建 IPA、发布 Release
+> - **分支约定**：`main` = 上游稳定版代码 + iOS 层；`ios-layer` 是重贴补丁用的内部单提交分支
+> - **与上游的差异**：见 [`docs/ios-build.md` 的「iOS 功能边界」](./docs/ios-build.md#ios-功能边界)（本地翻译引擎、应用内更新、投屏与媒体嗅探等）
 
 ## NewsNook 是什么
 
@@ -51,11 +65,11 @@ NewsNook（有所闻）不是单一的 RSS 阅读器，也不是传统的新闻�
 | 正文 | 站内全文、Readability 与站点定制抽取 |
 | 多媒体 | 图片、音频、Progressive / HLS / DASH、自定义播放器 |
 | 投屏 | DLNA |
-| 翻译 | 云端翻译、AI 翻译、Android 本地翻译、Bergamot |
+| 翻译 | 云端翻译、AI 翻译、免密钥通道、系统离线翻译（iOS 18+）、Android 本地翻译、Bergamot |
 | AI | OpenAI-compatible Provider、AI 速读 |
 | 本地能力 | 稍后读、历史、搜索、推荐、缓存、阅读位置 |
 | 同步 | 可选账号，仅同步配置域；阅读数据保持本地 |
-| 当前主要平台 | Android |
+| 平台 | Android（上游）· iOS（本仓库） |
 
 ---
 
@@ -273,12 +287,15 @@ NewsNook 不把文章限制为纯文本。
 - DeepLX
 - OpenAI-compatible AI 翻译
 
+**免密钥通道**：Google 与 Microsoft 的 API Key 留空时，走浏览器内置翻译所用的同一批端点（`translate.googleapis.com` 与 Edge 的 `translatetext`），无需注册、开箱可用；填入自己的 Key 则自动改走官方接口。这两个端点由厂商提供给自家浏览器，没有公开 SLA，可能限速或随时变更。
+
 本地能力：
 
 - Android ML Kit
 - Bergamot Translator
+- iOS 18 及以上：系统内置翻译（`Translation` 框架，语言包由系统下载与管理，装好后完全离线）
 
-正文支持仅译文与原文 + 译文对照两种主要阅读方式。
+正文支持仅译文与原文 + 译文对照两种主要阅读方式。**翻译通道可以在正文顶栏直接切换**，不必回到设置页；同一个段落里的文本始终整批翻译，不会出现「半段译文 + 半段原文」。
 
 API Key 由用户自行配置并保存在本机，客户端直接访问用户选择的服务。
 
@@ -343,6 +360,18 @@ NewsNook 的设计遵循几个明确原则：
 
 ## 安装
 
+### iOS
+
+本仓库提供**未签名 IPA**，用你自己的 Apple ID 在设备端本地签名安装：
+
+1. 到 **[Releases](https://github.com/IamNewHands/newsnook-ios/releases)** 下载 `NewsNook-<版本>-unsigned.ipa`（Release tag 形如 `ios-v1.8.7`）。
+2. 用 SideStore / LiveContainer / SideInstaller 等工具签名并安装。
+3. 仓库与 Release 里不含任何证书或描述文件，也不需要你提供 Apple ID。
+
+最低系统要求 iOS 15.0。**系统内置离线翻译需要 iOS 18 及以上**，低于 18 时该选项不会出现，其余功能不受影响。
+
+云编译、自动跟版与分支约定见 [iOS 编译说明](./docs/ios-build.md)。
+
 ### Android
 
 当前正式面向用户的平台是 Android。
@@ -375,16 +404,17 @@ Android 版本包含应用更新检测与下载安装流程。发布渠道和下
 - Vite
 - Capacitor 8
 - Android
+- iOS（Capacitor 8 + Swift Package Manager，不使用 CocoaPods）
 - Tailwind CSS
 - Mozilla Readability
 
-建议准备 Node.js、npm；Android 开发还需要 Android Studio / Android SDK 与 JDK。
+建议准备 Node.js、npm；Android 开发还需要 Android Studio / Android SDK 与 JDK，iOS 开发需要 macOS 与 Xcode。
 
 ### 本地运行
 
 ~~~bash
-git clone https://github.com/t59688/newsnook.git
-cd newsnook
+git clone https://github.com/IamNewHands/newsnook-ios.git
+cd newsnook-ios
 
 npm install
 
@@ -401,6 +431,22 @@ npm run build
 # 静态检查
 npm run lint
 ~~~
+
+### iOS
+
+iOS 不需要本地 Mac 也能出包：推送 `main` 后手动触发 `iOS Build` workflow（或由 `iOS Sync` 在检测到上游新稳定版后自动调用），
+云端产出**未签名 IPA**并作为 Release 资产发布。
+
+~~~bash
+# 云端构建：Actions → iOS Build → Run workflow
+# 产物：NewsNook-<版本>-unsigned.ipa
+
+# 本地只跑前端检查
+npm run test:translation      # 翻译链路（含免密钥通道与段落切分）
+npm run test:apple-translation # iOS 系统翻译插件的 TS 侧契约
+~~~
+
+有 Mac 时用 `npx cap sync ios && npx cap open ios` 打开 Xcode 工程。完整说明见 [iOS 编译说明](./docs/ios-build.md)。
 
 ### Android
 
@@ -474,6 +520,7 @@ newsnook/
 │  ├─ screens/             页面级 UI
 │  └─ sources/             Source / Category / Preset 注册与偏好
 ├─ android/                Capacitor Android 工程
+├─ ios/                    Capacitor iOS 工程（Xcode + SPM，iOS 层新增）
 ├─ cloud/                  可选账号与配置同步服务
 ├─ functions/              边缘函数 / Web 能力
 ├─ scripts/                测试、构建和维护脚本
@@ -491,6 +538,7 @@ newsnook/
 | [用户指南](./docs/user-guide.md) | 面向使用者的功能说明 |
 | [架构](./docs/architecture.md) | 应用分层、数据流、状态模型 |
 | [新闻源](./docs/news-sources.md) | 内置来源与解析说明 |
+| [iOS 编译](./docs/ios-build.md) | iOS 层、云编译 IPA、自动跟版与功能边界 |
 | [Android 构建](./docs/android-build.md) | Android 环境、签名、调试与发版 |
 | [Cloud 部署](./docs/cloud-deploy.md) | 可选同步服务 |
 | [本地推荐](./docs/local-recommend.md) | 本地推荐算法与隐私边界 |
@@ -526,8 +574,8 @@ NewsNook 仍在持续演进。
 
 如果你发现某个来源失效，请提交 Issue，并尽量附上：
 
-- NewsNook 版本
-- Android 版本与设备型号
+- NewsNook 版本（`ios-v…` 表示 iOS 版，上游 tag 表示 Android 版）
+- 平台、系统版本与设备型号（Android 版本 / iOS 版本 + 机型）
 - 来源 / 站点名称
 - 文章或页面 URL
 - 截图或日志
@@ -548,7 +596,7 @@ NewsNook 仍在持续演进。
 - 完善知乎工作区
 - 改进视频与媒体体验
 - 改进翻译与 AI 阅读
-- 优化 Android / Web UI
+- 优化 Android / iOS / Web UI
 - 补充测试与文档
 
 开始之前请先阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。

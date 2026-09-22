@@ -1,0 +1,6 @@
+# Gradle wrapper 的 shebang 必须是 LF。
+#
+# 仓库里的 android/gradlew 曾以 CRLF 提交，导致 Linux CI 上 `./gradlew` 报
+# "cannot execute: required file not found"（exit 127）——上游 t59688/newsnook 的
+# Cloud Sync CI 里 "Android Java compile" 因此长期全红。这里固定为 LF 并防止回归。
+android/gradlew text eol=lf

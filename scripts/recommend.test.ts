@@ -13,6 +13,7 @@ import {
   collectReadArticles,
   isRecommendationReady,
   rankRecommendations,
+  rankRecommendationsForSource,
   recommendationReadiness,
   scopeSignalsToSources,
   tokenize,
@@ -498,5 +499,53 @@ assert.equal(
   '关闭状态应在 JSON 往返后保留',
 )
 console.log('recommend toggle pref: ok')
+
+// —— Task 16: 单源聚焦必须先裁剪再截断——低频源不能被全局上限吃掉 ——
+{
+  const wire = Array.from({ length: RECOMMEND_LIMIT + 40 }, (_v, i) =>
+    article({
+      id: `wire-${i}`,
+      title: `快讯 ${i}`,
+      sourceId: 'wire',
+      publishedAt: NOW - i * 60_000,
+    }),
+  )
+  // 小众软件这类一天一两条的源：条目更旧，在全局时间序里必然排在 120 条之外
+  const quiet = [
+    article({
+      id: 'quiet-1',
+      title: '一款小工具',
+      sourceId: 'appinn',
+      publishedAt: NOW - 30 * HOUR,
+    }),
+    article({
+      id: 'quiet-2',
+      title: '另一款小工具',
+      sourceId: 'appinn',
+      publishedAt: NOW - 40 * HOUR,
+    }),
+  ]
+  const pool = [...wire, ...quiet]
+  const cold = buildReadingProfile({ readArticles: [], laterArticles: [] })
+
+  // 旧行为：先截断到 RECOMMEND_LIMIT、再按源过滤 —— 低频源被整体吃掉，点开是空列表
+  const legacy = rankRecommendations(pool, cold, { now: NOW }).filter(
+    (item) => item.sourceId === 'appinn',
+  )
+  assert.equal(legacy.length, 0, '全局截断会吃掉低频源（这条就是旧顺序的回归证据）')
+
+  // 新行为：先按源裁剪再排序 —— 条目数与信源入口上的徽标一致
+  assert.deepEqual(
+    rankRecommendationsForSource(pool, cold, 'appinn', { now: NOW }).map((item) => item.id),
+    ['quiet-1', 'quiet-2'],
+  )
+
+  // 未选信源时与整体排序完全等价
+  assert.deepEqual(
+    rankRecommendationsForSource(pool, cold, null, { now: NOW }).map((item) => item.id),
+    rankRecommendations(pool, cold, { now: NOW }).map((item) => item.id),
+  )
+}
+console.log('recommend source scoping: ok')
 
 console.log('recommend: all ok')

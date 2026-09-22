@@ -269,6 +269,7 @@ function recordsFromProjection(state: LocalRuntimeState): SyncRecord[] {
     einkMode: true,
     wifiOnlyAutoLoadMedia: true,
     prestore: { enabled: true, perSourceLimit: 20 },
+    ui: { fontFamily: 'kaiti', scale: 1.2, weight: 'bold', floatReaderNav: false },
   })
 
   const remote = baseState()
@@ -279,6 +280,11 @@ function recordsFromProjection(state: LocalRuntimeState): SyncRecord[] {
   assert.equal(merged.prefs.einkMode, true, '墨水屏是设备本地设置')
   assert.equal(merged.prefs.wifiOnlyAutoLoadMedia, true)
   assert.equal(merged.prefs.prestore.perSourceLimit, 20)
+  assert.deepEqual(
+    merged.prefs.ui,
+    { fontFamily: 'kaiti', scale: 1.2, weight: 'bold', floatReaderNav: false },
+    '界面字体与字重是设备本地设置',
+  )
 }
 
 {

@@ -91,11 +91,53 @@
   --color-cinnabar-soft: var(--tone-cinnabar-soft);
   --color-haze: var(--tone-haze);
 
-  --font-display: 'Instrument Serif', 'Noto Serif SC', 'Songti SC', serif;
-  --font-body: 'Noto Sans SC', 'PingFang SC', system-ui, sans-serif;
+  /*
+   * 界面字体：--ui-font / --ui-font-display 是「界面字体」设置项的落点，
+   * usePreferences 会以 documentElement 行内样式覆盖同名变量。
+   * 这里的两条默认值与加入该设置项之前完全一致，默认档零观感变化。
+   *
+   * --ui-scale 由构建期把生成的所有 px 字号挂上去（scripts/ui-scale-css.ts），
+   * 因此源码里的 text-[11px] 之类的写法不需要逐个改写。
+   */
+  --ui-font: 'Noto Sans SC', 'PingFang SC', system-ui, sans-serif;
+  --ui-font-display: 'Noto Serif SC', 'Songti SC', serif;
+  --ui-scale: 1;
+
+  /*
+   * 界面字重：Tailwind v4 的 font-normal / font-medium / font-semibold 会生成
+   * `font-weight: var(--font-weight-*)`，所以覆盖这几个主题变量即可整体抬升界面字重，
+   * 不必逐个改写 250 多处工具类。这里的默认值与 Tailwind 缺省一致，默认档零观感变化。
+   * 正文（.reader-prose / .reader-table-scroll 等）用的是独立字重，不受本设置影响。
+   */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --font-display: 'Instrument Serif', var(--ui-font-display);
+  --font-body: var(--ui-font);
   --font-mono: 'JetBrains Mono', 'SFMono-Regular', ui-monospace, monospace;
 
   --ease-ink: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/*
+ * 界面字重档位：在 Tailwind 缺省值上整体 +100 / +200，上限 800（再高汉字容易糊成一团）。
+ * 放在 @theme 之外、不加 @layer，因此晚于 @layer theme 生效并能覆盖主题变量。
+ * 由 usePreferences 把档位写到 documentElement 的 data-ui-weight 上。
+ */
+:root[data-ui-weight='medium'] {
+  --font-weight-normal: 500;
+  --font-weight-medium: 600;
+  --font-weight-semibold: 700;
+  --font-weight-bold: 800;
+}
+
+:root[data-ui-weight='bold'] {
+  --font-weight-normal: 600;
+  --font-weight-medium: 700;
+  --font-weight-semibold: 800;
+  --font-weight-bold: 800;
 }
 
 /* 夜读（默认）：冷墨底 + 暖纸字 */
@@ -313,7 +355,7 @@
   --dim-hidden: brightness(0.72);
   --grain-opacity: 0;
 
-  --font-display: 'Noto Sans SC', 'PingFang SC', system-ui, sans-serif;
+  --font-display: var(--ui-font);
 
   --color-ink: var(--tone-ink);
   --color-ink-raised: var(--tone-ink-raised);
@@ -357,7 +399,7 @@
   --dim-hidden: contrast(0.78) saturate(0.5);
   --grain-opacity: 0;
 
-  --font-display: 'Noto Sans SC', 'PingFang SC', system-ui, sans-serif;
+  --font-display: var(--ui-font);
 
   --color-ink: var(--tone-ink);
   --color-ink-raised: var(--tone-ink-raised);
