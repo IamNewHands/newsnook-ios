@@ -1,5 +1,6 @@
 const NETEASE_HOST_RE = /(?:^|\.)(?:126\.net|163\.com|netease\.com)$/i
 const WECHAT_IMAGE_HOST_RE = /(?:^|\.)(?:mmbiz\.qpic\.cn|mmecoa\.qpic\.cn|qlogo\.cn)$/i
+const BILIBILI_IMAGE_HOST_RE = /(?:^|\.)hdslb\.com$/i
 
 function httpUrl(raw: string): URL | null {
   try {
@@ -30,7 +31,7 @@ export function imageProxyUrl(raw: string): string {
   return `/api/image?url=${encodeURIComponent(normalizeListImageUrl(raw))}`
 }
 
-/** Web 对已知必拦直链的网易图片直接代理；其他图床保留客户端直连。 */
+/** Web 对已知必拦直链的网易图片直接代理；其他图床保留客户端直连，失败后再代理。 */
 export function initialListImageUrl(raw: string, native: boolean): string {
   const normalized = normalizeListImageUrl(raw)
   return !native && isNeteaseImageUrl(normalized) ? imageProxyUrl(normalized) : normalized
@@ -42,6 +43,7 @@ export function imageReferer(raw: string): string | undefined {
   if (!parsed) return undefined
   if (NETEASE_HOST_RE.test(parsed.hostname)) return 'https://www.163.com/'
   if (WECHAT_IMAGE_HOST_RE.test(parsed.hostname)) return undefined
+  if (BILIBILI_IMAGE_HOST_RE.test(parsed.hostname)) return 'https://www.bilibili.com/'
   if (/(?:^|\.)zhimg\.com$/i.test(parsed.hostname)) return 'https://www.zhihu.com/'
   return `${parsed.origin}/`
 }

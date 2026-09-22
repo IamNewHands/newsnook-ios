@@ -204,6 +204,26 @@ console.log('--- 测试 4: /api/page 正文抓取代理 ---')
     assert.equal(resPage.headers.get('Access-Control-Allow-Origin'), '*')
     assert.equal(capturedUrl, 'https://example.com/news/123')
     assert.equal(capturedHeaders.Referer, 'https://example.com/')
+
+    const reqBilibili = new Request(
+      'https://news.aizeek.com/api/page?url=https%3A%2F%2Fwww.bilibili.com%2Fvideo%2FBV1TEST123&ua=' +
+        encodeURIComponent('Mozilla/5.0 (Linux; Android 14) Chrome/126 Mobile Safari/537.36'),
+    )
+    await onRequest({
+      request: reqBilibili,
+      params: { path: ['page'] },
+      functionPath: '/api/page',
+      waitUntil: () => {},
+      next: async () => new Response(),
+      env: {},
+      data: {},
+    })
+    assert.equal(capturedHeaders.Referer, 'https://www.bilibili.com/')
+    assert.match(
+      capturedHeaders['User-Agent'] ?? '',
+      /Windows NT 10\.0/,
+      '服务端抓 Bilibili 页面时不应沿用移动 UA 进入 H5/挑战壳',
+    )
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -216,6 +236,7 @@ console.log('--- 测试 5: /api/image 防盗链 Referer 处理 ---')
   let capturedWechatHeaders: Record<string, string> = {}
   let capturedOtherHeaders: Record<string, string> = {}
   let capturedNeteaseHeaders: Record<string, string> = {}
+  let capturedBilibiliHeaders: Record<string, string> = {}
   let capturedNeteaseUrl = ''
 
   try {
@@ -226,6 +247,8 @@ console.log('--- 测试 5: /api/image 防盗链 Referer 处理 ---')
       } else if (url.includes('126.net')) {
         capturedNeteaseUrl = url
         capturedNeteaseHeaders = (init?.headers as Record<string, string>) || {}
+      } else if (url.includes('hdslb.com')) {
+        capturedBilibiliHeaders = (init?.headers as Record<string, string>) || {}
       } else {
         capturedOtherHeaders = (init?.headers as Record<string, string>) || {}
       }
@@ -280,6 +303,25 @@ console.log('--- 测试 5: /api/image 防盗链 Referer 处理 ---')
     })
     assert.equal(capturedNeteaseUrl, 'https://dingyue.ws.126.net/cover.jpg')
     assert.equal(capturedNeteaseHeaders.Referer, 'https://www.163.com/')
+
+    const reqBilibili = new Request(
+      'https://news.aizeek.com/api/image?url=' +
+        encodeURIComponent('https://i1.hdslb.com/bfs/archive/example.jpg'),
+    )
+    await onRequest({
+      request: reqBilibili,
+      params: { path: ['image'] },
+      functionPath: '/api/image',
+      waitUntil: () => {},
+      next: async () => new Response(),
+      env: {},
+      data: {},
+    })
+    assert.equal(
+      capturedBilibiliHeaders.Referer,
+      'https://www.bilibili.com/',
+      'Bilibili CDN 代理必须使用门户 Referer，而不是 i1.hdslb.com 自身',
+    )
   } finally {
     globalThis.fetch = originalFetch
   }

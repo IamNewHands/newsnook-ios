@@ -31,8 +31,8 @@ export function isLikelyEmbeddedVideoPageUrl(url?: string): boolean {
     const path = parsed.pathname.toLowerCase()
 
     if (
-      host === 'player.bilibili.com' ||
-      (host.endsWith('.bilibili.com') &&
+      (host === 'player.bilibili.com' && path === '/player.html') ||
+      ((host === 'www.bilibili.com' || host === 'bilibili.com') &&
         /^\/blackboard\/(?:html5mobileplayer|newplayer)\.html$/i.test(path))
     ) {
       return true
@@ -94,6 +94,38 @@ export function extractEmbeddedVideoPageUrl(html?: string): string | undefined {
     if (isLikelyEmbeddedVideoPageUrl(candidate)) return candidate
   }
   return undefined
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+/**
+ * 将 Feed 已明确给出的受信播放器页重建成最小 iframe。
+ * 不复用上游任意 iframe 属性，避免把 allow/style/event handler 等一起带进阅读器。
+ */
+export function trustedEmbeddedVideoFrameHtml(
+  html: string | undefined,
+  title = '视频',
+): string | undefined {
+  const src = extractEmbeddedVideoPageUrl(html)
+  if (!src) return undefined
+  return [
+    '<iframe',
+    ` src="${escapeHtmlAttribute(src)}"`,
+    ` title="${escapeHtmlAttribute(title)}"`,
+    ' loading="lazy"',
+    ' referrerpolicy="strict-origin-when-cross-origin"',
+    ' allow="autoplay; fullscreen; picture-in-picture"',
+    ' allowfullscreen',
+    ' frameborder="0"',
+    ' data-reader-role="trusted-video-embed"',
+    '></iframe>',
+  ].join('')
 }
 
 export function extractDirectVideoUrlFromHtml(html?: string): string | undefined {

@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
 
 import { parseSourcePayload } from '../src/lib/parseFeed'
+import { resolveArticleBody } from '../src/lib/resolveBody'
 import {
   extractEmbeddedVideoPageUrl,
+  isLikelyEmbeddedVideoPageUrl,
   normalizeLegacyVideoArticle,
+  trustedEmbeddedVideoFrameHtml,
 } from '../src/lib/videoArticle'
 import type { NewsSource } from '../src/sources/registry'
 
@@ -99,5 +102,48 @@ const legacy = normalizeLegacyVideoArticle({
 })
 assert.equal(legacy.contentType, 'video', '升级前缓存的 Bilibili 条目应在读缓存时自动迁移')
 assert.equal(legacy.videoUrl, undefined)
+
+assert.equal(
+  isLikelyEmbeddedVideoPageUrl('https://player.bilibili.com/player.html?bvid=BV1TEST123'),
+  true,
+)
+assert.equal(
+  isLikelyEmbeddedVideoPageUrl('https://player.bilibili.com/not-a-player.html?bvid=BV1TEST123'),
+  false,
+  'Bilibili 白名单必须限定到官方播放器路径，不能放行整个 player 子域',
+)
+assert.match(
+  trustedEmbeddedVideoFrameHtml(bilibiliArticle.contentHtml, bilibiliArticle.title) ?? '',
+  /data-reader-role="trusted-video-embed"/,
+)
+
+{
+  const originalFetch = globalThis.fetch
+  let fetchCalls = 0
+  try {
+    globalThis.fetch = (async () => {
+      fetchCalls += 1
+      throw new Error('web trusted embed should not fetch the Bilibili article page first')
+    }) as typeof fetch
+
+    const resolved = await resolveArticleBody(bilibiliArticle)
+    assert.equal(resolved.bodySource, 'video')
+    assert.match(
+      resolved.contentHtml,
+      /src="https:\/\/www\.bilibili\.com\/blackboard\/html5mobileplayer\.html\?aid=123&bvid=BV1TEST123"/,
+      'Web 必须直接保留 RSSHub 已提供的 Bilibili 官方播放器',
+    )
+    assert.match(resolved.contentHtml, /data-reader-role="trusted-video-embed"/)
+    assert.doesNotMatch(resolved.contentHtml, /data-media-pending=/)
+    assert.doesNotMatch(resolved.contentHtml, /width="640"|height="360"/)
+    assert.equal(
+      fetchCalls,
+      0,
+      '已有受信 embed 时 Web 不应先请求 /api/page，避免反爬/502 把可用播放器拖死',
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+}
 
 console.log('rss-video-feed: ok')
