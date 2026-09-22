@@ -46,6 +46,9 @@ const { WebMediaSessionAdapter } = await import(
 const { AiTtsProvider, __aiTtsTest } = await import(
   '../src/features/readAloud/providers/aiTts'
 )
+const { shouldShowGlobalReadAloudBar } = await import(
+  '../src/features/readAloud/visibility'
+)
 const { normalizePreferences } = await import(
   '../src/sources/preferences'
 )
@@ -61,6 +64,42 @@ type Snapshot = import('../src/features/readAloud/types').ReadAloudSnapshot
 
 function tick(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+function testGlobalReadAloudVisibility(): void {
+  const base: Snapshot = {
+    state: 'playing',
+    articleId: 'article-a',
+    title: '正在朗读的文章',
+    segmentIndex: 0,
+    segmentCount: 3,
+    characterOffset: 0,
+  }
+
+  assert.equal(
+    shouldShowGlobalReadAloudBar(base, null),
+    true,
+    '离开文章回到信息流后必须保留应用内朗读控制',
+  )
+  assert.equal(
+    shouldShowGlobalReadAloudBar({ ...base, state: 'paused' }, null),
+    true,
+    '暂停状态也必须保留全局控制，用户才能继续或停止',
+  )
+  assert.equal(
+    shouldShowGlobalReadAloudBar(base, 'article-a'),
+    false,
+    '当前阅读器已经展示同一篇文章的完整控制条时不能重复显示',
+  )
+  assert.equal(
+    shouldShowGlobalReadAloudBar({ ...base, state: 'ended' }, null),
+    false,
+    '自然结束后不应残留无意义的全局控制条',
+  )
+  assert.equal(
+    shouldShowGlobalReadAloudBar({ ...base, state: 'idle' }, null),
+    false,
+  )
 }
 
 function testPrefsAndSegmentation(): void {
@@ -813,6 +852,11 @@ function testProviderSelectionAndAndroidContract(): void {
     'utf8',
   )
   assert.match(app, /name: 'read-aloud'/)
+  assert.match(
+    app,
+    /GlobalReadAloudBar/,
+    'App 根层必须订阅全局朗读会话，离开 Reader 后仍能暂停/继续/切段/停止',
+  )
   assert.match(app, /readAloudPrefs=\{prefs\.readAloud\}/)
   assert.match(reader, /useReadAloud/)
   assert.match(reader, /ReadAloudBar/)
@@ -823,6 +867,7 @@ function testProviderSelectionAndAndroidContract(): void {
   assert.doesNotMatch(settings, /window\.(alert|confirm|prompt)/)
 }
 
+testGlobalReadAloudVisibility()
 testPrefsAndSegmentation()
 await testServiceStateMachine()
 await testEmptyDocumentStopsPrevious()

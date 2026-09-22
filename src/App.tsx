@@ -112,6 +112,7 @@ import {
 } from './features/translation/config'
 import { resolveAiFeatureConfig } from './features/translation/aiConfig'
 import { readAloudEngineLabel } from './features/readAloud/config'
+import { GlobalReadAloudBar } from './features/readAloud/ReadAloudBar'
 import { updateActiveReadAloudPreferences } from './features/readAloud/service'
 import { FAVORITES_CATEGORY_ID, RECOMMEND_CATEGORY_ID, type CategoryId } from './sources/categories'
 import { applySnapshotToPrefs } from './sources/presets'
@@ -1725,6 +1726,10 @@ export default function App() {
           ) : (
             <>
               {renderTab()}
+
+              <GlobalReadAloudBar
+                currentReaderArticleId={reading?.id ?? null}
+              />
 
               {!focusSource && (
                 <TabBar

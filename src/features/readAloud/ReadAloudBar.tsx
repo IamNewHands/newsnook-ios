@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react'
 import {
   LoaderCircle,
   Pause,
@@ -8,7 +9,44 @@ import {
   Volume2,
 } from 'lucide-react'
 
+import { getReadAloudService } from './service'
 import type { ReadAloudSnapshot } from './types'
+import { shouldShowGlobalReadAloudBar } from './visibility'
+
+interface GlobalProps {
+  currentReaderArticleId: string | null
+}
+
+/**
+ * Reader 关闭后仍订阅同一个 ReadAloudService。
+ * 这是应用级控制面，不创建第二套播放状态，也不会接管 Provider 生命周期。
+ */
+export function GlobalReadAloudBar({ currentReaderArticleId }: GlobalProps) {
+  const service = useMemo(() => getReadAloudService(), [])
+  const [snapshot, setSnapshot] = useState<ReadAloudSnapshot>(() =>
+    service.getSnapshot(),
+  )
+
+  useEffect(() => service.subscribe(setSnapshot), [service])
+
+  const visible = shouldShowGlobalReadAloudBar(
+    snapshot,
+    currentReaderArticleId,
+  )
+
+  return (
+    <ReadAloudBar
+      snapshot={snapshot}
+      activeForArticle={visible}
+      onStart={() => {}}
+      onPause={() => void service.pause()}
+      onResume={() => void service.resume()}
+      onPrevious={() => void service.previous()}
+      onNext={() => void service.next()}
+      onStop={() => void service.stop()}
+    />
+  )
+}
 
 interface Props {
   snapshot: ReadAloudSnapshot
