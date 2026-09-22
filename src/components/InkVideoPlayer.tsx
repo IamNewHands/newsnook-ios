@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject, PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type Hls from 'hls.js'
@@ -49,6 +49,7 @@ import {
 } from '../lib/videoGestures'
 import { Capacitor } from '@capacitor/core'
 import {
+  collectPlaybackOrigins,
   nativeStreamProxyUrl,
   prepareNativeMediaPlayback,
 } from '../features/mediaSniffer/native'
@@ -76,6 +77,14 @@ import {
   type RotationMode,
   type VideoViewState,
 } from './inkVideoPlayer/playback'
+import {
+  liveResourceChoices,
+  playbackCheckpoint,
+  playbackHeadersKey,
+  playbackIdentity,
+  type PlaybackCheckpoint,
+} from './inkVideoPlayer/lifecycle'
+import { log } from '../lib/logger'
 import { CastOverlay } from './inkVideoPlayer/CastOverlay'
 import { GestureHudOverlay } from './inkVideoPlayer/GestureHudOverlay'
 import {
@@ -200,10 +209,12 @@ export function InkVideoPlayer({
     }]
   }, [extraUrls, format, requestHeaders, resources, sourcePage, src])
 
+  // Live sniffing refreshes the resource list while the chosen video is playing.
+  // Reset the user's selection only when the source itself changes.
   useEffect(() => {
     setSelectedResource(null)
     setMediaPage(null)
-  }, [src, resources])
+  }, [src])
 
   useEffect(() => {
     if (!deferLoad) setAllowed(true)
@@ -239,18 +250,19 @@ export function InkVideoPlayer({
     ...(active?.relatedUrls ?? []),
     ...(extraUrls ?? []),
   ]))
-  const playerKey = `${active?.id || active?.type || format || 'media'}:${active?.url || src}`
+  const activeFormat = playableFormatForUrl(active?.url || src, active?.type || format)
+  const playerKey = playbackIdentity(active?.url || src, activeFormat)
   const player = (
     <InkVideoPlayerReady
       key={playerKey}
       src={active?.url || src}
       poster={poster}
       title={title}
-      format={active?.type || format}
+      format={activeFormat}
       sourcePage={active?.pageUrl || sourcePage}
       requestHeaders={active?.requestHeaders || requestHeaders}
       extraUrls={activeExtraUrls.length ? activeExtraUrls : undefined}
-      resources={resourceOptions}
+      resources={liveResourceChoices(resourceOptions, active)}
       onSelectResource={setSelectedResource}
       onRefreshSource={onRefreshSource}
       onPlaybackError={onPlaybackError}
@@ -262,6 +274,9 @@ export function InkVideoPlayer({
 
   if (!mediaPageHost) return player
 
+  const mediaPageResources = mediaPage
+    ? liveResourceChoices(resources?.length ? resources : mediaPage.resources, mediaPage.active)
+    : []
   const mediaPageExtraUrls = mediaPage
     ? Array.from(new Set([
         ...(mediaPage.active.relatedUrls ?? []),
@@ -281,7 +296,7 @@ export function InkVideoPlayer({
       {mediaPage && typeof document !== 'undefined' && createPortal(
         <MediaResourceScreen
           title={title}
-          resources={mediaPage.resources}
+          resources={mediaPageResources}
           activeResource={mediaPage.active}
           onClose={() => setMediaPage(null)}
           onSelect={(resource) => {
@@ -290,7 +305,7 @@ export function InkVideoPlayer({
         >
           <InkVideoPlayer
             mediaPageHost={false}
-            key={`${mediaPage.active.id || mediaPage.active.type}:${mediaPage.active.url}`}
+            key={playbackIdentity(mediaPage.active.url, mediaPage.active.type)}
             src={mediaPage.active.url}
             poster={poster}
             title={title}
@@ -298,7 +313,7 @@ export function InkVideoPlayer({
             sourcePage={mediaPage.active.pageUrl || sourcePage}
             requestHeaders={mediaPage.active.requestHeaders || requestHeaders}
             extraUrls={mediaPageExtraUrls}
-            resources={mediaPage.resources}
+            resources={mediaPageResources}
             onRefreshSource={onRefreshSource}
             onPlaybackError={onPlaybackError}
             fullscreenHandleRef={innerFullscreenRef}
@@ -403,6 +418,18 @@ function InkVideoPlayerReady({
   const [scrim, setScrim] = useState(0)
   const immersive = fullscreen || fallbackFullscreen
   const resourceOptions = resources?.length ? resources : []
+
+  // Resource discovery enriches the picker/origin permissions, not the active engine.
+  // Actual authentication changes reconnect while preserving the same media's position.
+  const playbackContextKey = playbackHeadersKey(requestHeaders)
+  const playbackContext = useMemo(() => ({
+    headers: Object.fromEntries(JSON.parse(playbackContextKey) as Array<[string, string]>),
+  }), [playbackContextKey])
+  const extraOriginsKey = JSON.stringify(collectPlaybackOrigins({ url: src, sourcePage, extraUrls }).sort())
+  const currentPlaybackOrigins = useEffectEvent(() => JSON.parse(extraOriginsKey) as string[])
+  const refreshNativeOriginsRef = useRef<(() => void) | null>(null)
+  const reloadCheckpointRef = useRef<PlaybackCheckpoint | null>(null)
+  const reportPlaybackError = useEffectEvent(() => onPlaybackError?.())
 
   const brightnessControl = useMemo(() => createBrightnessControl(setScrim), [])
   const volumeControl = useMemo(
@@ -541,13 +568,21 @@ function InkVideoPlayerReady({
     const url = src
     const isHls = format === 'hls' || /\.m3u8(\?|$)/i.test(url)
     const isDash = format === 'dash' || /\.mpd(\?|$)/i.test(url)
+    const { headers } = playbackContext
     let cancelled = false
+    let pendingResume = reloadCheckpointRef.current
+    reloadCheckpointRef.current = null
+    let intendedPlaying = pendingResume ? !pendingResume.paused : !video.paused
+    let resettingSource = Boolean(pendingResume)
+    let nativePrepared = false
+    let registeredOriginsKey = ''
     let progressiveBridgeAttempted = false
     let progressiveProxyUrl: string | null = null
     let directRetryAttempted = false
     let progressiveRecoveryInFlight = false
+    let recoveryRequestInFlight = false
     let progressiveRecoveryTimer: ReturnType<typeof window.setTimeout> | undefined
-    const effectiveHeaders: Record<string, string> = { ...requestHeaders }
+    const effectiveHeaders: Record<string, string> = { ...headers }
     if (sourcePage && !Object.keys(effectiveHeaders).some((key) => key.toLowerCase() === 'referer')) {
       try {
         if (new URL(url).origin !== new URL(sourcePage).origin) {
@@ -557,10 +592,50 @@ function InkVideoPlayerReady({
         // ignore
       }
     }
+    // Register newly discovered CDN origins without touching video.src or load().
+    const refreshNativeOrigins = () => {
+      if (cancelled || !nativePrepared || !Capacitor.isNativePlatform()) return
+      const origins = currentPlaybackOrigins()
+      const key = JSON.stringify(origins)
+      if (key === registeredOriginsKey) return
+      registeredOriginsKey = key
+      void prepareNativeMediaPlayback({
+        url, sourcePage, format: isDash ? 'dash' : isHls ? 'hls' : 'progressive',
+        headers: effectiveHeaders, origins, forceBridge: progressiveBridgeAttempted,
+      }).catch(() => {
+        if (!cancelled) {
+          registeredOriginsKey = ''
+          log.sniffer.warn('Unable to refresh playback origin permissions')
+        }
+      })
+    }
+    refreshNativeOriginsRef.current = refreshNativeOrigins
+    const restoreCheckpoint = () => {
+      if (!pendingResume || cancelled || recoveryRequestInFlight || video.readyState < 1) return
+      const checkpoint = pendingResume
+      if (checkpoint.position > 0) {
+        const target = Number.isFinite(video.duration) && video.duration > 0
+          ? Math.min(checkpoint.position, Math.max(0, video.duration - 0.05))
+          : checkpoint.position
+        try {
+          video.currentTime = target
+          setCurrent(target)
+        } catch {
+          // Keep the checkpoint for loadeddata/canplay when seeking becomes valid.
+          return
+        }
+      }
+      pendingResume = null
+      if (!checkpoint.paused) {
+        void video.play().catch(() => {
+          if (!cancelled) setHint('点击继续播放')
+        })
+      }
+    }
     const failPlayback = (message: string) => {
       if (cancelled) return
       setFatal(message)
-      onPlaybackError?.()
+      reportPlaybackError()
     }
     const armProgressiveRecovery = () => {
       progressiveRecoveryInFlight = true
@@ -582,8 +657,8 @@ function InkVideoPlayerReady({
     setFatal(null)
     setHint(null)
     setPlaying(false)
-    setCurrent(0)
-    setDuration(0)
+    setCurrent(pendingResume?.position ?? 0)
+    if (!pendingResume) setDuration(0)
     setBuffered(0)
     setControlsVisible(true)
     setWaiting(true)
@@ -603,14 +678,17 @@ function InkVideoPlayerReady({
       settleProgressiveRecovery()
       setWaiting(false)
       setReady(true)
+      if (video.readyState >= 1) resettingSource = false
+      restoreCheckpoint()
     }
     const loadProgressiveSource = () => {
+      resettingSource = true
       video.src = progressiveProxyUrl || url
       video.load()
     }
 
     const onFatalMedia = () => {
-      if (cancelled || progressiveRecoveryInFlight) return
+      if (cancelled || recoveryRequestInFlight || progressiveRecoveryInFlight) return
       if (
         Capacitor.isNativePlatform()
         && !isHls
@@ -619,6 +697,8 @@ function InkVideoPlayerReady({
         && !directRetryAttempted
       ) {
         directRetryAttempted = true
+        recoveryRequestInFlight = true
+        pendingResume ??= playbackCheckpoint(video, intendedPlaying)
         setWaiting(true)
         armProgressiveRecovery()
         void prepareNativeMediaPlayback({
@@ -626,7 +706,7 @@ function InkVideoPlayerReady({
           sourcePage,
           format: 'progressive',
           headers: effectiveHeaders,
-          extraUrls,
+          origins: currentPlaybackOrigins(),
           forceBridge: true,
         }).then(async () => {
           if (cancelled) return
@@ -640,7 +720,7 @@ function InkVideoPlayerReady({
           loadProgressiveSource()
         }).catch(() => {
           if (!cancelled) failPlayback('视频源暂时无法播放')
-        })
+        }).finally(() => { recoveryRequestInFlight = false })
         return
       }
       if (
@@ -650,6 +730,8 @@ function InkVideoPlayerReady({
         && !progressiveBridgeAttempted
       ) {
         progressiveBridgeAttempted = true
+        recoveryRequestInFlight = true
+        pendingResume ??= playbackCheckpoint(video, intendedPlaying)
         setWaiting(true)
         armProgressiveRecovery()
         void prepareNativeMediaPlayback({
@@ -657,7 +739,7 @@ function InkVideoPlayerReady({
           sourcePage,
           format: 'progressive',
           headers: effectiveHeaders,
-          extraUrls,
+          origins: currentPlaybackOrigins(),
           forceBridge: true,
         }).then(async () => {
           if (cancelled) return
@@ -671,22 +753,30 @@ function InkVideoPlayerReady({
           loadProgressiveSource()
         }).catch(() => {
           if (!cancelled) failPlayback('视频源暂时无法播放')
-        })
+        }).finally(() => { recoveryRequestInFlight = false })
         return
       }
       failPlayback('视频源暂时无法播放')
     }
     const onPlay = () => {
+      if (pendingResume && !resettingSource) pendingResume.paused = false
+      intendedPlaying = true
       setPlaying(true)
       setHint(null)
     }
     const onPause = () => {
+      // A pause before the asynchronous source reset is user intent. A pause
+      // caused by load()/an actual media error must not erase the saved intent.
+      if (!resettingSource && !video.error) {
+        intendedPlaying = false
+        if (pendingResume) pendingResume.paused = true
+      }
       setPlaying(false)
       setControlsVisible(true)
       clearHideTimer()
     }
     const onTime = () => {
-      if (!scrubbingRef.current) setCurrent(video.currentTime)
+      if (!scrubbingRef.current) setCurrent(pendingResume?.position ?? video.currentTime)
     }
     const onMeta = () => {
       if (Number.isFinite(video.duration)) setDuration(video.duration)
@@ -696,7 +786,7 @@ function InkVideoPlayerReady({
       markReady()
     }
     const onDuration = () => {
-      if (Number.isFinite(video.duration)) setDuration(video.duration)
+      if (!pendingResume && Number.isFinite(video.duration)) setDuration(video.duration)
     }
     const onProgress = () => {
       if (!video.buffered.length) return
@@ -727,6 +817,7 @@ function InkVideoPlayerReady({
       setWaiting(false)
     }
     const onPlaying = () => {
+      resettingSource = false
       settleProgressiveRecovery()
       setWaiting(false)
       setSeeking(false)
@@ -752,15 +843,19 @@ function InkVideoPlayerReady({
     video.addEventListener('ratechange', onRateChange)
 
     void (async () => {
+      const origins = currentPlaybackOrigins()
+      registeredOriginsKey = JSON.stringify(origins)
       progressiveBridgeAttempted = await prepareNativeMediaPlayback({
         url,
         sourcePage,
         format: isDash ? 'dash' : isHls ? 'hls' : 'progressive',
         headers: effectiveHeaders,
-        extraUrls,
+        origins,
         forceBridge: !isHls && !isDash && needsMediaHotlinkBypass(url),
       })
       if (cancelled) return
+      nativePrepared = true
+      refreshNativeOrigins()
       const requestContext = sourcePage || Object.keys(effectiveHeaders).length > 0
         ? { sourcePage, headers: effectiveHeaders }
         : undefined
@@ -830,7 +925,9 @@ function InkVideoPlayerReady({
     })
 
     return () => {
+      reloadCheckpointRef.current = pendingResume ?? playbackCheckpoint(video, intendedPlaying)
       cancelled = true
+      if (refreshNativeOriginsRef.current === refreshNativeOrigins) refreshNativeOriginsRef.current = null
       settleProgressiveRecovery()
       clearHideTimer()
       video.removeEventListener('loadstart', onLoadStart)
@@ -858,7 +955,9 @@ function InkVideoPlayerReady({
       video.removeAttribute('src')
       video.load()
     }
-  }, [clearHideTimer, extraUrls, format, onPlaybackError, requestHeaders, sourcePage, src, syncBoostIndicator])
+  }, [clearHideTimer, format, playbackContext, sourcePage, src, syncBoostIndicator])
+
+  useEffect(() => { refreshNativeOriginsRef.current?.() }, [extraOriginsKey])
 
   useEffect(() => {
     const onFs = () => {
@@ -1776,7 +1875,7 @@ function InkVideoPlayerReady({
                 >
                   <SkipForward size={18} strokeWidth={2} />
                 </button>
-                
+
                 <button
                   type="button"
                   aria-label="锁定控制"
