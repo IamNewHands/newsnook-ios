@@ -43,6 +43,7 @@ export function readAloudProviderKey({
       provider.endpoint,
       secretFingerprint(provider.apiKey),
       provider.capabilities.tts ? 'tts' : 'no-tts',
+      prefs.ai.protocol,
       prefs.ai.model,
       prefs.ai.voice,
       prefs.ai.format,

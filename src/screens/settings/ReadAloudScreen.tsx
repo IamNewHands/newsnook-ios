@@ -26,6 +26,7 @@ import { getReadAloudService } from '../../features/readAloud/service'
 import type {
   ReadAloudAudioFormat,
   ReadAloudPrefs,
+  ReadAloudTtsProtocol,
   ReadAloudVoice,
 } from '../../features/readAloud/types'
 import type { AiPrefs } from '../../features/translation/types'
@@ -38,22 +39,6 @@ interface Props {
   onOpenAiSettings: () => void
 }
 
-const OPENAI_VOICES = [
-  'marin',
-  'cedar',
-  'coral',
-  'alloy',
-  'ash',
-  'ballad',
-  'echo',
-  'fable',
-  'nova',
-  'onyx',
-  'sage',
-  'shimmer',
-  'verse',
-] as const
-
 const FORMATS: ReadAloudAudioFormat[] = [
   'mp3',
   'opus',
@@ -62,9 +47,12 @@ const FORMATS: ReadAloudAudioFormat[] = [
   'wav',
 ]
 
-const CUSTOM_AI_VOICE = '__newsnook_custom_voice__'
-
-type PickerKind = 'system-voice' | 'provider' | 'ai-voice' | 'format' | null
+type PickerKind =
+  | 'system-voice'
+  | 'provider'
+  | 'protocol'
+  | 'format'
+  | null
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -211,26 +199,24 @@ export function ReadAloudScreen({
     [ttsProviders],
   )
 
-  const aiVoiceOptions = useMemo<OptionPickerItem[]>(() => {
-    const standard: OptionPickerItem[] = OPENAI_VOICES.map((voice) => ({
-      id: voice,
-      label: voice,
-      description: 'OpenAI 标准 Voice',
-    }))
-    if (prefs.ai.voice && !OPENAI_VOICES.includes(prefs.ai.voice as (typeof OPENAI_VOICES)[number])) {
-      standard.unshift({
-        id: prefs.ai.voice,
-        label: prefs.ai.voice,
-        description: '当前自定义 Voice',
-      })
-    }
-    standard.push({
-      id: CUSTOM_AI_VOICE,
-      label: '自定义 Voice…',
-      description: '用于兼容自建或第三方 OpenAI-compatible Provider',
-    })
-    return standard
-  }, [prefs.ai.voice])
+  const protocolOptions = useMemo<OptionPickerItem<ReadAloudTtsProtocol>[]>(
+    () => [
+      {
+        id: 'audio-speech',
+        label: 'Audio Speech',
+        description: '/v1/audio/speech · OpenAI-compatible TTS',
+      },
+      {
+        id: 'chat-completions',
+        label: 'Chat Completions Audio',
+        description: '/v1/chat/completions · MiMo V2.5 等',
+      },
+    ],
+    [],
+  )
+  const selectedProtocol =
+    protocolOptions.find((option) => option.id === prefs.ai.protocol) ??
+    protocolOptions[0]
 
   const formatOptions = useMemo<OptionPickerItem<ReadAloudAudioFormat>[]>(
     () =>
@@ -311,28 +297,38 @@ export function ReadAloudScreen({
 
         <SettingsSection title="播放">
           <div className="page-x space-y-5 border-y border-haze bg-ink py-4">
-            <label className="block">
-              <span className="flex items-center justify-between">
+            {prefs.engine === 'ai' &&
+            prefs.ai.protocol === 'chat-completions' ? (
+              <div className="rounded-xl border border-haze bg-ink-raised/70 px-3.5 py-3">
                 <FieldLabel>语速</FieldLabel>
-                <span className="font-mono text-[11px] text-cinnabar-soft">
-                  {prefs.rate.toFixed(2)}×
+                <p className="font-mono text-[9.5px] leading-relaxed text-paper-faint">
+                  Chat Completions Audio 不发送 speed 参数，语速由模型或 Provider 决定。
+                </p>
+              </div>
+            ) : (
+              <label className="block">
+                <span className="flex items-center justify-between">
+                  <FieldLabel>语速</FieldLabel>
+                  <span className="font-mono text-[11px] text-cinnabar-soft">
+                    {prefs.rate.toFixed(2)}×
+                  </span>
                 </span>
-              </span>
-              <input
-                type="range"
-                min="0.5"
-                max="2.5"
-                step="0.05"
-                value={prefs.rate}
-                onChange={(event) =>
-                  onChange({
-                    ...prefs,
-                    rate: Number(event.target.value),
-                  })
-                }
-                className="w-full accent-[var(--color-cinnabar)]"
-              />
-            </label>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="2.5"
+                  step="0.05"
+                  value={prefs.rate}
+                  onChange={(event) =>
+                    onChange({
+                      ...prefs,
+                      rate: Number(event.target.value),
+                    })
+                  }
+                  className="w-full accent-[var(--color-cinnabar)]"
+                />
+              </label>
+            )}
 
             {prefs.engine !== 'ai' && (
               <label className="block">
@@ -430,23 +426,34 @@ export function ReadAloudScreen({
                   />
 
                   <PickerField
+                    label="TTS 接口协议"
+                    value={selectedProtocol?.label ?? 'Audio Speech'}
+                    caption={selectedProtocol?.description}
+                    onClick={() => setPicker('protocol')}
+                  />
+
+                  <PickerField
                     label="Model"
                     value={prefs.ai.model || '未填写'}
-                    caption="点击输入 OpenAI-compatible TTS 模型名"
+                    caption="点击输入所选 Provider 的 TTS 模型名"
                     onClick={() => setModelPromptOpen(true)}
                   />
 
                   <PickerField
                     label="Voice"
                     value={prefs.ai.voice || '未填写'}
-                    caption="可选标准 Voice，也可输入第三方 Provider 的自定义 Voice"
-                    onClick={() => setPicker('ai-voice')}
+                    caption="由用户按 Provider 文档填写 Voice ID，不提供预设值"
+                    onClick={() => setCustomVoicePromptOpen(true)}
                   />
 
                   <PickerField
                     label="音频格式"
                     value={prefs.ai.format.toUpperCase()}
-                    caption={formatDescription(prefs.ai.format)}
+                    caption={
+                      prefs.ai.protocol === 'chat-completions'
+                        ? 'MiMo V2.5 非流式文档使用 WAV；其它 Provider 请按其文档选择'
+                        : formatDescription(prefs.ai.format)
+                    }
                     onClick={() => setPicker('format')}
                   />
                 </>
@@ -511,22 +518,17 @@ export function ReadAloudScreen({
       />
 
       <OptionPickerDialog
-        open={picker === 'ai-voice'}
-        title="AI Voice"
-        value={prefs.ai.voice}
-        options={aiVoiceOptions}
-        searchPlaceholder="搜索 Voice…"
+        open={picker === 'protocol'}
+        title="TTS 接口协议"
+        value={prefs.ai.protocol}
+        options={protocolOptions}
         onCancel={() => setPicker(null)}
-        onChange={(voice) => {
-          setPicker(null)
-          if (voice === CUSTOM_AI_VOICE) {
-            setCustomVoicePromptOpen(true)
-            return
-          }
+        onChange={(protocol) => {
           onChange({
             ...prefs,
-            ai: { ...prefs.ai, voice },
+            ai: { ...prefs.ai, protocol },
           })
+          setPicker(null)
         }}
       />
 
@@ -550,7 +552,7 @@ export function ReadAloudScreen({
         title="AI TTS Model"
         label="MODEL"
         defaultValue={prefs.ai.model}
-        message="填写所选 Provider 的 OpenAI-compatible TTS 模型名，例如 gpt-4o-mini-tts。"
+        message="填写所选 Provider 文档要求的 TTS 模型名。"
         onCancel={() => setModelPromptOpen(false)}
         onConfirm={(model) => {
           onChange({ ...prefs, ai: { ...prefs.ai, model } })
@@ -560,10 +562,10 @@ export function ReadAloudScreen({
 
       <PromptDialog
         open={customVoicePromptOpen}
-        title="自定义 AI Voice"
+        title="AI TTS Voice"
         label="VOICE"
         defaultValue={prefs.ai.voice}
-        message="用于支持自建或第三方 OpenAI-compatible TTS Provider 的 Voice 标识。"
+        message="填写所选 Provider 文档要求的 Voice ID。NewsNook 不预设任何 Voice 名称。"
         onCancel={() => setCustomVoicePromptOpen(false)}
         onConfirm={(voice) => {
           onChange({ ...prefs, ai: { ...prefs.ai, voice } })

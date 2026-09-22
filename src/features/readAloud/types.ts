@@ -20,6 +20,10 @@ export type ReadAloudSegmentKind =
 
 export type ReadAloudAudioFormat = 'mp3' | 'opus' | 'wav' | 'aac' | 'flac'
 
+export type ReadAloudTtsProtocol =
+  | 'audio-speech'
+  | 'chat-completions'
+
 export interface ReadAloudSegment {
   id: string
   index: number
@@ -111,7 +115,10 @@ export interface ReadAloudProvider {
 
 export interface ReadAloudAiSelection {
   providerId: string
+  /** 显式选择 TTS API 协议，绝不根据 endpoint 猜测。 */
+  protocol: ReadAloudTtsProtocol
   model: string
+  /** 不提供任何预设 Voice；由用户按 Provider 文档填写。 */
   voice: string
   format: ReadAloudAudioFormat
 }

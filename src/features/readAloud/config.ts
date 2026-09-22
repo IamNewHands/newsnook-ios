@@ -1,5 +1,9 @@
 import { DEFAULT_AI_PROVIDER_ID } from '../translation/aiConfig'
-import type { ReadAloudAudioFormat, ReadAloudPrefs } from './types'
+import type {
+  ReadAloudAudioFormat,
+  ReadAloudPrefs,
+  ReadAloudTtsProtocol,
+} from './types'
 
 export const DEFAULT_READ_ALOUD_PREFS: ReadAloudPrefs = {
   engine: 'auto',
@@ -9,8 +13,9 @@ export const DEFAULT_READ_ALOUD_PREFS: ReadAloudPrefs = {
   autoContinue: true,
   ai: {
     providerId: DEFAULT_AI_PROVIDER_ID,
+    protocol: 'audio-speech',
     model: 'gpt-4o-mini-tts',
-    voice: 'coral',
+    voice: '',
     format: 'mp3',
   },
 }
@@ -21,6 +26,11 @@ const AUDIO_FORMATS = new Set<ReadAloudAudioFormat>([
   'wav',
   'aac',
   'flac',
+])
+
+const TTS_PROTOCOLS = new Set<ReadAloudTtsProtocol>([
+  'audio-speech',
+  'chat-completions',
 ])
 
 function text(value: unknown): string {
@@ -35,6 +45,10 @@ function number(value: unknown, fallback: number, min: number, max: number): num
 export function normalizeReadAloudPrefs(value: unknown): ReadAloudPrefs {
   const input = (value ?? {}) as Partial<ReadAloudPrefs>
   const ai = (input.ai ?? {}) as Partial<ReadAloudPrefs['ai']>
+  const isLegacyAiConfig = !TTS_PROTOCOLS.has(
+    ai.protocol as ReadAloudTtsProtocol,
+  )
+  const normalizedVoice = text(ai.voice)
   return {
     engine:
       input.engine === 'system' || input.engine === 'ai' || input.engine === 'auto'
@@ -49,8 +63,15 @@ export function normalizeReadAloudPrefs(value: unknown): ReadAloudPrefs {
         : DEFAULT_READ_ALOUD_PREFS.autoContinue,
     ai: {
       providerId: text(ai.providerId) || DEFAULT_READ_ALOUD_PREFS.ai.providerId,
+      protocol: TTS_PROTOCOLS.has(ai.protocol as ReadAloudTtsProtocol)
+        ? (ai.protocol as ReadAloudTtsProtocol)
+        : DEFAULT_READ_ALOUD_PREFS.ai.protocol,
       model: text(ai.model) || DEFAULT_READ_ALOUD_PREFS.ai.model,
-      voice: text(ai.voice) || DEFAULT_READ_ALOUD_PREFS.ai.voice,
+      // 旧版本曾把 coral 作为应用默认值写入偏好；升级时移除这个非用户选择的预设。
+      voice:
+        isLegacyAiConfig && normalizedVoice === 'coral'
+          ? ''
+          : normalizedVoice,
       format: AUDIO_FORMATS.has(ai.format as ReadAloudAudioFormat)
         ? (ai.format as ReadAloudAudioFormat)
         : DEFAULT_READ_ALOUD_PREFS.ai.format,

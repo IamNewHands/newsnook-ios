@@ -18,9 +18,9 @@ import type {
   ReadAloudVoice,
 } from '../types'
 
-const CAPABILITIES: ReadAloudProviderCapabilities = {
+const BASE_CAPABILITIES: ReadAloudProviderCapabilities = {
   voices: false,
-  rate: true,
+  rate: false,
   pitch: false,
   pauseResume: true,
   rangeProgress: false,
@@ -44,7 +44,14 @@ function abortError(): DOMException {
   return new DOMException('朗读已取消', 'AbortError')
 }
 
-function assertConfig(
+interface SpeechRequest {
+  url: URL
+  headers: Record<string, string>
+  body: Record<string, unknown>
+  responseKind: 'binary' | 'chat-json'
+}
+
+function buildEndpoint(
   provider: AiProviderConfig,
   selection: ReadAloudAiSelection,
 ): URL {
@@ -53,8 +60,8 @@ function assertConfig(
   }
   if (!provider.endpoint.trim()) throw new Error('AI TTS Provider 未填写 Base URL')
   if (!provider.apiKey.trim()) throw new Error('AI TTS Provider 未填写 API Key')
-  if (!selection.model.trim()) throw new Error('AI TTS 未选择模型')
-  if (!selection.voice.trim()) throw new Error('AI TTS 未选择声音')
+  if (!selection.model.trim()) throw new Error('AI TTS 未填写 Model')
+  if (!selection.voice.trim()) throw new Error('请填写 AI TTS Voice')
 
   const normalizedBase = normalizeOpenAiBaseUrl(provider.endpoint.trim())
   let base: URL
@@ -66,14 +73,103 @@ function assertConfig(
   if (base.protocol !== 'https:') {
     throw new Error('为保护 API Key，AI TTS Base URL 必须使用 HTTPS')
   }
+
   let path = base.pathname.replace(/\/+$/, '')
-  if (/\/audio\/speech$/i.test(path)) {
-    path = path.replace(/\/audio\/speech$/i, '')
-  }
-  base.pathname = `${path || ''}/audio/speech`.replace(/\/{2,}/g, '/')
+  path = path.replace(/\/audio\/speech$/i, '')
+  path = path.replace(/\/chat\/completions$/i, '')
+  const suffix =
+    selection.protocol === 'chat-completions'
+      ? '/chat/completions'
+      : '/audio/speech'
+  base.pathname = `${path || ''}${suffix}`.replace(/\/{2,}/g, '/')
   base.search = ''
   base.hash = ''
   return base
+}
+
+function buildSpeechRequest(
+  provider: AiProviderConfig,
+  selection: ReadAloudAiSelection,
+  text: string,
+  rate: number,
+): SpeechRequest {
+  const url = buildEndpoint(provider, selection)
+  const apiKey = provider.apiKey.trim()
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+  }
+
+  if (selection.protocol === 'chat-completions') {
+    // MiMo 官方 curl 使用 api-key；同时保留 Bearer 兼容 OpenAI-compatible 网关。
+    headers['api-key'] = apiKey
+    headers.Accept = 'application/json'
+    return {
+      url,
+      headers,
+      responseKind: 'chat-json',
+      body: {
+        model: selection.model.trim(),
+        messages: [{ role: 'assistant', content: text }],
+        audio: {
+          format: selection.format,
+          voice: selection.voice.trim(),
+        },
+        stream: false,
+      },
+    }
+  }
+
+  headers.Accept = mimeFor(selection.format)
+  return {
+    url,
+    headers,
+    responseKind: 'binary',
+    body: {
+      model: selection.model.trim(),
+      voice: selection.voice.trim(),
+      input: text,
+      response_format: selection.format,
+      speed: Math.min(4, Math.max(0.25, rate)),
+    },
+  }
+}
+
+function coerceJsonData(data: unknown): unknown {
+  if (typeof data !== 'string') return data
+  const trimmed = data.trim()
+  if (!trimmed || trimmed[0] !== '{') return data
+  try {
+    return JSON.parse(trimmed) as unknown
+  } catch {
+    return data
+  }
+}
+
+function extractChatAudioBase64(data: unknown): string {
+  const payload = coerceJsonData(data) as {
+    choices?: Array<{
+      message?: {
+        audio?: {
+          data?: unknown
+        }
+      }
+    }>
+  } | null
+  const value = payload?.choices?.[0]?.message?.audio?.data
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error('AI TTS 响应缺少 choices[0].message.audio.data')
+  }
+  return value.trim()
+}
+
+function responseDetailFromData(data: unknown): string {
+  const payload = coerceJsonData(data) as {
+    error?: { message?: unknown }
+    message?: unknown
+  } | null
+  const detail = payload?.error?.message ?? payload?.message
+  return typeof detail === 'string' ? detail.trim() : ''
 }
 
 function decodeBase64(base64: string): ArrayBuffer {
@@ -116,29 +212,22 @@ async function fetchSpeechPayload(
   rate: number,
   signal?: AbortSignal,
 ): Promise<SpeechPayload> {
-  const url = assertConfig(provider, selection)
+  const requestConfig = buildSpeechRequest(
+    provider,
+    selection,
+    text,
+    rate,
+  )
   if (signal?.aborted) throw abortError()
-
-  const body = {
-    model: selection.model.trim(),
-    voice: selection.voice.trim(),
-    input: text,
-    response_format: selection.format,
-    speed: Math.min(4, Math.max(0.25, rate)),
-  }
-  const headers = {
-    Authorization: `Bearer ${provider.apiKey.trim()}`,
-    Accept: mimeFor(selection.format),
-    'Content-Type': 'application/json',
-  }
 
   if (Capacitor.isNativePlatform()) {
     let timer: ReturnType<typeof setTimeout> | null = null
     const request = CapacitorHttp.post({
-      url: url.toString(),
-      headers,
-      data: body,
-      responseType: 'blob',
+      url: requestConfig.url.toString(),
+      headers: requestConfig.headers,
+      data: requestConfig.body,
+      responseType:
+        requestConfig.responseKind === 'chat-json' ? 'json' : 'blob',
       connectTimeout: CONNECT_TIMEOUT_MS,
       readTimeout: READ_TIMEOUT_MS,
     })
@@ -170,8 +259,24 @@ async function fetchSpeechPayload(
     )
 
     if (response.status < 200 || response.status >= 300) {
-      throw new Error(`AI TTS 请求失败（HTTP ${response.status}）`)
+      const detail = responseDetailFromData(response.data)
+      throw new Error(
+        detail
+          ? `AI TTS：${detail}`
+          : `AI TTS 请求失败（HTTP ${response.status}）`,
+      )
     }
+
+    if (requestConfig.responseKind === 'chat-json') {
+      const raw = extractChatAudioBase64(response.data)
+      const mimeType = mimeFor(selection.format).split(';')[0]
+      return {
+        blob: new Blob([decodeBase64(raw)], { type: mimeType }),
+        mimeType,
+        nativeBase64: raw,
+      }
+    }
+
     const raw = typeof response.data === 'string' ? response.data : ''
     if (!raw) throw new Error('AI TTS 返回了空音频')
     const contentType =
@@ -196,10 +301,10 @@ async function fetchSpeechPayload(
   }, READ_TIMEOUT_MS)
 
   try {
-    const response = await fetch(url, {
+    const response = await fetch(requestConfig.url, {
       method: 'POST',
-      headers,
-      body: JSON.stringify(body),
+      headers: requestConfig.headers,
+      body: JSON.stringify(requestConfig.body),
       signal: controller.signal,
     })
     if (!response.ok) {
@@ -210,6 +315,15 @@ async function fetchSpeechPayload(
           : `AI TTS 请求失败（HTTP ${response.status}）`,
       )
     }
+    if (requestConfig.responseKind === 'chat-json') {
+      const raw = extractChatAudioBase64(await response.json())
+      const mimeType = mimeFor(selection.format).split(';')[0]
+      return {
+        blob: new Blob([decodeBase64(raw)], { type: mimeType }),
+        mimeType,
+      }
+    }
+
     const blob = await response.blob()
     if (!blob.size) throw new Error('AI TTS 返回了空音频')
     return {
@@ -244,6 +358,7 @@ function speechCacheKey(
   rate: number,
 ): string {
   return [
+    selection.protocol,
     selection.model.trim(),
     selection.voice.trim(),
     selection.format,
@@ -254,7 +369,7 @@ function speechCacheKey(
 
 export class AiTtsProvider implements ReadAloudProvider {
   readonly id = 'ai' as const
-  readonly capabilities = CAPABILITIES
+  readonly capabilities: ReadAloudProviderCapabilities
 
   private audio: HTMLAudioElement | null = null
   private objectUrl: string | null = null
@@ -270,6 +385,10 @@ export class AiTtsProvider implements ReadAloudProvider {
   ) {
     this.provider = provider
     this.selection = selection
+    this.capabilities = {
+      ...BASE_CAPABILITIES,
+      rate: selection.protocol === 'audio-speech',
+    }
   }
 
   async isAvailable(): Promise<boolean> {

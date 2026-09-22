@@ -130,9 +130,47 @@ function testPrefsAndSegmentation(): void {
     '旧版 PCM 配置必须迁移到 Android/Web 都可直接播放的默认格式',
   )
 
+  const migratedLegacyVoice = normalizeReadAloudPrefs({
+    ai: {
+      providerId: 'openai',
+      model: 'gpt-4o-mini-tts',
+      voice: 'coral',
+      format: 'mp3',
+    },
+  })
+  assert.equal(
+    migratedLegacyVoice.ai.voice,
+    '',
+    '旧版自动写入的 coral 必须迁移为空，避免升级后继续显示应用预设 Voice',
+  )
+  const preservedManualVoice = normalizeReadAloudPrefs({
+    ai: {
+      providerId: 'openai',
+      protocol: 'audio-speech',
+      model: 'gpt-4o-mini-tts',
+      voice: 'coral',
+      format: 'mp3',
+    },
+  })
+  assert.equal(
+    preservedManualVoice.ai.voice,
+    'coral',
+    '新协议版本中用户显式填写的 Voice 必须保留',
+  )
+
   const migrated = normalizePreferences({})
   assert.equal(migrated.readAloud.engine, 'auto')
   assert.equal(migrated.readAloud.ai.model, 'gpt-4o-mini-tts')
+  assert.equal(
+    migrated.readAloud.ai.voice,
+    '',
+    'AI Voice 不得预设任何厂商 Voice 名称，必须由用户填写',
+  )
+  assert.equal(
+    migrated.readAloud.ai.protocol,
+    'audio-speech',
+    '旧配置缺少协议字段时保持现有 /audio/speech 行为',
+  )
   assert.equal(
     migrated.translation.ai.providers[0]?.capabilities.tts,
     true,
@@ -371,8 +409,9 @@ async function testProviderSwitch(): Promise<void> {
       engine: 'ai',
       ai: {
         providerId: 'openai',
+        protocol: 'audio-speech',
         model: 'gpt-4o-mini-tts',
-        voice: 'coral',
+        voice: 'manual-voice',
         format: 'mp3',
       },
     }),
@@ -591,6 +630,7 @@ async function testAiTts(): Promise<void> {
   const originalRevokeObjectURL = URL.revokeObjectURL
 
   let requestBody: any = null
+  let requestHeaders: Record<string, string> = {}
   let requestUrl = ''
   let requestCount = 0
   let revoked = ''
@@ -599,6 +639,9 @@ async function testAiTts(): Promise<void> {
   globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
     requestCount += 1
     requestUrl = String(input)
+    requestHeaders = Object.fromEntries(
+      Object.entries((init?.headers ?? {}) as Record<string, string>),
+    )
     requestBody = JSON.parse(String(init?.body ?? '{}'))
     return new Response(new Blob(['audio'], { type: 'audio/mpeg' }), {
       status: 200,
@@ -645,8 +688,9 @@ async function testAiTts(): Promise<void> {
   }
   const provider = new AiTtsProvider(providerConfig, {
     providerId: 'openai',
+    protocol: 'audio-speech',
     model: 'gpt-4o-mini-tts',
-    voice: 'coral',
+    voice: 'manual-voice',
     format: 'mp3',
   })
   const handle = await provider.speak(
@@ -660,7 +704,7 @@ async function testAiTts(): Promise<void> {
     {},
   )
   assert.equal(requestBody.model, 'gpt-4o-mini-tts')
-  assert.equal(requestBody.voice, 'coral')
+  assert.equal(requestBody.voice, 'manual-voice')
   assert.equal(requestBody.speed, 1.2)
   assert.equal(requestBody.response_format, 'mp3')
   assert.equal(
@@ -675,8 +719,9 @@ async function testAiTts(): Promise<void> {
     { ...providerConfig, endpoint: 'https://api.openai.com/v1/audio/speech' },
     {
       providerId: 'openai',
+      protocol: 'audio-speech',
       model: 'gpt-4o-mini-tts',
-      voice: 'coral',
+      voice: 'manual-voice',
       format: 'mp3',
     },
     'normalized endpoint',
@@ -686,6 +731,89 @@ async function testAiTts(): Promise<void> {
     requestUrl,
     'https://api.openai.com/v1/audio/speech',
     '已填写 /audio/speech 时不能重复追加路径',
+  )
+
+  const chatAudio = Buffer.from('chat-completions-audio').toString('base64')
+  globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    requestCount += 1
+    requestUrl = String(input)
+    requestHeaders = Object.fromEntries(
+      Object.entries((init?.headers ?? {}) as Record<string, string>),
+    )
+    requestBody = JSON.parse(String(init?.body ?? '{}'))
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              audio: { data: chatAudio },
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      },
+    )
+  }) as typeof fetch
+
+  const chatBlob = await __aiTtsTest.fetchSpeechBlob(
+    {
+      ...providerConfig,
+      endpoint: 'https://api.xiaomimimo.com/v1/chat/completions',
+    },
+    {
+      providerId: 'openai',
+      protocol: 'chat-completions',
+      model: 'mimo-v2.5-tts',
+      voice: 'voice-entered-by-user',
+      format: 'wav',
+    },
+    '这是需要合成的正文',
+    1.75,
+  )
+  assert.equal(
+    requestUrl,
+    'https://api.xiaomimimo.com/v1/chat/completions',
+    'Chat Completions TTS 必须显式走 /v1/chat/completions',
+  )
+  assert.deepEqual(requestBody.messages, [
+    { role: 'assistant', content: '这是需要合成的正文' },
+  ])
+  assert.deepEqual(requestBody.audio, {
+    format: 'wav',
+    voice: 'voice-entered-by-user',
+  })
+  assert.equal(requestBody.model, 'mimo-v2.5-tts')
+  assert.equal(requestBody.stream, false)
+  assert.equal('input' in requestBody, false)
+  assert.equal('response_format' in requestBody, false)
+  assert.equal('speed' in requestBody, false)
+  assert.equal(requestHeaders.Authorization, 'Bearer test-key')
+  assert.equal(
+    requestHeaders['api-key'],
+    'test-key',
+    'MiMo 文档使用 api-key；Chat Completions TTS 需兼容该认证头',
+  )
+  assert.equal(await chatBlob.text(), 'chat-completions-audio')
+  assert.equal(chatBlob.type, 'audio/wav')
+
+  await assert.rejects(
+    () =>
+      __aiTtsTest.fetchSpeechBlob(
+        providerConfig,
+        {
+          providerId: 'openai',
+          protocol: 'chat-completions',
+          model: 'mimo-v2.5-tts',
+          voice: '',
+          format: 'wav',
+        },
+        'hello',
+        1,
+      ),
+    /填写.*Voice|填写.*声音/,
   )
 
   requestCount = 0
@@ -726,6 +854,7 @@ async function testAiTts(): Promise<void> {
         providerConfig,
         {
           providerId: 'openai',
+          protocol: 'audio-speech',
           model: 'gpt-4o-mini-tts',
           voice: 'bad',
           format: 'mp3',
@@ -744,8 +873,9 @@ async function testAiTts(): Promise<void> {
         providerConfig,
         {
           providerId: 'openai',
+          protocol: 'audio-speech',
           model: 'gpt-4o-mini-tts',
-          voice: 'coral',
+          voice: 'manual-voice',
           format: 'mp3',
         },
         'hello',
@@ -761,8 +891,9 @@ async function testAiTts(): Promise<void> {
         { ...providerConfig, capabilities: { tts: false } },
         {
           providerId: 'openai',
+          protocol: 'audio-speech',
           model: 'gpt-4o-mini-tts',
-          voice: 'coral',
+          voice: 'manual-voice',
           format: 'mp3',
         },
         'hello',
@@ -788,6 +919,38 @@ function testProviderSelectionAndAndroidContract(): void {
       ai: DEFAULT_TRANSLATION_PREFS.ai,
     }),
     /web-speech|android-system/,
+  )
+
+  const audioProtocolKey = readAloudProviderKey({
+    prefs: normalizeReadAloudPrefs({
+      engine: 'ai',
+      ai: {
+        providerId: 'openai',
+        protocol: 'audio-speech',
+        model: 'model',
+        voice: 'voice',
+        format: 'mp3',
+      },
+    }),
+    ai: DEFAULT_TRANSLATION_PREFS.ai,
+  })
+  const chatProtocolKey = readAloudProviderKey({
+    prefs: normalizeReadAloudPrefs({
+      engine: 'ai',
+      ai: {
+        providerId: 'openai',
+        protocol: 'chat-completions',
+        model: 'model',
+        voice: 'voice',
+        format: 'mp3',
+      },
+    }),
+    ai: DEFAULT_TRANSLATION_PREFS.ai,
+  })
+  assert.notEqual(
+    audioProtocolKey,
+    chatProtocolKey,
+    '切换 TTS API 协议必须重建 Provider，不能复用旧协议实例/预取缓存',
   )
 
   const manifest = fs.readFileSync(
@@ -863,6 +1026,9 @@ function testProviderSelectionAndAndroidContract(): void {
   assert.match(me, /title="朗读"/)
   assert.match(settings, /OptionPickerDialog/)
   assert.match(settings, /PromptDialog/)
+  assert.match(settings, /TTS 接口协议/)
+  assert.match(settings, /chat-completions/)
+  assert.doesNotMatch(settings, /OPENAI_VOICES|OpenAI 标准 Voice|CUSTOM_AI_VOICE/)
   assert.doesNotMatch(settings, /<select|<datalist/)
   assert.doesNotMatch(settings, /window\.(alert|confirm|prompt)/)
 }
