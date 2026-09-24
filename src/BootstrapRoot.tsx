@@ -11,7 +11,6 @@ import {
 import { initCompositorWakeListener } from './lib/compositorWake'
 import { ANDROID_APP_DOWNLOAD_URL, shouldShowWebAppDownloadBanner } from './lib/appDownload'
 import { applyNativeChrome } from './lib/nativeChrome'
-import { shouldUseStartupSplash } from './lib/nativePlatform'
 import { bootMark, bootMeasure } from './lib/startupPerf'
 import {
   hasSeenStartupSplash,
@@ -22,10 +21,7 @@ import {
 import { applyTheme, applyThemeScheme, themeSurface } from './lib/theme'
 import { normalizePreferences } from './sources/preferences'
 
-const SPLASH_ENABLED = shouldUseStartupSplash(
-  Capacitor.getPlatform(),
-  import.meta.env.DEV,
-)
+const SPLASH_ENABLED = Capacitor.getPlatform() === 'android' || import.meta.env.DEV
 /** 启动页淡出时长，与 StartupSplash.css 的 --splash-exit 保持一致 */
 const SPLASH_EXIT_MS = 320
 

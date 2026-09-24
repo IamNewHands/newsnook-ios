@@ -53,6 +53,10 @@ export interface LinuxDoTopicSummary {
   unseen?: boolean
   unread?: number
   newPosts?: number
+  lastReadPostNumber?: number | null
+  highestPostNumber?: number
+  notificationLevel?: number
+  isSeen?: boolean
   pinned?: boolean
   closed?: boolean
   archived?: boolean
@@ -94,6 +98,8 @@ export interface LinuxDoPost {
   avatarTemplate?: string
   createdAt: string
   updatedAt?: string
+  /** Discourse per-post timing state for the current account. */
+  read?: boolean
   cooked: string
   raw?: string
   replyToPostNumber?: number
@@ -128,6 +134,8 @@ export interface LinuxDoTopic {
   likeCount: number
   createdAt: string
   lastPostedAt: string
+  lastReadPostNumber?: number | null
+  highestPostNumber?: number
   postStream: { stream: number[]; posts: LinuxDoPost[] }
   lastPosterUsername?: string
   details?: {
@@ -156,23 +164,38 @@ export type LinuxDoErrorKind =
   | 'auth-required'
   | 'forbidden'
   | 'browser-verification'
+  | 'csrf'
   | 'rate-limited'
   | 'not-found'
   | 'validation'
   | 'server'
   | 'unknown'
 
+export interface LinuxDoRequestDiagnostics {
+  stage: 'csrf' | 'request' | 'session'
+  method: string
+  path: string
+  status?: number
+  transport?: 'native' | 'browser' | 'browser-firstparty' | 'web' | 'unknown'
+  responsePath?: string
+  contentType?: string
+  cfMitigated?: string
+  cfRay?: string
+}
+
 export class LinuxDoApiError extends Error {
+  readonly diagnostics?: LinuxDoRequestDiagnostics
   readonly kind: LinuxDoErrorKind
   readonly status?: number
   readonly retryAfterSeconds?: number
 
-  constructor(kind: LinuxDoErrorKind, message: string, status?: number, retryAfterSeconds?: number) {
+  constructor(kind: LinuxDoErrorKind, message: string, status?: number, retryAfterSeconds?: number, diagnostics?: LinuxDoRequestDiagnostics) {
     super(message)
     this.name = 'LinuxDoApiError'
     this.kind = kind
     this.status = status
     this.retryAfterSeconds = retryAfterSeconds
+    this.diagnostics = diagnostics
   }
 }
 

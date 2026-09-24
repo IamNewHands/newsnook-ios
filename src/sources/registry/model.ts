@@ -28,6 +28,8 @@ export type SourceKind =
   | 'uisdc'
   | 'thepaper'
   | 'infzm'
+  | 'zaobao'
+  | 'bbc-chinese'
   | 'claude-webflow'
   | 'claude-academy'
   | 'openai-cookbook'
@@ -63,6 +65,11 @@ export interface NewsSource {
   requestJson?: Record<string, unknown>
   /** 额外上游请求头（Referer 等） */
   requestHeaders?: Record<string, string>
+  /**
+   * 列表缓存兼容版本。仅在同一 source id 的上游格式/语言发生不兼容变更时设置；
+   * 版本变化会丢弃旧列表缓存并重新抓取，避免升级后继续展示旧格式内容。
+   */
+  cacheVersion?: string
   /** 默认是否出现在「综合」启用列表 */
   enabled: boolean
   /**

@@ -395,7 +395,7 @@ const newerBetaAvailable = {
   },
 }
 
-const betaGetsStableFinal = selectEligibleUpdateResult('1.8.7-beta.3', 'beta', [
+const betaIgnoresStableFinal = selectEligibleUpdateResult('1.8.7-beta.3', 'beta', [
   stableAvailable,
   {
     status: 'up-to-date',
@@ -404,11 +404,10 @@ const betaGetsStableFinal = selectEligibleUpdateResult('1.8.7-beta.3', 'beta', [
     track: 'beta',
   },
 ])
-assert.equal(betaGetsStableFinal.status, 'available')
-if (betaGetsStableFinal.status === 'available') {
-  assert.equal(betaGetsStableFinal.release.version, '1.8.7')
-  assert.equal(betaGetsStableFinal.release.track, 'stable')
-  assert.equal(betaGetsStableFinal.release.subscriptionTrack, 'beta')
+assert.equal(betaIgnoresStableFinal.status, 'up-to-date')
+if (betaIgnoresStableFinal.status === 'up-to-date') {
+  assert.equal(betaIgnoresStableFinal.remoteVersion, '1.8.7-beta.3')
+  assert.equal(betaIgnoresStableFinal.track, 'beta')
 }
 
 const stableNeverGetsBeta = selectEligibleUpdateResult('1.8.7', 'stable', [
@@ -438,23 +437,46 @@ const betaGetsNewerBeta = selectEligibleUpdateResult('1.8.7', 'beta', [
 assert.equal(betaGetsNewerBeta.status, 'available')
 if (betaGetsNewerBeta.status === 'available') {
   assert.equal(betaGetsNewerBeta.release.version, '1.8.8-beta.1')
+  assert.equal(betaGetsNewerBeta.release.track, 'beta')
   assert.equal(betaGetsNewerBeta.release.subscriptionTrack, 'beta')
 }
 
-const betaSurvivesOneTrackFailure = selectEligibleUpdateResult('1.8.6', 'beta', [
+const beta14SeesBeta15InsteadOfStable188 = selectEligibleUpdateResult('1.8.8-beta.14', 'beta', [
+  {
+    ...stableAvailable,
+    localVersion: '1.8.8-beta.14',
+    release: {
+      ...stableAvailable.release,
+      version: '1.8.8',
+      tagName: 'v1.8.8',
+    },
+  },
+  {
+    ...newerBetaAvailable,
+    localVersion: '1.8.8-beta.14',
+    release: {
+      ...newerBetaAvailable.release,
+      version: '1.8.8-beta.15',
+      tagName: 'v1.8.8-beta.15',
+    },
+  },
+])
+assert.equal(beta14SeesBeta15InsteadOfStable188.status, 'available')
+if (beta14SeesBeta15InsteadOfStable188.status === 'available') {
+  assert.equal(beta14SeesBeta15InsteadOfStable188.release.version, '1.8.8-beta.15')
+  assert.equal(beta14SeesBeta15InsteadOfStable188.release.track, 'beta')
+}
+
+const betaDoesNotFallbackWhenBetaCheckFails = selectEligibleUpdateResult('1.8.6', 'beta', [
   {
     ...stableAvailable,
     localVersion: '1.8.6',
   },
   { status: 'error', message: 'beta CDN temporary failure' },
 ])
-assert.equal(betaSurvivesOneTrackFailure.status, 'available')
-if (betaSurvivesOneTrackFailure.status === 'available') {
-  assert.equal(betaSurvivesOneTrackFailure.release.track, 'stable')
-  assert.equal(betaSurvivesOneTrackFailure.release.subscriptionTrack, 'beta')
-}
+assert.equal(betaDoesNotFallbackWhenBetaCheckFails.status, 'error')
 
-const betaFallsBackToStableWhenBetaAssetMissing = selectEligibleUpdateResult('1.8.6', 'beta', [
+const betaDoesNotFallbackWhenBetaAssetMissing = selectEligibleUpdateResult('1.8.6', 'beta', [
   {
     ...stableAvailable,
     localVersion: '1.8.6',
@@ -468,9 +490,10 @@ const betaFallsBackToStableWhenBetaAssetMissing = selectEligibleUpdateResult('1.
     track: 'beta',
   },
 ])
-assert.equal(betaFallsBackToStableWhenBetaAssetMissing.status, 'available')
-if (betaFallsBackToStableWhenBetaAssetMissing.status === 'available') {
-  assert.equal(betaFallsBackToStableWhenBetaAssetMissing.release.version, '1.8.7')
+assert.equal(betaDoesNotFallbackWhenBetaAssetMissing.status, 'no-asset')
+if (betaDoesNotFallbackWhenBetaAssetMissing.status === 'no-asset') {
+  assert.equal(betaDoesNotFallbackWhenBetaAssetMissing.remoteVersion, '1.8.8-beta.1')
+  assert.equal(betaDoesNotFallbackWhenBetaAssetMissing.track, 'beta')
 }
 
 assert.deepEqual(normalizeAppUpdatePrefs(null), {
@@ -514,5 +537,28 @@ assert.deepEqual(
     },
   },
 )
+assert.deepEqual(
+  normalizeAppUpdatePrefs({
+    track: 'beta',
+    tracks: {
+      stable: {
+        skippedVersion: '1.8.9-beta.1',
+        availableVersion: '1.8.9-beta.1',
+      },
+      beta: {
+        skippedVersion: '1.8.8',
+        availableVersion: '1.8.8',
+      },
+    },
+  }),
+  {
+    track: 'beta',
+    tracks: {
+      stable: {},
+      beta: {},
+    },
+  },
+  '缓存的版本号必须属于对应更新通道，避免升级后继续显示旧的跨通道提示',
+)
 
-console.log('✓ subscription eligibility / prefs migration ok')
+console.log('✓ strict channel isolation / prefs migration ok')

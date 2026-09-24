@@ -84,14 +84,13 @@ newsnook/
 https://news-update.aizeek.com/newsnook/stable/latest.json
 ```
 
-只有用户在“设置 → 关于 → 更新通道”主动选择“内测版”后，才拥有 Beta 资格。Beta 订阅会同时检查 Stable 与 Beta：
+只有用户在“设置 → 关于 → 更新通道”主动选择“内测版”后，客户端才读取 Beta：
 
 ```text
-https://news-update.aizeek.com/newsnook/stable/latest.json
 https://news-update.aizeek.com/newsnook/beta/latest.json
 ```
 
-客户端选择其中**可安装且 SemVer 更高**的版本。因此正式 `1.8.8` 会自然取代 `1.8.8-beta.N`，而下一版 `1.8.9-beta.1` 又可以高于 `1.8.8`。
+两个更新通道严格隔离：Stable 只检查 Stable，Beta 只检查 Beta。客户端不得因为另一个通道的 SemVer 更高而跨通道提示或安装更新。只有用户主动切换“更新通道”后，才开始读取目标通道。
 
 Web 官网下载入口继续使用历史兼容地址 `https://news-update.aizeek.com/newsnook/latest-cloud.apk`。该根目录对象只由 Stable 发布更新，所以不会向普通访客分发 Beta，同时避免双通道迁移首发前 `/stable/` 对象尚不存在造成 404。
 
@@ -106,13 +105,13 @@ Web 官网下载入口继续使用历史兼容地址 `https://news-update.aizeek
 Stable 最新：1.8.7
 ```
 
-客户端应显示当前无需更新。等 `1.8.8` 正式发布后：
+客户端应显示当前无需更新。等 `1.8.8` 正式发布后，由于用户此时已经明确选择 Stable，可以正常升级：
 
 ```text
 1.8.8-beta.3 -> 1.8.8
 ```
 
-正常升级回正式版。
+如果仍停留在 Beta 通道，则不会看到 `1.8.8` Stable；只会继续检查新的 Beta 版本。
 
 ## Android versionCode
 

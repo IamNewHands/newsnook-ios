@@ -27,6 +27,7 @@ export { SOURCES, WECHAT2RSS_BASE } from './registry/builtinSources'
 export { SITES, findSite, isSiteId } from './registry/sites'
 
 export {
+  canonicalSourceId,
   findSource,
   isCustomSourceId,
   isWechatAlbumUrl,

@@ -19,6 +19,11 @@ import { CATEGORIES, uncoveredSourceIds } from '../src/sources/categories'
 import { duplicateSourcesAcrossCategories } from '../src/sources/presets'
 import { findSource, pagingStrategyOf } from '../src/sources/registry'
 
+function localDate(timestamp: number): string {
+  const date = new Date(timestamp)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
 // —— 1. 注册与默认启用检查 ——
 const NEW_SOURCE_IDS = [
   'claude-blog',
@@ -44,30 +49,23 @@ assert.equal(findSource('anthropic')?.enabled, true, 'anthropic must stay enable
 assert.equal(findSource('openai-news')?.enabled, true, 'openai-news must be flipped to enabled')
 assert.equal(findSource('openai-news')?.url, 'https://openai.com/news/rss.xml')
 
-// 分类覆盖：OpenAI / Claude 各自拆栏，其余实验室留在 ai（实验室），且分类间互斥仍成立
-const aiOpenaiCategory = CATEGORIES.find((cat) => cat.id === 'ai-openai')
-for (const id of ['openai-news', 'openai-cookbook']) {
-  assert.ok(
-    aiOpenaiCategory?.sourceIds?.includes(id),
-    `${id} must be covered by the ai-openai category`,
-  )
+// Taxonomy v3：模型厂商/实验室与开源生态/评测分开；教程/案例统一为「产品实践」。
+const aiLabsCategory = CATEGORIES.find((cat) => cat.id === 'ai-labs')
+for (const id of ['openai-news', 'anthropic', 'claude-blog', 'google-ai', 'deepmind']) {
+  assert.ok(aiLabsCategory?.sourceIds?.includes(id), `${id} must be covered by ai-labs`)
 }
-const aiClaudeCategory = CATEGORIES.find((cat) => cat.id === 'ai-claude')
+const aiEcosystemCategory = CATEGORIES.find((cat) => cat.id === 'ai-ecosystem')
+for (const id of ['huggingface', 'pytorch', 'arena']) {
+  assert.ok(aiEcosystemCategory?.sourceIds?.includes(id), `${id} must be covered by ai-ecosystem`)
+}
+const aiPracticeCategory = CATEGORIES.find((cat) => cat.id === 'ai-practice')
 for (const id of [
-  'anthropic',
-  'claude-blog',
+  'openai-cookbook',
   'claude-customers',
   'claude-academy-use-cases',
   'claude-academy-tutorials',
 ]) {
-  assert.ok(
-    aiClaudeCategory?.sourceIds?.includes(id),
-    `${id} must be covered by the ai-claude category`,
-  )
-}
-const aiLabsCategory = CATEGORIES.find((cat) => cat.id === 'ai')
-for (const id of ['google-ai', 'deepmind', 'huggingface', 'pytorch', 'arena']) {
-  assert.ok(aiLabsCategory?.sourceIds?.includes(id), `${id} must stay in the ai (labs) category`)
+  assert.ok(aiPracticeCategory?.sourceIds?.includes(id), `${id} must be covered by ai-practice`)
 }
 assert.deepEqual(uncoveredSourceIds(), [])
 const categoryDefaults: Record<string, string[]> = {}
@@ -129,10 +127,7 @@ assert.equal(blogArticles.length, 3)
 assert.equal(blogArticles[0].title, "Claude's memory works everywhere & you decide what's in it")
 assert.equal(blogArticles[0].originUrl, 'https://claude.com/blog/claudes-memory-works-everywhere')
 assert.equal(blogArticles[0].hasRealDate, true)
-assert.equal(
-  new Date(blogArticles[0].publishedAt).toISOString().slice(0, 10),
-  '2026-08-25',
-)
+assert.equal(localDate(blogArticles[0].publishedAt), '2026-08-25')
 assert.equal(blogArticles[0].image, 'https://cdn.prod.website-files.com/abc/illo-1.svg')
 assert.equal(blogArticles[1].title, 'The AI-native SDLC playbook')
 // 跑马灯重复渲染同一篇（无日期）时，不得覆盖网格里的带日期版本
@@ -144,7 +139,7 @@ const marqueeArticle = blogArticles.find(
 assert.ok(marqueeArticle, 'marquee-only item must be captured')
 assert.equal(marqueeArticle!.title, 'Claude Code now supports artifacts')
 assert.equal(marqueeArticle!.hasRealDate, true)
-assert.equal(new Date(marqueeArticle!.publishedAt).toISOString().slice(0, 10), '2026-06-18')
+assert.equal(localDate(marqueeArticle!.publishedAt), '2026-06-18')
 
 const claudeCustomersSource = findSource('claude-customers')!
 const claudeCustomersFixture = `
@@ -263,10 +258,7 @@ assert.equal(
 )
 // 同一篇同时出现在无日期 Featured 区与带日期 Latest 列表时，日期不得被 Featured 版本抢占
 assert.equal(cookbookArticles[0].hasRealDate, true)
-assert.equal(
-  new Date(cookbookArticles[0].publishedAt).toISOString().slice(0, 10),
-  '2026-08-20',
-)
+assert.equal(localDate(cookbookArticles[0].publishedAt), '2026-08-20')
 assert.equal(
   cookbookArticles[1].originUrl,
   'https://developers.openai.com/cookbook/articles/per_run_spending_controller_responses_api',

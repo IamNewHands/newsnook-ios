@@ -80,8 +80,20 @@ export function decodeTopics(input: unknown): LinuxDoTopicSummary[] {
       return { userId: p.user_id, username: u?.username, avatarTemplate: avatar(u?.avatar_template), description: p.description }
     }) : [],
     unseen: Boolean(topic.unseen),
-    unread: typeof topic.unread === 'number' ? topic.unread : undefined,
+    unread: typeof topic.unread_posts === 'number'
+      ? topic.unread_posts
+      : typeof topic.unread === 'number'
+        ? topic.unread
+        : undefined,
     newPosts: typeof topic.new_posts === 'number' ? topic.new_posts : undefined,
+    lastReadPostNumber: typeof topic.last_read_post_number === 'number'
+      ? topic.last_read_post_number
+      : topic.last_read_post_number === null
+        ? null
+        : undefined,
+    highestPostNumber: typeof topic.highest_post_number === 'number' ? topic.highest_post_number : undefined,
+    notificationLevel: typeof topic.notification_level === 'number' ? topic.notification_level : undefined,
+    isSeen: typeof topic.is_seen === 'boolean' ? topic.is_seen : undefined,
     pinned: Boolean(topic.pinned),
     closed: Boolean(topic.closed),
     archived: Boolean(topic.archived),
@@ -118,6 +130,7 @@ export function decodePost(post: Json): LinuxDoPost {
     avatarTemplate: avatar(post.avatar_template),
     createdAt: String(post.created_at ?? ''),
     updatedAt: typeof post.updated_at === 'string' ? post.updated_at : undefined,
+    read: typeof post.read === 'boolean' ? post.read : undefined,
     cooked: sanitizeLinuxDoCooked(String(post.cooked ?? '')),
     raw: typeof post.raw === 'string' ? post.raw : undefined,
     replyToPostNumber: typeof post.reply_to_post_number === 'number' ? post.reply_to_post_number : undefined,
@@ -175,6 +188,12 @@ export function decodeTopic(input: unknown): LinuxDoTopic {
     likeCount: Number(root.like_count ?? 0),
     createdAt: String(root.created_at ?? ''),
     lastPostedAt: String(root.last_posted_at ?? ''),
+    lastReadPostNumber: typeof root.last_read_post_number === 'number'
+      ? root.last_read_post_number
+      : root.last_read_post_number === null
+        ? null
+        : undefined,
+    highestPostNumber: typeof root.highest_post_number === 'number' ? root.highest_post_number : undefined,
     postStream: {
       stream: Array.isArray(stream.stream) ? stream.stream.map(Number) : [],
       posts: Array.isArray(stream.posts) ? stream.posts.map(decodePost) : [],

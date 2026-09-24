@@ -10,7 +10,7 @@ import {
   X,
 } from 'lucide-react'
 
-import { commentsDefaultTabFor, commentsLabelFor, fetchArticleComments } from '../service'
+import { fetchArticleComments } from '../service'
 import type {
   CommentItem,
   CommentTab,
@@ -46,13 +46,16 @@ function renderTabIcon(tabId: CommentTabId) {
 }
 
 function getDefaultTabForArticle(article: { sourceId?: string; originUrl?: string }): CommentTabId {
-  // 各来源的默认分类由 provider 声明（如知乎 = 短评、煎蛋 = 最新），此处不再硬编码站点判断
-  return commentsDefaultTabFor(article)
+  if (article.sourceId?.includes('zhihu') || article.originUrl?.includes('zhihu.com')) {
+    return 'short'
+  }
+  if (article.sourceId === 'jandan' || article.originUrl?.includes('jandan.net')) {
+    return 'latest'
+  }
+  return 'hot'
 }
 
 export function CommentsDrawer({ open, onClose, article }: Props) {
-  // 各来源称呼不同：跟贴 / 评论 / 吐槽 / 讨论 / 回复
-  const commentNoun = commentsLabelFor(article)
   const [activeTab, setActiveTab] = useState<CommentTabId>(() => getDefaultTabForArticle(article))
   const [availableTabs, setAvailableTabs] = useState<CommentTab[]>([])
   const [comments, setComments] = useState<CommentItem[]>([])
@@ -170,7 +173,7 @@ export function CommentsDrawer({ open, onClose, article }: Props) {
             <MessageSquare size={18} className="text-cinnabar shrink-0" />
             <div className="min-w-0">
               <h2 className="text-[15px] font-semibold text-paper truncate">
-                网友{commentNoun}
+                网友跟贴讨论
               </h2>
               <p className="text-[11px] text-paper-faint truncate max-w-xs">
                 {article.title}
@@ -232,7 +235,7 @@ export function CommentsDrawer({ open, onClose, article }: Props) {
           {loading && comments.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20 text-paper-faint">
               <LoaderCircle size={28} className="animate-spin text-cinnabar" />
-              <p className="mt-3 text-[13px]">正在加载{commentNoun}...</p>
+              <p className="mt-3 text-[13px]">正在探索跟贴与讨论...</p>
             </div>
           )}
 
@@ -253,7 +256,7 @@ export function CommentsDrawer({ open, onClose, article }: Props) {
           {!loading && !error && comments.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20 text-center text-paper-faint">
               <MessageSquare size={36} className="opacity-30 mb-2" />
-              <p className="text-[13px]">暂无{commentNoun}或该报道讨论已关闭</p>
+              <p className="text-[13px]">暂无跟贴评论或该报道讨论已关闭</p>
             </div>
           )}
 
@@ -267,7 +270,7 @@ export function CommentsDrawer({ open, onClose, article }: Props) {
               {loadingMore ? (
                 <div className="inline-flex items-center gap-2 rounded-xl border border-haze bg-ink-raised px-4 py-2 text-[12px] font-medium text-paper-muted">
                   <LoaderCircle size={13} className="animate-spin text-cinnabar" />
-                  <span>正在加载更多{commentNoun}...</span>
+                  <span>正在加载更多跟贴...</span>
                 </div>
               ) : (
                 <button
@@ -284,7 +287,7 @@ export function CommentsDrawer({ open, onClose, article }: Props) {
           {/* 已加载完毕提示 */}
           {!hasMore && !loading && comments.length > 0 && (
             <div className="py-6 text-center text-[11px] font-mono tracking-wider text-paper-faint">
-              — 已展示全部{commentNoun} —
+              — 已展示全部跟贴讨论 —
             </div>
           )}
         </div>

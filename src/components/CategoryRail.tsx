@@ -297,7 +297,7 @@ export function CategoryRail({
               className="custom-long-press-target relative shrink-0 px-3 py-1.5 text-paper hover:opacity-90"
             >
               <span className={`block whitespace-nowrap font-display text-[14.5px] leading-none tracking-wide ${weight >= 0.5 ? 'font-medium' : 'font-normal'}`}>
-                {category.short}
+                {category.label}
               </span>
               {/* 占位间距，保持高度与垂直居中一致 */}
               <span className="mx-auto mt-1 block h-px w-3.5 opacity-0" aria-hidden />

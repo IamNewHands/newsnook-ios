@@ -56,10 +56,21 @@ export function isCustomSourceId(id: string): boolean {
   return id.startsWith('custom_')
 }
 
+/** 已删除的重复内置源 ID → 当前唯一真实源；仅用于无损迁移旧偏好/旧快照。 */
+const LEGACY_SOURCE_ID_ALIASES: Readonly<Record<string, string>> = {
+  'bbc-zh-china': 'bbc-zh',
+  'bbc-zh-world': 'bbc-zh',
+}
+
+export function canonicalSourceId(id: string): string {
+  return LEGACY_SOURCE_ID_ALIASES[id] ?? id
+}
+
 export function findSource(id: string, extraSources?: NewsSource[]): NewsSource | undefined {
   if (extraSources?.length) {
     const extra = extraSources.find((s) => s.id === id)
     if (extra) return extra
   }
-  return SOURCES.find((s) => s.id === id)
+  const canonicalId = canonicalSourceId(id)
+  return SOURCES.find((s) => s.id === canonicalId)
 }

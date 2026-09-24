@@ -36,6 +36,7 @@ import {
 } from './parseFeed/finance'
 import { parseWechatSource } from './parseFeed/wechat'
 import { parseInfzm, parseThePaper } from './parseFeed/deepChinese'
+import { parseBbcChinese, parseZaobao } from './parseFeed/international'
 
 export {
   enrichJazzyearDates,
@@ -94,6 +95,8 @@ const PARSERS: Record<SourceKind, SourceParser> = {
   uisdc: parseUisdcTag,
   thepaper: parseThePaper,
   infzm: parseInfzm,
+  zaobao: parseZaobao,
+  'bbc-chinese': parseBbcChinese,
   'claude-webflow': parseClaudeWebflow,
   'claude-academy': parseClaudeAcademy,
   'openai-cookbook': parseOpenaiCookbook,

@@ -2,6 +2,7 @@ import { Heart, MessageCircle } from 'lucide-react'
 import type { KeyboardEvent } from 'react'
 
 import type { LinuxDoCategory, LinuxDoTopicSummary } from '../types'
+import { linuxDoTopicReadState } from '../topic/readState'
 import { ago, avatar, compact, tagGlyph } from './utils'
 
 export function TopicCard({
@@ -19,6 +20,12 @@ export function TopicCard({
 }) {
   const author = topic.posters[0]
   const last = topic.posters[topic.posters.length - 1]
+  const readState = linuxDoTopicReadState(topic)
+  const unreadLabel = readState === 'new'
+    ? '新主题'
+    : readState === 'unread'
+      ? `${Math.max(1, topic.unread ?? 0, topic.newPosts ?? 0)} 条未读`
+      : ''
   const openFromKeyboard = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Enter' && event.key !== ' ') return
     event.preventDefault()
@@ -44,8 +51,13 @@ export function TopicCard({
           </div>
           <div className="flex items-start gap-2">
             <h3 className="line-clamp-2 flex-1 text-[14.5px] sm:text-[15px] font-semibold leading-[1.42] text-paper">{topic.title}</h3>
-            {topic.unseen || (topic.newPosts || 0) > 0 ? (
-              <span className="mt-0.5 shrink-0 rounded-full bg-cinnabar/15 px-2 py-0.5 font-mono text-[9px] font-semibold tracking-[0.08em] text-cinnabar-soft">NEW</span>
+            {readState !== 'read' ? (
+              <span
+                className="mt-[0.48rem] h-2 w-2 shrink-0 rounded-full bg-sky-400 ring-2 ring-sky-400/15"
+                role="status"
+                aria-label={unreadLabel}
+                title={unreadLabel}
+              />
             ) : null}
           </div>
           <div className="mt-2 flex flex-wrap gap-1.5">

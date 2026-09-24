@@ -2,14 +2,34 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor
 
 import type { LinuxDoSessionSnapshot } from '../types'
 
+export interface LinuxDoNativeResponse {
+  status: number
+  data: string
+  headers?: Record<string, string>
+  transport?: 'native' | 'browser' | 'browser-firstparty'
+  responseUrl?: string
+}
+
+export interface LinuxDoBrowserPreparation {
+  ready: boolean
+  username?: string
+  userId?: number
+  csrf?: string
+  reason?: string
+  phase?: 'session' | 'csrf'
+  status?: number
+}
+
 interface LinuxDoSessionPlugin {
+  prepareBrowserSession(): Promise<LinuxDoBrowserPreparation>
   authenticate(options?: { url?: string }): Promise<LinuxDoSessionSnapshot>
   authenticateUserApiKey(): Promise<LinuxDoSessionSnapshot>
   cancelUserApiKeyAuth(): Promise<void>
   clearUserApiKey(): Promise<void>
   snapshot(): Promise<LinuxDoSessionSnapshot>
   browserSnapshot(): Promise<LinuxDoSessionSnapshot>
-  request(options: { url: string; method: 'GET' | 'POST' | 'PUT' | 'DELETE'; headers?: Record<string, string>; body?: string }): Promise<{ status: number; data: string; headers?: Record<string, string> }>
+  request(options: { url: string; method: 'GET' | 'POST' | 'PUT' | 'DELETE'; headers?: Record<string, string>; body?: string; browserOnly?: boolean }): Promise<LinuxDoNativeResponse>
+  fetchConnectTrustPage(): Promise<{ status: number; data: string; finalUrl: string; headers?: Record<string, string> }>
   beginUpload(options: { fileName: string; mimeType: string }): Promise<{ uploadId: string }>
   appendUploadChunk(options: { uploadId: string; base64: string }): Promise<{ bytesWritten: number }>
   finishUpload(options: { uploadId: string }): Promise<Record<string, unknown>>
@@ -50,9 +70,19 @@ export async function readLinuxDoBrowserSession(): Promise<LinuxDoSessionSnapsho
   return NativeLinuxDoSession.browserSnapshot()
 }
 
-export async function requestLinuxDoNative(options: { url: string; method: 'GET' | 'POST' | 'PUT' | 'DELETE'; headers?: Record<string, string>; body?: string }): Promise<{ status: number; data: string; headers?: Record<string, string> }> {
+export async function requestLinuxDoNative(options: { url: string; method: 'GET' | 'POST' | 'PUT' | 'DELETE'; headers?: Record<string, string>; body?: string; browserOnly?: boolean }): Promise<LinuxDoNativeResponse> {
   if (!Capacitor.isNativePlatform()) throw new Error('Linux.do 原生请求仅可在 App 内使用')
   return NativeLinuxDoSession.request(options)
+}
+
+export async function prepareLinuxDoBrowserSession(): Promise<LinuxDoBrowserPreparation> {
+  if (!Capacitor.isNativePlatform()) return { ready: false, reason: 'unsupported' }
+  return NativeLinuxDoSession.prepareBrowserSession()
+}
+
+export async function fetchLinuxDoConnectTrustPage(): Promise<{ status: number; data: string; finalUrl: string; headers?: Record<string, string> }> {
+  if (!Capacitor.isNativePlatform()) throw new Error('Linux.do Connect 仅可在 App 内使用')
+  return NativeLinuxDoSession.fetchConnectTrustPage()
 }
 
 export async function uploadLinuxDoFile(file: File, onProgress?: (progress: number) => void): Promise<Record<string, unknown>> {

@@ -24,6 +24,31 @@ export class LinuxDoTopicService {
     return Array.isArray(payload?.post_stream?.posts) ? payload.post_stream.posts.map(decodePost) : []
   }
 
+  /**
+   * Report actually visible post timings using Discourse's native read-tracking
+   * endpoint. The server advances TopicUser.last_read_post_number and read stats.
+   */
+  async reportTimings(topicId: number, topicTime: number, timings: Record<number, number>): Promise<void> {
+    const form: Record<string, string | number | boolean | Array<string | number> | undefined> = {
+      topic_id: topicId,
+      topic_time: Math.max(0, Math.trunc(topicTime)),
+    }
+    for (const [postNumber, timing] of Object.entries(timings)) {
+      const post = Math.trunc(Number(postNumber))
+      const elapsed = Math.max(0, Math.trunc(timing))
+      if (post <= 0 || elapsed <= 0) continue
+      form[`timings[${post}]`] = elapsed
+    }
+    if (Object.keys(form).length <= 2) return
+    await this.api.postFormVoid(linuxDoEndpoints.topicTimings, form, {
+      auth: 'required',
+      headers: {
+        'X-SILENCE-LOGGER': 'true',
+        'Discourse-Background': 'true',
+      },
+    })
+  }
+
   async reply(topicId: number, raw: string, replyToPostNumber?: number): Promise<LinuxDoPost> {
     const payload = await this.api.postForm<any>(
       linuxDoEndpoints.postsCreate,

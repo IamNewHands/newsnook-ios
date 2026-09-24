@@ -109,7 +109,6 @@ function isNeteaseCommentForeign(article: {
 }
 
 export const neteaseCommentProvider: CommentProvider = {
-  label: '跟贴',
   canHandle(article) {
     if (article.sourceId?.startsWith('netease')) return true
     if (article.originUrl?.includes('163.com')) return true

@@ -1,15 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from 'react'
 import { Browser } from '@capacitor/browser'
 import { Capacitor } from '@capacitor/core'
-import { ArrowLeft, BookmarkCheck, BookmarkPlus, ChevronDown, Globe, Languages, LoaderCircle, MessageSquare, MoreHorizontal, RefreshCw, ScrollText, Volume2, X } from 'lucide-react'
+import { ArrowLeft, BookmarkCheck, BookmarkPlus, Globe, Languages, LoaderCircle, MessageSquare, MoreHorizontal, RefreshCw, ScrollText, Volume2, X } from 'lucide-react'
 
 import { AiSpeedReadPanel } from '../components/AiSpeedReadPanel'
 import { ImageLightbox } from '../components/ImageLightbox'
 import { EinkReaderMenu } from '../components/EinkReaderMenu'
 import { ReaderMoreMenu } from '../components/ReaderMoreMenu'
-import { TranslationChannelSheet } from '../components/TranslationChannelSheet'
 import { ReaderScrollIndicator } from '../components/ReaderScrollIndicator'
-import { ReaderFloatNav } from '../components/ReaderFloatNav'
 import { ShareArticleSheet } from '../components/ShareArticleSheet'
 import { InkAudioPlayer } from '../components/InkAudioPlayer'
 import { InkImage } from '../components/InkImage'
@@ -64,28 +62,18 @@ import type { TypographyPrefs } from '../sources/preferences'
 import { resolveAiFeatureConfig } from '../features/translation/aiConfig'
 import { createTranslationService } from '../features/translation/service'
 import {
-  availableTranslationProviders,
   translationDisplayModeLabel,
   translationLanguageLabel,
   translationProviderLabel,
 } from '../features/translation/config'
-import type {
-  TranslatedArticleContent,
-  TranslationPrefs,
-  TranslationProviderId,
-} from '../features/translation/types'
+import type { TranslatedArticleContent, TranslationPrefs } from '../features/translation/types'
 import { hasSpeedReadableText } from '../features/speedRead/service'
 import { useSpeedRead } from '../features/speedRead/useSpeedRead'
 import { ReadAloudBar } from '../features/readAloud/ReadAloudBar'
 import { segmentArticle } from '../features/readAloud/segmenter'
 import { useReadAloud } from '../features/readAloud/useReadAloud'
 import type { ReadAloudPrefs } from '../features/readAloud/types'
-import {
-  commentsLabelFor,
-  fetchCommentCount,
-  shouldShowCommentEntry,
-  supportsComments,
-} from '../features/comments/service'
+import { fetchCommentCount, supportsComments } from '../features/comments/service'
 import { CommentsDrawer } from '../features/comments/components/CommentsDrawer'
 import { articleFromRelatedLink } from '../features/catalogEngine/toArticles'
 import type { NewsSource } from '../sources/registry'
@@ -101,12 +89,6 @@ interface Props {
   overlayCloserRef?: MutableRefObject<(() => boolean) | null>
   translationPrefs: TranslationPrefs
   readAloudPrefs: ReadAloudPrefs
-  /** 正文顶栏直接切换翻译通道；不传时只展示当前通道，不给切换入口 */
-  onTranslationProviderChange?: (provider: TranslationProviderId) => void
-  /** 是否显示悬浮上下翻页手柄（仅滚动阅读模式生效） */
-  floatReaderNav?: boolean
-  /** 切换悬浮翻页手柄开关（用于设置持久化） */
-  onToggleFloatReaderNav?: (enabled: boolean) => void
   customSources?: NewsSource[]
   /** 墨水屏模式：分页阅读；false/缺省时保持滚动阅读 */
   einkMode?: boolean
@@ -132,9 +114,6 @@ export function ReaderScreen({
   overlayCloserRef,
   translationPrefs,
   readAloudPrefs,
-  onTranslationProviderChange,
-  floatReaderNav = true,
-  onToggleFloatReaderNav,
   customSources,
   einkMode = false,
   fontScale = 1,
@@ -190,16 +169,6 @@ export function ReaderScreen({
     [article, resolvedOriginUrl],
   )
 
-  // 入口可见性：WordPress / Substack 等来源必须确知有评论才显示入口（零评论不渲染）
-  const showCommentEntry = useMemo(
-    () =>
-      shouldShowCommentEntry(
-        { ...article, originUrl: resolvedOriginUrl || article.originUrl },
-        commentCount,
-      ),
-    [article, resolvedOriginUrl, commentCount],
-  )
-
   useEffect(() => {
     if (!canComment) return
     const controller = new AbortController()
@@ -219,7 +188,6 @@ export function ReaderScreen({
   const [einkMenuOpen, setEinkMenuOpen] = useState(false)
   const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   const [shareSheetOpen, setShareSheetOpen] = useState(false)
-  const [channelSheetOpen, setChannelSheetOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [resumedPosition, setResumedPosition] = useState(false)
   const lastScrollTopRef = useRef(0)
@@ -298,16 +266,6 @@ export function ReaderScreen({
         overlayCloserRef.current = prev
       }
     }
-    if (channelSheetOpen) {
-      const prev = overlayCloserRef.current
-      overlayCloserRef.current = () => {
-        setChannelSheetOpen(false)
-        return true
-      }
-      return () => {
-        overlayCloserRef.current = prev
-      }
-    }
     if (moreMenuOpen) {
       const prev = overlayCloserRef.current
       overlayCloserRef.current = () => {
@@ -328,7 +286,7 @@ export function ReaderScreen({
         overlayCloserRef.current = prev
       }
     }
-  }, [channelSheetOpen, commentsOpen, einkMenuOpen, moreMenuOpen, overlayCloserRef, shareSheetOpen])
+  }, [commentsOpen, einkMenuOpen, moreMenuOpen, overlayCloserRef, shareSheetOpen])
 
   const handleScroll = useCallback(() => {
     if (einkMode) return
@@ -429,10 +387,10 @@ export function ReaderScreen({
     }
   }, [article.id, einkMode, html.length, loadState])
 
-  // 屏幕右侧边缘向左滑动手势拉出评论
+  // 屏幕右侧边缘向左滑动手势拉出跟贴
   useEffect(() => {
     const element = shellRef.current
-    if (!element || !showCommentEntry || commentsOpen || lightbox) return
+    if (!element || !canComment || commentsOpen || lightbox) return
 
     let startX = 0
     let startY = 0
@@ -484,14 +442,12 @@ export function ReaderScreen({
       element.removeEventListener('touchmove', onTouchMove)
       element.removeEventListener('touchend', onTouchEnd)
     }
-  }, [showCommentEntry, commentsOpen, lightbox])
+  }, [canComment, commentsOpen, lightbox])
 
   useEdgeSwipeBack({
     containerRef: shellRef,
     onBack: onClose,
-    disabled: Boolean(
-      lightbox || commentsOpen || einkMenuOpen || moreMenuOpen || shareSheetOpen || channelSheetOpen,
-    ),
+    disabled: Boolean(lightbox || commentsOpen || einkMenuOpen || moreMenuOpen || shareSheetOpen),
     reduced,
   })
 
@@ -816,9 +772,6 @@ export function ReaderScreen({
     () => createTranslationService(translationPrefs),
     [translationPrefs],
   )
-  /** 顶栏通道切换用的候选：只列当前平台/安装包真正可用的翻译方式 */
-  const translationProviderOptions = useMemo(() => availableTranslationProviders(), [])
-  const canSwitchProvider = Boolean(onTranslationProviderChange) && translationProviderOptions.length > 1
 
   const speedReadConfig = useMemo(
     () => resolveAiFeatureConfig({ ai: translationPrefs.ai }, 'speedRead'),
@@ -884,22 +837,8 @@ export function ReaderScreen({
   pagedSyncRef.current = paged.syncFromScrollTop
   pagedOffsetRef.current = paged.currentStartOffset
 
-  const einkGateRef = useRef({
-    lightbox,
-    commentsOpen,
-    einkMenuOpen,
-    moreMenuOpen,
-    shareSheetOpen,
-    channelSheetOpen,
-  })
-  einkGateRef.current = {
-    lightbox,
-    commentsOpen,
-    einkMenuOpen,
-    moreMenuOpen,
-    shareSheetOpen,
-    channelSheetOpen,
-  }
+  const einkGateRef = useRef({ lightbox, commentsOpen, einkMenuOpen, moreMenuOpen, shareSheetOpen })
+  einkGateRef.current = { lightbox, commentsOpen, einkMenuOpen, moreMenuOpen, shareSheetOpen }
 
   useEffect(() => {
     const wasEink = prevEinkRef.current
@@ -939,7 +878,7 @@ export function ReaderScreen({
 
     const onCaptureClick = (event: MouseEvent) => {
       const gate = einkGateRef.current
-      if (gate.lightbox || gate.commentsOpen || gate.einkMenuOpen || gate.moreMenuOpen || gate.shareSheetOpen || gate.channelSheetOpen) return
+      if (gate.lightbox || gate.commentsOpen || gate.einkMenuOpen || gate.moreMenuOpen || gate.shareSheetOpen) return
       const target = event.target
       if (!(target instanceof Element)) return
 
@@ -976,7 +915,7 @@ export function ReaderScreen({
     void setVolumePageTurnEnabled(true)
     void addVolumePageTurnListener((direction) => {
       const gate = einkGateRef.current
-      if (gate.lightbox || gate.commentsOpen || gate.einkMenuOpen || gate.moreMenuOpen || gate.shareSheetOpen || gate.channelSheetOpen) return
+      if (gate.lightbox || gate.commentsOpen || gate.einkMenuOpen || gate.moreMenuOpen || gate.shareSheetOpen) return
       if (direction === 'prev') pagedGoPrevRef.current()
       else pagedGoNextRef.current()
     }).then((dispose) => {
@@ -989,7 +928,7 @@ export function ReaderScreen({
 
     const onKeyDown = (event: KeyboardEvent) => {
       const gate = einkGateRef.current
-      if (gate.lightbox || gate.commentsOpen || gate.einkMenuOpen || gate.moreMenuOpen || gate.shareSheetOpen || gate.channelSheetOpen) return
+      if (gate.lightbox || gate.commentsOpen || gate.einkMenuOpen || gate.moreMenuOpen || gate.shareSheetOpen) return
       const target = event.target
       if (
         target instanceof HTMLElement &&
@@ -1036,9 +975,6 @@ export function ReaderScreen({
       resolvedOriginUrl,
     ],
   )
-
-  // 各来源对评论的称呼不同（跟贴 / 评论 / 吐槽 / 讨论 / 回复），界面文案跟随来源取词
-  const commentNoun = useMemo(() => commentsLabelFor(commentsArticle), [commentsArticle])
 
   const isCjkArticle = useMemo(() => {
     const textSample = `${displayedTitle} ${displayedHtml.slice(0, 1500)}`
@@ -1223,17 +1159,33 @@ export function ReaderScreen({
     pendingPartialRef.current = null
   }, [])
 
-  /**
-   * 用指定通道跑一次正文翻译。
-   * 切换通道后要立刻用新通道重跑，不能等 `translationPrefs` 绕一圈 props 回来——
-   * 那时闭包里的 service 还是旧的，会拿旧通道再翻一遍。所以这里显式收 providerId。
-   */
-  const runTranslation = async (providerId: TranslationProviderId) => {
-    const activePrefs: TranslationPrefs = { ...translationPrefs, provider: providerId }
-    const service =
-      providerId === translationPrefs.provider
-        ? translationService
-        : createTranslationService(activePrefs)
+  const toggleTranslation = async () => {
+    if (loadState !== 'ready') return
+
+    // 1. 如果正在翻译中，点击取消本次翻译并切回原文；丢弃半成品，避免之后被当成完整译文直接展示
+    if (translationState === 'loading') {
+      cancelTranslation()
+      setTranslated(null)
+      setTranslationState('idle')
+      setTranslationError('')
+      setShowTranslation(false)
+      return
+    }
+
+    // 2. 如果当前正在显示译文，点击直接切回原文；报错状态除外——那时按钮语义是「重试」，落到下方重新翻译
+    if (showTranslation && translationState !== 'error') {
+      setShowTranslation(false)
+      setTranslationError('')
+      return
+    }
+
+    // 3. 如果已有完整译文且空闲，直接切换展示
+    if (translated && translationState === 'idle') {
+      setShowTranslation(true)
+      setTranslationError('')
+      return
+    }
+
     cancelTranslation()
     const controller = new AbortController()
     translationAbortRef.current = controller
@@ -1249,10 +1201,10 @@ export function ReaderScreen({
         if (!pending || controller.signal.aborted) return
         setTranslated(pending)
       }
-      const result = await service.translateArticle(
+      const result = await translationService.translateArticle(
         article.title,
         html,
-        activePrefs,
+        translationPrefs,
         {
           signal: controller.signal,
           onPartial: (partial) => {
@@ -1301,54 +1253,6 @@ export function ReaderScreen({
       }
       pendingPartialRef.current = null
     }
-  }
-
-  const toggleTranslation = async () => {
-    if (loadState !== 'ready') return
-
-    // 1. 如果正在翻译中，点击取消本次翻译并切回原文；丢弃半成品，避免之后被当成完整译文直接展示
-    if (translationState === 'loading') {
-      cancelTranslation()
-      setTranslated(null)
-      setTranslationState('idle')
-      setTranslationError('')
-      setShowTranslation(false)
-      return
-    }
-
-    // 2. 如果当前正在显示译文，点击直接切回原文；报错状态除外——那时按钮语义是「重试」，落到下方重新翻译
-    if (showTranslation && translationState !== 'error') {
-      setShowTranslation(false)
-      setTranslationError('')
-      return
-    }
-
-    // 3. 如果已有完整译文且空闲，直接切换展示
-    if (translated && translationState === 'idle') {
-      setShowTranslation(true)
-      setTranslationError('')
-      return
-    }
-
-    await runTranslation(translationPrefs.provider)
-  }
-
-  /**
-   * 切换翻译通道：写回偏好；正在看译文（或上一次失败）时立刻用新通道重跑，
-   * 否则只清掉旧通道留下的译文，等读者自己点「翻译」。
-   */
-  const switchTranslationProvider = (provider: TranslationProviderId) => {
-    setChannelSheetOpen(false)
-    if (provider === translationPrefs.provider) return
-    onTranslationProviderChange?.(provider)
-    if (showTranslation || translationState === 'error' || translationState === 'loading') {
-      void runTranslation(provider)
-      return
-    }
-    cancelTranslation()
-    setTranslated(null)
-    setTranslationError('')
-    setTranslationState('idle')
   }
 
   return (
@@ -1413,21 +1317,6 @@ export function ReaderScreen({
                         : '翻译'}
                 </span>
               </button>
-              {canSwitchProvider && (
-                <button
-                  type="button"
-                  onClick={() => setChannelSheetOpen(true)}
-                  aria-expanded={channelSheetOpen}
-                  aria-label={`切换翻译通道（当前 ${translationProviderLabel(translationPrefs.provider)}）`}
-                  className="-ml-1 flex h-9 w-5 shrink-0 items-center justify-center text-paper-muted transition-colors duration-200"
-                >
-                  <ChevronDown
-                    size={13}
-                    strokeWidth={2}
-                    className={channelSheetOpen ? 'text-cinnabar' : undefined}
-                  />
-                </button>
-              )}
               {canSpeedRead && (
                 <button
                   type="button"
@@ -1501,16 +1390,16 @@ export function ReaderScreen({
                   {saved ? '已收藏' : '收藏'}
                 </span>
               </button>
-              {showCommentEntry && (
+              {canComment && (
                 <button
                   type="button"
                   onClick={() => setCommentsOpen(true)}
-                  aria-label={`查看${commentNoun}与评论`}
+                  aria-label="查看跟贴与评论"
                   className="flex h-9 items-center gap-1 px-1 text-paper-muted hover:text-cinnabar transition-colors duration-200"
                 >
                   <MessageSquare size={14} strokeWidth={1.7} className={commentsOpen ? 'text-cinnabar' : 'text-paper-muted'} />
                   <span className={`font-mono text-[10px] tracking-[0.08em] ${commentsOpen ? 'text-cinnabar-soft' : 'text-paper-muted'}`}>
-                    {commentCount != null && commentCount > 0 ? commentCount : commentNoun}
+                    {commentCount != null && commentCount > 0 ? commentCount : '跟贴'}
                   </span>
                 </button>
               )}
@@ -1839,7 +1728,7 @@ export function ReaderScreen({
                 </div>
               )}
 
-              {loadState === 'ready' && showCommentEntry && (
+              {loadState === 'ready' && canComment && (
                 <div data-reader-block className="mt-8">
                   <div
                     role="button"
@@ -1856,12 +1745,12 @@ export function ReaderScreen({
                       </div>
                       <div className="min-w-0 text-left">
                         <h3 className="text-[14px] font-semibold text-paper group-hover:text-cinnabar transition">
-                          网友精彩{commentNoun}
+                          网友精彩跟贴与讨论
                         </h3>
                         <p className="mt-0.5 font-mono text-[11px] text-paper-faint truncate">
                           {commentCount != null && commentCount > 0
-                            ? `共 ${commentCount} 条${commentNoun} · 点击展开热评与盖楼`
-                            : `点击展开网友观点与最新${commentNoun}`}
+                            ? `共 ${commentCount} 条跟贴互动 · 点击展开热评与盖楼`
+                            : '点击展开网友观点与最新讨论'}
                         </p>
                       </div>
                     </div>
@@ -1876,7 +1765,6 @@ export function ReaderScreen({
           </div>
           </div>
           {!einkMode && <ReaderScrollIndicator targetRef={rootRef} />}
-          {!einkMode && floatReaderNav && <ReaderFloatNav targetRef={rootRef} />}
         </div>
 
 
@@ -1932,16 +1820,6 @@ export function ReaderScreen({
           setMoreMenuOpen(false)
           setRetryToken((token) => token + 1)
         }}
-        floatReaderNav={floatReaderNav}
-        onToggleFloatReaderNav={onToggleFloatReaderNav}
-      />
-
-      <TranslationChannelSheet
-        open={channelSheetOpen}
-        active={translationPrefs.provider}
-        providers={translationProviderOptions}
-        onClose={() => setChannelSheetOpen(false)}
-        onSelect={switchTranslationProvider}
       />
 
       <ShareArticleSheet
@@ -1998,7 +1876,7 @@ export function ReaderScreen({
       )}
 
       {/* 底部右下角悬浮跟贴胶囊（随时一触即达） */}
-      {showCommentEntry && !commentsOpen && !shareSheetOpen && !einkMode && !speedReadOpen && (
+      {canComment && !commentsOpen && !shareSheetOpen && !einkMode && !speedReadOpen && (
         <div
           className={`fixed right-4 z-40 transition-all duration-300 pointer-events-auto safe-bottom-20 ${
             (einkMode ? chromeVisible : pillVisible)
@@ -2009,7 +1887,7 @@ export function ReaderScreen({
           <button
             type="button"
             onClick={() => setCommentsOpen(true)}
-            aria-label={`查看${commentNoun}`}
+            aria-label="查看跟贴讨论"
             className="group flex items-center gap-2 rounded-full border border-haze bg-ink/95 px-3.5 py-2 text-paper shadow-xl shadow-black/35 backdrop-blur-md transition hover:scale-105 hover:border-cinnabar/60 active:scale-95"
           >
             <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-cinnabar/15 text-cinnabar group-hover:bg-cinnabar group-hover:text-white transition">
@@ -2018,10 +1896,10 @@ export function ReaderScreen({
             <span className="font-mono text-[12px] font-medium tracking-[0.03em] text-paper">
               {commentCount != null && commentCount > 0 ? (
                 <>
-                  <span className="text-cinnabar font-semibold">{commentCount}</span> {commentNoun}
+                  <span className="text-cinnabar font-semibold">{commentCount}</span> 跟贴
                 </>
               ) : (
-                `看${commentNoun}`
+                '看跟贴'
               )}
             </span>
           </button>

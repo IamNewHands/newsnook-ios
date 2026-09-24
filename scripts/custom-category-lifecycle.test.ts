@@ -106,26 +106,26 @@ assert.equal(rssResolved.caption, '示例')
 // 9. 内置分类重命名是当前预设的显示覆盖，不改注册表 id / 信源归属
 const renamedBuiltinPrefs = normalizePreferences({
   ...DEFAULT_PREFERENCES,
-  categoryNames: { hot: { label: '焦点新闻', short: '焦点' } },
+  categoryNames: { 'cn-headlines': { label: '焦点新闻', short: '焦点' } },
 })
-const renamedBuiltin = resolveCategory('hot', renamedBuiltinPrefs)
-assert.equal(renamedBuiltin.id, 'hot')
+const renamedBuiltin = resolveCategory('cn-headlines', renamedBuiltinPrefs)
+assert.equal(renamedBuiltin.id, 'cn-headlines')
 assert.equal(renamedBuiltin.label, '焦点新闻')
 assert.equal(renamedBuiltin.short, '焦点')
 assert.deepEqual(
-  categorySourceIds('hot', renamedBuiltinPrefs),
-  categorySourceIds('hot', DEFAULT_PREFERENCES),
+  categorySourceIds('cn-headlines', renamedBuiltinPrefs),
+  categorySourceIds('cn-headlines', DEFAULT_PREFERENCES),
 )
-const renamedViaAction = renameCategory(DEFAULT_PREFERENCES, 'hot', '今日焦点')
-assert.equal(resolveCategory('hot', renamedViaAction).label, '今日焦点')
-assert.equal(resolveCategory('hot', renamedViaAction).short, '今日焦点')
+const renamedViaAction = renameCategory(DEFAULT_PREFERENCES, 'cn-headlines', '今日焦点')
+assert.equal(resolveCategory('cn-headlines', renamedViaAction).label, '今日焦点')
+assert.equal(resolveCategory('cn-headlines', renamedViaAction).short, '今日焦点')
 
-const legacyPrefsWithoutNames = { ...DEFAULT_PREFERENCES } as Partial<typeof DEFAULT_PREFERENCES>
-delete legacyPrefsWithoutNames.categoryNames
+const currentPrefsWithoutNames = { ...DEFAULT_PREFERENCES } as Partial<typeof DEFAULT_PREFERENCES>
+delete currentPrefsWithoutNames.categoryNames
 assert.equal(
-  resolveCategory('hot', legacyPrefsWithoutNames as typeof DEFAULT_PREFERENCES).label,
-  '热点',
-  '升级前的内存态没有 categoryNames 时仍应回落注册表名称',
+  resolveCategory('cn-headlines', currentPrefsWithoutNames as typeof DEFAULT_PREFERENCES).label,
+  '国内要闻',
+  '没有 categoryNames 时应回落当前 taxonomy 注册表名称',
 )
 
 console.log('custom category lifecycle: all tests passed successfully!')

@@ -10,67 +10,62 @@ import {
 
 console.log('Testing sourceUsageByOtherCategories...')
 
-// 默认互斥：编辑科普时，科普默认源不应出现在「其他分类」映射里
-const scienceDefaults = categorySourceIds('science', DEFAULT_PREFERENCES)
-assert.ok(scienceDefaults.includes('guokr'))
-const defaultMap = sourceUsageByOtherCategories(DEFAULT_PREFERENCES, 'science')
-assert.equal(defaultMap['guokr'], undefined)
+// Default preset: editing 国内要闻 must not report its own source as occupied elsewhere.
+const headlineDefaults = categorySourceIds('cn-headlines', DEFAULT_PREFERENCES)
+assert.ok(headlineDefaults.includes('netease'))
+const defaultMap = sourceUsageByOtherCategories(DEFAULT_PREFERENCES, 'cn-headlines')
+assert.equal(defaultMap.netease, undefined)
 
-// 覆盖：把 guokr 也挂到科技 → 编辑科普时应看到「科技」
+// Force an overlap into 公共议题: editing 国内要闻 should point at the other visible category.
 const prefsWithOverlap = {
   ...DEFAULT_PREFERENCES,
   categorySources: {
     ...DEFAULT_PREFERENCES.categorySources,
-    tech: [...categorySourceIds('tech', DEFAULT_PREFERENCES), 'guokr'],
+    'cn-public': [...categorySourceIds('cn-public', DEFAULT_PREFERENCES), 'netease'],
   },
 }
-const scienceEditMap = sourceUsageByOtherCategories(prefsWithOverlap, 'science')
-assert.deepEqual(scienceEditMap['guokr'], ['科技'])
+const headlineEditMap = sourceUsageByOtherCategories(prefsWithOverlap, 'cn-headlines')
+assert.deepEqual(headlineEditMap.netease, ['公共议题'])
 
-// 编辑科技时不应把自己标出来，但仍应看到科普占用
-const techEditMap = sourceUsageByOtherCategories(prefsWithOverlap, 'tech')
-assert.deepEqual(techEditMap['guokr'], ['科普'])
-assert.ok(!techEditMap['guokr']?.includes('科技'))
+// Editing 公共议题 excludes itself but still sees 国内要闻.
+const publicEditMap = sourceUsageByOtherCategories(prefsWithOverlap, 'cn-public')
+assert.deepEqual(publicEditMap.netease, ['国内要闻'])
+assert.ok(!publicEditMap.netease?.includes('公共议题'))
 
-// mix 永不出现在 label 列表（即便综合也「跟随」全源，算法也应跳过 mix）
-for (const labels of Object.values(scienceEditMap)) {
+for (const labels of Object.values(headlineEditMap)) {
   assert.ok(!labels.includes('综合'))
 }
 
-// 自定义分类占用：新建分类（无 exclude）应看到自定义 label
 const { nextPrefs: prefsWithCustom, newCategoryId } = addCustomCategory(prefsWithOverlap, {
   label: '我的专栏',
   short: '专栏',
-  sourceIds: ['guokr'],
+  sourceIds: ['netease'],
 })
 const newCategoryMap = sourceUsageByOtherCategories(prefsWithCustom)
-assert.ok(newCategoryMap['guokr']?.includes('科技'))
-assert.ok(newCategoryMap['guokr']?.includes('我的专栏'))
+assert.ok(newCategoryMap.netease?.includes('国内要闻'))
+assert.ok(newCategoryMap.netease?.includes('公共议题'))
+assert.ok(newCategoryMap.netease?.includes('我的专栏'))
 
-// 编辑该自定义分类时排除自身
 const editingCustomMap = sourceUsageByOtherCategories(prefsWithCustom, newCategoryId)
-assert.ok(editingCustomMap['guokr']?.includes('科技'))
-assert.ok(!editingCustomMap['guokr']?.includes('我的专栏'))
+assert.ok(editingCustomMap.netease?.includes('国内要闻'))
+assert.ok(!editingCustomMap.netease?.includes('我的专栏'))
 
-// 多分类占用顺序跟随可见轨道顺序（内置在前）
-const techLabel = findCategory('tech').label
-assert.equal(newCategoryMap['guokr']?.[0], techLabel)
+const headlineLabel = findCategory('cn-headlines').label
+assert.equal(newCategoryMap.netease?.[0], headlineLabel)
 
-// 隐藏分类不参与对比（其他场景 / 本场景未启用栏）
-const prefsTechHidden = {
+const prefsPublicHidden = {
   ...prefsWithOverlap,
-  hiddenCategoryIds: [...DEFAULT_PREFERENCES.hiddenCategoryIds, 'tech'],
+  hiddenCategoryIds: [...DEFAULT_PREFERENCES.hiddenCategoryIds, 'cn-public'],
 }
-const hiddenTechMap = sourceUsageByOtherCategories(prefsTechHidden, 'science')
-assert.equal(hiddenTechMap['guokr'], undefined)
+const hiddenPublicMap = sourceUsageByOtherCategories(prefsPublicHidden, 'cn-headlines')
+assert.equal(hiddenPublicMap.netease, undefined)
 
-// 同名 label 的不同分类各占一条（按 categoryId 去重，不按 label 折叠）
 const { nextPrefs: prefsSameLabel } = addCustomCategory(prefsWithOverlap, {
-  label: '科技',
-  short: '科技2',
-  sourceIds: ['guokr'],
+  label: '国内要闻',
+  short: '要闻2',
+  sourceIds: ['netease'],
 })
-const sameLabelMap = sourceUsageByOtherCategories(prefsSameLabel, 'science')
-assert.equal(sameLabelMap['guokr']?.filter((label) => label === '科技').length, 2)
+const sameLabelMap = sourceUsageByOtherCategories(prefsSameLabel, 'cn-public')
+assert.equal(sameLabelMap.netease?.filter((label) => label === '国内要闻').length, 2)
 
 console.log('sourceUsageByOtherCategories: ok')

@@ -31,6 +31,7 @@ import {
 } from '../lib/parseFeed'
 import { parseSourceArticles } from '../lib/sourceArticles'
 import {
+  cachedListMatchesSourceVersion,
   loadCachedList,
   saveCachedArticles,
   type CachedList,
@@ -169,7 +170,10 @@ function loadCachedSource(
   paging: SourcePagingState
 } {
   const source = findSource(sourceId, extraSources)
-  const cached = loadCachedList(sourceId)
+  const loadedCache = loadCachedList(sourceId)
+  const cached = cachedListMatchesSourceVersion(loadedCache, source?.cacheVersion)
+    ? loadedCache
+    : null
   let items = (cached?.items ?? []).map(normalizeLegacyVideoArticle)
   if (
     source &&
@@ -259,13 +263,14 @@ function cacheMetaForItems(
   items: Article[],
   extraSources?: NewsSource[],
 ): CachedPagingMeta | undefined {
-  const meta = cacheMeta(state)
   const source = findSource(sourceId, extraSources)
-  if (source?.kind !== 'zhihu') return meta
+  const meta: CachedPagingMeta = { ...cacheMeta(state) }
+  if (source?.cacheVersion) meta.sourceVersion = source.cacheVersion
+  if (source?.kind !== 'zhihu') return Object.keys(meta).length ? meta : undefined
 
   const cachedItems = items.slice(0, 160)
   const cachedCursor = articleDateCursor(cachedItems)
-  const next = { ...meta, cursor: cachedCursor ?? meta?.cursor }
+  const next = { ...meta, cursor: cachedCursor ?? meta.cursor }
   // When memory contains more than the durable cache can retain, the archive
   // may continue from the oldest retained date after restart.
   if (items.length > cachedItems.length) delete next.exhausted

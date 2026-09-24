@@ -6,8 +6,10 @@ import { ImageLightbox } from '../../../components/ImageLightbox'
 import { ContextActionMenu } from '../../../components/ContextActionMenu'
 import { ConfirmDialog, OptionPickerDialog } from '../../../components/ConfirmDialog'
 import type { Point } from '../../../lib/contextActions'
+import { log } from '../../../lib/logger'
 import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
 import {
+  linuxDoApi,
   linuxDoDiscovery,
   linuxDoDrafts,
   linuxDoInteractions,
@@ -34,6 +36,11 @@ import { ComposerEditor, type ComposerEditorHandle, type ComposerUploadVisualIte
 import { CategoryPickerSheet, InsertMenuSheet, TagPickerSheet, TemplatePickerSheet } from '../editor/ComposerSheets'
 import { buildComposerDraftData, validateComposer } from '../editor/model'
 import { resolveLinuxDoTemplate, type LinuxDoComposerTemplate, type LinuxDoTemplateVariables } from '../template/service'
+import { LinuxDoReadTracker } from '../topic/readTracker'
+import { verifyLinuxDoBrowserSession } from '../session/native'
+import { ReadSyncStatus } from './ReadSyncStatus'
+import { readSyncDiagnostic, type ReadSyncFailure } from '../topic/readSyncDiagnostic'
+import { applyLinuxDoTopicReadProgress } from '../topic/readState'
 import { LINUXDO_UPLOAD_BATCH_LIMIT } from '../upload/service'
 
 async function openExternal(url: string): Promise<void> {
@@ -763,6 +770,8 @@ export function LinuxDoTopicView({
   targetPostNumber,
   postMutation,
   overlayBackHandlerRef,
+  onReadProgress,
+  onSession,
 }: {
   summary: LinuxDoTopicSummary
   session: LinuxDoSessionSnapshot
@@ -778,6 +787,8 @@ export function LinuxDoTopicView({
   targetPostNumber?: number
   postMutation?: LinuxDoPost
   overlayBackHandlerRef: MutableRefObject<(() => boolean) | null>
+  onReadProgress?: (topicId: number, highestSeen: number) => void
+  onSession?: (session: LinuxDoSessionSnapshot) => void
 }) {
   const [categoryMap, setCategoryMap] = useState<Record<number, LinuxDoCategory>>(categoriesById ?? {})
   useEffect(() => {
@@ -800,9 +811,41 @@ export function LinuxDoTopicView({
   const [actionMenu, setActionMenu] = useState<{ anchor: Point; post: LinuxDoPost } | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [pendingPostIds, setPendingPostIds] = useState<Set<number>>(new Set())
+  const [readPostNumbers, setReadPostNumbers] = useState<Set<number>>(new Set())
   const [deleteTarget, setDeleteTarget] = useState<LinuxDoPost | null>(null)
   const [notificationPickerOpen, setNotificationPickerOpen] = useState(false)
   const toastTimerRef = useRef<number | null>(null)
+  const topicScrollerRef = useRef<HTMLDivElement | null>(null)
+  const readTrackerRef = useRef<LinuxDoReadTracker | null>(null)
+  const [readSyncFailure, setReadSyncFailure] = useState<ReadSyncFailure | null>(null)
+  const [readSyncBusy, setReadSyncBusy] = useState(false)
+  const visibleReadKeyRef = useRef('')
+
+  const syncVisibleReadPosts = useCallback(() => {
+    const root = topicScrollerRef.current
+    const tracker = readTrackerRef.current
+    if (!root || !tracker) return
+    const viewport = root.getBoundingClientRect()
+    const visible = new Set<number>()
+    const readVisible = new Set<number>()
+    root.querySelectorAll<HTMLElement>('article[data-linuxdo-post-number]').forEach((element) => {
+      const postNumber = Number(element.dataset.linuxdoPostNumber)
+      if (!Number.isInteger(postNumber) || postNumber <= 0) return
+      const rect = element.getBoundingClientRect()
+      const overlap = Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top)
+      const required = Math.min(32, Math.max(1, rect.height * 0.2))
+      if (overlap >= required) {
+        visible.add(postNumber)
+        if (element.dataset.linuxdoRead === 'true') readVisible.add(postNumber)
+      }
+    })
+    tracker.setVisiblePosts(visible, readVisible)
+    const key = Array.from(visible).sort((a, b) => a - b).join(',')
+    if (key !== visibleReadKeyRef.current) {
+      visibleReadKeyRef.current = key
+      log.sync.debug('LinuxDO read tracker visible posts', { posts: Array.from(visible).sort((a, b) => a - b) })
+    }
+  }, [])
 
   const showToast = useCallback((msg: string) => {
     if (toastTimerRef.current != null) window.clearTimeout(toastTimerRef.current)
@@ -912,6 +955,8 @@ export function LinuxDoTopicView({
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
+    setReadPostNumbers(new Set())
+    setReadSyncFailure(null)
     try {
       const next = await linuxDoTopics.get(summary.slug, summary.id, targetPostNumber)
       setTopic(next)
@@ -933,6 +978,100 @@ export function LinuxDoTopicView({
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (!session.authenticated || !topic?.id || topic.id !== summary.id) return
+    const tracker = new LinuxDoReadTracker({
+      send: async (batch) => {
+        log.sync.info('LinuxDO timings sending', {
+          topicId: batch.topicId,
+          topicTime: batch.topicTime,
+          postNumbers: Object.keys(batch.timings).map(Number),
+          timings: batch.timings,
+          transport: 'session-chain',
+        })
+        await linuxDoTopics.reportTimings(batch.topicId, batch.topicTime, batch.timings)
+        log.sync.info('LinuxDO timings acknowledged', {
+          topicId: batch.topicId,
+          postNumbers: Object.keys(batch.timings).map(Number),
+        })
+      },
+      onSent: (topicId, highestSeen, postNumbers) => {
+        if (readTrackerRef.current === tracker) {
+          log.sync.info('LinuxDO read state applied', { topicId, highestSeen, postNumbers })
+          setReadSyncFailure(null)
+          const acknowledged = new Set(postNumbers)
+          // Match Discourse topicController.readPosts(): the authoritative post
+          // model itself becomes read after /topics/timings succeeds. Keeping the
+          // separate session set as well makes the state robust while pages are
+          // incrementally loaded or reconciled.
+          setPosts((current) => current.map((post) => acknowledged.has(post.postNumber) ? { ...post, read: true } : post))
+          setReadPostNumbers((current) => {
+            const next = new Set(current)
+            postNumbers.forEach((postNumber) => next.add(postNumber))
+            return next
+          })
+          setTopic((current) => current?.id === topicId ? applyLinuxDoTopicReadProgress(current, highestSeen) : current)
+        }
+        // The parent cache is safe to advance even if this view was just closed:
+        // the server has already accepted the timing batch at this point.
+        onReadProgress?.(topicId, highestSeen)
+      },
+      onError: (nextError, batch, retrying) => {
+        if (readTrackerRef.current !== tracker) return
+        setReadSyncFailure({ error: nextError, batch, retrying })
+        const status = nextError instanceof LinuxDoApiError ? nextError.status : undefined
+        log.sync.warn('LinuxDO timings failed', {
+          topicId: batch.topicId,
+          postNumbers: Object.keys(batch.timings).map(Number),
+          status,
+          retrying,
+          error: readableError(nextError),
+          diagnostics: nextError instanceof LinuxDoApiError ? nextError.diagnostics : undefined,
+        })
+      },
+    })
+    readTrackerRef.current = tracker
+    tracker.start(topic.id)
+
+    const syncVisibility = () => tracker.setFocused(document.visibilityState !== 'hidden')
+    const handleFocus = () => tracker.setFocused(document.visibilityState !== 'hidden')
+    const handleBlur = () => tracker.setFocused(false)
+    syncVisibility()
+    document.addEventListener('visibilitychange', syncVisibility)
+    window.addEventListener('focus', handleFocus)
+    window.addEventListener('blur', handleBlur)
+
+    return () => {
+      document.removeEventListener('visibilitychange', syncVisibility)
+      window.removeEventListener('focus', handleFocus)
+      window.removeEventListener('blur', handleBlur)
+      tracker.stop()
+      if (readTrackerRef.current === tracker) readTrackerRef.current = null
+    }
+  }, [onReadProgress, session.authenticated, session.currentUser?.id, summary.id, topic?.id])
+
+  useEffect(() => {
+    if (!session.authenticated || !topic?.id || !posts.length) return
+    const root = topicScrollerRef.current
+    if (!root || !readTrackerRef.current) return
+
+    const frame = window.requestAnimationFrame(syncVisibleReadPosts)
+    let observer: IntersectionObserver | undefined
+    if (typeof IntersectionObserver !== 'undefined') {
+      observer = new IntersectionObserver(() => syncVisibleReadPosts(), {
+        root,
+        threshold: [0, 0.2, 0.5, 1],
+      })
+      root.querySelectorAll<HTMLElement>('article[data-linuxdo-post-number]').forEach((element) => observer?.observe(element))
+    }
+    window.addEventListener('resize', syncVisibleReadPosts)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      observer?.disconnect()
+      window.removeEventListener('resize', syncVisibleReadPosts)
+    }
+  }, [posts, session.authenticated, syncVisibleReadPosts, topic?.id])
 
   useEffect(() => {
     if (!targetPostNumber || !posts.some((post) => post.postNumber === targetPostNumber)) return
@@ -972,6 +1111,31 @@ export function LinuxDoTopicView({
     }, 80)
   }, [posts, summary.id, summary.slug])
 
+  const recoverReadSession = async () => {
+    const tracker = readTrackerRef.current
+    if (!tracker || readSyncBusy) return
+    setReadSyncBusy(true)
+    try {
+      const next = await verifyLinuxDoBrowserSession('https://linux.do/')
+      if (!next.authenticated || !next.currentUser) throw new Error('请先完成 Linux.do 登录')
+      if (next.currentUser.id !== session.currentUser?.id) {
+        tracker.stop(false)
+        linuxDoApi.setSession(next)
+        onSession?.(next)
+        onBack()
+        return
+      }
+      linuxDoApi.setSession(next)
+      onSession?.(next)
+      if (readTrackerRef.current === tracker) {
+        setReadSyncFailure(current => current ? { ...current, retrying: true } : null)
+        tracker.resume()
+      }
+    } catch (nextError) {
+      showToast('会话恢复未完成：' + readableError(nextError))
+    } finally { setReadSyncBusy(false) }
+  }
+
   return (
     <div data-linuxdo-topic-view className="flex h-full min-h-0 flex-col">
       <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-haze/50 bg-ink/95 page-x py-2.5 backdrop-blur-xl">
@@ -1005,7 +1169,21 @@ export function LinuxDoTopicView({
         {topic ? <button type="button" onClick={() => onCompose(topic)} className="linuxdo-control inline-flex items-center gap-1.5 rounded-full bg-cinnabar px-3.5 py-2 text-[11.5px] font-medium text-white"><MessageCircle size={13} />回复</button> : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain page-x pb-4" onScroll={(event) => {
+      {readSyncFailure ? <ReadSyncStatus
+        failure={readSyncFailure}
+        busy={readSyncBusy}
+        onRetry={() => readTrackerRef.current?.resume()}
+        onVerify={() => void recoverReadSession()}
+        onCopy={() => {
+          if (!navigator.clipboard?.writeText) { showToast('复制不可用，请截图保留错误信息'); return }
+          void navigator.clipboard.writeText(readSyncDiagnostic(readSyncFailure))
+            .then(() => showToast('已复制阅读同步诊断'))
+            .catch(() => showToast('复制失败，请截图保留上方错误信息'))
+        }}
+      /> : null}
+      <div ref={topicScrollerRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain page-x pb-4" onScroll={(event) => {
+        readTrackerRef.current?.scrolled()
+        if (typeof IntersectionObserver === 'undefined') syncVisibleReadPosts()
         if (!topic || loadingPosts) return
         const node = event.currentTarget
         if (node.scrollHeight - node.scrollTop - node.clientHeight > 500) return
@@ -1068,9 +1246,11 @@ export function LinuxDoTopicView({
               {posts.map((post) => {
                 const like = post.actions.find((action) => action.id === 2)
                 const replyTarget = resolveReplyTarget(post, posts)
+                const readByServerCursor = post.read === undefined && typeof topic.lastReadPostNumber === 'number' && post.postNumber <= topic.lastReadPostNumber
+                const showUnreadDot = session.authenticated && post.read !== true && !readPostNumbers.has(post.postNumber) && !readByServerCursor
                 const isTopicOwner = (summary?.posters?.[0]?.username && summary.posters[0].username === post.username) || post.postNumber === 1
                 return (
-                  <article key={post.id} id={'linuxdo-post-' + post.postNumber} className="group rounded-xl sm:rounded-2xl border border-haze/45 bg-ink-raised/85 p-3 sm:p-4 shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-150 hover:border-haze/70">
+                  <article key={post.id} id={'linuxdo-post-' + post.postNumber} data-linuxdo-post-number={post.postNumber} data-linuxdo-read={showUnreadDot ? 'false' : 'true'} className="group rounded-xl sm:rounded-2xl border border-haze/45 bg-ink-raised/85 p-3 sm:p-4 shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-150 hover:border-haze/70">
                     <header className="linuxdo-control flex items-start gap-2.5 sm:gap-3 select-none">
                       <button type="button" onClick={() => onOpenUser(post.username)} className="relative mt-0.5 flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-black/5 dark:ring-white/10 bg-ink-deep transition-transform active:scale-95">
                         {avatar(post.avatarTemplate, post.username)}
@@ -1090,6 +1270,15 @@ export function LinuxDoTopicView({
                           <span className="truncate">{'@' + post.username}</span>
                           <span aria-hidden="true">·</span>
                           <span className="shrink-0">{ago(post.createdAt)}</span>
+                          {session.authenticated ? (
+                            <span
+                              data-linuxdo-unread-dot
+                              className={'h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400 ring-1 ring-sky-400/20 transition-[opacity,transform] duration-300 ease-out ' + (showUnreadDot ? 'scale-100 opacity-100' : 'scale-75 opacity-0')}
+                              role={showUnreadDot ? 'status' : undefined}
+                              aria-label={showUnreadDot ? '帖子 #' + post.postNumber + ' 未读' : undefined}
+                              aria-hidden={showUnreadDot ? undefined : true}
+                            />
+                          ) : null}
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5 pt-0.5">

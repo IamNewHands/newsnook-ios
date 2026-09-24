@@ -9,8 +9,8 @@ import {
   FAVORITES_CATEGORY_ID,
   findCategory,
   isReservedCategoryLabel,
-  PORTAL_CATEGORY_SOURCES,
-  PORTAL_VISIBLE_CATEGORY_IDS,
+  DEFAULT_PRESET_CATEGORY_IDS,
+  DEFAULT_PRESET_CATEGORY_SOURCES,
   RECOMMEND_CATEGORY,
   RECOMMEND_CATEGORY_ID,
   type CategoryId,
@@ -517,9 +517,9 @@ export function resetCategoryLayout(
 ): Preferences {
   return {
     ...prefs,
-    categoryOrder: [...PORTAL_VISIBLE_CATEGORY_IDS],
+    categoryOrder: [...DEFAULT_PRESET_CATEGORY_IDS],
     hiddenCategoryIds: [...DEFAULT_HIDDEN_CATEGORY_IDS],
-    categorySources: { ...PORTAL_CATEGORY_SOURCES },
+    categorySources: { ...DEFAULT_PRESET_CATEGORY_SOURCES },
     categoryNames: {},
     customCategories: options?.removeCustom ? [] : (prefs.customCategories ?? []),
   }

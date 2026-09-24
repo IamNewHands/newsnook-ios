@@ -5,6 +5,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -68,6 +70,8 @@ import org.json.JSONObject;
 public class LinuxDoSessionPlugin extends Plugin {
 
     private static final String ORIGIN = "https://linux.do";
+    private static final String CONNECT_ORIGIN = "https://connect.linux.do";
+    private static final int CONNECT_MAX_REDIRECTS = 8;
     private static final String LOGIN_URL = "https://linux.do/login";
     private static final String SESSION_URL = "https://linux.do/session/current.json";
     private static final String OTP_CSRF_URL = ORIGIN + "/session/csrf.json?newsnook_otp_csrf=1";
@@ -77,6 +81,8 @@ public class LinuxDoSessionPlugin extends Plugin {
     private static final String BROWSER_BRIDGE_NAME = "NewsNookLinuxDoBridge";
     private static final int BROWSER_RESPONSE_CHUNK_CHARS = 32 * 1024;
     private static final int BROWSER_RESPONSE_MAX_CHARS = 16 * 1024 * 1024;
+    private static final long BROWSER_REQUEST_TIMEOUT_MS = 35_000L;
+    private final Handler browserHandler = new Handler(Looper.getMainLooper());
 
     private Dialog dialog;
     private WebView sessionWebView;
@@ -95,6 +101,7 @@ public class LinuxDoSessionPlugin extends Plugin {
     private volatile boolean finishing;
     private volatile boolean preferBrowserTransport;
     private LinuxDoUserApiAuth userApiAuth;
+    private final LinuxDoBrowserSessionRecovery browserSessionRecovery = new LinuxDoBrowserSessionRecovery();
 
     private interface BrowserTransportReadyCallback {
         void onReady(WebView webView);
@@ -110,11 +117,19 @@ public class LinuxDoSessionPlugin extends Plugin {
         final int status;
         final String data;
         final JSObject headers;
+        final String responseUrl;
+        final String transport;
 
-        BrowserFetchResponse(int status, String data, JSObject headers) {
+        BrowserFetchResponse(int status, String data, JSObject headers, String responseUrl) {
+            this(status, data, headers, responseUrl, "browser");
+        }
+
+        BrowserFetchResponse(int status, String data, JSObject headers, String responseUrl, String transport) {
             this.status = status;
             this.data = data;
             this.headers = headers;
+            this.responseUrl = responseUrl;
+            this.transport = transport;
         }
     }
 
@@ -124,13 +139,16 @@ public class LinuxDoSessionPlugin extends Plugin {
         int status;
         JSObject headers = new JSObject();
         boolean overflow;
+        String responseUrl = "";
+        Runnable timeout;
 
         BrowserFetchPending(BrowserFetchCallback callback) {
             this.callback = callback;
         }
 
-        synchronized void start(int nextStatus, String headersJson) {
+        synchronized void start(int nextStatus, String headersJson, String finalUrl) {
             status = nextStatus;
+            responseUrl = safeResponseUrl(finalUrl);
             try {
                 JSONObject source = new JSONObject(headersJson == null || headersJson.isEmpty() ? "{}" : headersJson);
                 java.util.Iterator<String> names = source.keys();
@@ -156,15 +174,15 @@ public class LinuxDoSessionPlugin extends Plugin {
 
         synchronized BrowserFetchResponse finish() {
             if (overflow) return null;
-            return new BrowserFetchResponse(status, body.toString(), headers);
+            return new BrowserFetchResponse(status, body.toString(), headers, responseUrl);
         }
     }
 
     private final class BrowserFetchBridge {
         @JavascriptInterface
-        public void onStart(String requestId, int status, String headersJson) {
+        public void onStart(String requestId, int status, String headersJson, String finalUrl) {
             BrowserFetchPending pending = browserFetches.get(requestId);
-            if (pending != null) pending.start(status, headersJson);
+            if (pending != null) pending.start(status, headersJson, finalUrl);
         }
 
         @JavascriptInterface
@@ -177,6 +195,7 @@ public class LinuxDoSessionPlugin extends Plugin {
         public void onComplete(String requestId) {
             BrowserFetchPending pending = browserFetches.remove(requestId);
             if (pending == null) return;
+            if (pending.timeout != null) browserHandler.removeCallbacks(pending.timeout);
             BrowserFetchResponse response = pending.finish();
             dispatchBrowserCallback(() -> {
                 if (response == null) {
@@ -192,6 +211,7 @@ public class LinuxDoSessionPlugin extends Plugin {
         public void onError(String requestId, String message) {
             BrowserFetchPending pending = browserFetches.remove(requestId);
             if (pending == null) return;
+            if (pending.timeout != null) browserHandler.removeCallbacks(pending.timeout);
             dispatchBrowserCallback(() -> pending.callback.onFailure(empty(message).isEmpty() ? "浏览器网络请求失败" : message));
         }
     }
@@ -418,6 +438,7 @@ public class LinuxDoSessionPlugin extends Plugin {
         String method = call.getString("method", "GET").toUpperCase(Locale.ROOT);
         String body = call.getString("body", "");
         JSObject requestHeaders = call.getObject("headers", new JSObject());
+        boolean browserOnly = Boolean.TRUE.equals(call.getBoolean("browserOnly", false));
 
         if (!isApiAllowedUrl(url)) {
             call.reject("只允许请求 linux.do 主站 HTTPS API", "LINUXDO_REQUEST_URL");
@@ -429,11 +450,25 @@ public class LinuxDoSessionPlugin extends Plugin {
         }
 
         getActivity().runOnUiThread(() -> {
+            if (browserOnly) {
+                performBrowserRequest(url, method, requestHeaders, body, new BrowserFetchCallback() {
+                    @Override
+                    public void onSuccess(BrowserFetchResponse response) {
+                        resolveBrowserRequest(call, response);
+                    }
+
+                    @Override
+                    public void onFailure(String message) {
+                        call.reject(message, "LINUXDO_BROWSER_REQUEST");
+                    }
+                });
+                return;
+            }
             if (preferBrowserTransport) {
                 performBrowserRequest(url, method, requestHeaders, body, new BrowserFetchCallback() {
                     @Override
                     public void onSuccess(BrowserFetchResponse response) {
-                        resolveRequest(call, response.status, response.data, response.headers);
+                        resolveBrowserRequest(call, response);
                     }
 
                     @Override
@@ -450,6 +485,94 @@ public class LinuxDoSessionPlugin extends Plugin {
             }
             performNativeRequest(call, url, method, requestHeaders, body);
         });
+    }
+
+    @PluginMethod
+    public void prepareBrowserSession(PluginCall call) {
+        dispatchBrowserCallback(() -> browserSessionRecovery.prepare(getActivity(), result -> {
+            if (result.optBoolean("ready", false)) preferBrowserTransport = true;
+            call.resolve(result);
+        }));
+    }
+
+    @PluginMethod
+    public void fetchConnectTrustPage(PluginCall call) {
+        getActivity().runOnUiThread(() -> performConnectTrustRequest(call, CONNECT_ORIGIN + "/", 0));
+    }
+
+    private void performConnectTrustRequest(PluginCall call, String url, int redirectCount) {
+        if (!isConnectTrustAllowedUrl(url)) {
+            call.reject("Connect 跳转到了非 Linux.do 第一方地址", "LINUXDO_CONNECT_URL");
+            return;
+        }
+        if (redirectCount > CONNECT_MAX_REDIRECTS) {
+            call.reject("Connect 登录跳转次数过多", "LINUXDO_CONNECT_REDIRECT");
+            return;
+        }
+
+        CookieManager manager = CookieManager.getInstance();
+        String cookie = empty(manager.getCookie(url));
+        String userAgent = currentUserAgent();
+        Request.Builder builder = new Request.Builder()
+            .url(url)
+            .get()
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Cache-Control", "no-cache")
+            .header("Referer", CONNECT_ORIGIN + "/");
+        if (!cookie.isEmpty()) builder.header("Cookie", cookie);
+        if (!userAgent.isEmpty()) builder.header("User-Agent", userAgent);
+
+        identityClient.newCall(builder.build()).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call ignored, IOException error) {
+                call.reject("Connect 网络请求失败", "LINUXDO_CONNECT_NETWORK");
+            }
+
+            @Override
+            public void onResponse(Call ignored, Response response) throws IOException {
+                syncResponseCookies(response);
+                int status = response.code();
+                String location = empty(response.header("Location", ""));
+                if (isRedirectStatus(status) && !location.isEmpty()) {
+                    okhttp3.HttpUrl next = response.request().url().resolve(location);
+                    response.close();
+                    if (next == null || !isConnectTrustAllowedUrl(next.toString())) {
+                        call.reject("Connect 返回了不受信任的跳转地址", "LINUXDO_CONNECT_REDIRECT_URL");
+                        return;
+                    }
+                    getActivity().runOnUiThread(() -> performConnectTrustRequest(call, next.toString(), redirectCount + 1));
+                    return;
+                }
+
+                String responseText;
+                try (ResponseBody responseBody = response.body()) {
+                    responseText = responseBody != null ? responseBody.string() : "";
+                }
+                JSObject result = new JSObject();
+                result.put("status", status);
+                result.put("data", responseText);
+                result.put("finalUrl", response.request().url().toString());
+                result.put("headers", safeResponseHeaders(response));
+                call.resolve(result);
+            }
+        });
+    }
+
+    private boolean isRedirectStatus(int status) {
+        return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+    }
+
+    private boolean isConnectTrustAllowedUrl(String value) {
+        if (value == null || value.isEmpty()) return false;
+        try {
+            Uri uri = Uri.parse(value);
+            String host = uri.getHost();
+            return "https".equalsIgnoreCase(uri.getScheme())
+                && host != null
+                && (host.equalsIgnoreCase("linux.do") || host.equalsIgnoreCase("connect.linux.do"));
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private void performNativeRequest(
@@ -491,42 +614,39 @@ public class LinuxDoSessionPlugin extends Plugin {
 
             @Override
             public void onResponse(Call ignored, Response response) throws IOException {
-                syncResponseCookies(response);
                 String responseText;
                 try (ResponseBody responseBody = response.body()) {
                     responseText = responseBody != null ? responseBody.string() : "";
+                } catch (IOException error) {
+                    call.reject("Linux.do 响应读取失败", "LINUXDO_RESPONSE_READ");
+                    return;
                 }
                 JSObject responseHeaders = safeResponseHeaders(response);
                 int status = response.code();
-
-                if (!isCloudflareChallenge(status, responseText, responseHeaders)) {
-                    resolveRequest(call, status, responseText, responseHeaders);
-                    return;
-                }
-
-                // A browser may already be trusted while OkHttp is still challenged
-                // because Cloudflare also evaluates network/TLS identity. Probe the
-                // exact original request through the browser stack before interrupting
-                // the user with a verification screen. This is the same compatibility
-                // principle used by FluxDO's WebView HTTP adapter.
-                dispatchBrowserCallback(() ->
+                // In particular, do not hand JS a CSRF token until the matching
+                // session cookie is acknowledged by CookieManager.
+                syncResponseCookies(response, () -> {
+                    if (!isCloudflareChallenge(status, responseText, responseHeaders)) {
+                        resolveRequest(call, status, responseText, responseHeaders);
+                        return;
+                    }
                     performBrowserRequest(url, method, requestHeaders, body, new BrowserFetchCallback() {
                         @Override
                         public void onSuccess(BrowserFetchResponse browserResponse) {
                             if (!isCloudflareChallenge(browserResponse.status, browserResponse.data, browserResponse.headers)) {
                                 preferBrowserTransport = true;
-                                resolveRequest(call, browserResponse.status, browserResponse.data, browserResponse.headers);
-                                return;
                             }
-                            resolveRequest(call, status, responseText, responseHeaders);
+                            // Preserve the actual fallback result, not the first
+                            // native 403. Otherwise diagnostics name the wrong hop.
+                            resolveBrowserRequest(call, browserResponse);
                         }
 
                         @Override
                         public void onFailure(String message) {
                             resolveRequest(call, status, responseText, responseHeaders);
                         }
-                    })
-                );
+                    });
+                }, () -> call.reject("Linux.do 会话 Cookie 同步失败", "LINUXDO_COOKIE_SYNC"));
             }
         });
     }
@@ -536,7 +656,25 @@ public class LinuxDoSessionPlugin extends Plugin {
         result.put("status", status);
         result.put("data", data);
         result.put("headers", headers);
+        result.put("transport", "native");
         call.resolve(result);
+    }
+
+    private void resolveBrowserRequest(PluginCall call, BrowserFetchResponse response) {
+        JSObject result = new JSObject();
+        result.put("status", response.status);
+        result.put("data", response.data);
+        result.put("headers", response.headers);
+        result.put("transport", response.transport);
+        result.put("responseUrl", response.responseUrl);
+        call.resolve(result);
+    }
+
+    private static String safeResponseUrl(String url) {
+        try {
+            Uri parsed = Uri.parse(url);
+            return parsed.buildUpon().clearQuery().fragment(null).build().toString();
+        } catch (Exception ignored) { return ""; }
     }
 
     private JSObject safeResponseHeaders(Response response) {
@@ -595,12 +733,41 @@ public class LinuxDoSessionPlugin extends Plugin {
             return;
         }
 
+        if (browserSessionRecovery.canRequest(url)) {
+            // Keep the token and the retried write in the actual first-party
+            // document that completed session preparation. Do not switch it back
+            // into a synthetic blank document after obtaining a usable CSRF.
+            browserSessionRecovery.request(url, method, browserSafeRequestHeaders(requestHeaders), body, result -> {
+                if (result.has("error")) {
+                    callback.onFailure(result.optString("error", "Linux.do 浏览器请求失败"));
+                    return;
+                }
+                JSObject headers = new JSObject();
+                JSONObject received = result.optJSONObject("headers");
+                if (received != null) {
+                    java.util.Iterator<String> keys = received.keys();
+                    while (keys.hasNext()) {
+                        String key = keys.next();
+                        if (!"set-cookie".equalsIgnoreCase(key) && !"set-cookie2".equalsIgnoreCase(key)) headers.put(key, received.optString(key, ""));
+                    }
+                }
+                callback.onSuccess(new BrowserFetchResponse(result.optInt("status", 0), result.optString("data", ""), headers,
+                    safeResponseUrl(result.optString("responseUrl", "")), "browser-firstparty"));
+            });
+            return;
+        }
+
         ensureBrowserTransport(new BrowserTransportReadyCallback() {
             @Override
             public void onReady(WebView webView) {
                 String requestId = UUID.randomUUID().toString();
                 BrowserFetchPending pending = new BrowserFetchPending(callback);
                 browserFetches.put(requestId, pending);
+                pending.timeout = () -> {
+                    if (browserFetches.remove(requestId) != pending) return;
+                    pending.callback.onFailure("Linux.do 浏览器请求超时");
+                };
+                browserHandler.postDelayed(pending.timeout, BROWSER_REQUEST_TIMEOUT_MS);
 
                 JSONObject browserHeaders = browserSafeRequestHeaders(requestHeaders);
                 String bodyExpression = method.equals("GET") ? "undefined" : JSONObject.quote(body);
@@ -609,27 +776,30 @@ public class LinuxDoSessionPlugin extends Plugin {
                         + "const id=" + JSONObject.quote(requestId) + ";"
                         + "const bridge=window." + BROWSER_BRIDGE_NAME + ";"
                         + "const headers=" + browserHeaders.toString() + ";"
+                        + "const aborter=new AbortController();"
+                        + "const deadline=setTimeout(function(){aborter.abort();},30000);"
                         + "fetch(" + JSONObject.quote(url) + ",{"
                         + "method:" + JSONObject.quote(method) + ","
                         + "headers:headers,"
-                        + "credentials:'include',"
+                        + "credentials:'include',signal:aborter.signal,"
                         + "redirect:'follow',"
                         + "cache:'no-store',"
                         + "body:" + bodyExpression
                         + "}).then(async function(response){"
                         + "const h={};response.headers.forEach(function(v,k){h[k]=v;});"
-                        + "bridge.onStart(id,response.status,JSON.stringify(h));"
+                        + "bridge.onStart(id,response.status,JSON.stringify(h),response.url);"
                         + "const text=await response.text();"
                         + "const size=" + BROWSER_RESPONSE_CHUNK_CHARS + ";"
                         + "for(let i=0;i<text.length;i+=size){bridge.onChunk(id,text.slice(i,i+size));}"
-                        + "bridge.onComplete(id);"
-                        + "}).catch(function(error){bridge.onError(id,String(error&&error.message||error||'fetch failed'));});"
+                        + "clearTimeout(deadline);bridge.onComplete(id);"
+                        + "}).catch(function(error){clearTimeout(deadline);bridge.onError(id,String(error&&error.message||error||'fetch failed'));});"
                         + "})();";
 
                 try {
                     webView.evaluateJavascript(script, null);
                 } catch (Exception error) {
                     browserFetches.remove(requestId);
+                    browserHandler.removeCallbacks(pending.timeout);
                     callback.onFailure("无法启动 Linux.do 浏览器网络请求");
                 }
             }
@@ -779,6 +949,7 @@ public class LinuxDoSessionPlugin extends Plugin {
         browserTransportInitializing = false;
 
         for (BrowserFetchPending pending : browserFetches.values()) {
+            if (pending.timeout != null) browserHandler.removeCallbacks(pending.timeout);
             pending.callback.onFailure(reason);
         }
         browserFetches.clear();
@@ -988,6 +1159,7 @@ public class LinuxDoSessionPlugin extends Plugin {
     public void clearBrowserSession(PluginCall call) {
         getActivity().runOnUiThread(() -> {
             try {
+                browserSessionRecovery.cancel();
                 destroyBrowserTransport("Linux.do 浏览器会话已清除");
                 clearLinuxDoCookies();
                 clearCachedSessionUser();
@@ -1016,12 +1188,30 @@ public class LinuxDoSessionPlugin extends Plugin {
     }
 
     private void syncResponseCookies(Response response) {
+        syncResponseCookies(response, () -> {}, () -> {});
+    }
+
+    private void syncResponseCookies(Response response, Runnable completed, Runnable failed) {
         java.util.List<String> values = response.headers("Set-Cookie");
-        if (values.isEmpty()) return;
-        getActivity().runOnUiThread(() -> {
+        String cookieUrl = response.request().url().toString();
+        dispatchBrowserCallback(() -> {
             CookieManager manager = CookieManager.getInstance();
-            for (String value : values) manager.setCookie(ORIGIN, value);
-            manager.flush();
+            AtomicBoolean resolved = new AtomicBoolean();
+            Runnable timeout = () -> { if (resolved.compareAndSet(false, true)) failed.run(); };
+            browserHandler.postDelayed(timeout, 5_000L);
+            LinuxDoCookieCommit.commit(values,
+                (cookie, done) -> manager.setCookie(cookieUrl, cookie, done::accept),
+                () -> {
+                    if (!resolved.compareAndSet(false, true)) return;
+                    browserHandler.removeCallbacks(timeout);
+                    manager.flush();
+                    completed.run();
+                },
+                () -> {
+                    if (!resolved.compareAndSet(false, true)) return;
+                    browserHandler.removeCallbacks(timeout);
+                    failed.run();
+                });
         });
     }
 
@@ -1500,6 +1690,10 @@ public class LinuxDoSessionPlugin extends Plugin {
         boolean userApiExchange = call == pendingUserApiCall;
         LinuxDoUserApiAuth.Credential credential = pendingOtpCredential;
         if (user != null) cacheSessionUser(user);
+        if (finishDialog && user != null) {
+            browserSessionRecovery.cancel();
+            preferBrowserTransport = true;
+        }
         if (userApiExchange && user == null) {
             pendingUserApiCall = null;
             pendingOtpCredential = null;
@@ -1621,6 +1815,7 @@ public class LinuxDoSessionPlugin extends Plugin {
             if (dialog != null) dialog.dismiss();
             destroyWebView();
             destroyBrowserTransport("应用正在关闭");
+            browserSessionRecovery.cancel();
             dialog = null;
         });
         super.handleOnDestroy();

@@ -110,7 +110,7 @@ function topicTargetFromUrl(value: string | undefined): Extract<LinuxDoNotificat
   return undefined
 }
 
-export type LinuxDoNotificationFilter = 'all' | 'mentions' | 'replies' | 'system'
+export type LinuxDoNotificationFilter = 'all' | 'mentions' | 'replies' | 'private' | 'system'
 
 export type LinuxDoNotificationTarget =
   | { kind: 'topic'; topicId: number; slug: string; postNumber?: number }
@@ -150,6 +150,7 @@ export function linuxDoNotificationMatchesFilter(notification: LinuxDoNotificati
   if (filter === 'all') return true
   if (filter === 'mentions') return [1, 3, 15, 29, 32].includes(notification.notificationType)
   if (filter === 'replies') return [2, 35].includes(notification.notificationType)
+  if (filter === 'private') return [6, 7].includes(notification.notificationType)
   return systemNotificationTypes.has(notification.notificationType)
 }
 
@@ -161,23 +162,25 @@ export function mergeLinuxDoNotifications(
   previous: LinuxDoNotification[],
   incoming: LinuxDoNotification[],
 ): LinuxDoNotification[] {
-  const previousById = new Map(previous.map((item) => [item.id, item]))
-  const incomingIds = new Set(incoming.map((item) => item.id))
-  const merged = incoming.map((item) => {
-    const existing = previousById.get(item.id)
-    if (!existing) return item
-    return {
+  const byId = new Map<number, LinuxDoNotification>()
+  for (const item of previous) byId.set(item.id, item)
+  for (const item of incoming) {
+    const existing = byId.get(item.id)
+    byId.set(item.id, existing ? {
       ...item,
       // A response that started before a successful mark-read must never
       // resurrect the unread dot when it completes later.
       read: item.read || existing.read,
-    }
-  })
-
-  for (const item of previous) {
-    if (!incomingIds.has(item.id)) merged.push(item)
+    } : item)
   }
-  return merged
+
+  return [...byId.values()].sort((a, b) => {
+    const timeA = Date.parse(a.createdAt)
+    const timeB = Date.parse(b.createdAt)
+    const safeA = Number.isFinite(timeA) ? timeA : 0
+    const safeB = Number.isFinite(timeB) ? timeB : 0
+    return safeB - safeA || b.id - a.id
+  })
 }
 
 export function markLinuxDoNotificationRead(

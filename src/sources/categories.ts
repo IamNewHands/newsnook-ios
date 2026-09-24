@@ -1,37 +1,37 @@
 /**
- * 阅读分类：覆盖注册表内全部可用信源。
- * - 「综合」读取用户在频道页启用的源
- * - 默认可见为门户经典栏（见 preferences.DEFAULT_HIDDEN_CATEGORY_IDS / PORTAL_VISIBLE_CATEGORY_IDS）
- * - 主题栏按正文能否无翻译直读拆成中文栏与「·外刊」栏；同栏不中英混源
- * - AI 分层、游戏、科技深度等默认隐藏，由场景预设打开
- * - RSS / 专栏用主题分类承接，保证每个 sourceId 至少落入一个分类
+ * Taxonomy v3
+ *
+ * Built-in categories are deliberately preset-local: every non-workspace built-in source belongs to
+ * exactly one category, and every category belongs to exactly one built-in preset. This keeps the
+ * official information architecture mutually exclusive while user-created layouts remain free-form.
+ *
+ * Zhihu community is workspaceOnly and therefore intentionally excluded from the preset taxonomy.
  */
 
 import { SOURCES } from './registry'
 
 export type CategoryId = string
 
-/** 当前场景预设内收藏的信源：动态分类，不进静态分类注册表。 */
-export const FAVORITES_CATEGORY_ID: CategoryId = 'favorites'
+/** Current taxonomy version stored with preferences/presets so legacy layouts can be materialized safely. */
+export const CATEGORY_TAXONOMY_VERSION = 3
 
-/** 本地推荐分类：候选池为当前预设启用的全部信源，排序见 lib/recommend.ts */
+/** Dynamic categories are not part of the static taxonomy. */
+export const FAVORITES_CATEGORY_ID: CategoryId = 'favorites'
 export const RECOMMEND_CATEGORY_ID: CategoryId = 'recommend'
+
+const SOURCE_CAPTION = new Map(
+  SOURCES.map((source) => [source.id, source.label || source.name] as const),
+)
 
 export interface NewsCategory {
   id: CategoryId
   label: string
-  /** 轨道上更短的字 */
   short: string
   caption: string
-  /**
-   * 固定信源；为空表示使用用户在「频道」里启用的来源（综合）。
-   */
   sourceIds?: string[]
-  /** 标记是否为用户自建的自定义分类 */
   isCustom?: boolean
 }
 
-/** 收藏分类由当前预设的 favoriteSourceIds 派生；空收藏时不显示。 */
 export const FAVORITES_CATEGORY: NewsCategory = {
   id: FAVORITES_CATEGORY_ID,
   label: '收藏',
@@ -39,10 +39,6 @@ export const FAVORITES_CATEGORY: NewsCategory = {
   caption: '当前预设收藏的信源',
 }
 
-/**
- * 动态「推荐」分类：不进 CATEGORIES 注册表，不参与分类管理与预设快照；
- * 由 App 在预设内阅读量达标（lib/recommend.isRecommendationReady）时插到轨道最前。
- */
 export const RECOMMEND_CATEGORY: NewsCategory = {
   id: RECOMMEND_CATEGORY_ID,
   label: '推荐',
@@ -50,45 +46,35 @@ export const RECOMMEND_CATEGORY: NewsCategory = {
   caption: '基于本机已读记录对预设内信源做个性化排序 · 数据不出本机',
 }
 
-/** 动态栏位名称保留给系统使用：自建分类的名称与短名都不得占用。 */
 export function isReservedCategoryLabel(label: string): boolean {
   const normalized = label.trim()
   return normalized === RECOMMEND_CATEGORY.label || normalized === FAVORITES_CATEGORY.label
 }
 
-/** 单源分类：轨道名与来源名一致 */
-function solo(
+function category(
   id: CategoryId,
   label: string,
-  sourceId: string,
-  caption?: string,
-): NewsCategory {
-  return {
-    id,
-    label,
-    short: label,
-    caption: caption ?? label,
-    sourceIds: [sourceId],
-  }
-}
-
-/** 外刊配对栏：短名后加「·外刊」 */
-function worldRail(
-  id: CategoryId,
-  themeLabel: string,
   short: string,
-  caption: string,
   sourceIds: string[],
 ): NewsCategory {
   return {
     id,
-    label: `${themeLabel}·外刊`,
-    short: `${short}·外刊`,
-    caption,
+    label,
+    short,
+    caption: sourceIds.map((id) => SOURCE_CAPTION.get(id) ?? id).join(' · '),
     sourceIds,
   }
 }
 
+/**
+ * Static category registry.
+ *
+ * Invariant:
+ * - sourceIds are globally unique across these categories.
+ * - every non-workspace built-in source is covered exactly once.
+ * - category labels are unique.
+ * - "mix" is the only aggregate category and is used only by blank custom layouts.
+ */
 export const CATEGORIES: NewsCategory[] = [
   {
     id: 'mix',
@@ -96,376 +82,196 @@ export const CATEGORIES: NewsCategory[] = [
     short: '综合',
     caption: '按「综合频道」里启用的来源混合编排',
   },
-  {
-    id: 'hot',
-    label: '热点',
-    short: '热点',
-    caption: '网易头条',
-    sourceIds: ['netease'],
-  },
-  solo('exclusive', '独家', 'netease-exclusive', '网易独家'),
-  {
-    id: 'ent',
-    label: '娱乐',
-    short: '娱乐',
-    caption: '网易娱乐',
-    sourceIds: ['netease-ent'],
-  },
-  {
-    id: 'sports',
-    label: '体育',
-    short: '体育',
-    caption: '网易体育',
-    sourceIds: ['netease-sports'],
-  },
-  {
-    id: 'tech',
-    label: '科技',
-    short: '科技',
-    caption: '网易科技 · IT之家 · 少数派 · 极客公园 · Solidot · 阮一峰 · 小众软件',
-    sourceIds: [
-      'netease-tech',
-      'ithome',
-      'sspai',
-      'geekpark',
-      'solidot',
-      'ruanyifeng',
-      'appinn',
-    ],
-  },
-  {
-    id: 'finance',
-    label: '商业',
-    short: '商业',
-    caption: '网易商业 · 股票 · 财联社 · 东财 · 见闻 · 晚点 · 36氪',
-    sourceIds: [
-      'netease-biz',
-      'netease-stock',
-      'cls-telegraph',
-      'eastmoney-kx',
-      'eastmoney-news',
-      'wscn-live',
-      'latepost',
-      'jazzyear',
-      'kr36',
-      'huxiu',
-      'tmtpost',
-    ],
-  },
-  {
-    id: 'intl',
-    label: '国际',
-    short: '国际',
-    caption: 'BBC 中文 · DW · 端传媒',
-    sourceIds: ['bbc-zh', 'bbc-zh-world', 'dw-top', 'theinitium'],
-  },
-  {
-    id: 'cn-depth',
-    label: '中文深读',
-    short: '深读',
-    caption: '澎湃上海书评/人物/研究所/思想市场/科学湃 · 南方周末深度/特稿/对话/智库',
-    sourceIds: [
-      'thepaper-bookreview',
-      'thepaper-people',
-      'thepaper-research',
-      'thepaper-ideas',
-      'thepaper-science',
-      'infzm-depth',
-      'infzm-feature',
-      'infzm-interview',
-      'infzm-thinktank',
-    ],
-  },
-  {
-    id: 'health',
-    label: '健康',
-    short: '健康',
-    caption: '网易健康',
-    sourceIds: ['netease-health'],
-  },
-  {
-    id: 'science',
-    label: '科普',
-    short: '科普',
-    caption: '果壳科学人 · 泛科学 · 环球科学 · 知识分子 · 返朴 · 物理所 · 地球知识局 · 集智',
-    sourceIds: [
-      'guokr',
-      'pansci',
-      'huanqiukexue',
-      'zhishifenzi',
-      'netease-fanpu',
-      'netease-wuli',
-      'netease-diqiu',
-      'swarma',
-    ],
-  },
-  {
-    id: 'fun',
-    label: '轻松一刻',
-    short: '轻松',
-    caption: '网易轻松一刻 · 煎蛋新鲜事 · 机核',
-    sourceIds: ['netease-fun', 'jandan', 'gcores'],
-  },
-  worldRail('ent-world', '娱乐', '娱乐', 'Google 娱乐', ['gnews-ent']),
-  worldRail('sports-world', '体育', '体育', 'Google 体育', ['gnews-sports']),
-  worldRail('tech-world', '科技', '科技', 'Google 科技', ['gnews-tech']),
-  worldRail(
-    'finance-world',
-    '商业',
-    '商业',
-    'BBC Business · Google 商业 · TechCrunch',
-    ['techcrunch', 'bbc-business', 'gnews-business'],
-  ),
-  worldRail(
-    'intl-world',
-    '国际',
-    '国际',
-    'SCMP · 外交事务 · 纽约书评 · 彭博观点 · 辛迪加 · Sinocism · 公共广电 · Google 全球',
-    [
-      'foreign-affairs',
-      'nyrb',
-      'bloomberg-opinion',
-      'project-syndicate',
-      'sinocism',
-      'bbc-world',
-      'scmp-china',
-      'scmp-news',
-      'npr',
-      'guardian-world',
-      'france24',
-      'aljazeera',
-      'gnews-world',
-    ],
-  ),
-  worldRail('health-world', '健康', '健康', 'Google 健康', ['gnews-health']),
-  worldRail('science-world', '科普', '科普', 'Google 科学', ['gnews-science']),
-  // AI 按信息层次拆栏：OpenAI / Claude / 实验室（官方一手）→ 业界（媒体）→ 深读（二次加工）→ 社区
-  {
-    id: 'ai-openai',
-    label: 'OpenAI',
-    short: 'OpenAI',
-    caption: 'OpenAI 官方：News 发布 · Cookbook 实践指南',
-    sourceIds: ['openai-news', 'openai-cookbook'],
-  },
-  {
-    id: 'ai-claude',
-    label: 'Claude',
-    short: 'Claude',
-    caption: 'Anthropic 官方：新闻 · Claude 博客 · 客户案例 · 学院用例/教程',
-    sourceIds: [
-      'anthropic',
-      'claude-blog',
-      'claude-customers',
-      'claude-academy-use-cases',
-      'claude-academy-tutorials',
-    ],
-  },
-  {
-    id: 'ai',
-    label: '实验室',
-    short: '实验室',
-    caption: '实验室与平台官方：Google AI · DeepMind · Hugging Face · PyTorch · Arena',
-    sourceIds: ['google-ai', 'deepmind', 'huggingface', 'pytorch', 'arena'],
-  },
-  {
-    id: 'ai-media',
-    label: '业界',
-    short: '业界',
-    caption: '中文媒体快报：量子位 · 机器之心 · 新智元 · 雷锋网',
-    sourceIds: ['qbitai', 'jiqizhixin', 'aiera', 'leiphone'],
-  },
-  worldRail(
-    'ai-media-world',
-    '业界',
-    '业界',
-    'MIT/Verge/IEEE 等 AI 栏目 · Synced · VentureBeat · MarkTechPost',
-    ['mittr-ai', 'verge-ai', 'ieee-ai', 'venturebeat-ai', 'synced', 'marktechpost'],
-  ),
-  {
-    id: 'ai-depth',
-    label: '深读',
-    short: '深读',
-    caption: '中文解读评测：智东西 · 宝玉 · 夕小瑶 · 42章经',
-    sourceIds: ['zhidx', 'baoyu', 'xixiaoyao', '42zhangjing'],
-  },
-  worldRail(
-    'ai-depth-world',
-    '深读',
-    '深读',
-    'Mollick · Latent · 周报作者博',
-    [
-      'oneusefulthing',
-      'latent-space',
-      'understandingai',
-      'thezvi',
-      'lastweek-ai',
-      'import-ai',
-      'simonw',
-      'interconnects',
-      'lil-log',
-      'ahead-of-ai',
-    ],
-  ),
-  {
-    id: 'ai-community',
-    label: '社区',
-    short: '社区',
-    caption: '优设 AIGC · V2EX · PaperWeekly · 人人都是产品经理',
-    sourceIds: ['uisdc-aigc', 'v2ex', 'paperweekly', 'woshipm-ai'],
-  },
-  worldRail('ai-community-world', '社区', '社区', 'Hacker News', ['hn']),
-  solo('game', '游戏', 'netease-game'),
 
-  // —— 默认隐藏：分类管理可开启 ——
-  {
-    id: 'politics',
-    label: '政务',
-    short: '政务',
-    caption: '网易政务 · BBC 中国',
-    sourceIds: ['netease-gov', 'bbc-zh-china'],
-  },
-  solo('edu', '教育', 'netease-edu'),
-  solo('auto', '汽车', 'netease-auto'),
-  solo('travel', '旅游', 'netease-travel'),
-  solo('history', '历史', 'netease-history'),
-  // 股票并入「商业」拼单，避免与 finance 重复挂载
-  solo('phone', '手机', 'netease-phone'),
-  solo('digital', '数码', 'netease-digital'),
-  solo('antique', '古玩', 'netease-antique'),
-  solo('run', '跑步', 'netease-run'),
-  solo('blog', '博客', 'netease-blog', '网易博客'),
-  solo('select', '精选', 'netease-select', '网易精选'),
-  solo('nba', 'NBA', 'netease-nba'),
-  solo('football', '足球', 'netease-football'),
-  solo('cba', 'CBA', 'netease-cba'),
-  solo('cn-football', '中国足球', 'netease-cn-football'),
-  solo('zhihu', '知乎日报', 'zhihu-daily', '知乎日报精选（直连官方列表接口）'),
-  solo('astral-codex-ten', 'ACX', 'astral-codex-ten', 'Astral Codex Ten (Scott Alexander)'),
-  solo('marginalian', 'Marginalian', 'marginalian', 'The Marginalian (Maria Popova)'),
-  solo('aldaily', 'ALDaily', 'aldaily', 'Arts & Letters Daily'),
-  solo('theue', '无业游民', 'theue', '无业游民（深度图文特刊）'),
-  {
-    id: 'tech-depth',
-    label: '科技深度',
-    short: '深度',
-    caption: '浅黑科技 · 爱范儿 · InfoQ 中文',
-    sourceIds: ['qianhei', 'ifanr', 'infoq-cn'],
-  },
-  worldRail(
-    'tech-depth-world',
-    '科技深度',
-    '深度',
-    'Ars · MIT TR · Quanta · Stratechery · Vitalik · Paul Graham · 半导体 · 建筑物理 · WIRED · The Verge',
-    [
-      'arstechnica',
-      'mittr',
-      'quanta',
-      'stratechery',
-      'vitalik',
-      'fabricated-knowledge',
-      'construction-physics',
-      'paulgraham',
-      'verge',
-      'wired',
-    ],
-  ),
+  // 中国资讯：综合新闻、公共议题、人物、观点、外部观察分层，避免人物/研究混进“政务社会”。
+  category('cn-headlines', '国内要闻', '要闻', ['netease']),
+  category('cn-select', '独家精选', '精选', ['netease-exclusive', 'netease-select']),
+  category('cn-public', '公共议题', '公共', ['netease-gov', 'thepaper-research']),
+  category('cn-dialogue', '人物访谈', '人物', ['thepaper-people', 'infzm-interview']),
+  category('cn-opinion', '观点智库', '观点', ['thepaper-ideas', 'infzm-thinktank']),
+  category('cn-external', '外部观察', '外部观察', ['scmp-china', 'sinocism']),
+
+  // 全球视野：按语言 + 媒体形态拆分，避免 8~9 个来源挤在一个“大国际”栏。
+  category('world-zh', '中文公共', '中文公共', ['bbc-zh', 'rfi-zh', 'dw-top', 'voa-zh']),
+  category('world-zh-press', '中文报刊', '中文报刊', [
+    'nytimes-zh',
+    'cna-intl-zh',
+    'zaobao-world',
+    'theinitium',
+  ]),
+  category('world-news', '英文公共', '英文公共', [
+    'bbc-world',
+    'dw-en',
+    'npr',
+    'france24',
+    'aljazeera',
+  ]),
+  category('world-news-press', '英文聚合', '英文报刊', [
+    'nytimes-world',
+    'wsj-world',
+    'guardian-world',
+    'gnews-world',
+  ]),
+  category('world-asia', '亚太观察', '亚太', ['nikkei-asia', 'channelnewsasia-world', 'scmp-news']),
+  category('world-opinion', '国际评论', '国际评论', ['foreign-affairs', 'project-syndicate']),
+
+  // 财经商业
+  category('biz-market', '市场快讯', '市场', ['cls-telegraph', 'eastmoney-kx', 'wscn-live']),
+  category('biz-finance', '财经资讯', '财经', ['eastmoney-news', 'netease-stock']),
+  category('biz-company', '商业媒体', '商业', ['latepost', 'huxiu', 'tmtpost', 'netease-biz']),
+  category('biz-startup', '创业创投', '创业', ['kr36', 'techcrunch']),
+  category('biz-industry', '产业评论', '产业', ['jazzyear', 'stratechery', 'bloomberg-opinion']),
+  category('biz-global', '全球商业', '全球商业', ['ftchinese', 'bbc-business', 'gnews-business']),
+
+  // 科技数码：消费数码、产业科技、技术资讯分开，避免父级科技频道与手机/数码子频道混在同一栏。
+  category('tech-digital', '消费数码', '数码', [
+    'netease-phone',
+    'netease-digital',
+    'ithome',
+    'ifanr',
+    'verge',
+  ]),
+  category('tech-media', '科技产业', '科技产业', ['netease-tech', 'geekpark', 'mittr', 'wired', 'gnews-tech']),
+  category('tech-news', '技术资讯', '技术资讯', ['solidot', 'arstechnica']),
+  category('tech-tools', '软件效率', '软件', ['sspai', 'appinn']),
+  category('tech-dev', '开发者', '开发者', ['infoq-cn', 'hn', 'v2ex', 'ruanyifeng']),
+  category('tech-longform', '技术深读', '技术深读', [
+    'qianhei',
+    'paulgraham',
+    'vitalik',
+    'fabricated-knowledge',
+    'construction-physics',
+  ]),
+
+  // AI 前沿：官方模型厂商与开源/评测生态分开，避免“模型实验室”把框架和评测站也包进去。
+  category('ai-labs', '厂商咨询', '实验室', [
+    'openai-news',
+    'anthropic',
+    'claude-blog',
+    'google-ai',
+    'deepmind',
+  ]),
+  category('ai-ecosystem', '开源评测', 'AI生态', ['huggingface', 'pytorch', 'arena']),
+  category('ai-practice', '产品实践', 'AI实践', [
+    'claude-customers',
+    'claude-academy-use-cases',
+    'claude-academy-tutorials',
+    'openai-cookbook',
+    'uisdc-aigc',
+    'woshipm-ai',
+  ]),
+  category('ai-media-cn', 'AI中文', 'AI中文', ['qbitai', 'jiqizhixin', 'aiera', 'leiphone', 'zhidx']),
+  category('ai-media-en', 'AI海外', 'AI海外', [
+    'synced',
+    'mittr-ai',
+    'verge-ai',
+    'ieee-ai',
+    'venturebeat-ai',
+    'marktechpost',
+  ]),
+  category('ai-engineering', 'AI工程', 'AI工程', [
+    'paperweekly',
+    'xixiaoyao',
+    'simonw',
+    'latent-space',
+    'interconnects',
+    'lil-log',
+  ]),
+  category('ai-thinking', 'AI思想', 'AI思想', [
+    'baoyu',
+    'oneusefulthing',
+    'understandingai',
+    'thezvi',
+    '42zhangjing',
+  ]),
+  category('ai-watch', 'AI观察', 'AI周报', ['lastweek-ai', 'import-ai', 'ahead-of-ai']),
+
+  // 科学知识：集智俱乐部属于复杂系统/科研前沿，不再误归“地球系统”。
+  category('science-general', '科学综合', '科学', ['guokr', 'pansci', 'huanqiukexue', 'gnews-science']),
+  category('science-research', '科研前沿', '科研', ['zhishifenzi', 'thepaper-science', 'quanta', 'swarma']),
+  category('science-basic', '基础科学', '基础科学', ['netease-fanpu', 'netease-wuli']),
+  category('science-earth', '地理观察', '地理', ['netease-diqiu']),
+  category('science-health', '健康医学', '健康', ['netease-health', 'gnews-health']),
+
+  // 深度人文：知乎日报明确进入中文精选，中文/海外长文不再混在“知识阅读”大杂烩里。
+  category('depth-reporting', '深度报道', '深度', ['infzm-depth', 'infzm-feature']),
+  category('depth-books', '中文精选', '中文精选', ['zhihu-daily', 'thepaper-bookreview', 'theue']),
+  category('depth-knowledge', '海外长文', '海外长文', [
+    'nyrb',
+    'marginalian',
+    'aldaily',
+    'astral-codex-ten',
+  ]),
+  category('depth-culture', '文史教育', '文化', ['netease-edu', 'netease-history', 'netease-antique']),
+  category('depth-blogs', '博客随笔', '博客', ['netease-blog']),
+
+  // 文体生活
+  category('life-sports', '体育综合', '体育', ['netease-sports', 'gnews-sports']),
+  category('life-basketball', '篮球', '篮球', ['netease-nba', 'netease-cba']),
+  category('life-football', '足球', '足球', ['netease-football', 'netease-cn-football']),
+  category('life-running', '跑步健身', '跑步', ['netease-run']),
+  category('life-ent', '娱乐资讯', '娱乐', ['netease-ent', 'gnews-ent']),
+  category('life-games', '游戏文化', '游戏', ['netease-game', 'gcores']),
+  category('life-fun', '轻松趣闻', '轻松', ['netease-fun', 'jandan']),
+  category('life-travel', '旅行出行', '出行', ['netease-travel', 'netease-auto']),
 ]
+
+const CATEGORY_MAP = new Map(CATEGORIES.map((item) => [item.id, item]))
 
 export function findCategory(id: CategoryId): NewsCategory {
-  return CATEGORIES.find((item) => item.id === id) ?? CATEGORIES[0]
+  return CATEGORY_MAP.get(id) ?? CATEGORIES[0]
 }
 
-/**
- * 门户经典默认可见栏（与 preferences.DEFAULT_HIDDEN_CATEGORY_IDS 互斥）。
- * 整组中文栏在前、整组外刊栏在后；不含综合。
- */
-export const PORTAL_VISIBLE_CATEGORY_IDS: readonly CategoryId[] = [
-  'hot',
-  'exclusive',
-  'ent',
-  'sports',
-  'tech',
-  'finance',
-  'intl',
-  'health',
-  'science',
-  'fun',
-  'ent-world',
-  'sports-world',
-  'tech-world',
-  'finance-world',
-  'intl-world',
-  'health-world',
-  'science-world',
+/** Fresh installs use 中国资讯. Presets own the rest of the taxonomy. */
+export const DEFAULT_PRESET_CATEGORY_IDS: readonly CategoryId[] = [
+  'cn-headlines',
+  'cn-select',
+  'cn-public',
+  'cn-dialogue',
+  'cn-opinion',
+  'cn-external',
 ]
 
-/** 全景门户出厂信源；新装 / 重置布局与 builtin-default 共用，避免可见外刊栏铺开注册表全集 */
-export const PORTAL_CATEGORY_SOURCES: Record<CategoryId, string[]> = {
-  hot: ['netease'],
-  exclusive: ['netease-exclusive'],
-  ent: ['netease-ent'],
-  sports: ['netease-sports', 'netease-football', 'netease-cn-football'],
-  tech: [
-    'netease-tech',
-    'ithome',
-    'sspai',
-    'geekpark',
-    'solidot',
-    'ifanr',
-    'netease-auto',
-    'ruanyifeng',
-    'appinn',
-  ],
-  finance: [
-    'cls-telegraph',
-    'latepost',
-    'kr36',
-    'eastmoney-kx',
-    'wscn-live',
-    'huxiu',
-    'jazzyear',
-    'tmtpost',
-    'eastmoney-news',
-    'netease-stock',
-    'netease-biz',
-  ],
-  intl: ['bbc-zh', 'dw-top', 'theinitium', 'bbc-zh-world'],
-  health: ['netease-health'],
-  science: [
-    'guokr',
-    'pansci',
-    'huanqiukexue',
-    'netease-diqiu',
-    'zhishifenzi',
-    'netease-fanpu',
-    'netease-wuli',
-  ],
-  fun: ['netease-fun', 'jandan', 'gcores'],
-  'ent-world': ['gnews-ent'],
-  'sports-world': ['gnews-sports'],
-  'tech-world': ['gnews-tech', 'verge', 'arstechnica'],
-  'finance-world': ['bbc-business', 'gnews-business', 'techcrunch'],
-  'intl-world': ['gnews-world', 'scmp-china', 'npr', 'guardian-world'],
-  'health-world': ['gnews-health'],
-  'science-world': ['gnews-science', 'quanta'],
-}
+export const DEFAULT_PRESET_CATEGORY_SOURCES: Record<CategoryId, string[]> = Object.fromEntries(
+  DEFAULT_PRESET_CATEGORY_IDS.map((id) => [id, [...(findCategory(id).sourceIds ?? [])]]),
+)
 
 export function sourceIdsForCategory(
   categoryId: CategoryId,
   enabledIds: string[],
 ): string[] {
-  const category = findCategory(categoryId)
-  if (!category.sourceIds?.length) return enabledIds
-  return category.sourceIds
+  const found = findCategory(categoryId)
+  if (!found.sourceIds?.length) return enabledIds
+  return found.sourceIds
 }
 
-/** 开发期自检：注册表中的每个源至少落入一个分类 */
+/** Every non-workspace source must be assigned exactly once. */
 export function uncoveredSourceIds(): string[] {
   const covered = new Set<string>()
-  CATEGORIES.forEach((category) => {
-    category.sourceIds?.forEach((id) => covered.add(id))
-  })
+  CATEGORIES.forEach((item) => item.sourceIds?.forEach((id) => covered.add(id)))
   return SOURCES.filter((source) => !source.workspaceOnly)
     .map((source) => source.id)
     .filter((id) => !covered.has(id))
+}
+
+export function duplicateCategorizedSourceIds(): string[] {
+  const seen = new Set<string>()
+  const duplicates = new Set<string>()
+  CATEGORIES.forEach((item) => {
+    item.sourceIds?.forEach((id) => {
+      if (seen.has(id)) duplicates.add(id)
+      else seen.add(id)
+    })
+  })
+  return [...duplicates].sort()
+}
+
+export function duplicateCategoryLabels(): string[] {
+  const seen = new Set<string>()
+  const duplicates = new Set<string>()
+  CATEGORIES.forEach((item) => {
+    if (seen.has(item.label)) duplicates.add(item.label)
+    else seen.add(item.label)
+  })
+  return [...duplicates].sort()
 }

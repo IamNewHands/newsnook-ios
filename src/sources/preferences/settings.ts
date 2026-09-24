@@ -8,13 +8,10 @@ import { DEFAULT_PROXY_PREFS, normalizeProxyPrefs } from '../../features/proxy/c
 import type { ProxyPrefs } from '../../features/proxy/types'
 import {
   DEFAULT_TYPOGRAPHY,
-  DEFAULT_UI_PREFS,
   normalizePrestoreLimit,
-  normalizeUiScale,
   type HomeFeedLayout,
   type Preferences,
   type TypographyPrefs,
-  type UiPrefs,
 } from './model'
 
 export function setThemeMode(prefs: Preferences, theme: ThemeMode): Preferences {
@@ -85,25 +82,6 @@ export function updateTypography(
 
 export function resetTypography(prefs: Preferences): Preferences {
   return { ...prefs, typography: DEFAULT_TYPOGRAPHY }
-}
-
-/** 界面字体与字号：字号照 normalize 夹紧，字体族由 normalizePreferences 校验 */
-export function updateUiPrefs(prefs: Preferences, patch: Partial<UiPrefs>): Preferences {
-  const next: UiPrefs = { ...prefs.ui, ...patch }
-  if (patch.scale !== undefined) next.scale = normalizeUiScale(patch.scale)
-  if (
-    next.fontFamily === prefs.ui.fontFamily &&
-    next.scale === prefs.ui.scale &&
-    next.weight === prefs.ui.weight &&
-    next.floatReaderNav === prefs.ui.floatReaderNav
-  ) {
-    return prefs
-  }
-  return { ...prefs, ui: next }
-}
-
-export function resetUiPrefs(prefs: Preferences): Preferences {
-  return { ...prefs, ui: DEFAULT_UI_PREFS }
 }
 
 export function updateProxyPrefs(

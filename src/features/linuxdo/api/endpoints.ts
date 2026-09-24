@@ -58,12 +58,17 @@ export const linuxDoEndpoints = {
     if (filter !== undefined) params.set('filter', String(filter))
     return ORIGIN + '/user_actions.json?' + params.toString()
   },
-  notifications: (offset = 0, limit = 30, filter?: 'read' | 'unread') => {
+  notifications: (offset = 0, limit = 60, filter?: 'read' | 'unread') => {
     const params = new URLSearchParams({ offset: String(offset), limit: String(limit) })
     if (filter) params.set('filter', filter)
     return ORIGIN + '/notifications.json?' + params.toString()
   },
+  privateMessages: (username: string, page = 0) => {
+    const params = page > 0 ? '?page=' + encodeURIComponent(String(page)) : ''
+    return ORIGIN + '/topics/private-messages/' + encodeURIComponent(username) + '.json' + params
+  },
   markNotificationsRead: ORIGIN + '/notifications/mark-read',
+  topicTimings: ORIGIN + '/topics/timings',
   postsCreate: ORIGIN + '/posts.json',
   post: (id: number) => ORIGIN + '/posts/' + id + '.json',
   postRaw: (id: number) => ORIGIN + '/posts/' + id + '/raw',

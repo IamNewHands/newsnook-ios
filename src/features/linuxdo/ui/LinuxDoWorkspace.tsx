@@ -9,6 +9,7 @@ import { createLinuxDoDiscoveryCache } from './discoveryCache'
 import { createLinuxDoSearchCache } from './searchCache'
 import { UserProfileView } from './UserProfileView'
 import { AccountView } from './AccountView'
+import { TrustLevelView } from '../connect/TrustLevelView'
 import { verifyLinuxDoBrowserSession } from '../session/native'
 import {
   linuxDoApi as api,
@@ -19,6 +20,7 @@ import {
 } from '../runtime'
 import { TopicCard } from './shared'
 import { retryAfterVerification } from './feedModel'
+import { applyLinuxDoReadProgress, linuxDoTopicHasUnreadIndicator } from '../topic/readState'
 import type { LinuxDoDiscoveryScope } from './discoveryScope'
 import { linuxDoLoadingLabel } from './loadingModel'
 import { readableError } from './utils'
@@ -33,6 +35,7 @@ type Route =
   | { kind: 'notifications' }
   | { kind: 'user'; username: string; tab?: 'badges'; badgeId?: number }
   | { kind: 'bookmarks' }
+  | { kind: 'trust' }
   | { kind: 'account' }
 
 interface Props {
@@ -525,6 +528,40 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
   const workspaceNoticeTimerRef = useRef<number | null>(null)
   const [workspaceCategories, setWorkspaceCategories] = useState<Record<number, LinuxDoCategory>>({})
 
+  const applyTopicReadProgress = useCallback((topicId: number, highestSeen: number) => {
+    const updateItems = (items: LinuxDoTopicSummary[]) =>
+      items.map((item) => item.id === topicId ? applyLinuxDoReadProgress(item, highestSeen) : item)
+
+    for (const mode of Object.keys(feedCacheRef.current) as LinuxDoFeedMode[]) {
+      const entry = feedCacheRef.current[mode]
+      if (!entry.items.some((item) => item.id === topicId)) continue
+      let items = updateItems(entry.items)
+      if (mode === 'new' || mode === 'unread') {
+        items = items.filter((item) => item.id !== topicId || linuxDoTopicHasUnreadIndicator(item))
+      }
+      feedCacheRef.current[mode] = { ...entry, items }
+    }
+
+    for (const [key, entry] of Object.entries(discoverCacheRef.current.scopes)) {
+      if (!entry.items.some((item) => item.id === topicId)) continue
+      discoverCacheRef.current.scopes[key] = { ...entry, items: updateItems(entry.items) }
+    }
+
+    if (searchCacheRef.current.topics.some((item) => item.id === topicId)) {
+      searchCacheRef.current = {
+        ...searchCacheRef.current,
+        topics: updateItems(searchCacheRef.current.topics),
+      }
+    }
+
+    // /read.json is server-derived; force a fresh page next time rather than
+    // pretending that our cached membership/order is authoritative.
+    feedCacheRef.current.read = emptyFeedCacheEntry()
+    setRoute((current) => current.kind === 'topic' && current.topic.id === topicId
+      ? { ...current, topic: applyLinuxDoReadProgress(current.topic, highestSeen) }
+      : current)
+  }, [])
+
   const resetPersonalizedFeedCaches = useCallback(() => {
     for (const mode of ['new', 'unread', 'posted', 'read', 'bookmarks'] as const) {
       feedCacheRef.current[mode] = emptyFeedCacheEntry()
@@ -660,7 +697,8 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
             : route.kind === 'notifications' ? '通知'
               : route.kind === 'user' ? '用户'
                 : route.kind === 'bookmarks' ? '书签'
-                  : '我的'
+                  : route.kind === 'trust' ? '信任等级'
+                    : '我的'
 
   return (
     <div className="linuxdo-workspace relative flex h-full min-h-0 flex-col overflow-hidden bg-ink text-paper">
@@ -698,7 +736,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
             categoriesById={workspaceCategories}
           />
         ) : route.kind === 'topic' ? (
-          <LinuxDoTopicView summary={route.topic} session={session} targetPostNumber={route.targetPostNumber} postMutation={topicPostMutation} overlayBackHandlerRef={topicOverlayBackHandlerRef} onBack={() => { if (!goBack()) setRoute({ kind: 'feed', mode: 'latest' }) }} onCompose={(topic, options) => { setComposerTopic(topic); setComposerEditPost(undefined); setComposerInitialRaw(options?.initialRaw || ''); setComposerReplyTo(options?.replyToPostNumber); setComposerOpen(true) }} onBoost={setBoostPost} onOpenUser={(username) => navigate({ kind: 'user', username })} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenTag={(name) => navigate({ kind: 'discover', scope: { kind: 'tag', name } })} onOpenCategory={(category) => navigate({ kind: 'discover', scope: { kind: 'category', category } })} categoriesById={workspaceCategories} onEdit={(topic, post) => {
+          <LinuxDoTopicView summary={route.topic} session={session} targetPostNumber={route.targetPostNumber} postMutation={topicPostMutation} overlayBackHandlerRef={topicOverlayBackHandlerRef} onReadProgress={applyTopicReadProgress} onSession={applyWorkspaceSession} onBack={() => { if (!goBack()) setRoute({ kind: 'feed', mode: 'latest' }) }} onCompose={(topic, options) => { setComposerTopic(topic); setComposerEditPost(undefined); setComposerInitialRaw(options?.initialRaw || ''); setComposerReplyTo(options?.replyToPostNumber); setComposerOpen(true) }} onBoost={setBoostPost} onOpenUser={(username) => navigate({ kind: 'user', username })} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenTag={(name) => navigate({ kind: 'discover', scope: { kind: 'tag', name } })} onOpenCategory={(category) => navigate({ kind: 'discover', scope: { kind: 'category', category } })} categoriesById={workspaceCategories} onEdit={(topic, post) => {
             setComposerTopic(topic)
             setComposerReplyTo(undefined)
             const openEditor = (raw: string) => { setComposerEditPost({ ...post, raw }); setComposerInitialRaw(raw); setComposerOpen(true) }
@@ -715,8 +753,10 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
           <UserProfileView username={route.username} initialTab={route.tab} initialBadgeId={route.badgeId} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenUser={(username) => navigate({ kind: 'user', username })} />
         ) : route.kind === 'bookmarks' ? (
           <BookmarksView session={session} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} />
+        ) : route.kind === 'trust' ? (
+          <TrustLevelView session={session} />
         ) : (
-          <AccountView session={session} onSession={applyWorkspaceSession} onBookmarks={() => navigate({ kind: 'bookmarks' })} onProfile={(username) => navigate({ kind: 'user', username })} />
+          <AccountView session={session} onSession={applyWorkspaceSession} onBookmarks={() => navigate({ kind: 'bookmarks' })} onProfile={(username) => navigate({ kind: 'user', username })} onTrustLevel={() => navigate({ kind: 'trust' })} />
         )}
       </div>
 
@@ -725,7 +765,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
         <button type="button" onClick={() => setRoute({ kind: 'discover' })} className={'linuxdo-nav-item ' + (route.kind === 'discover' ? 'is-active' : '')} aria-label="发现"><Compass size={18} /><span>发现</span></button>
         <button type="button" onClick={() => { setComposerTopic(undefined); setComposerEditPost(undefined); setComposerInitialRaw(''); setComposerReplyTo(undefined); setComposerOpen(true) }} className="linuxdo-nav-compose" aria-label="发布"><span className="grid h-12 w-12 place-items-center rounded-full bg-cinnabar text-white shadow-lg"><Plus size={22} /></span><span>发布</span></button>
         <button type="button" onClick={() => setRoute({ kind: 'notifications' })} className={'linuxdo-nav-item relative ' + (route.kind === 'notifications' ? 'is-active' : '')} aria-label="通知"><Bell size={18} /><span>通知</span>{notificationUnread > 0 ? <i className="absolute right-[24%] top-1 h-2 w-2 rounded-full bg-[#ff4d4f]" /> : null}</button>
-        <button type="button" onClick={() => setRoute({ kind: 'account' })} className={'linuxdo-nav-item ' + (route.kind === 'account' || route.kind === 'user' || route.kind === 'bookmarks' ? 'is-active' : '')} aria-label="我的"><UserRound size={18} /><span>我的</span></button>
+        <button type="button" onClick={() => setRoute({ kind: 'account' })} className={'linuxdo-nav-item ' + (route.kind === 'account' || route.kind === 'user' || route.kind === 'bookmarks' || route.kind === 'trust' ? 'is-active' : '')} aria-label="我的"><UserRound size={18} /><span>我的</span></button>
       </nav>
 
       <LinuxDoComposer open={composerOpen} topic={composerTopic} session={session} initialRaw={composerInitialRaw} replyToPostNumber={composerReplyTo} editPost={composerEditPost} requestCloseRef={composerRequestCloseRef} onClose={closeComposer} onSent={(created, kind) => {

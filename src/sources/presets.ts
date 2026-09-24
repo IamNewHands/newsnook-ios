@@ -5,8 +5,8 @@
 
 import {
   CATEGORIES,
-  PORTAL_CATEGORY_SOURCES,
-  PORTAL_VISIBLE_CATEGORY_IDS,
+  CATEGORY_TAXONOMY_VERSION,
+  findCategory,
   type CategoryId,
   type NewsCategory,
 } from './categories'
@@ -17,20 +17,25 @@ import {
   type Preferences,
   type CategoryNameOverride,
 } from './preferences'
-import { isCustomSourceId, SOURCES } from './registry'
+import { canonicalSourceId, isCustomSourceId, SOURCES } from './registry'
+import { legacyBuiltinPresetName, migrateLegacyCategoryLayout } from './taxonomyMigration'
 
 export const MIGRATE_LAYOUT_PRESET_ID = 'user-migrated-layout'
 export const USER_DEFAULT_LAYOUT_ID = 'user-default-layout'
+export const PRESETS_SCHEMA_VERSION = 2
 
-export const BUILTIN_DEFAULT_ID = 'builtin-default'
-export const BUILTIN_TECH_ID = 'builtin-tech'
-export const BUILTIN_BIZ_ID = 'builtin-biz'
-export const BUILTIN_WORLD_ID = 'builtin-world'
-export const BUILTIN_DEPTH_ID = 'builtin-depth'
-export const BUILTIN_MINDFUL_ID = 'builtin-mindful'
-export const BUILTIN_FUN_ID = 'builtin-fun'
+export const BUILTIN_DEFAULT_ID = 'builtin-v2-cn'
+export const BUILTIN_CHINA_ID = BUILTIN_DEFAULT_ID
+export const BUILTIN_WORLD_ID = 'builtin-v2-world'
+export const BUILTIN_BIZ_ID = 'builtin-v2-biz'
+export const BUILTIN_TECH_ID = 'builtin-v2-tech'
+export const BUILTIN_AI_ID = 'builtin-v2-ai'
+export const BUILTIN_SCIENCE_ID = 'builtin-v2-science'
+export const BUILTIN_DEPTH_ID = 'builtin-v2-depth'
+export const BUILTIN_LIFE_ID = 'builtin-v2-life'
 
 export interface LayoutSnapshot {
+  categoryTaxonomyVersion: number
   categoryOrder: CategoryId[]
   hiddenCategoryIds: CategoryId[]
   categorySources: Record<CategoryId, string[]>
@@ -54,6 +59,7 @@ export interface LayoutPreset {
 }
 
 export interface PresetsState {
+  schemaVersion: number
   activePresetId: string
   userPresets: LayoutPreset[]
   /** 用户对内置预设的就地修改；与出厂相同则不出现在此表 */
@@ -72,10 +78,10 @@ function uniqueValid(ids: unknown, known: Set<string>): string[] {
 /** 自建源 id 不在内置注册表里，快照仍需保留，否则分类卡片会变成「未选择信源」 */
 function uniqueValidSourceIds(ids: unknown): string[] {
   if (!Array.isArray(ids)) return []
-  const valid = ids.filter(
-    (id): id is string =>
-      typeof id === 'string' && (KNOWN_SOURCE_IDS.has(id) || isCustomSourceId(id)),
-  )
+  const valid = ids
+    .filter((id): id is string => typeof id === 'string')
+    .map((id) => (isCustomSourceId(id) ? id : canonicalSourceId(id)))
+    .filter((id) => KNOWN_SOURCE_IDS.has(id) || isCustomSourceId(id))
   return [...new Set(valid)]
 }
 
@@ -104,7 +110,8 @@ function normalizeCustomCategories(raw: unknown): NewsCategory[] {
 }
 
 export function normalizeSnapshot(raw: unknown): LayoutSnapshot {
-  const input = (raw ?? {}) as Partial<LayoutSnapshot>
+  const migrated = migrateLegacyCategoryLayout(raw).value
+  const input = migrated as Partial<LayoutSnapshot>
   const customCategories = normalizeCustomCategories(input.customCategories)
   const allCategoryIds = new Set([
     ...BUILTIN_CATEGORY_IDS,
@@ -135,6 +142,7 @@ export function normalizeSnapshot(raw: unknown): LayoutSnapshot {
   const hidden = uniqueValid(input.hiddenCategoryIds, allCategoryIds)
   const categoryOrder = uniqueValid(input.categoryOrder, allCategoryIds)
   return {
+    categoryTaxonomyVersion: CATEGORY_TAXONOMY_VERSION,
     categoryOrder,
     hiddenCategoryIds: hidden.length >= allCategoryIds.size ? hidden.slice(1) : hidden,
     categorySources,
@@ -150,6 +158,7 @@ export function snapshotFromRuntime(
   enabledSourceIds: string[],
 ): LayoutSnapshot {
   return normalizeSnapshot({
+    categoryTaxonomyVersion: CATEGORY_TAXONOMY_VERSION,
     categoryOrder: prefs.categoryOrder,
     hiddenCategoryIds: prefs.hiddenCategoryIds,
     categorySources: prefs.categorySources,
@@ -165,6 +174,7 @@ export function applySnapshotToPrefs(prefs: Preferences, snapshot: LayoutSnapsho
   const normalized = normalizeSnapshot(snapshot)
   return {
     ...prefs,
+    categoryTaxonomyVersion: CATEGORY_TAXONOMY_VERSION,
     categoryOrder: normalized.categoryOrder,
     hiddenCategoryIds: normalized.hiddenCategoryIds,
     categorySources: normalized.categorySources,
@@ -174,9 +184,7 @@ export function applySnapshotToPrefs(prefs: Preferences, snapshot: LayoutSnapsho
   }
 }
 
-/**
- * 门户经典可见栏顺序见 categories.PORTAL_VISIBLE_CATEGORY_IDS。
- */
+/** Built-in presets hide every category outside their own preset-local partition. */
 function hiddenExcept(visibleIds: CategoryId[]): CategoryId[] {
   const visible = new Set(visibleIds)
   return CATEGORIES.map((category) => category.id).filter((id) => !visible.has(id))
@@ -258,332 +266,140 @@ export function mixThemeOverlap(
   return enabledSourceIds.filter((id) => theme.has(id)).sort()
 }
 
+function builtinPresetFromCategories(
+  id: string,
+  name: string,
+  description: string,
+  visible: CategoryId[],
+): LayoutPreset {
+  const categorySources = Object.fromEntries(
+    visible.map((categoryId) => [categoryId, pickKnown(...(findCategory(categoryId).sourceIds ?? []))]),
+  )
+  return builtinPreset(id, name, description, {
+    categoryTaxonomyVersion: CATEGORY_TAXONOMY_VERSION,
+    categoryOrder: visible,
+    hiddenCategoryIds: hiddenExcept(visible),
+    categorySources,
+    customCategories: [],
+    enabledSourceIds: [],
+    favoriteSourceIds: [],
+  })
+}
+
+/**
+ * Taxonomy v3 built-ins.
+ *
+ * Each category belongs to exactly one preset. Because category sourceIds are also globally unique,
+ * built-in presets form a partition of all non-workspace sources instead of overlapping "modes".
+ */
 export const BUILTIN_PRESETS: readonly LayoutPreset[] = [
-  (() => {
-    const categorySources = Object.fromEntries(
-      Object.entries(PORTAL_CATEGORY_SOURCES).map(([id, sourceIds]) => [id, pickKnown(...sourceIds)]),
-    )
-    const visible: CategoryId[] = [...PORTAL_VISIBLE_CATEGORY_IDS]
-    return builtinPreset(
-      BUILTIN_DEFAULT_ID,
-      '全景门户',
-      '全类型资讯总览 · 适合日常一站式阅读',
-      {
-        categoryOrder: visible,
-        hiddenCategoryIds: hiddenExcept(visible),
-        categorySources,
-        customCategories: [],
-        enabledSourceIds: [],
-      },
-    )
-  })(),
-  (() => {
-    const categorySources = {
-      'ai-media': pickKnown('qbitai', 'jiqizhixin', 'aiera', 'leiphone'),
-      'ai-depth': pickKnown('zhidx', 'baoyu', 'xixiaoyao', '42zhangjing'),
-      'ai-community': pickKnown('uisdc-aigc', 'v2ex', 'paperweekly', 'woshipm-ai'),
-      tech: pickKnown(
-        'sspai',
-        'geekpark',
-        'ithome',
-        'solidot',
-        'ruanyifeng',
-        'appinn',
-        'netease-phone',
-        'netease-digital',
-      ),
-      science: pickKnown(
-        'guokr',
-        'pansci',
-        'huanqiukexue',
-        'zhishifenzi',
-        'netease-fanpu',
-        'netease-wuli',
-        'swarma',
-      ),
-      'tech-depth': pickKnown('qianhei', 'ifanr', 'infoq-cn'),
-      'ai-media-world': pickKnown(
-        'mittr-ai',
-        'verge-ai',
-        'ieee-ai',
-        'venturebeat-ai',
-        'synced',
-        'marktechpost',
-      ),
-      'ai-depth-world': pickKnown(
-        'oneusefulthing',
-        'latent-space',
-        'understandingai',
-        'thezvi',
-        'lastweek-ai',
-        'import-ai',
-        'simonw',
-        'interconnects',
-        'lil-log',
-        'ahead-of-ai',
-      ),
-      'ai-community-world': pickKnown('hn'),
-      'tech-depth-world': pickKnown(
-        'arstechnica',
-        'mittr',
-        'quanta',
-        'stratechery',
-        'vitalik',
-        'paulgraham',
-        'fabricated-knowledge',
-        'construction-physics',
-        'wired',
-        'verge',
-      ),
-      'ai-openai': pickKnown('openai-news', 'openai-cookbook'),
-      'ai-claude': pickKnown(
-        'anthropic',
-        'claude-blog',
-        'claude-customers',
-        'claude-academy-use-cases',
-        'claude-academy-tutorials',
-      ),
-      ai: pickKnown('google-ai', 'deepmind', 'huggingface', 'pytorch', 'arena'),
-    }
-    const visible: CategoryId[] = [
-      'ai-media',
-      'ai-depth',
-      'ai-community',
-      'tech',
-      'science',
-      'tech-depth',
-      'ai-media-world',
-      'ai-depth-world',
-      'ai-community-world',
-      'tech-depth-world',
-      'ai-openai',
-      'ai-claude',
-      'ai',
-    ]
-    return builtinPreset(
-      BUILTIN_TECH_ID,
-      '极客与 AI',
-      'AI、科技与开发者资讯集中阅读',
-      {
-        categoryOrder: visible,
-        hiddenCategoryIds: hiddenExcept(visible),
-        categorySources,
-        customCategories: [],
-        enabledSourceIds: [],
-      },
-    )
-  })(),
-  (() => {
-    const categorySources = {
-      theue: pickKnown('theue'),
-      intl: pickKnown('theinitium', 'bbc-zh', 'dw-top'),
-      tech: pickKnown('v2ex', 'ruanyifeng', 'qianhei'),
-      science: pickKnown('guokr', 'zhishifenzi', 'netease-fanpu', 'swarma'),
-      'cn-depth': pickKnown(
-        'thepaper-bookreview',
-        'thepaper-people',
-        'thepaper-research',
-        'thepaper-ideas',
-        'thepaper-science',
-        'infzm-depth',
-        'infzm-feature',
-        'infzm-interview',
-        'infzm-thinktank',
-      ),
-      'intl-world': pickKnown(
-        'foreign-affairs',
-        'nyrb',
-        'bloomberg-opinion',
-        'project-syndicate',
-        'sinocism',
-        'scmp-china',
-      ),
-      'tech-depth-world': pickKnown(
-        'quanta',
-        'stratechery',
-        'vitalik',
-        'paulgraham',
-        'fabricated-knowledge',
-        'construction-physics',
-        'mittr',
-      ),
-      'astral-codex-ten': pickKnown('astral-codex-ten'),
-      marginalian: pickKnown('marginalian'),
-      aldaily: pickKnown('aldaily'),
-    }
-    const visible: CategoryId[] = [
-      'theue',
-      'intl',
-      'tech',
-      'science',
-      'cn-depth',
-      'intl-world',
-      'tech-depth-world',
-      'astral-codex-ten',
-      'marginalian',
-      'aldaily',
-    ]
-    return builtinPreset(
-      BUILTIN_DEPTH_ID,
-      '深度智识',
-      '深度报道、思想评论与知识长文',
-      {
-        categoryOrder: visible,
-        hiddenCategoryIds: hiddenExcept(visible),
-        categorySources,
-        customCategories: [],
-        enabledSourceIds: [],
-      },
-    )
-  })(),
-  (() => {
-    const categorySources = {
-      finance: pickKnown(
-        'latepost',
-        'jazzyear',
-        'kr36',
-        'huxiu',
-        'tmtpost',
-        'cls-telegraph',
-        'eastmoney-kx',
-        'wscn-live',
-        'netease-biz',
-        'netease-stock',
-        'eastmoney-news',
-      ),
-      intl: pickKnown('theinitium', 'bbc-zh', 'dw-top'),
-      tech: pickKnown('geekpark', 'sspai', 'ifanr', 'netease-auto'),
-      'ai-media': pickKnown('qbitai', 'aiera', 'jiqizhixin'),
-      'finance-world': pickKnown('techcrunch', 'bbc-business', 'gnews-business', 'stratechery'),
-      'intl-world': pickKnown(
-        'bloomberg-opinion',
-        'project-syndicate',
-        'scmp-china',
-        'sinocism',
-      ),
-      'ai-media-world': pickKnown('venturebeat-ai', 'mittr-ai'),
-    }
-    const visible: CategoryId[] = [
-      'finance',
-      'intl',
-      'tech',
-      'ai-media',
-      'finance-world',
-      'intl-world',
-      'ai-media-world',
-    ]
-    return builtinPreset(
-      BUILTIN_BIZ_ID,
-      '商业创投',
-      '商业、资本、创业与产业趋势',
-      {
-        categoryOrder: visible,
-        hiddenCategoryIds: hiddenExcept(visible),
-        categorySources,
-        customCategories: [],
-        enabledSourceIds: [],
-      },
-    )
-  })(),
-  (() => {
-    const categorySources = {
-      intl: pickKnown('theinitium', 'bbc-zh', 'dw-top', 'bbc-zh-world', 'bbc-zh-china'),
-      hot: pickKnown('netease'),
-      science: pickKnown('huanqiukexue', 'pansci', 'guokr', 'zhishifenzi'),
-      'intl-world': pickKnown(
-        'bbc-world',
-        'npr',
-        'guardian-world',
-        'france24',
-        'aljazeera',
-        'scmp-china',
-        'scmp-news',
-        'foreign-affairs',
-        'nyrb',
-        'sinocism',
-        'gnews-world',
-      ),
-      'tech-depth-world': pickKnown('quanta', 'mittr', 'wired', 'arstechnica', 'verge'),
-      'science-world': pickKnown('gnews-science'),
-    }
-    const visible: CategoryId[] = [
-      'intl',
-      'hot',
-      'science',
-      'intl-world',
-      'tech-depth-world',
-      'science-world',
-    ]
-    return builtinPreset(
-      BUILTIN_WORLD_ID,
-      '全球视野',
-      '国际新闻、全球议题与世界观察',
-      {
-        categoryOrder: visible,
-        hiddenCategoryIds: hiddenExcept(visible),
-        categorySources,
-        customCategories: [],
-        enabledSourceIds: [],
-      },
-    )
-  })(),
-  (() => {
-    const categorySources = {
-      science: pickKnown(
-        'guokr',
-        'pansci',
-        'huanqiukexue',
-        'zhishifenzi',
-        'netease-fanpu',
-        'netease-diqiu',
-        'swarma',
-      ),
-      tech: pickKnown('sspai', 'ruanyifeng', 'appinn', 'v2ex', 'qianhei'),
-      edu: pickKnown('netease-edu'),
-      theue: pickKnown('theue'),
-      zhihu: pickKnown('zhihu-daily'),
-      blog: pickKnown('netease-blog'),
-      fun: pickKnown('gcores', 'jandan'),
-    }
-    const visible: CategoryId[] = ['science', 'tech', 'edu', 'theue', 'zhihu', 'blog', 'fun']
-    return builtinPreset(
-      BUILTIN_MINDFUL_ID,
-      '慢读知性',
-      '科学、人文、教育与优质博客',
-      {
-        categoryOrder: visible,
-        hiddenCategoryIds: hiddenExcept(visible),
-        categorySources,
-        customCategories: [],
-        enabledSourceIds: [],
-      },
-    )
-  })(),
-  (() => {
-    const categorySources = {
-      fun: pickKnown('netease-fun', 'jandan', 'gcores'),
-      ent: pickKnown('netease-ent'),
-      game: pickKnown('netease-game'),
-      history: pickKnown('netease-history'),
-      travel: pickKnown('netease-travel'),
-      zhihu: pickKnown('zhihu-daily'),
-      'ent-world': pickKnown('gnews-ent'),
-    }
-    const visible: CategoryId[] = ['fun', 'ent', 'game', 'history', 'travel', 'zhihu', 'ent-world']
-    return builtinPreset(
-      BUILTIN_FUN_ID,
-      '摸鱼消遣',
-      '娱乐、游戏、旅行与轻松内容',
-      {
-        categoryOrder: visible,
-        hiddenCategoryIds: hiddenExcept(visible),
-        categorySources,
-        customCategories: [],
-        enabledSourceIds: [],
-      },
-    )
-  })(),
+  builtinPresetFromCategories(
+    BUILTIN_CHINA_ID,
+    '中国资讯',
+    '国内要闻、独家精选、公共议题、人物、观点与外部观察',
+    ['cn-headlines', 'cn-select', 'cn-public', 'cn-dialogue', 'cn-opinion', 'cn-external'],
+  ),
+  builtinPresetFromCategories(
+    BUILTIN_WORLD_ID,
+    '全球视野',
+    '中英文公共媒体、报刊通讯、亚太新闻与国际评论',
+    ['world-zh', 'world-zh-press', 'world-news', 'world-news-press', 'world-asia', 'world-opinion'],
+  ),
+  builtinPresetFromCategories(
+    BUILTIN_BIZ_ID,
+    '财经商业',
+    '市场、财经、商业媒体、创业创投、产业评论与全球商业',
+    ['biz-market', 'biz-finance', 'biz-company', 'biz-startup', 'biz-industry', 'biz-global'],
+  ),
+  builtinPresetFromCategories(
+    BUILTIN_TECH_ID,
+    '科技数码',
+    '消费数码、科技产业、技术资讯、软件效率与开发者内容',
+    ['tech-digital', 'tech-media', 'tech-news', 'tech-tools', 'tech-dev', 'tech-longform'],
+  ),
+  builtinPresetFromCategories(
+    BUILTIN_AI_ID,
+    'AI 前沿',
+    '模型实验室、AI 媒体、实践、研究与长期观察',
+    [
+      'ai-labs',
+      'ai-ecosystem',
+      'ai-practice',
+      'ai-media-cn',
+      'ai-media-en',
+      'ai-engineering',
+      'ai-thinking',
+      'ai-watch',
+    ],
+  ),
+  builtinPresetFromCategories(
+    BUILTIN_SCIENCE_ID,
+    '科学知识',
+    '科学、科研、基础科学、地球系统与健康医学',
+    ['science-general', 'science-research', 'science-basic', 'science-earth', 'science-health'],
+  ),
+  builtinPresetFromCategories(
+    BUILTIN_DEPTH_ID,
+    '深度人文',
+    '深度报道、中文精选、海外思想长文与教育历史文化',
+    ['depth-reporting', 'depth-books', 'depth-knowledge', 'depth-culture', 'depth-blogs'],
+  ),
+  builtinPresetFromCategories(
+    BUILTIN_LIFE_ID,
+    '文体生活',
+    '体育、娱乐、游戏、轻松内容与旅行出行',
+    [
+      'life-sports',
+      'life-basketball',
+      'life-football',
+      'life-running',
+      'life-ent',
+      'life-games',
+      'life-fun',
+      'life-travel',
+    ],
+  ),
 ]
+
+export function duplicateCategoriesAcrossBuiltins(): string[] {
+  const seen = new Set<string>()
+  const duplicates = new Set<string>()
+  for (const preset of BUILTIN_PRESETS) {
+    for (const categoryId of preset.snapshot.categoryOrder) {
+      if (preset.snapshot.hiddenCategoryIds.includes(categoryId)) continue
+      if (seen.has(categoryId)) duplicates.add(categoryId)
+      else seen.add(categoryId)
+    }
+  }
+  return [...duplicates].sort()
+}
+
+export function duplicateSourcesAcrossBuiltins(): string[] {
+  const seen = new Set<string>()
+  const duplicates = new Set<string>()
+  for (const preset of BUILTIN_PRESETS) {
+    for (const [categoryId, sourceIds] of Object.entries(preset.snapshot.categorySources)) {
+      if (preset.snapshot.hiddenCategoryIds.includes(categoryId)) continue
+      for (const sourceId of sourceIds) {
+        if (seen.has(sourceId)) duplicates.add(sourceId)
+        else seen.add(sourceId)
+      }
+    }
+  }
+  return [...duplicates].sort()
+}
+
+export function unassignedBuiltinPresetSourceIds(): string[] {
+  const assigned = new Set<string>()
+  for (const preset of BUILTIN_PRESETS) {
+    Object.values(preset.snapshot.categorySources).forEach((sourceIds) => {
+      sourceIds.forEach((sourceId) => assigned.add(sourceId))
+    })
+  }
+  return SOURCES.filter((source) => !source.workspaceOnly && !assigned.has(source.id))
+    .map((source) => source.id)
+    .sort()
+}
 
 export function findBuiltinPreset(id: string): LayoutPreset | undefined {
   return BUILTIN_PRESETS.find((preset) => preset.id === id)
@@ -604,6 +420,7 @@ export function snapshotsEqual(a: LayoutSnapshot, b: LayoutSnapshot): boolean {
 
 export function emptyLayoutSnapshot(): LayoutSnapshot {
   return normalizeSnapshot({
+    categoryTaxonomyVersion: CATEGORY_TAXONOMY_VERSION,
     categoryOrder: ['mix'],
     hiddenCategoryIds: hiddenExcept(['mix']),
     categorySources: {},
@@ -614,7 +431,12 @@ export function emptyLayoutSnapshot(): LayoutSnapshot {
 }
 
 export function emptyPresetsState(): PresetsState {
-  return { activePresetId: BUILTIN_DEFAULT_ID, userPresets: [], builtinOverrides: {} }
+  return {
+    schemaVersion: PRESETS_SCHEMA_VERSION,
+    activePresetId: BUILTIN_DEFAULT_ID,
+    userPresets: [],
+    builtinOverrides: {},
+  }
 }
 
 function builtinOverridesOf(state: PresetsState): Record<string, LayoutSnapshot> {
@@ -684,11 +506,18 @@ export function buildMigratedPresetsState(
   prefs: Preferences,
   enabledSourceIds: string[],
 ): PresetsState {
-  return withOverride(
-    emptyPresetsState(),
-    BUILTIN_DEFAULT_ID,
+  const preset = userPresetFromSnapshot(
+    MIGRATE_LAYOUT_PRESET_ID,
+    '升级前布局',
     snapshotFromRuntime(prefs, enabledSourceIds),
+    { description: '升级前正在使用的布局，已完整保留为自定义预设' },
   )
+  return {
+    schemaVersion: PRESETS_SCHEMA_VERSION,
+    activePresetId: preset.id,
+    userPresets: [preset],
+    builtinOverrides: {},
+  }
 }
 
 export function buildFreshInstallPresetsState(): PresetsState {
@@ -811,9 +640,6 @@ export function ensureValidActivePreset(state: PresetsState): PresetsState {
 }
 
 function legacyFoldTarget(preset: LayoutPreset): string | undefined {
-  if (preset.id === MIGRATE_LAYOUT_PRESET_ID || preset.id === USER_DEFAULT_LAYOUT_ID) {
-    return BUILTIN_DEFAULT_ID
-  }
   if (!preset.basedOnBuiltinId) return undefined
   const builtin = findBuiltinPreset(preset.basedOnBuiltinId)
   if (builtin && preset.name === builtin.name) return builtin.id
@@ -871,9 +697,81 @@ function normalizeBuiltinOverrides(raw: unknown): Record<string, LayoutSnapshot>
   return result
 }
 
+function migrateLegacyPresetsState(raw: Record<string, unknown>): Record<string, unknown> {
+  if (raw.schemaVersion === PRESETS_SCHEMA_VERSION) return { ...raw }
+
+  const userPresets = Array.isArray(raw.userPresets)
+    ? raw.userPresets.map((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return item
+        const record = item as Record<string, unknown>
+        return {
+          ...record,
+          snapshot: migrateLegacyCategoryLayout(record.snapshot).value,
+        }
+      })
+    : []
+
+  const existingIds = new Set(
+    userPresets
+      .filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item) && typeof item === 'object' && !Array.isArray(item),
+      )
+      .map((item) => (typeof item.id === 'string' ? item.id : ''))
+      .filter(Boolean),
+  )
+
+  let activePresetId =
+    typeof raw.activePresetId === 'string' && raw.activePresetId
+      ? raw.activePresetId
+      : BUILTIN_DEFAULT_ID
+  const builtinOverrides: Record<string, unknown> = {}
+  const rawOverrides =
+    raw.builtinOverrides && typeof raw.builtinOverrides === 'object' && !Array.isArray(raw.builtinOverrides)
+      ? (raw.builtinOverrides as Record<string, unknown>)
+      : {}
+
+  for (const [legacyId, snapshot] of Object.entries(rawOverrides)) {
+    const legacyName = legacyBuiltinPresetName(legacyId)
+    if (!legacyName) {
+      if (findBuiltinPreset(legacyId)) builtinOverrides[legacyId] = snapshot
+      continue
+    }
+
+    let migratedId = `legacy-override-${legacyId}`
+    let suffix = 2
+    while (existingIds.has(migratedId)) {
+      migratedId = `legacy-override-${legacyId}-${suffix}`
+      suffix += 1
+    }
+    existingIds.add(migratedId)
+    userPresets.push({
+      id: migratedId,
+      name: `旧布局 · ${legacyName}`,
+      description: '升级前修改过的内置预设，已保留为自定义布局',
+      builtin: false,
+      snapshot: migrateLegacyCategoryLayout(snapshot).value,
+      updatedAt: 0,
+    })
+    if (activePresetId === legacyId) activePresetId = migratedId
+  }
+
+  // Unmodified legacy built-ins are intentionally replaced by the new taxonomy default.
+  if (legacyBuiltinPresetName(activePresetId)) activePresetId = BUILTIN_DEFAULT_ID
+
+  return {
+    ...raw,
+    schemaVersion: PRESETS_SCHEMA_VERSION,
+    activePresetId,
+    userPresets,
+    builtinOverrides,
+  }
+}
+
 export function normalizePresetsState(raw: unknown): PresetsState | null {
-  if (!raw || typeof raw !== 'object') return null
-  const input = raw as Partial<PresetsState>
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const migrated = migrateLegacyPresetsState(raw as Record<string, unknown>)
+  const input = migrated as Partial<PresetsState>
   if (typeof input.activePresetId !== 'string' || !input.activePresetId) return null
   if (!Array.isArray(input.userPresets)) return null
 
@@ -896,6 +794,7 @@ export function normalizePresetsState(raw: unknown): PresetsState | null {
   }
 
   return foldLegacyWritableCopies({
+    schemaVersion: PRESETS_SCHEMA_VERSION,
     activePresetId: input.activePresetId,
     userPresets,
     builtinOverrides: normalizeBuiltinOverrides(input.builtinOverrides),

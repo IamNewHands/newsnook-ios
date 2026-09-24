@@ -12,9 +12,6 @@ interface Props {
   onExportMarkdown: () => void
   onOpenOriginal: () => void
   onReextract: () => void
-  /** 悬浮上下翻页手柄开关 */
-  floatReaderNav?: boolean
-  onToggleFloatReaderNav?: (enabled: boolean) => void
 }
 
 interface ActionRowProps {
@@ -57,8 +54,6 @@ export function ReaderMoreMenu({
   onExportMarkdown,
   onOpenOriginal,
   onReextract,
-  floatReaderNav = true,
-  onToggleFloatReaderNav,
 }: Props) {
   if (!open) return null
 
@@ -129,32 +124,6 @@ export function ReaderMoreMenu({
               caption="排版异常或内容缺失时再抓一次"
               onClick={onReextract}
             />
-          </div>
-
-          <div className="flex items-center justify-between gap-3 rounded-2xl border border-haze bg-ink-raised/50 px-3.5 py-3">
-            <div className="min-w-0">
-              <span className="block text-[14px] text-paper">悬浮翻页手柄</span>
-              <span className="mt-0.5 block font-mono text-[10px] text-paper-faint">
-                正文页浮动 ▲▼，可拖动位置
-              </span>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={floatReaderNav}
-              aria-label="悬浮翻页手柄"
-              onClick={() => onToggleFloatReaderNav?.(!floatReaderNav)}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-                floatReaderNav ? 'bg-cinnabar' : 'bg-ink-raised ring-1 ring-haze'
-              }`}
-            >
-              <span
-                aria-hidden
-                className={`absolute top-0.5 h-5 w-5 rounded-full bg-paper shadow transition-transform ${
-                  floatReaderNav ? 'translate-x-[22px]' : 'translate-x-0.5'
-                }`}
-              />
-            </button>
           </div>
         </div>
       </div>

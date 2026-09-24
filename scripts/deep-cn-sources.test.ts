@@ -55,20 +55,35 @@ for (const id of INFZM_IDS) {
 // 已确认停更的思想湃不应进入当前产品信源。
 assert.equal(findSource('thepaper-thought'), undefined)
 
-const category = CATEGORIES.find((item) => item.id === 'cn-depth')
-assert.ok(category)
-assert.deepEqual(category.sourceIds, ALL_IDS)
+const expectedPlacement: Record<string, string> = {
+  'thepaper-bookreview': 'depth-books',
+  'thepaper-people': 'cn-dialogue',
+  'thepaper-research': 'cn-public',
+  'thepaper-ideas': 'cn-opinion',
+  'thepaper-science': 'science-research',
+  'infzm-depth': 'depth-reporting',
+  'infzm-feature': 'depth-reporting',
+  'infzm-interview': 'cn-dialogue',
+  'infzm-thinktank': 'cn-opinion',
+}
+for (const id of ALL_IDS) {
+  const category = CATEGORIES.find((item) => item.id === expectedPlacement[id])
+  assert.ok(category, `${id} semantic category must exist`)
+  assert.ok(category.sourceIds?.includes(id), `${id} must be assigned to ${expectedPlacement[id]}`)
+}
 assert.deepEqual(uncoveredSourceIds(), [])
 
 const depth = findBuiltinPreset(BUILTIN_DEPTH_ID)
 assert.ok(depth)
-assert.ok(depth.snapshot.categoryOrder.includes('cn-depth'))
-assert.deepEqual(depth.snapshot.categorySources['cn-depth'], ALL_IDS)
-assert.ok(DEFAULT_PREFERENCES.hiddenCategoryIds.includes('cn-depth'))
-assert.ok(!DEFAULT_PREFERENCES.categoryOrder.includes('cn-depth'))
+assert.ok(depth.snapshot.categoryOrder.includes('depth-reporting'))
+assert.ok(depth.snapshot.categoryOrder.includes('depth-books'))
+assert.deepEqual(depth.snapshot.categorySources['depth-reporting'], ['infzm-depth', 'infzm-feature'])
+assert.ok(depth.snapshot.categorySources['depth-books']?.includes('thepaper-bookreview'))
+assert.ok(DEFAULT_PREFERENCES.hiddenCategoryIds.includes('depth-reporting'))
+assert.ok(!DEFAULT_PREFERENCES.categoryOrder.includes('depth-reporting'))
 assert.ok(ALL_IDS.every((id) => !DEFAULT_PREFERENCES.categorySources.mix?.includes(id)))
 
-console.log('✓ registry/category/preset/default-portal isolation ok')
+console.log('✓ registry/taxonomy/preset/default isolation ok')
 
 console.log('--- 澎湃 JSON 解析与游标 ---')
 

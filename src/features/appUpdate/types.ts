@@ -29,7 +29,7 @@ export type LatestReleaseInfo = {
   flavor: PackageFlavor
   /** APK 实际来自哪个发布通道。 */
   track: UpdateTrack
-  /** 用户订阅的更新通道；Beta 订阅也有资格接收更新的 Stable。 */
+  /** 用户订阅的更新通道；必须与 APK 实际发布通道一致。 */
   subscriptionTrack: UpdateTrack
 }
 

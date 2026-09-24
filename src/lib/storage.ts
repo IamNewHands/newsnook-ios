@@ -380,6 +380,15 @@ export interface CachedPagingMeta {
   page?: number
   cursor?: string
   exhausted?: boolean
+  /** Source-level cache compatibility token; mismatch means the cached list must be ignored. */
+  sourceVersion?: string
+}
+
+export function cachedListMatchesSourceVersion(
+  cached: CachedList | null,
+  expectedVersion: string | undefined,
+): boolean {
+  return !expectedVersion || cached?.paging?.sourceVersion === expectedVersion
 }
 
 function compactCachedArticle(article: Article): Article {

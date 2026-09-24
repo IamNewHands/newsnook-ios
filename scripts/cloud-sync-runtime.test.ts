@@ -15,7 +15,7 @@ import { createRuntimeSyncAdapter } from '../src/features/sync/runtimeAdapter'
 import { createInitialSyncState, readSyncState, writeSyncState } from '../src/features/sync/state'
 import { advanceShadow } from '../src/features/sync/SyncEngine'
 import { DEFAULT_PREFERENCES, addCustomSource, normalizePreferences } from '../src/sources/preferences'
-import { buildFreshInstallPresetsState } from '../src/sources/presets'
+import { BUILTIN_TECH_ID, buildFreshInstallPresetsState } from '../src/sources/presets'
 import { SOURCES } from '../src/sources/registry'
 
 class MemoryStorage implements Storage {
@@ -113,7 +113,7 @@ function harness(initial: LocalRuntimeState = baseRuntime()) {
 
   const remotePresets = {
     ...buildFreshInstallPresetsState(),
-    activePresetId: 'builtin-tech',
+    activePresetId: BUILTIN_TECH_ID,
   }
 
   await scene.adapter.applyRemote([
@@ -131,7 +131,7 @@ function harness(initial: LocalRuntimeState = baseRuntime()) {
     false,
     'tombstone 让本机取消订阅',
   )
-  assert.equal(scene.runtime.presets.activePresetId, 'builtin-tech', '场景预设同步生效')
+  assert.equal(scene.runtime.presets.activePresetId, BUILTIN_TECH_ID, '场景预设同步生效')
 
   // 设备本地设置不被远端触碰
   assert.equal(scene.runtime.prefs.einkMode, true, '墨水屏跟着本机硬件走')

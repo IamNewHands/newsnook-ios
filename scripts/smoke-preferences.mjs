@@ -23,21 +23,27 @@ try {
     categorySourceIds,
     hasSourceOverride,
   } = prefsMod
-  const { uncoveredSourceIds } = catMod
+  const {
+    CATEGORY_TAXONOMY_VERSION,
+    DEFAULT_PRESET_CATEGORY_IDS,
+    uncoveredSourceIds,
+  } = catMod
 
-  const VISIBLE = ['mix', 'hot', 'ent', 'sports', 'tech', 'finance', 'intl', 'health', 'science', 'fun']
+  const VISIBLE = [...DEFAULT_PRESET_CATEGORY_IDS]
 
-  assert.equal(uncoveredSourceIds().length, 0, '每个源至少落入一个分类')
+  assert.equal(uncoveredSourceIds().length, 0, '每个普通内置信源至少落入一个分类')
   assert.deepEqual(
     visibleCategories(DEFAULT_PREFERENCES).map((c) => c.id),
     VISIBLE,
-    '默认可见应为门户经典 10 栏',
+    '默认可见应为中国资讯预设',
   )
-  assert.deepEqual(categorySourceIds('hot', DEFAULT_PREFERENCES), ['netease'])
-  assert.deepEqual(categorySourceIds('ent', DEFAULT_PREFERENCES), ['netease-ent', 'gnews-ent'])
-  // 多源分类只做成员校验，避免注册表微调时脚本反复失效
-  assert.ok(categorySourceIds('tech', DEFAULT_PREFERENCES).includes('ithome'))
-  assert.ok(categorySourceIds('intl', DEFAULT_PREFERENCES).includes('bbc-zh'))
+  assert.deepEqual(categorySourceIds('cn-headlines', DEFAULT_PREFERENCES), ['netease'])
+  assert.deepEqual(categorySourceIds('cn-select', DEFAULT_PREFERENCES), [
+    'netease-exclusive',
+    'netease-select',
+  ])
+  assert.ok(categorySourceIds('cn-public', DEFAULT_PREFERENCES).includes('netease-gov'))
+  assert.ok(categorySourceIds('cn-opinion', DEFAULT_PREFERENCES).includes('thepaper-ideas'))
   assert.deepEqual(
     [...normalizePreferences(null).hiddenCategoryIds].sort(),
     [...DEFAULT_HIDDEN_CATEGORY_IDS].sort(),
@@ -49,108 +55,102 @@ try {
   const baseOrder = orderedCategories(prefs).map((c) => c.id)
   console.log('categories:', baseOrder.length, baseOrder.slice(0, 6).join(','))
 
-  // 1. 排序：把 tech 上移一位
-  const techIndex = baseOrder.indexOf('tech')
-  const moved = moveCategory(prefs, 'tech', -1)
+  // 1. 排序
+  const publicIndex = baseOrder.indexOf('cn-public')
+  const moved = moveCategory(prefs, 'cn-public', -1)
   const movedOrder = orderedCategories(moved).map((c) => c.id)
-  assert.equal(movedOrder.indexOf('tech'), techIndex - 1, 'tech 应上移一位')
-  assert.equal(movedOrder.length, baseOrder.length, '排序不应丢分类')
-  console.log('order ok:', movedOrder.slice(0, 4).join(','))
+  assert.equal(movedOrder.indexOf('cn-public'), publicIndex - 1)
+  assert.equal(movedOrder.length, baseOrder.length)
 
-  // 首项不能再上移
   assert.deepEqual(
     orderedCategories(moveCategory(moved, movedOrder[0], -1)).map((c) => c.id),
     movedOrder,
-    '首项上移应为空操作',
   )
 
-  // 拖拽重排：把 tech 插到 hot 前面（已在上面）再插回原位附近
-  const reordered = reorderCategories(prefs, 'sports', 'hot')
+  const reordered = reorderCategories(prefs, 'cn-opinion', 'cn-headlines')
   const reorderedIds = orderedCategories(reordered).map((c) => c.id)
-  assert.ok(reorderedIds.indexOf('sports') < reorderedIds.indexOf('hot'), 'sports 应排到 hot 前')
-  const setOrder = setCategoryOrder(prefs, ['tech', 'hot', 'mix'])
+  assert.ok(reorderedIds.indexOf('cn-opinion') < reorderedIds.indexOf('cn-headlines'))
+
+  const setOrder = setCategoryOrder(prefs, ['cn-public', 'cn-headlines', 'mix'])
   assert.deepEqual(orderedCategories(setOrder).map((c) => c.id).slice(0, 3), [
-    'tech',
-    'hot',
+    'cn-public',
+    'cn-headlines',
     'mix',
   ])
   console.log('reorder ok')
 
   // 2. 显示/隐藏
-  let hidden = toggleCategoryVisible(prefs, 'ent')
-  assert.ok(!visibleCategories(hidden).some((c) => c.id === 'ent'), 'ent 应被隐藏')
-  hidden = toggleCategoryVisible(hidden, 'ent')
-  assert.ok(visibleCategories(hidden).some((c) => c.id === 'ent'), 'ent 应恢复显示')
-  console.log('visibility ok')
+  let hidden = toggleCategoryVisible(prefs, 'cn-dialogue')
+  assert.ok(!visibleCategories(hidden).some((c) => c.id === 'cn-dialogue'))
+  hidden = toggleCategoryVisible(hidden, 'cn-dialogue')
+  assert.ok(visibleCategories(hidden).some((c) => c.id === 'cn-dialogue'))
 
-  // 全部隐藏应被拦住
   let allHidden = prefs
   for (const c of baseOrder) allHidden = toggleCategoryVisible(allHidden, c)
   assert.ok(visibleCategories(allHidden).length >= 1, '至少保留一个可见分类')
-  console.log('guard ok: visible =', visibleCategories(allHidden).length)
+  console.log('visibility guard ok')
 
   // 3. 分类信源覆盖
-  assert.equal(hasSourceOverride('tech', prefs), false)
-  let custom = toggleCategorySource(prefs, 'tech', 'netease-digital')
-  assert.ok(categorySourceIds('tech', custom).includes('netease-digital'), '应加入数码源')
-  assert.equal(hasSourceOverride('tech', custom), true)
+  assert.equal(hasSourceOverride('cn-public', prefs), true, '内置预设快照显式保存分类源')
+  let custom = toggleCategorySource(prefs, 'cn-public', 'netease')
+  assert.ok(categorySourceIds('cn-public', custom).includes('netease'))
 
-  custom = toggleCategorySource(custom, 'tech', 'ithome')
-  assert.ok(!categorySourceIds('tech', custom).includes('ithome'), 'IT之家应被移除')
+  custom = toggleCategorySource(custom, 'cn-public', 'netease-gov')
+  assert.ok(!categorySourceIds('cn-public', custom).includes('netease-gov'))
 
-  // 只剩一个时不允许再移除
   let single = prefs
-  for (const id of categorySourceIds('tech', prefs).slice(1)) {
-    single = toggleCategorySource(single, 'tech', id)
+  for (const id of categorySourceIds('cn-public', prefs).slice(1)) {
+    single = toggleCategorySource(single, 'cn-public', id)
   }
-  const last = categorySourceIds('tech', single)
-  assert.equal(last.length, 1, '应只剩一个源')
+  const last = categorySourceIds('cn-public', single)
+  assert.equal(last.length, 1)
   assert.deepEqual(
-    categorySourceIds('tech', toggleCategorySource(single, 'tech', last[0])),
+    categorySourceIds('cn-public', toggleCategorySource(single, 'cn-public', last[0])),
     last,
     '最后一个源不可移除',
   )
-  console.log('sources ok: tech =', categorySourceIds('tech', custom).join(','))
 
-  // 综合分类不接受逐分类选源
   assert.deepEqual(toggleCategorySource(prefs, 'mix', 'sspai'), prefs, 'mix 不参与选源')
+  console.log('sources ok')
 
   // 4. 复位
-  assert.equal(hasSourceOverride('tech', resetCategorySources(custom, 'tech')), false)
-  const restoredOrder = resetCategoryLayout(toggleCategoryVisible(moved, 'ent'))
-  assert.deepEqual(orderedCategories(restoredOrder).map((c) => c.id), baseOrder, '布局应复位')
-  const restoredHidden = resetCategoryLayout({
-    ...DEFAULT_PREFERENCES,
-    categoryOrder: ['tech', 'hot'],
-    hiddenCategoryIds: [],
-  })
-  // resetCategoryLayout 会写入门户默认顺序（而非空数组交给默认推导）
-  assert.deepEqual(restoredHidden.categoryOrder, VISIBLE)
+  const resetOne = resetCategorySources(custom, 'cn-public')
+  assert.equal(hasSourceOverride('cn-public', resetOne), false)
+  assert.deepEqual(categorySourceIds('cn-public', resetOne), ['netease-gov', 'thepaper-research'])
+
+  const restoredOrder = resetCategoryLayout(toggleCategoryVisible(moved, 'cn-dialogue'))
+  assert.deepEqual(visibleCategories(restoredOrder).map((c) => c.id), VISIBLE)
+  assert.deepEqual(restoredOrder.categoryOrder, VISIBLE)
   assert.deepEqual(
-    [...restoredHidden.hiddenCategoryIds].sort(),
+    [...restoredOrder.hiddenCategoryIds].sort(),
     [...DEFAULT_HIDDEN_CATEGORY_IDS].sort(),
-    '重置布局应恢复默认隐藏而非全部显示',
   )
   console.log('reset ok')
 
-  // 5. 持久化往返 + 脏数据清洗
+  // 5. 持久化往返 + 当前 taxonomy 脏数据清洗
   const typed = updateTypography(custom, { fontScale: 1.22, fontFamily: 'serif' })
   const roundTrip = normalizePreferences(JSON.parse(JSON.stringify(typed)))
   assert.equal(roundTrip.typography.fontScale, 1.22)
   assert.equal(roundTrip.typography.fontFamily, 'serif')
-  assert.deepEqual(categorySourceIds('tech', roundTrip), categorySourceIds('tech', typed))
+  assert.deepEqual(
+    categorySourceIds('cn-public', roundTrip),
+    categorySourceIds('cn-public', typed),
+  )
 
   const dirty = normalizePreferences({
-    categoryOrder: ['tech', 'ghost-category', 'tech'],
+    categoryTaxonomyVersion: CATEGORY_TAXONOMY_VERSION,
+    categoryOrder: ['tech-digital', 'ghost-category', 'tech-digital'],
     hiddenCategoryIds: ['nope'],
-    categorySources: { tech: ['sspai', 'not-a-source'], 'ghost-category': ['sspai'] },
+    categorySources: {
+      'tech-digital': ['ithome', 'not-a-source'],
+      'ghost-category': ['sspai'],
+    },
     typography: { fontScale: 99, lineHeight: 'x', fontFamily: 'comic' },
   })
-  assert.deepEqual(dirty.categoryOrder, ['tech'], '未知/重复分类应被剔除')
-  // 「推荐」已改为动态栏位（不进注册表），归一化不再往隐藏列表补写它
+  assert.deepEqual(dirty.categoryOrder, ['tech-digital'])
   assert.deepEqual(dirty.hiddenCategoryIds, [])
-  assert.deepEqual(dirty.categorySources, { tech: ['sspai'] })
-  assert.equal(dirty.typography.fontScale, 1.4, '越界字号应被夹住')
+  assert.deepEqual(dirty.categorySources, { 'tech-digital': ['ithome'] })
+  assert.equal(dirty.typography.fontScale, 1.4)
   assert.equal(dirty.typography.lineHeight, 1.9)
   assert.equal(dirty.typography.fontFamily, 'sans')
   console.log('normalize ok')

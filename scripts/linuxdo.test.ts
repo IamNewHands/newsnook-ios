@@ -28,6 +28,10 @@ const { LinuxDoSearchService } = await import('../src/features/linuxdo/search/se
 const { createLinuxDoSearchCache } = await import('../src/features/linuxdo/ui/searchCache')
 const { LinuxDoTemplateService, collectLinuxDoTemplateTags, filterLinuxDoTemplates, resolveLinuxDoTemplate } = await import('../src/features/linuxdo/template/service')
 const { LinuxDoNotificationService } = await import('../src/features/linuxdo/notification/service')
+const { LinuxDoTopicService } = await import('../src/features/linuxdo/topic/service')
+const { LinuxDoReadTracker } = await import('../src/features/linuxdo/topic/readTracker')
+const { parseLinuxDoConnectTrustPage } = await import('../src/features/linuxdo/connect/parser')
+const { applyLinuxDoReadProgress, linuxDoTopicReadState } = await import('../src/features/linuxdo/topic/readState')
 const notificationModel = await import('../src/features/linuxdo/notification/model')
 const feedModel = await import('../src/features/linuxdo/ui/feedModel').catch(() => null)
 const discoveryScope = await import('../src/features/linuxdo/ui/discoveryScope').catch(() => null)
@@ -285,6 +289,49 @@ assert.equal(user?.allUnreadNotificationsCount, 9)
 assert.equal(user?.canUseTemplates, true)
 assert.match(user?.avatarTemplate ?? '', /96/)
 
+const trustFixture = parseLinuxDoConnectTrustPage(`
+  <html><body><div class="card">
+    <div class="card-header"><h2 class="card-title">信任级别 3 的要求</h2><span class="badge badge-success">已达到</span></div>
+    <p class="card-subtitle">@aozix · 过去 100 天内的数据</p>
+    <div class="tl3-ring"><div class="tl3-ring-circle met" style="--val:95;--max:50"><span class="tl3-ring-current">95</span><span class="tl3-ring-target">/ 50</span></div><div class="tl3-ring-label">访问天数</div></div>
+    <div class="tl3-ring"><div class="tl3-ring-circle met" style="--val:1813;--max:500"><span class="tl3-ring-current">1813</span><span class="tl3-ring-target">/ 500</span></div><div class="tl3-ring-label">浏览话题</div></div>
+    <div class="tl3-ring"><div class="tl3-ring-circle met" style="--val:29745;--max:20000"><span class="tl3-ring-current">29745</span><span class="tl3-ring-target">/ 20000</span></div><div class="tl3-ring-label">浏览帖子</div></div>
+    <div class="tl3-bar-item met"><span class="tl3-bar-label">回复话题</span><span class="tl3-bar-nums met">18/10</span></div>
+    <div class="tl3-bar-item met"><span class="tl3-bar-label">点赞</span><span class="tl3-bar-nums met">40/30</span></div>
+    <div class="tl3-bar-item met"><span class="tl3-bar-label">获赞</span><span class="tl3-bar-nums met">490/20</span></div>
+    <div class="tl3-bar-item met"><span class="tl3-bar-label">获赞天数</span><span class="tl3-bar-nums met">70/7</span></div>
+    <div class="tl3-bar-item met"><span class="tl3-bar-label">获赞用户</span><span class="tl3-bar-nums met">436/5</span></div>
+    <div class="tl3-quota-card met"><span class="tl3-quota-label">被举报帖子</span><span class="tl3-quota-nums">0 / 5</span></div>
+    <div class="tl3-quota-card met"><span class="tl3-quota-label">举报用户</span><span class="tl3-quota-nums">0 / 5</span></div>
+    <div class="tl3-veto-item met"><div class="tl3-veto-front"><span class="tl3-veto-label">被禁言</span><span class="tl3-veto-desc">过去 6 个月</span><span class="tl3-veto-value">0</span></div><div class="tl3-veto-back"><span class="tl3-veto-value">9</span></div></div>
+    <div class="tl3-veto-item"><div class="tl3-veto-front"><span class="tl3-veto-label">被封禁</span><span class="tl3-veto-desc">过去 6 个月</span><span class="tl3-veto-value">0</span></div><div class="tl3-veto-back"><span class="tl3-veto-label">被封禁</span><span class="tl3-veto-desc">过去 6 个月</span><span class="tl3-veto-value">1</span></div></div>
+    <p>以上“话题”指主帖，“帖子”即传统意义的回复。</p>
+    <div class="status-met">已达到信任级别 3 要求，请保持。</div>
+  </div></body></html>
+`, 123456)
+assert.equal(trustFixture.title, '信任级别 3 的要求')
+assert.equal(trustFixture.username, 'aozix')
+assert.equal(trustFixture.periodLabel, '过去 100 天内的数据')
+assert.equal(trustFixture.achieved, true)
+assert.equal(trustFixture.activity.length, 3)
+assert.deepEqual(trustFixture.activity.map((item) => [item.label, item.current, item.target]), [
+  ['访问天数', 95, 50],
+  ['浏览话题', 1813, 500],
+  ['浏览帖子', 29745, 20000],
+])
+assert.equal(trustFixture.participation.length, 5)
+assert.equal(trustFixture.compliance.length, 2)
+assert.equal(trustFixture.vetoes[0]?.value, 0, 'met veto must parse the visible front face')
+assert.equal(trustFixture.vetoes[1]?.value, 1, 'unmet veto must parse the visible back face')
+assert.equal(trustFixture.vetoes[1]?.description, '过去 6 个月')
+assert.match(trustFixture.footnote ?? '', /话题.*帖子.*回复/)
+assert.equal(trustFixture.resultText, '已达到信任级别 3 要求，请保持。')
+assert.equal(trustFixture.fetchedAt, 123456)
+assert.throws(
+  () => parseLinuxDoConnectTrustPage('<html><body><form action="/login">登录</form></body></html>'),
+  (error: any) => error?.kind === 'auth-required',
+)
+
 const feed = decodeTopics({
   users: [
     { id: 1, username: 'alice', avatar_template: '/user_avatar/linux.do/alice/{size}/1.png' },
@@ -302,6 +349,13 @@ const feed = decodeTopics({
       created_at: '2026-09-20T00:00:00Z',
       last_posted_at: '2026-09-20T01:00:00Z',
       category_id: 9,
+      unseen: false,
+      unread_posts: 3,
+      new_posts: 3,
+      last_read_post_number: 1,
+      highest_post_number: 4,
+      notification_level: 2,
+      is_seen: true,
       tags: ['linux', { id: 'newsnook', name: 'newsnook' }, { text: 'android' }],
       posters: [{ user_id: 1, description: 'Original Poster' }, { user_id: 2, description: 'Most Recent Poster' }],
     }],
@@ -310,6 +364,31 @@ const feed = decodeTopics({
 assert.equal(feed.length, 1)
 assert.equal(feed[0]?.replyCount, 3)
 assert.equal(feed[0]?.posters[1]?.username, 'bob')
+assert.equal(feed[0]?.unread, 3, 'Discourse unread_posts must drive the unread counter')
+assert.equal(feed[0]?.lastReadPostNumber, 1)
+assert.equal(feed[0]?.highestPostNumber, 4)
+assert.equal(feed[0]?.notificationLevel, 2)
+assert.equal(feed[0]?.isSeen, true)
+assert.equal(linuxDoTopicReadState(feed[0]!), 'unread')
+const partiallyReadFeedTopic = applyLinuxDoReadProgress(feed[0]!, 3)
+assert.equal(partiallyReadFeedTopic.unread, 1)
+assert.equal(linuxDoTopicReadState(partiallyReadFeedTopic), 'unread')
+const fullyReadFeedTopic = applyLinuxDoReadProgress(partiallyReadFeedTopic, 4)
+assert.equal(fullyReadFeedTopic.unread, 0)
+assert.equal(linuxDoTopicReadState(fullyReadFeedTopic), 'read')
+const freshRegularTopic = {
+  ...feed[0]!,
+  unseen: true,
+  unread: 0,
+  newPosts: 1,
+  lastReadPostNumber: null,
+  highestPostNumber: 4,
+  notificationLevel: undefined,
+  isSeen: false,
+}
+assert.equal(linuxDoTopicReadState(freshRegularTopic), 'new')
+assert.equal(linuxDoTopicReadState(applyLinuxDoReadProgress(freshRegularTopic, 1)), 'read', 'a regular new topic stops being NEW after its first accepted read timing')
+assert.equal(linuxDoTopicReadState({ ...freshRegularTopic, notificationLevel: 0 }), 'read', 'muted topics must not receive a new/unread indicator')
 assert.deepEqual(feed[0]?.tags, ['linux', 'newsnook', 'android'])
 assert.deepEqual(decodeTagNames([{ id: 'ai', text: 'AI' }, { name: 'dev' }, 'news']), ['AI', 'dev', 'news'])
 assert.equal(decodeTagNames([{ foo: 'bar' }]).includes('[object Object]'), false)
@@ -324,6 +403,8 @@ const topic = decodeTopic({
   like_count: 5,
   created_at: '2026-09-20T00:00:00Z',
   last_posted_at: '2026-09-20T01:00:00Z',
+  last_read_post_number: 1,
+  highest_post_number: 2,
   last_poster_username: 'bob',
   tags: [{ id: 'linux', name: 'linux' }, { text: 'guide' }],
   details: {
@@ -339,6 +420,7 @@ const topic = decodeTopic({
       username: 'alice',
       cooked: '<p>Hello <img src=x onerror="alert(1)"></p><script>alert(1)</script>',
       created_at: '2026-09-20T00:00:00Z',
+      read: false,
       reply_to_post_number: 1,
       reply_to_user: {
         id: 2,
@@ -375,9 +457,12 @@ const topic = decodeTopic({
 })
 assert.equal(topic.postStream.stream.length, 2)
 assert.equal(topic.lastPosterUsername, 'bob')
+assert.equal(topic.lastReadPostNumber, 1)
+assert.equal(topic.highestPostNumber, 2)
 assert.equal(topic.details?.createdBy?.username, 'alice')
 assert.equal(topic.details?.createdBy?.name, 'Alice')
 assert.equal(topic.postStream.posts[0]?.actions[0]?.acted, true)
+assert.equal(topic.postStream.posts[0]?.read, false)
 assert.equal(topic.postStream.posts[0]?.bookmarked, true)
 assert.equal(topic.postStream.posts[0]?.bookmarkId, 77)
 assert.equal(topic.postStream.posts[0]?.replyToPostNumber, 1)
@@ -473,6 +558,16 @@ const locallyReadReaction = notificationModel.markLinuxDoNotificationRead([react
 assert.equal(locallyReadReaction[0]?.read, true)
 const staleRefresh = notificationModel.mergeLinuxDoNotifications(locallyReadReaction, [{ ...reactionNotification, read: false }])
 assert.equal(staleRefresh[0]?.read, true, 'a stale refresh must not resurrect an unread Reaction after mark-read')
+const pagedNotifications = notificationModel.mergeLinuxDoNotifications([
+  { ...reactionNotification, id: 300, createdAt: '2026-09-22T03:00:00Z' },
+  { ...reactionNotification, id: 299, createdAt: '2026-09-22T02:00:00Z', read: true },
+], [
+  { ...reactionNotification, id: 298, createdAt: '2026-09-21T23:00:00Z' },
+  { ...reactionNotification, id: 299, createdAt: '2026-09-22T02:00:00Z', read: false },
+  { ...reactionNotification, id: 297, createdAt: '2026-09-21T23:00:00Z' },
+])
+assert.deepEqual(pagedNotifications.map((item: { id: number }) => item.id), [300, 299, 298, 297], 'older notification pages must append chronologically instead of jumping above newer notifications')
+assert.equal(pagedNotifications.find((item: { id: number }) => item.id === 299)?.read, true, 'dedupe must preserve local read=true during pagination races')
 const deletedTargetNotification = { ...reactionNotification, id: 26, topicId: 99999999 }
 assert.equal(notificationModel.markLinuxDoNotificationRead([deletedTargetNotification], 26)[0]?.read, true, 'read state is independent from whether the target topic still exists')
 assert.equal(notificationModel.markAllLinuxDoNotificationsRead([reactionNotification, badgeNotification]).every((item: { read: boolean }) => item.read), true)
@@ -624,8 +719,12 @@ assert.equal(linuxDoEndpoints.userActivity('frank', 0, 1).endsWith('filter=1'), 
 assert.equal(linuxDoEndpoints.userActivity('frank', 0, 6).endsWith('filter=6'), true)
 assert.equal(linuxDoEndpoints.userActivity('frank', 0).includes('filter='), false)
 assert.equal(linuxDoEndpoints.notifications(60, 30).endsWith('/notifications.json?offset=60&limit=30'), true)
+assert.equal(linuxDoEndpoints.notifications().endsWith('/notifications.json?offset=0&limit=60'), true)
 assert.equal(linuxDoEndpoints.notifications(0, 1, 'unread').endsWith('/notifications.json?offset=0&limit=1&filter=unread'), true)
+assert.equal(linuxDoEndpoints.privateMessages('frank', 0), 'https://linux.do/topics/private-messages/frank.json')
+assert.equal(linuxDoEndpoints.privateMessages('frank', 2), 'https://linux.do/topics/private-messages/frank.json?page=2')
 assert.equal(linuxDoEndpoints.markNotificationsRead, 'https://linux.do/notifications/mark-read')
+assert.equal(linuxDoEndpoints.topicTimings, 'https://linux.do/topics/timings')
 assert.equal(linuxDoEndpoints.topic('hello', 100, 42).endsWith('/t/hello/100/42.json'), true)
 assert.equal(linuxDoEndpoints.postRaw(501).endsWith('/posts/501/raw'), true)
 assert.equal(linuxDoEndpoints.hot(2), 'https://linux.do/hot.json?page=2')
@@ -674,6 +773,94 @@ assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/unread.json?pa
 assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/posted.json?page=1' && call.auth === 'required'))
 assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/read.json?page=1' && call.auth === 'required'))
 assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/bookmarks.json?page=1' && call.auth === 'required'))
+
+const timingCalls: Array<{ url: string; form: Record<string, unknown>; auth?: string; headers?: Record<string, string>; browserOnly?: boolean }> = []
+const topicService = new LinuxDoTopicService({
+  postFormVoid: async (url: string, form: Record<string, unknown>, options?: { auth?: string; headers?: Record<string, string>; browserOnly?: boolean }) => {
+    timingCalls.push({ url, form, auth: options?.auth, headers: options?.headers, browserOnly: options?.browserOnly })
+  },
+} as any)
+await topicService.reportTimings(100, 2450.9, { 1: 1000.4, 2: 1450.8, 0: 999 })
+assert.deepEqual(timingCalls, [{
+  url: 'https://linux.do/topics/timings',
+  form: {
+    topic_id: 100,
+    topic_time: 2450,
+    'timings[1]': 1000,
+    'timings[2]': 1450,
+  },
+  auth: 'required',
+  headers: {
+    'X-SILENCE-LOGGER': 'true',
+    'Discourse-Background': 'true',
+  },
+  browserOnly: undefined,
+}], 'topic reading must use the same authenticated request transport as other Linux.do writes; forcing a hidden WebView bypasses the app session and can trigger Cloudflare verification')
+
+let trackerNow = 0
+const trackerBatches: Array<{ topicId: number; topicTime: number; timings: Record<number, number> }> = []
+const trackerSent: Array<{ topicId: number; highestSeen: number; posts: number[] }> = []
+const readTracker = new LinuxDoReadTracker({
+  now: () => trackerNow,
+  send: async (batch) => { trackerBatches.push({ topicId: batch.topicId, topicTime: batch.topicTime, timings: { ...batch.timings } }) },
+  onSent: (topicId, highestSeen, posts) => trackerSent.push({ topicId, highestSeen, posts }),
+})
+readTracker.start(2942004)
+readTracker.setVisiblePosts([13, 14, 15, 16])
+readTracker.scrolled()
+trackerNow = 1000
+;(readTracker as any).tick()
+assert.equal(trackerBatches.length, 0, 'the first one-second tick samples the viewport before a rush is possible')
+trackerNow = 2000
+;(readTracker as any).tick()
+await Promise.resolve()
+await Promise.resolve()
+assert.deepEqual(trackerBatches[0], {
+  topicId: 2942004,
+  topicTime: 1000,
+  timings: { 13: 1000, 14: 1000, 15: 1000, 16: 1000 },
+}, 'new unread posts sampled onscreen must rush a one-second timings batch without waiting for scrolling to stop')
+assert.deepEqual(trackerSent[0], {
+  topicId: 2942004,
+  highestSeen: 16,
+  posts: [13, 14, 15, 16],
+}, 'read state may advance only after the timings request resolves successfully')
+readTracker.stop(false)
+
+trackerNow = 0
+const scrollingBatches: Array<{ topicId: number; topicTime: number; timings: Record<number, number> }> = []
+const scrollingTracker = new LinuxDoReadTracker({
+  now: () => trackerNow,
+  send: async (batch) => { scrollingBatches.push({ topicId: batch.topicId, topicTime: batch.topicTime, timings: { ...batch.timings } }) },
+})
+scrollingTracker.start(2942004)
+scrollingTracker.setVisiblePosts([20, 21])
+scrollingTracker.scrolled()
+trackerNow = 1000
+;(scrollingTracker as any).tick()
+scrollingTracker.setVisiblePosts([21, 22, 23])
+scrollingTracker.scrolled()
+trackerNow = 2000
+;(scrollingTracker as any).tick()
+await Promise.resolve()
+await Promise.resolve()
+assert.deepEqual(scrollingBatches[0]?.timings, { 20: 1000, 21: 1000 }, 'continuous scrolling must preserve the previous visibility sample instead of clearing it')
+scrollingTracker.stop(false)
+
+trackerNow = 0
+const quickExitBatches: Array<Record<number, number>> = []
+const quickExitTracker = new LinuxDoReadTracker({
+  now: () => trackerNow,
+  send: async (batch) => { quickExitBatches.push({ ...batch.timings }) },
+})
+quickExitTracker.start(2942004)
+quickExitTracker.setVisiblePosts([8, 9])
+quickExitTracker.scrolled()
+trackerNow = 1000
+;(quickExitTracker as any).tick()
+quickExitTracker.stop(true)
+await Promise.resolve()
+assert.deepEqual(quickExitBatches[0], { 8: 1000, 9: 1000 }, 'leaving a topic flushes already sampled reading time like Discourse screen-track')
 
 const boostCalls: Array<{ url: string; form: Record<string, unknown>; auth?: string }> = []
 const interactionService = new LinuxDoInteractionService({
@@ -1087,6 +1274,42 @@ const fallbackNotificationService = new LinuxDoNotificationService({
 } as any)
 assert.equal(await fallbackNotificationService.unreadCount(), 2, 'unread fallback must count returned unread rows and ignore total_rows_notifications')
 
+const privateMessageCalls: string[] = []
+const privateMessageService = new LinuxDoNotificationService({
+  getJson: async (url: string) => {
+    privateMessageCalls.push(url)
+    const page = url.includes('page=3') ? 3 : 0
+    return {
+      users: [{ id: 7, username: page ? 'bob' : 'alice', avatar_template: '/user_avatar/linux.do/user/{size}/1.png' }],
+      topic_list: {
+        more_topics_url: page === 0 ? '/topics/private-messages/frank.json?page=3' : null,
+        topics: [{
+          id: page === 0 ? 701 : 700,
+          slug: page === 0 ? 'new-pm' : 'older-pm',
+          title: page === 0 ? '最新私信' : '更早私信',
+          posts_count: 3,
+          reply_count: 2,
+          views: 0,
+          like_count: 0,
+          created_at: '2026-09-20T00:00:00Z',
+          last_posted_at: page === 0 ? '2026-09-22T04:00:00Z' : '2026-09-21T04:00:00Z',
+          posters: [{ user_id: 7, description: 'Original Poster' }],
+          unseen: page === 0,
+          unread: page === 0 ? 2 : 0,
+        }],
+      },
+    }
+  },
+} as any)
+const privatePage0 = await privateMessageService.privateMessages('frank')
+assert.equal(privatePage0.items[0]?.id, 701)
+assert.equal(privatePage0.items[0]?.unread, 2)
+assert.equal(privatePage0.nextPage, 3, 'PM inbox must follow the exact page from topic_list.more_topics_url')
+const privatePage1 = await privateMessageService.privateMessages('frank', privatePage0.nextPage)
+assert.equal(privatePage1.items[0]?.id, 700)
+assert.equal(privatePage1.nextPage, undefined)
+assert.deepEqual(privateMessageCalls, [linuxDoEndpoints.privateMessages('frank', 0), linuxDoEndpoints.privateMessages('frank', 3)])
+
 const javaSource = readFileSync('android/app/src/main/java/com/aizeek/newsnook/LinuxDoSessionPlugin.java', 'utf8')
 const authJavaSource = readFileSync('android/app/src/main/java/com/aizeek/newsnook/LinuxDoUserApiAuth.java', 'utf8')
 const manifestSource = readFileSync('android/app/src/main/AndroidManifest.xml', 'utf8')
@@ -1106,6 +1329,12 @@ assert.equal(javaSource.includes('result.put("key"'), false)
 assert.match(javaSource, /followRedirects\(false\)/)
 assert.match(javaSource, /"Set-Cookie"\.equalsIgnoreCase/)
 assert.match(javaSource, /isApiAllowedUrl/)
+assert.match(javaSource, /CONNECT_ORIGIN = "https:\/\/connect\.linux\.do"/)
+assert.match(javaSource, /fetchConnectTrustPage/)
+assert.match(javaSource, /CONNECT_MAX_REDIRECTS/)
+assert.match(javaSource, /isConnectTrustAllowedUrl/)
+assert.match(javaSource, /manager\.getCookie\(url\)/)
+assert.match(javaSource, /cookieUrl = response\.request\(\)\.url\(\)\.toString\(\)/)
 assert.match(javaSource, /can_use_templates/)
 assert.match(javaSource, /all_unread_notifications_count/)
 assert.match(javaSource, /allUnreadNotificationsCount/)
@@ -1119,6 +1348,9 @@ assert.match(javaSource, /definitiveLogout/)
 assert.match(javaSource, /syncResponseCookies\(response\)/)
 assert.match(javaSource, /cf-mitigated/)
 assert.match(javaSource, /preferBrowserTransport/)
+assert.match(javaSource, /boolean browserOnly = Boolean\.TRUE\.equals\(call\.getBoolean\("browserOnly", false\)\)/)
+assert.match(javaSource, /if \(browserOnly\) \{/)
+assert.match(javaSource, /LINUXDO_BROWSER_REQUEST/)
 assert.match(javaSource, /performBrowserRequest/)
 assert.match(javaSource, /BROWSER_BRIDGE_NAME/)
 assert.match(javaSource, /credentials:'include'/)
@@ -1163,6 +1395,13 @@ assert.match(authJavaSource, /RSA_ALIAS = "newsnook_linuxdo_user_api_rsa_v2"/)
 assert.match(authJavaSource, /PREF_CLIENT_ID/)
 assert.doesNotMatch(authJavaSource, /java\.time\.Instant/)
 assert.match(clientSource, /authMode !== 'user-api-key'/)
+assert.match(clientSource, /error\.status === 403/)
+assert.match(clientSource, /this\.csrfToken = ''/)
+assert.match(clientSource, /Discourse-Logged-In/)
+assert.match(clientSource, /Discourse-Present/)
+assert.match(clientSource, /Origin: linuxDoEndpoints\.origin/)
+assert.match(clientSource, /browserOnly: options\.browserOnly/)
+assert.match(clientSource, /this\.csrf\(options\.browserOnly === true\)/)
 assert.match(javaSource, /call\.reject\(message, code\)/)
 assert.doesNotMatch(javaSource, /call\.reject\(code, message\)/)
 assert.match(javaSource, /handleOnNewIntent\(Intent intent\)/)
@@ -1238,6 +1477,10 @@ assert.match(accountViewSource, /账号密码登录（Linux\.do 官方页面）/
 assert.match(accountViewSource, /GitHub \/ Google 等第三方登录/)
 assert.match(accountViewSource, /await authenticateLinuxDo\(\)/)
 assert.match(accountViewSource, /await cancelLinuxDoAuthentication\(\)/)
+assert.match(accountViewSource, /信任等级/)
+assert.match(accountViewSource, /onTrustLevel/)
+assert.match(workspaceSource, /kind: 'trust'/)
+assert.match(workspaceSource, /<TrustLevelView session=\{session\}/)
 assert.doesNotMatch(accountViewSource, /Browser\.open\(\{ url: 'https:\/\/linux\.do\/login'/)
 const cssSource = readFileSync('src/index.css', 'utf8')
 const paragraphCssFixture = parseHTML(
@@ -1332,6 +1575,14 @@ assert.match(cssSource, /max-width:\s*860px;/)
 
 const threadViewsSource = readFileSync(new URL('../src/features/linuxdo/ui/ThreadViews.tsx', import.meta.url), 'utf8')
 assert.match(threadViewsSource, /rounded-xl sm:rounded-2xl border border-haze\/45 bg-ink-raised\/85 p-3 sm:p-4/)
+assert.match(threadViewsSource, /setPosts\(\(current\) => current\.map\(\(post\) => acknowledged\.has\(post\.postNumber\) \? \{ \.\.\.post, read: true \} : post\)\)/)
+assert.match(threadViewsSource, /LinuxDO timings acknowledged/)
+assert.match(threadViewsSource, /transport: 'session-chain'/)
+assert.match(threadViewsSource, /setReadSyncFailure\(\{ error: nextError, batch, retrying \}\)/)
+const readSyncStatusSource = readFileSync('src/features/linuxdo/ui/ReadSyncStatus.tsx', 'utf8')
+assert.match(readSyncStatusSource, /data-linuxdo-read-sync/)
+assert.match(readSyncStatusSource, /阅读记录尚未同步/)
+assert.match(readSyncStatusSource, /复制诊断/)
 
 const userWithCdnAvatar = decodeCurrentUser({
   current_user: {

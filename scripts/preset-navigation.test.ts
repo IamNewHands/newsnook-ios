@@ -3,7 +3,12 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { defaultFeedCategoryId, DEFAULT_PREFERENCES, visibleCategories } from '../src/sources/preferences'
-import { applySnapshotToPrefs, findBuiltinPreset } from '../src/sources/presets'
+import {
+  BUILTIN_DEFAULT_ID,
+  BUILTIN_DEPTH_ID,
+  applySnapshotToPrefs,
+  findBuiltinPreset,
+} from '../src/sources/presets'
 
 function firstCategory(presetId: string): string {
   const preset = findBuiltinPreset(presetId)
@@ -13,8 +18,8 @@ function firstCategory(presetId: string): string {
   )
 }
 
-assert.equal(firstCategory('builtin-default'), 'hot')
-assert.equal(firstCategory('builtin-depth'), 'theue')
+assert.equal(firstCategory(BUILTIN_DEFAULT_ID), 'cn-headlines')
+assert.equal(firstCategory(BUILTIN_DEPTH_ID), 'depth-reporting')
 
 const appSource = readFileSync(resolve('src/App.tsx'), 'utf8')
 

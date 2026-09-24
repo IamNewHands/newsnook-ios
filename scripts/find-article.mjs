@@ -3,7 +3,7 @@ const keyword = process.argv[2] || '非洲移民'
 
 const feeds = [
   'bbc-zh',
-  'bbc-zh-china',
+  'nytimes-zh',
   'dw-top',
   'aljazeera',
   'france24',

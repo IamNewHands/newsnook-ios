@@ -1,5 +1,5 @@
 import { Capacitor } from '@capacitor/core'
-import { Bookmark, FileText, History, KeyRound, Loader2, LockKeyhole, ShieldCheck, UserRound } from 'lucide-react'
+import { BadgeCheck, Bookmark, ChevronRight, FileText, History, KeyRound, Loader2, LockKeyhole, ShieldCheck, UserRound } from 'lucide-react'
 import { useState } from 'react'
 
 import { linuxDoCapabilities } from '../capabilities'
@@ -20,11 +20,13 @@ export function AccountView({
   onSession,
   onBookmarks,
   onProfile,
+  onTrustLevel,
 }: {
   session: LinuxDoSessionSnapshot
   onSession: (next: LinuxDoSessionSnapshot) => void
   onBookmarks: () => void
   onProfile: (username: string) => void
+  onTrustLevel: () => void
 }) {
   const caps = linuxDoCapabilities()
   const native = Capacitor.isNativePlatform()
@@ -76,8 +78,9 @@ export function AccountView({
   const verifyBrowser = async () => {
     setAccountError('')
     try {
-      await verifyLinuxDoBrowserSession('https://linux.do/')
-      setAccountError('Cloudflare / 浏览器验证已完成。')
+      const next = await verifyLinuxDoBrowserSession('https://linux.do/')
+      applySession(next)
+      setAccountError(next.authenticated ? 'Cloudflare / 浏览器验证已完成。' : '浏览器会话尚未登录，请先登录 Linux.do。')
     } catch (error) {
       setAccountError(readableError(error))
     }
@@ -141,6 +144,14 @@ export function AccountView({
       </section>
 
       <div className="mt-4 grid grid-cols-2 gap-2.5">
+        <button type="button" disabled={!session.authenticated} onClick={onTrustLevel} className="linuxdo-control col-span-2 flex items-center gap-3 rounded-[20px] border border-[#20c36b]/20 bg-[#20c36b]/[0.055] px-4 py-3.5 text-left shadow-sm transition-colors hover:bg-[#20c36b]/[0.085] disabled:opacity-45">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#20c36b]/12 text-[#20c36b]"><BadgeCheck size={18} /></span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-2"><span className="text-[11.5px] font-semibold text-paper">信任等级</span>{session.currentUser?.trustLevel !== undefined ? <span className="rounded-full bg-paper/[0.05] px-2 py-0.5 font-mono text-[8.5px] font-semibold text-paper-faint">TL{session.currentUser.trustLevel}</span> : null}</span>
+            <span className="mt-1 block truncate text-[9.5px] text-paper-faint">查看升级要求与当前达成情况</span>
+          </span>
+          <ChevronRight size={15} className="shrink-0 text-paper-faint" />
+        </button>
         <button type="button" onClick={onBookmarks} className="linuxdo-control rounded-[20px] border border-haze/70 bg-ink-raised px-3.5 py-3.5 text-left shadow-sm"><Bookmark size={18} className="mb-2 text-[#f5b326]" /><div className="text-[11.5px] font-semibold text-paper">书签</div><div className="mt-1 text-[9.5px] text-paper-faint">{caps.bookmarks ? '查看收藏的楼层与主题' : '不可用'}</div></button>
         <button type="button" disabled={!session.currentUser?.username} onClick={() => session.currentUser?.username && onProfile(session.currentUser.username)} className="linuxdo-control rounded-[20px] border border-haze/70 bg-ink-raised px-3.5 py-3.5 text-left shadow-sm disabled:opacity-50"><UserRound size={18} className="mb-2 text-cinnabar" /><div className="text-[11.5px] font-semibold text-paper">个人主页</div><div className="mt-1 text-[9.5px] text-paper-faint">主题、活动、Boost 与统计</div></button>
         <div className="rounded-[20px] border border-haze/70 bg-ink-raised px-3.5 py-3.5 shadow-sm"><FileText size={18} className="mb-2 text-[#7b61ff]" /><div className="text-[11.5px] font-semibold text-paper">草稿</div><div className="mt-1 text-[9.5px] text-paper-faint">{caps.drafts ? '自动保存与恢复已启用' : '不可用'}</div></div>

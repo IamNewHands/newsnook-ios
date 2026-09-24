@@ -13,7 +13,6 @@ import {
   collectReadArticles,
   isRecommendationReady,
   rankRecommendations,
-  rankRecommendationsForSource,
   recommendationReadiness,
   scopeSignalsToSources,
   tokenize,
@@ -21,6 +20,7 @@ import {
 import type { Article } from '../src/lib/types'
 import {
   CATEGORIES,
+  CATEGORY_TAXONOMY_VERSION,
   RECOMMEND_CATEGORY,
   RECOMMEND_CATEGORY_ID,
   isReservedCategoryLabel,
@@ -182,16 +182,17 @@ assert.ok(!RECOMMEND_CATEGORY.sourceIds?.length, '动态推荐分类不应有固
 
 // 候选池 = 可见分类信源并集；综合贡献频道启用列表；隐藏分类的源不进池
 const scopedPrefs = normalizePreferences({
-  categoryOrder: ['hot', 'tech'],
+  categoryTaxonomyVersion: CATEGORY_TAXONOMY_VERSION,
+  categoryOrder: ['cn-headlines', 'cn-public'],
   hiddenCategoryIds: CATEGORIES.map((category) => category.id).filter(
-    (id) => !['hot', 'tech'].includes(id),
+    (id) => !['cn-headlines', 'cn-public'].includes(id),
   ),
 })
 const scope = recommendationScopeSourceIds(scopedPrefs, ['enabled-only'])
-assert.ok(scope.includes('netease'), '应包含可见「热点」分类的源')
-assert.ok(scope.includes('ithome'), '应包含可见「科技」分类的源')
+assert.ok(scope.includes('netease'), '应包含可见「国内要闻」分类的源')
+assert.ok(scope.includes('netease-gov'), '应包含可见「公共议题」分类的源')
 assert.ok(!scope.includes('enabled-only'), '综合被隐藏时不应引入频道启用列表')
-assert.ok(!scope.includes('netease-ent'), '隐藏分类的源不应进入推荐范围')
+assert.ok(!scope.includes('bbc-zh'), '隐藏分类的源不应进入推荐范围')
 assert.deepEqual(
   sourceIdsForCategoryWithPrefs(RECOMMEND_CATEGORY_ID, scopedPrefs, ['enabled-only']),
   scope,
@@ -199,9 +200,10 @@ assert.deepEqual(
 
 // 综合可见时贡献频道启用列表
 const mixPrefs = normalizePreferences({
-  categoryOrder: ['mix', 'hot'],
+  categoryTaxonomyVersion: CATEGORY_TAXONOMY_VERSION,
+  categoryOrder: ['mix', 'cn-headlines'],
   hiddenCategoryIds: CATEGORIES.map((category) => category.id).filter(
-    (id) => !['mix', 'hot'].includes(id),
+    (id) => !['mix', 'cn-headlines'].includes(id),
   ),
 })
 const mixScope = recommendationScopeSourceIds(mixPrefs, ['sspai'])
@@ -209,6 +211,7 @@ assert.ok(mixScope.includes('sspai') && mixScope.includes('netease'))
 
 // 严格性：池外不回落——空白布局（仅综合可见且频道未启用任何源）候选池为空
 const blankPrefs = normalizePreferences({
+  categoryTaxonomyVersion: CATEGORY_TAXONOMY_VERSION,
   categoryOrder: ['mix'],
   hiddenCategoryIds: CATEGORIES.map((category) => category.id).filter((id) => id !== 'mix'),
 })
@@ -499,53 +502,5 @@ assert.equal(
   '关闭状态应在 JSON 往返后保留',
 )
 console.log('recommend toggle pref: ok')
-
-// —— Task 16: 单源聚焦必须先裁剪再截断——低频源不能被全局上限吃掉 ——
-{
-  const wire = Array.from({ length: RECOMMEND_LIMIT + 40 }, (_v, i) =>
-    article({
-      id: `wire-${i}`,
-      title: `快讯 ${i}`,
-      sourceId: 'wire',
-      publishedAt: NOW - i * 60_000,
-    }),
-  )
-  // 小众软件这类一天一两条的源：条目更旧，在全局时间序里必然排在 120 条之外
-  const quiet = [
-    article({
-      id: 'quiet-1',
-      title: '一款小工具',
-      sourceId: 'appinn',
-      publishedAt: NOW - 30 * HOUR,
-    }),
-    article({
-      id: 'quiet-2',
-      title: '另一款小工具',
-      sourceId: 'appinn',
-      publishedAt: NOW - 40 * HOUR,
-    }),
-  ]
-  const pool = [...wire, ...quiet]
-  const cold = buildReadingProfile({ readArticles: [], laterArticles: [] })
-
-  // 旧行为：先截断到 RECOMMEND_LIMIT、再按源过滤 —— 低频源被整体吃掉，点开是空列表
-  const legacy = rankRecommendations(pool, cold, { now: NOW }).filter(
-    (item) => item.sourceId === 'appinn',
-  )
-  assert.equal(legacy.length, 0, '全局截断会吃掉低频源（这条就是旧顺序的回归证据）')
-
-  // 新行为：先按源裁剪再排序 —— 条目数与信源入口上的徽标一致
-  assert.deepEqual(
-    rankRecommendationsForSource(pool, cold, 'appinn', { now: NOW }).map((item) => item.id),
-    ['quiet-1', 'quiet-2'],
-  )
-
-  // 未选信源时与整体排序完全等价
-  assert.deepEqual(
-    rankRecommendationsForSource(pool, cold, null, { now: NOW }).map((item) => item.id),
-    rankRecommendations(pool, cold, { now: NOW }).map((item) => item.id),
-  )
-}
-console.log('recommend source scoping: ok')
 
 console.log('recommend: all ok')

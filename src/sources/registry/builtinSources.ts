@@ -344,12 +344,44 @@ export const SOURCES: NewsSource[] = [
     enabled: true,
   },
 
-  // —— 国际 ——
-  // BBC 中文简体 RSS 已 301 → 繁体；china/world 旧 index.xml 停在 2011–2014 归档，改用现行 feeds
-  { id: 'bbc-zh', name: 'BBC 中文', label: 'BBC中文', group: 'intl', kind: 'feed', url: 'https://feeds.bbci.co.uk/zhongwen/trad/rss.xml', enabled: true },
-  { id: 'bbc-zh-china', name: 'BBC 中文 · 中国', label: 'BBC中国', group: 'intl', kind: 'feed', url: 'https://feeds.bbci.co.uk/zhongwen/trad/rss.xml', enabled: false },
-  { id: 'bbc-zh-world', name: 'BBC 中文 · 国际', label: 'BBC国际', group: 'intl', kind: 'feed', url: 'https://feeds.bbci.co.uk/zhongwen/trad/rss.xml', enabled: false },
+  // —— 国际中文 ——
+  // BBC 官方 simp 首页仍提供简体中文，但公开 RSS 的 simp 地址会 301 到繁体 feed；
+  // 因此直接解析第一方简体首页的 Next.js 数据，避免把繁体内容误标为「BBC 中文」。
+  {
+    id: 'bbc-zh',
+    name: 'BBC 中文',
+    label: 'BBC中文',
+    group: 'intl',
+    kind: 'bbc-chinese',
+    url: 'https://www.bbc.com/zhongwen/simp',
+    siteUrl: 'https://www.bbc.com/zhongwen/simp',
+    cacheVersion: 'simp-v1',
+    enabled: true,
+  },
+  { id: 'nytimes-zh', name: '纽约时报中文网', label: '纽约时报中文', group: 'intl', kind: 'feed', url: 'https://cn.nytimes.com/rss/', enabled: false },
+  { id: 'rfi-zh', name: '法国国际广播电台中文', label: 'RFI中文', group: 'intl', kind: 'feed', url: 'https://www.rfi.fr/cn/rss', enabled: false },
+  { id: 'dw-top', name: 'DW 中文', label: 'DW中文', group: 'intl', kind: 'feed', url: 'https://rss.dw.com/rdf/rss-chi-all', enabled: true },
+  { id: 'ftchinese', name: 'FT中文网', label: 'FT中文', group: 'intl', kind: 'feed', url: 'https://www.ftchinese.com/rss/feed', enabled: false },
+  { id: 'voa-zh', name: '美国之音中文网', label: 'VOA中文', group: 'intl', kind: 'feed', url: 'https://www.voachinese.com/api/zm_yqebbyi', enabled: false },
+  { id: 'cna-intl-zh', name: '中央社 · 国际', label: '中央社国际', group: 'intl', kind: 'feed', url: 'https://feeds.feedburner.com/rsscna/intworld', enabled: false },
+  {
+    id: 'zaobao-world',
+    name: '联合早报 · 国际',
+    label: '联合早报',
+    group: 'intl',
+    kind: 'zaobao',
+    url: 'https://www.zaobao.com.sg/news/world',
+    userAgent: DESKTOP_UA,
+    enabled: false,
+  },
+
+  // —— 国际英文 ——
   { id: 'bbc-world', name: 'BBC World', label: 'BBC World', group: 'intl', kind: 'feed', url: 'https://feeds.bbci.co.uk/news/world/rss.xml', enabled: false },
+  { id: 'dw-en', name: 'DW English', label: 'DW English', group: 'intl', kind: 'feed', url: 'https://rss.dw.com/rdf/rss-en-top', enabled: false },
+  { id: 'nytimes-world', name: 'The New York Times · World', label: 'NYT World', group: 'intl', kind: 'feed', url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml', enabled: false },
+  { id: 'wsj-world', name: 'The Wall Street Journal · World News', label: 'WSJ World', group: 'intl', kind: 'feed', url: 'https://feeds.a.dj.com/rss/RSSWorldNews.xml', enabled: false },
+  { id: 'nikkei-asia', name: 'Nikkei Asia', label: 'Nikkei Asia', group: 'intl', kind: 'feed', url: 'https://asia.nikkei.com/rss/feed/nar', enabled: false },
+  { id: 'channelnewsasia-world', name: 'CNA · World', label: 'CNA World', group: 'intl', kind: 'feed', url: 'https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=6311', enabled: false },
   {
     id: 'gnews-world',
     name: 'Google 全球',
@@ -413,7 +445,6 @@ export const SOURCES: NewsSource[] = [
     url: 'https://news.google.com/rss/headlines/section/topic/HEALTH?hl=en-US&gl=US&ceid=US:en',
     enabled: false,
   },
-  { id: 'dw-top', name: 'DW 德国之声', label: 'DW', group: 'intl', kind: 'feed', url: 'https://rss.dw.com/rdf/rss-en-top', enabled: true },
   { id: 'scmp-china', name: 'SCMP 中国', label: 'SCMP', group: 'intl', kind: 'feed', url: 'https://www.scmp.com/rss/4/feed/', enabled: true },
   { id: 'scmp-news', name: 'SCMP News', label: 'SCMP News', group: 'intl', kind: 'feed', url: 'https://www.scmp.com/rss/91/feed/', enabled: false },
   { id: 'npr', name: 'NPR News', label: 'NPR', group: 'intl', kind: 'feed', url: 'https://feeds.npr.org/1001/rss.xml', enabled: true },

@@ -4,7 +4,7 @@
  * 2. Paul Graham 静态列表解析器
  * 3. Substack / Ghost content:encoded 富文本保留与正文判断
  * 4. 摘要清理引擎 Substack 订阅前缀过滤
- * 
+ *
  * 用法：npx tsx scripts/high-signal-sources.test.ts
  */
 import assert from 'node:assert/strict'
@@ -141,66 +141,51 @@ assert.ok(cleaned.includes('Semiconductor manufacturing equipment'))
 
 console.log('✓ Substack boilerplate summary cleaner verified')
 
-// —— 6. AI 深读信源注册检查 ——
-const AI_DEPTH_ZH_IDS = ['zhidx', 'baoyu']
-const AI_DEPTH_WORLD_IDS = [
-  'oneusefulthing',
-  'understandingai',
-  'latent-space',
-  'thezvi',
-]
+// —— 6. Taxonomy v3: AI / developer sources stay in semantically named rails ——
+const aiLabs = CATEGORIES.find((cat) => cat.id === 'ai-labs')!
+const aiEcosystem = CATEGORIES.find((cat) => cat.id === 'ai-ecosystem')!
+const aiPractice = CATEGORIES.find((cat) => cat.id === 'ai-practice')!
+const aiMediaCn = CATEGORIES.find((cat) => cat.id === 'ai-media-cn')!
+const aiEngineering = CATEGORIES.find((cat) => cat.id === 'ai-engineering')!
+const aiThinking = CATEGORIES.find((cat) => cat.id === 'ai-thinking')!
+const techDev = CATEGORIES.find((cat) => cat.id === 'tech-dev')!
 
-const aiDepthCategory = CATEGORIES.find((cat) => cat.id === 'ai-depth')
-assert.ok(aiDepthCategory?.sourceIds, 'ai-depth category must declare sourceIds')
-for (const id of AI_DEPTH_ZH_IDS) {
+for (const id of ['openai-news', 'anthropic', 'claude-blog', 'google-ai', 'deepmind']) {
   const src = findSource(id)
-  assert.ok(src, `AI depth source ${id} must be registered in SOURCES`)
-  assert.equal(src.group, 'ai', `AI depth source ${id} must be in the ai group`)
-  assert.ok(src.url.startsWith('https://'), `AI depth source ${id} must use https`)
-  assert.ok(
-    aiDepthCategory!.sourceIds!.includes(id),
-    `AI depth source ${id} must be covered by the ai-depth category`,
-  )
+  assert.ok(src, `AI lab source ${id} must be registered`)
+  assert.equal(src.group, 'ai')
+  assert.ok(aiLabs.sourceIds?.includes(id), `${id} must be in ai-labs`)
 }
-const aiDepthWorldCategory = CATEGORIES.find((cat) => cat.id === 'ai-depth-world')
-assert.ok(aiDepthWorldCategory?.sourceIds, 'ai-depth-world category must declare sourceIds')
-for (const id of AI_DEPTH_WORLD_IDS) {
+for (const id of ['huggingface', 'pytorch', 'arena']) {
   const src = findSource(id)
-  assert.ok(src, `AI depth source ${id} must be registered in SOURCES`)
-  assert.equal(src.group, 'ai', `AI depth source ${id} must be in the ai group`)
-  assert.ok(src.url.startsWith('https://'), `AI depth source ${id} must use https`)
-  assert.ok(
-    aiDepthWorldCategory!.sourceIds!.includes(id),
-    `AI depth source ${id} must be covered by the ai-depth-world category`,
-  )
+  assert.ok(src, `AI ecosystem source ${id} must be registered`)
+  assert.equal(src.group, 'ai')
+  assert.ok(aiEcosystem.sourceIds?.includes(id), `${id} must be in ai-ecosystem`)
 }
 
-// 社区栏存在且优设排首位；HN 进社区·外刊
-const aiCommunityCategory = CATEGORIES.find((cat) => cat.id === 'ai-community')
-assert.ok(aiCommunityCategory?.sourceIds, 'ai-community category must declare sourceIds')
-assert.equal(aiCommunityCategory!.sourceIds![0], 'uisdc-aigc')
-assert.ok(aiCommunityCategory!.sourceIds!.includes('v2ex'))
-assert.ok(!aiCommunityCategory!.sourceIds!.includes('hn'))
-const aiCommunityWorldCategory = CATEGORIES.find((cat) => cat.id === 'ai-community-world')
-assert.ok(aiCommunityWorldCategory?.sourceIds?.includes('hn'))
+for (const id of [
+  'openai-cookbook',
+  'claude-customers',
+  'claude-academy-use-cases',
+  'claude-academy-tutorials',
+  'uisdc-aigc',
+  'woshipm-ai',
+]) {
+  assert.ok(aiPractice.sourceIds?.includes(id), `${id} must be in ai-practice`)
+}
 
-// 业界栏收媒体快报
-const aiMediaCategory = CATEGORIES.find((cat) => cat.id === 'ai-media')
-assert.ok(aiMediaCategory?.sourceIds?.includes('qbitai'))
-assert.ok(aiMediaCategory?.sourceIds?.includes('jiqizhixin'))
-
-// 官方一手拆三栏：OpenAI / Claude 各占一栏，其余实验室留在 ai（实验室）
-const aiOpenaiCategory = CATEGORIES.find((cat) => cat.id === 'ai-openai')
-assert.ok(aiOpenaiCategory?.sourceIds?.includes('openai-news'))
-assert.ok(aiOpenaiCategory?.sourceIds?.includes('openai-cookbook'))
-const aiClaudeCategory = CATEGORIES.find((cat) => cat.id === 'ai-claude')
-assert.ok(aiClaudeCategory?.sourceIds?.includes('anthropic'))
-assert.ok(aiClaudeCategory?.sourceIds?.includes('claude-blog'))
-const aiOriginCategory = CATEGORIES.find((cat) => cat.id === 'ai')
-assert.ok(aiOriginCategory?.sourceIds?.includes('google-ai'))
-assert.ok(aiOriginCategory?.sourceIds?.includes('deepmind'))
-assert.ok(!aiOriginCategory?.sourceIds?.includes('openai-news'))
-assert.ok(!aiOriginCategory?.sourceIds?.includes('qbitai'))
+for (const id of ['qbitai', 'jiqizhixin', 'aiera', 'leiphone', 'zhidx']) {
+  assert.ok(aiMediaCn.sourceIds?.includes(id), `${id} must be in ai-media-cn`)
+}
+for (const id of ['paperweekly', 'xixiaoyao', 'simonw', 'latent-space', 'interconnects']) {
+  assert.ok(aiEngineering.sourceIds?.includes(id), `${id} must be in ai-engineering`)
+}
+for (const id of ['baoyu', 'oneusefulthing', 'understandingai', 'thezvi', '42zhangjing']) {
+  assert.ok(aiThinking.sourceIds?.includes(id), `${id} must be in ai-thinking`)
+}
+for (const id of ['v2ex', 'hn', 'infoq-cn', 'ruanyifeng']) {
+  assert.ok(techDev.sourceIds?.includes(id), `${id} must be in tech-dev`)
+}
 
 // 分类里引用的 id 必须都已注册，防止手写 sourceIds 拼错
 for (const cat of CATEGORIES) {
@@ -209,7 +194,7 @@ for (const cat of CATEGORIES) {
   }
 }
 
-console.log('✓ AI depth/review sources registered & category references verified')
+console.log('✓ Taxonomy v3 AI/developer source placement verified')
 
 // —— 7. V2EX 分享创造（非普通发帖/水帖）验证 ——
 const v2exSource = findSource('v2ex')!

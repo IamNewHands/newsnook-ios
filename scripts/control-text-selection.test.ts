@@ -38,6 +38,11 @@ assert.match(speedRead, /aria-label="AI 速读"/)
 
 // Long-press category/source controls also suppress the Android native callout.
 assert.match(categoryRail, /custom-long-press-target/)
+assert.match(
+  categoryRail,
+  /whitespace-nowrap[\s\S]*?\{category\.label\}/,
+  '移动端分类栏必须显示完整 label，不能用 short 把“知识阅读”等名称缩短成“知识”',
+)
 assert.match(sourceFilters, /custom-long-press-target/)
 assert.match(css, /\.custom-long-press-target,[\s\S]*?-webkit-touch-callout:\s*none;/)
 

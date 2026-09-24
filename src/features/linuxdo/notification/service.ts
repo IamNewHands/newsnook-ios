@@ -1,7 +1,7 @@
 import { linuxDoEndpoints } from '../api/endpoints'
-import { decodeCurrentUser, decodeNotifications } from '../api/decode'
+import { decodeCurrentUser, decodeNotifications, decodeTopics } from '../api/decode'
 import type { LinuxDoApiClient } from '../api/client'
-import type { LinuxDoNotification } from '../types'
+import type { LinuxDoNotification, LinuxDoTopicSummary } from '../types'
 
 export class LinuxDoNotificationService {
   private readonly api: LinuxDoApiClient
@@ -12,7 +12,7 @@ export class LinuxDoNotificationService {
 
   async list(
     offset = 0,
-    limit = 30,
+    limit = 60,
     options: { signal?: AbortSignal; filter?: 'read' | 'unread' } = {},
   ): Promise<{ items: LinuxDoNotification[]; nextOffset?: number; totalRows?: number }> {
     const payload = await this.api.getJson<any>(
@@ -33,6 +33,32 @@ export class LinuxDoNotificationService {
     const totalRowsValue = Number(payload?.total_rows_notifications)
     const totalRows = Number.isFinite(totalRowsValue) && totalRowsValue >= 0 ? totalRowsValue : undefined
     return { items: decodeNotifications(payload), nextOffset, totalRows }
+  }
+
+  async privateMessages(
+    username: string,
+    page = 0,
+    signal?: AbortSignal,
+  ): Promise<{ items: LinuxDoTopicSummary[]; nextPage?: number }> {
+    const payload = await this.api.getJson<any>(
+      linuxDoEndpoints.privateMessages(username, page),
+      { auth: 'required', signal },
+    )
+    const items = decodeTopics(payload)
+    const moreTopicsUrl = typeof payload?.topic_list?.more_topics_url === 'string'
+      ? payload.topic_list.more_topics_url
+      : ''
+    let nextPage: number | undefined
+    if (moreTopicsUrl) {
+      try {
+        const parsed = new URL(moreTopicsUrl, linuxDoEndpoints.origin)
+        const value = Number(parsed.searchParams.get('page'))
+        nextPage = Number.isInteger(value) && value >= 0 ? value : page + 1
+      } catch {
+        nextPage = page + 1
+      }
+    }
+    return { items, nextPage }
   }
 
   async unreadCount(signal?: AbortSignal): Promise<number> {

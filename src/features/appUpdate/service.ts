@@ -97,8 +97,8 @@ async function ensureNativeListeners(): Promise<void> {
 }
 
 /**
- * Beta 订阅表示“Stable + Beta 都有资格”，选择当前可安装的最高版本。
- * Stable 订阅调用方只传 Stable 结果，因此不会意外看到 Beta。
+ * 更新通道严格隔离：Stable 只消费 Stable，Beta 只消费 Beta。
+ * 即使调用方误传了另一通道的结果，也必须在这里丢弃，避免跨通道更新。
  */
 export function selectEligibleUpdateResult(
   localVersion: string,
@@ -106,9 +106,9 @@ export function selectEligibleUpdateResult(
   results: UpdateCheckResult[],
 ): UpdateCheckResult {
   const eligibleResults = results.filter((result) => {
-    if (result.status === 'error') return true
+    if (result.status === 'error') return false
     const sourceTrack = result.status === 'available' ? result.release.track : result.track
-    return subscriptionTrack === 'beta' || sourceTrack === 'stable'
+    return sourceTrack === subscriptionTrack
   })
 
   const available = eligibleResults
@@ -139,12 +139,14 @@ export function selectEligibleUpdateResult(
     .sort((a, b) => compareSemver(b.remoteVersion, a.remoteVersion))
   if (upToDate.length > 0) return upToDate[0]!
 
-  const errors = eligibleResults.filter(
+  const errors = results.filter(
     (result): result is Extract<UpdateCheckResult, { status: 'error' }> => result.status === 'error',
   )
   return {
     status: 'error',
-    message: errors.map((result) => result.message).filter(Boolean).join('；') || '检查更新失败',
+    message:
+      errors.map((result) => result.message).filter(Boolean).join('；') ||
+      '更新源通道与当前订阅不匹配',
   }
 }
 
@@ -153,16 +155,8 @@ async function fetchEligibleUpdate(
   flavor: PackageFlavor,
   subscriptionTrack: UpdateTrack,
 ): Promise<UpdateCheckResult> {
-  if (subscriptionTrack === 'stable') {
-    const stable = await fetchLatestRelease(localVersion, flavor, 'stable')
-    return selectEligibleUpdateResult(localVersion, subscriptionTrack, [stable])
-  }
-
-  const [stable, beta] = await Promise.all([
-    fetchLatestRelease(localVersion, flavor, 'stable'),
-    fetchLatestRelease(localVersion, flavor, 'beta'),
-  ])
-  return selectEligibleUpdateResult(localVersion, subscriptionTrack, [stable, beta])
+  const result = await fetchLatestRelease(localVersion, flavor, subscriptionTrack)
+  return selectEligibleUpdateResult(localVersion, subscriptionTrack, [result])
 }
 
 export async function checkForUpdate(

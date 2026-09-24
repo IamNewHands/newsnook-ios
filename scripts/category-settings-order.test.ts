@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 
+import { CATEGORIES } from '../src/sources/categories'
 import {
   DEFAULT_PREFERENCES,
   isCategoryVisible,
@@ -7,10 +8,11 @@ import {
   toggleCategoryVisible,
 } from '../src/sources/preferences'
 
+const visible = new Set(['cn-headlines', 'mix'])
 const prefs = {
   ...DEFAULT_PREFERENCES,
-  categoryOrder: ['ent', 'sports', 'hot', 'mix'],
-  hiddenCategoryIds: ['ent', 'sports'],
+  categoryOrder: ['cn-dialogue', 'cn-external', 'cn-headlines', 'mix'],
+  hiddenCategoryIds: CATEGORIES.map((category) => category.id).filter((id) => !visible.has(id)),
 }
 
 const ordered = settingsCategories(prefs)
@@ -25,16 +27,16 @@ assert.ok(
 )
 assert.deepEqual(
   ordered.slice(0, 2).map((category) => category.id),
-  ['hot', 'mix'],
+  ['cn-headlines', 'mix'],
   '启用分类应保持原有相对顺序并排在最前面',
 )
 assert.deepEqual(
-  ordered.slice(-2).map((category) => category.id),
-  ['ent', 'sports'],
-  '停用分类应保持原有相对顺序并排在最后面',
+  ordered.slice(firstHidden, firstHidden + 2).map((category) => category.id),
+  ['cn-dialogue', 'cn-external'],
+  '显式排序的停用分类应保持原有相对顺序并领先于其余停用分类',
 )
 
-const enabledAgain = toggleCategoryVisible(prefs, 'ent')
-assert.equal(settingsCategories(enabledAgain)[0].id, 'ent')
+const enabledAgain = toggleCategoryVisible(prefs, 'cn-dialogue')
+assert.equal(settingsCategories(enabledAgain)[0].id, 'cn-dialogue')
 
 console.log('category settings order: ok')

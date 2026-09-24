@@ -82,28 +82,23 @@ for (const cat of CATEGORIES) {
 const dupes = duplicateSourcesAcrossCategories(categoryDefaults)
 assert.deepEqual(dupes, [], `CATEGORIES must stay mutually exclusive, dupes: ${dupes.join(', ')}`)
 
-// 公众号镜像归「深读」；优设 / 人人 PM / PaperWeekly 归「社区」
-const aiDepthCategory = CATEGORIES.find((cat) => cat.id === 'ai-depth')!
-for (const id of ['xixiaoyao', '42zhangjing']) {
-  assert.ok(aiDepthCategory.sourceIds!.includes(id), `${id} must be covered by ai-depth`)
+// Taxonomy v3：实践类、研究工程类、思想产业类与开发者社区分开，避免「社区/深读」大杂烩。
+const aiPracticeCategory = CATEGORIES.find((cat) => cat.id === 'ai-practice')!
+for (const id of ['uisdc-aigc', 'woshipm-ai']) {
+  assert.ok(aiPracticeCategory.sourceIds!.includes(id), `${id} must be covered by ai-practice`)
 }
-const aiCommunityCategory = CATEGORIES.find((cat) => cat.id === 'ai-community')!
-for (const id of ['uisdc-aigc', 'woshipm-ai', 'paperweekly', 'v2ex']) {
-  assert.ok(aiCommunityCategory.sourceIds!.includes(id), `${id} must be covered by ai-community`)
+const aiEngineeringCategory = CATEGORIES.find((cat) => cat.id === 'ai-engineering')!
+for (const id of ['xixiaoyao', 'paperweekly']) {
+  assert.ok(aiEngineeringCategory.sourceIds!.includes(id), `${id} must be covered by ai-engineering`)
 }
-assert.ok(
-  !aiCommunityCategory.sourceIds!.includes('hn'),
-  'hn belongs to ai-community-world',
-)
-assert.equal(aiCommunityCategory.sourceIds![0], 'uisdc-aigc', 'uisdc-aigc must lead the community category')
-const aiCommunityWorldCategory = CATEGORIES.find((cat) => cat.id === 'ai-community-world')!
-assert.ok(aiCommunityWorldCategory.sourceIds!.includes('hn'), 'hn must be covered by ai-community-world')
-const aiCategory = CATEGORIES.find((cat) => cat.id === 'ai')!
-for (const id of ['xixiaoyao', 'paperweekly', '42zhangjing', 'uisdc-aigc', 'woshipm-ai']) {
-  assert.ok(!aiCategory.sourceIds!.includes(id), `${id} must not leak into the official ai category`)
+const aiThinkingCategory = CATEGORIES.find((cat) => cat.id === 'ai-thinking')!
+assert.ok(aiThinkingCategory.sourceIds!.includes('42zhangjing'))
+const techDevCategory = CATEGORIES.find((cat) => cat.id === 'tech-dev')!
+for (const id of ['v2ex', 'hn']) {
+  assert.ok(techDevCategory.sourceIds!.includes(id), `${id} must be covered by tech-dev`)
 }
 
-console.log('✓ wechat mirror & community sources registered, categories covered & exclusive')
+console.log('✓ wechat/community sources registered and taxonomy v3 placement verified')
 
 // —— 1b. 硬科技 / 科普甄选（2026-08-25）——
 // 集智俱乐部 / 浅黑科技走 wechat2rss 镜像；返朴 / 中科院物理所 / 地球知识局的公众号
@@ -144,16 +139,20 @@ for (const id of SCIENCE_NETEASE_IDS) {
   assert.ok(id.startsWith('netease'), `${id} must keep the netease id prefix for body resolution`)
 }
 
-// 分类归属：科普收编 4 个新源，浅黑科技归科技深度；都不得漏进 AI 分层
-const scienceCategory = CATEGORIES.find((cat) => cat.id === 'science')!
-for (const id of ['netease-fanpu', 'netease-wuli', 'netease-diqiu', 'swarma']) {
-  assert.ok(scienceCategory.sourceIds!.includes(id), `${id} must be covered by science`)
+// 分类归属：基础科学、科研前沿、地理观察与技术深读各自独立。
+const scienceBasicCategory = CATEGORIES.find((cat) => cat.id === 'science-basic')!
+for (const id of ['netease-fanpu', 'netease-wuli']) {
+  assert.ok(scienceBasicCategory.sourceIds!.includes(id), `${id} must be covered by science-basic`)
 }
-const techDepthCategory = CATEGORIES.find((cat) => cat.id === 'tech-depth')!
-assert.ok(techDepthCategory.sourceIds!.includes('qianhei'), 'qianhei must be covered by tech-depth')
+const scienceResearchCategory = CATEGORIES.find((cat) => cat.id === 'science-research')!
+assert.ok(scienceResearchCategory.sourceIds!.includes('swarma'), 'swarma must be covered by science-research')
+const scienceEarthCategory = CATEGORIES.find((cat) => cat.id === 'science-earth')!
+assert.deepEqual(scienceEarthCategory.sourceIds, ['netease-diqiu'])
+const techDepthCategory = CATEGORIES.find((cat) => cat.id === 'tech-longform')!
+assert.ok(techDepthCategory.sourceIds!.includes('qianhei'), 'qianhei must be covered by tech-longform')
 for (const id of [...SCIENCE_WECHAT_IDS, ...SCIENCE_NETEASE_IDS]) {
-  assert.ok(!aiDepthCategory.sourceIds!.includes(id), `${id} must not leak into ai-depth`)
-  assert.ok(!aiCategory.sourceIds!.includes(id), `${id} must not leak into the official ai category`)
+  assert.ok(!aiEngineeringCategory.sourceIds!.includes(id), `${id} must not leak into ai-engineering`)
+  assert.ok(!aiThinkingCategory.sourceIds!.includes(id), `${id} must not leak into ai-thinking`)
 }
 
 console.log('✓ hard-science sources registered (wechat mirror + netease dy), categories verified')
