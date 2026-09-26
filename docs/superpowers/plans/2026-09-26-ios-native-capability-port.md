@@ -26,10 +26,8 @@
 
 ## 0b. 剩余工作
 
-1. **真机验收**：Tier 3 四套能力都只在 CI 上编译过。首轮真机结果（构建 `34-2688ad9`）：
-   **后台朗读 ✅**、**媒体嗅探 ✅**、**AirPlay ✅ 到「弹出系统本地网络权限框」这一步**（无 Apple TV，
-   投屏本身未验）；DLNA 单播扫段同样卡在「没有电视」。其余项见
-   [`docs/ios-build.md`](../../ios-build.md) 的「2026-09-26 原生插件移植的真机验收项」。
+1. **真机验收**：Tier 3 四套能力都只在 CI 上编译过，运行时行为仍需真机确认。验收清单与逐轮
+   实测记录**不入库**，只保存在本地 `docs/local/ios-device-verification.md`。
 2. **DlnaCast 兼容中转（proxy 模式）未实现**：Android 在电视无法直连视频源时会把视频经
    本机前台服务中转（`CastMediaProxy` + `DlnaCastForegroundService`，614 行）。iOS 侧只做直连，
    直连确认失败时明确 reject，`session.mode` 恒为 `direct`。补它需要一个本机 HTTP 服务器
@@ -44,7 +42,7 @@
 
 ## 0e. 第三轮：返回手势（2026-09-26）
 
-真机反馈：右滑返回能用但「跳一下、像返回了两层」；设置页进二级页后不能右滑返回。
+两个返回手势的缺陷：右滑返回收尾时会「跳一下、像返回了两层」；设置页进二级页后根本没有右滑返回。
 
 | 症状 | 归因 | 改动 |
 |---|---|---|
@@ -53,31 +51,25 @@
 | 一次滑动退两层 | 每个 hook 实例都往 `window` 挂 `touchmove`，`touchstart` 冒泡到每个祖先实例；阅读器（`<main>` 之外的浮层）与工作区（`<main>` 之内）可同时挂载，两边各调一次 `onBack`。**未能真机复现，属代码可证的洞** | `useEdgeSwipeBack.ts`：模块级单实例认领（最内层先到先赢） |
 | 设置二级页不能右滑 | 从未接线 | `SettingsShell.tsx`：接 `useEdgeSwipeBack(edgeOnly)`，一处覆盖全部设置页；入场动画挪到内层（CSS 动画优先级高于内联 `transform`，否则整页拖不动）；`edgeSwipeBack.ts` 加右滑返回时间窗标记，让返回不重复播入场动画 |
 
-验证：`test:edge-swipe` 扩了标记契约；`lint` / `tsc -b` / 全量 `test:*` 见 §0c。真机验收项见
-[`docs/ios-build.md`](../../ios-build.md) 的「2026-09-26 第三轮：返回手势的真机验收项」。
-
-真机结果（构建 `34-2688ad9`）：
-
-- ✅ **设置二级页左缘右滑返回**——本轮新增能力，用户确认可用。
-- ✅ 右滑返回不再「跳一下」，也不再像退两层。
-- ❌ 阅读器右滑返回**短暂闪一下空白**再返回：比修前好，但「还是不够丝滑」→ 见 §0e-2。
+验证：`test:edge-swipe` 扩了标记契约；`lint` / `tsc -b` / 全量 `test:*` 见 §0c。真机验收项与实测
+记录见本地 `docs/local/ios-device-verification.md`。
 
 ## 0e-2. 第四轮：阅读器右滑返回闪空白（2026-09-26）
 
-真机反馈的关键是**对比**：设置页右滑丝滑，阅读器右滑闪空白。把四个调用方摆一起看，形状差异只有一个：
+四个右滑返回调用方摆一起看，形状差异只有一个：
 
-| 调用方 | 被拖动的那一层 | 真机结果 |
+| 调用方 | 被拖动的那一层 | 观感 |
 |---|---|---|
-| `SettingsShell` | 不透明根层（`absolute inset-0 … bg-ink`），入场动画在内层 | 丝滑 |
-| 知乎工作区 | 不透明根层（`section … bg-ink`），根层无动画 | 丝滑 |
-| Linux.do 工作区 | 不透明根层（`div … bg-ink`），根层无动画 | 丝滑 |
+| `SettingsShell` | 不透明根层（`absolute inset-0 … bg-ink`），入场动画在内层 | 跟手 |
+| 知乎工作区 | 不透明根层（`section … bg-ink`），根层无动画 | 跟手 |
+| Linux.do 工作区 | 不透明根层（`div … bg-ink`），根层无动画 | 跟手 |
 | 阅读器 | 根层里那块 `flex-1` 的**正文面**；根层透明、且根层带 `reader-in` 动画 | 闪空白 |
 
 只拖正文面有两个后果：（a）根层上下两条安全区留白（`--sat` / `--sab`）原地不动，左右又直接露出下层
 列表，滑动过程中画面是「撕裂」的；（b）正文面处在一个带 `fill-mode` 终态的动画层内部，合成器必须
 重画那一层才能补上让出的区域，那几帧就是「空白」。
 
-修法：把阅读器对齐到另外三处**已在真机确认丝滑**的形状。
+修法：把阅读器对齐到另外三处已经在用的形状。
 
 | 改动 | 文件 |
 |---|---|
@@ -90,10 +82,7 @@
 
 验证：`test:edge-swipe` / `test:ios-native-plugin` / `test:reader-images` / `test:reader-font-pinch`
 全 ok；`lint` 0 errors（18 条既有 warning，数量与上一轮相同）；`npx tsc -b tsconfig.app.json` exit 0。
-真机验收项见 [`docs/ios-build.md`](../../ios-build.md) 的「2026-09-26 第四轮：阅读器右滑返回闪空白」。
-
-真机结果（构建 `35-4ea4844`）：✅ 闪空白消失、「效果好很多了」；❌ 但「动画有点生硬、帧率不太足、
-有点拖影」→ 见 §0e-3。
+真机验收项与实测记录见本地 `docs/local/ios-device-verification.md`。
 
 ## 0e-3. 第五轮：右滑返回的帧率优化（2026-09-26）
 
@@ -104,7 +93,7 @@
 | 起步一顿、之后一路拖影 | 合成层是右滑第一帧才升的（`useEdgeSwipeBack` 在 `begin()` 里写 `will-change`），升层与首次栅格化都挤在手指刚动的那几帧里 | `.reader-swipe-surface` 常驻 `will-change: transform` + `backface-visibility: hidden` |
 | 持续掉帧 | 顶栏 `bg-ink/90 backdrop-blur-md`：`backdrop-filter` 每帧重新采样背景并重算模糊 | `[data-swipe-back-active='true']` 期间关掉整棵子树的 `backdrop-filter`，`[data-surface='reader-chrome']` 换不透明底色（与 eink 模式同一套处理） |
 
-没有改手势判据、时长或缓动。下一批候选（若真机仍生硬）：`box-shadow` 换左缘渐变条、滑动期间
+没有改手势判据、时长或缓动。若观感仍不够跟手，下一批候选：`box-shadow` 换左缘渐变条、滑动期间
 顶栏改 `position: static`、提交动画改 `element.animate()`。
 
 ## 0h. 关于页补上本版仓库（2026-09-26）
