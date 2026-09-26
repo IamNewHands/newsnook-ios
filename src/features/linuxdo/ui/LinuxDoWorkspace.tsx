@@ -2,6 +2,9 @@ import { ArrowLeft, Bell, CheckCircle2, ChevronDown, Compass, Flame, History, Li
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 
 import { PresetSwitcher, type PresetSwitcherProps } from '../../../components/PresetSwitcher'
+import { useEdgeSwipeBack } from '../../../hooks/useEdgeSwipeBack'
+import { useReducedMotion } from '../../../hooks/useReducedMotion'
+import { EDGE_WIDTH_PX, isEdgeStart } from '../../../lib/edgeSwipeBack'
 import { LinuxDoBoostComposer, LinuxDoComposer, LinuxDoTopicView } from './ThreadViews'
 import { BookmarksView, NotificationsView, SearchView } from './CommunityViews'
 import { DiscoverView } from './DiscoverView'
@@ -274,6 +277,18 @@ function FeedView({
       touchIntent.current = null
       return
     }
+    const touch = event.touches[0]
+    // 左缘窄条是返回手势的起步区：切标签必须让位，否则一次右滑会同时
+    // 「返回上一级 + 切到上一个标签」。判据与 useEdgeSwipeBack(edgeOnly) 同源。
+    if (
+      touch &&
+      isEdgeStart(touch.clientX, EDGE_WIDTH_PX, event.currentTarget.getBoundingClientRect().left)
+    ) {
+      touchStartX.current = null
+      touchStartY.current = null
+      touchIntent.current = null
+      return
+    }
     touchStartX.current = event.touches[0]?.clientX ?? null
     touchStartY.current = event.touches[0]?.clientY ?? null
     touchIntent.current = null
@@ -509,6 +524,8 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
   const [route, setRoute] = useState<Route>({ kind: 'feed', mode: 'latest' })
   const [history, setHistory] = useState<Route[]>([])
   const feedCacheRef = useRef<LinuxDoFeedCache>(createFeedCache())
+  const shellRef = useRef<HTMLDivElement | null>(null)
+  const reduced = useReducedMotion()
   const discoverCacheRef = useRef(createLinuxDoDiscoveryCache())
   const searchCacheRef = useRef(createLinuxDoSearchCache())
   const [session, setSession] = useState<LinuxDoSessionSnapshot>({ authenticated: false, authMode: 'none' })
@@ -662,19 +679,39 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
     setComposerEditPost(undefined)
   }, [])
 
-  useEffect(() => {
-    backHandlerRef.current = () => {
-      if (topicOverlayBackHandlerRef.current?.()) return true
-      if (boostPost) { setBoostPost(null); return true }
-      if (composerOpen) { composerRequestCloseRef.current?.(); return true }
-      if (route.kind === 'discover' && route.scope) {
-        setRoute({ kind: 'discover' })
-        return true
-      }
-      return goBack()
+  /**
+   * 工作区统一返回优先级，系统返回键与左缘右滑共用同一份实现——
+   * 两条入口若各写一套，迟早会漂移（一边能关弹层、另一边直接退工作区）。
+   */
+  const handleWorkspaceBack = useCallback(() => {
+    if (topicOverlayBackHandlerRef.current?.()) return true
+    if (boostPost) { setBoostPost(null); return true }
+    if (composerOpen) { composerRequestCloseRef.current?.(); return true }
+    if (route.kind === 'discover' && route.scope) {
+      setRoute({ kind: 'discover' })
+      return true
     }
+    return goBack()
+  }, [boostPost, composerOpen, goBack, route])
+
+  useEffect(() => {
+    backHandlerRef.current = handleWorkspaceBack
     return () => { backHandlerRef.current = null }
-  }, [backHandlerRef, boostPost, composerOpen, goBack, route])
+  }, [backHandlerRef, handleWorkspaceBack])
+
+  // 左缘右滑返回：与系统返回同一套优先级（主题内浮层 → 加精弹层 → 发帖器 →
+  // 发现子域 → 路由栈），退到根仍无历史时交给 onExit 退出工作区。
+  // 弹层打开时禁用拖拽，避免把底下的工作区拖走。
+  useEdgeSwipeBack({
+    containerRef: shellRef,
+    onBack: () => {
+      if (!handleWorkspaceBack()) onExit()
+    },
+    disabled: composerOpen || Boolean(boostPost),
+    edgeOnly: true,
+    reduced,
+    resetAfterBack: true,
+  })
 
   const verify = async (): Promise<boolean> => {
     try {
@@ -701,7 +738,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
                     : '我的'
 
   return (
-    <div className="linuxdo-workspace relative flex h-full min-h-0 flex-col overflow-hidden bg-ink text-paper">
+    <div ref={shellRef} className="linuxdo-workspace relative flex h-full min-h-0 flex-col overflow-hidden bg-ink text-paper">
       {route.kind !== 'topic' ? <header className="linuxdo-brand-header linuxdo-control shrink-0 border-b border-haze/60 bg-ink/95 page-x select-none">
         <div className="flex min-h-[60px] items-center gap-1.5 py-2 sm:gap-2">
           <button type="button" onClick={() => { if (route.kind === 'discover' && route.scope) { setRoute({ kind: 'discover' }); return } if (!goBack()) onExit() }} className="linuxdo-icon-button grid h-10 w-10 shrink-0 place-items-center rounded-full text-paper-muted" aria-label="返回 NewsNook"><ArrowLeft size={18} /></button>

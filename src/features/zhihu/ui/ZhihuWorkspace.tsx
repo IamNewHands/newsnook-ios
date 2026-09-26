@@ -3,6 +3,8 @@ import type { MutableRefObject } from 'react'
 import { ArrowLeft, Bell, Home, Loader2, ScrollText, Search, UserRound } from 'lucide-react'
 
 import { PresetSwitcher, type PresetSwitcherProps } from '../../../components/PresetSwitcher'
+import { useEdgeSwipeBack } from '../../../hooks/useEdgeSwipeBack'
+import { useReducedMotion } from '../../../hooks/useReducedMotion'
 import type { CloudTranslationConfig } from '../../translation/types'
 import { ZhihuCollectionService } from '../collection/service'
 import { ZhihuCommentDraftStore } from '../comments/draftStore'
@@ -144,6 +146,8 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
   const [frames, setFrames] = useState<RouteFrame[]>(() => retainedFrames?.map((frame) => ({ ...frame })) ?? [createZhihuRootFrame()])
   const current = frames.at(-1) ?? createZhihuRootFrame()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const shellRef = useRef<HTMLElement | null>(null)
+  const reduced = useReducedMotion()
   const contentOverlayCloserRef = useRef<(() => boolean) | null>(null)
   const feedPreviewRef = useRef(new Map<string, ZhihuContentSummary>())
   const rootFeedFrame = frames.find((frame) => frame.route.screen === 'feed')
@@ -306,6 +310,20 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
       if (backHandlerRef.current === handleWorkspaceBack) backHandlerRef.current = null
     }
   }, [backHandlerRef, handleWorkspaceBack])
+
+  // 左缘右滑返回：与系统返回同一套优先级（先关浮层，再退一层路由），
+  // 退到工作区根仍无历史时交给 onExit 退出工作区。
+  // `resetAfterBack`：本工作区的根元素在换路由时不卸载，必须让 hook 复位，
+  // 否则整页会停在屏幕外（阅读器那条路径靠卸载容器收尾，不适用这里）。
+  useEdgeSwipeBack({
+    containerRef: shellRef,
+    onBack: () => {
+      if (!handleWorkspaceBack()) onExit()
+    },
+    edgeOnly: true,
+    reduced,
+    resetAfterBack: true,
+  })
 
   const setFeedMode = useCallback((mode: ZhihuFeedMode) => {
     if (mode === homeFeedMode) return
@@ -557,7 +575,7 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
   })()
 
   return (
-    <section className="relative flex h-full min-h-0 flex-1 flex-col bg-ink" aria-label="知乎工作区">
+    <section ref={shellRef} className="relative flex h-full min-h-0 flex-1 flex-col bg-ink" aria-label="知乎工作区">
       {/* AppShell 已经统一吃掉顶部 safe-area；工作区再次加 --sat 会在打孔/刘海机型上形成双倍顶部留白。 */}
       <header className={`relative z-20 flex shrink-0 items-center gap-2 border-b border-haze/50 bg-ink/92 px-3 backdrop-blur-xl sm:px-5 ${primaryRoute ? 'min-h-[56px]' : 'min-h-[50px]'}`}>
         <button

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 
 import {
   clampDragX,
+  isEdgeOnlyStart,
   isSwipeBackStart,
   resolveLock,
   shouldCommit,
@@ -22,6 +23,20 @@ interface Options {
   onBack: () => void
   disabled?: boolean
   reduced?: boolean
+  /**
+   * 只认左缘窄条起步。默认 false（阅读器沿用「下半屏整片可起步」的宽松区）。
+   * 列表 / 工作区应置 true：下半屏是内容区，右滑整片返回会误触并与横向手势冲突。
+   */
+  edgeOnly?: boolean
+  /**
+   * `onBack` 之后容器**不会**被卸载时置 true（例如工作区只是换路由内容、
+   * 根元素一直是同一个）。commit 动画故意把容器留在屏幕外等 React 卸载它，
+   * 若容器不卸载，那一页就会永久停在屏幕外——这时必须由本开关复位。
+   *
+   * 默认 false：整页阅读器这类 onBack 会卸载容器的调用方保持原行为，避免
+   * 复位瞬间把正文又画一帧（观感上是整页闪一下）。
+   */
+  resetAfterBack?: boolean
 }
 
 interface ActiveGesture {
@@ -56,6 +71,8 @@ export function useEdgeSwipeBack({
   onBack,
   disabled = false,
   reduced = false,
+  edgeOnly = false,
+  resetAfterBack = false,
 }: Options): void {
   const onBackRef = useRef(onBack)
   onBackRef.current = onBack
@@ -203,6 +220,8 @@ export function useEdgeSwipeBack({
         // the transform here briefly paints the article again before onBack's
         // state update is committed, which looks like a full-page flash.
         onBackRef.current()
+        // 容器不卸载的调用方（工作区）必须在这里复位，否则整页永久停在屏幕外。
+        if (resetAfterBack) clearVisual()
       })
     }
 
@@ -236,14 +255,17 @@ export function useEdgeSwipeBack({
       if (visualX > 0) return false
       const rect = element.getBoundingClientRect()
       const layoutLeft = rect.left - visualX
+      const bounds = {
+        left: layoutLeft,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      }
       if (
         visualX <= 0 &&
-        !isSwipeBackStart(clientX, clientY, {
-          left: layoutLeft,
-          top: rect.top,
-          width: rect.width,
-          height: rect.height,
-        })
+        !(edgeOnly
+          ? isEdgeOnlyStart(clientX, clientY, bounds)
+          : isSwipeBackStart(clientX, clientY, bounds))
       ) {
         return false
       }
@@ -459,5 +481,5 @@ export function useEdgeSwipeBack({
       element.style.touchAction = previousTouchAction
       element.style.overscrollBehaviorX = previousOverscrollX
     }
-  }, [containerRef, disabled, reduced])
+  }, [containerRef, disabled, reduced, edgeOnly, resetAfterBack])
 }

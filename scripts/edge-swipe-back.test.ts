@@ -7,6 +7,7 @@ import {
   LOWER_START_RATIO,
   MIN_FLING_DISTANCE_PX,
   clampDragX,
+  isEdgeOnlyStart,
   isEdgeStart,
   isSwipeBackStart,
   resolveLock,
@@ -28,6 +29,16 @@ assert.equal(isSwipeBackStart(260, lowerStartY, readerBounds), true)
 assert.equal(isSwipeBackStart(419, 839, readerBounds), true)
 assert.equal(isSwipeBackStart(421, 839, readerBounds), false)
 assert.equal(isSwipeBackStart(260, 841, readerBounds), false)
+
+// 工作区/列表用「只认左缘」：下半屏整片不再是返回区（否则右滑列表会误返回，
+// 并与 Linux.do 的左右滑切标签抢手势）。
+assert.equal(isEdgeOnlyStart(100, 240, readerBounds), true)
+assert.equal(isEdgeOnlyStart(100 + EDGE_WIDTH_PX, 240, readerBounds), true)
+assert.equal(isEdgeOnlyStart(100 + EDGE_WIDTH_PX + 1, 240, readerBounds), false)
+assert.equal(isEdgeOnlyStart(260, lowerStartY, readerBounds), false)
+assert.equal(isEdgeOnlyStart(99, 240, readerBounds), false)
+assert.equal(isEdgeOnlyStart(100, 199, readerBounds), false)
+assert.equal(isEdgeOnlyStart(100, 841, readerBounds), false)
 
 assert.equal(resolveLock(5, 5), 'none')
 assert.equal(resolveLock(20, 5), 'horizontal')

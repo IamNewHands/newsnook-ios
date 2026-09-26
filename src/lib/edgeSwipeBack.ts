@@ -64,6 +64,29 @@ export function isSwipeBackStart(
   )
 }
 
+/**
+ * 只认左缘窄条起步：列表 / 工作区用这个。
+ *
+ * `isSwipeBackStart` 把容器下半屏整片也算返回区，那是阅读器的人体工学取舍
+ * （拇指够不到窄边）。但列表和工作区下半屏就是内容区：右滑整片返回既不符合
+ * iOS 习惯，也会跟 Linux.do 的「左右滑切换标签」抢同一个手势。
+ */
+export function isEdgeOnlyStart(
+  clientX: number,
+  clientY: number,
+  bounds: SwipeBackBounds,
+  edgeWidthPx = EDGE_WIDTH_PX,
+): boolean {
+  const localX = clientX - bounds.left
+  const localY = clientY - bounds.top
+  const inside =
+    localX >= 0 &&
+    localX <= bounds.width &&
+    localY >= 0 &&
+    localY <= bounds.height
+  return inside && isEdgeStart(clientX, edgeWidthPx, bounds.left)
+}
+
 export function resolveLock(
   dx: number,
   dy: number,
