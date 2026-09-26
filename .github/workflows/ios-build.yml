@@ -160,6 +160,7 @@ jobs:
           npm run test:free-translation
           npm run test:translation
           npm run test:ui-font
+          npm run test:image-actions
 
       - name: Resolve Swift packages
         run: |

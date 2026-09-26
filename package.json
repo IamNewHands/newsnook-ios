@@ -128,6 +128,7 @@
     "test:linuxdo": "npx tsx scripts/linuxdo.test.ts && npm run test:linuxdo-media && npm run test:linuxdo-readsync",
     "test:linuxdo-media": "npx tsx scripts/linuxdo-media.test.ts",
     "test:linuxdo-readsync": "npx tsx scripts/linuxdo-readsync-transport.test.ts && npx tsx scripts/linuxdo-readsync-queue.test.ts && npx tsx scripts/linuxdo-browser-session-probe.test.ts && npx tsx scripts/linuxdo-readsync-view.test.tsx && npx tsx scripts/linuxdo-firstparty-request.test.ts",
+    "test:image-actions": "npx tsx scripts/image-actions.test.ts",
     "test:cloudflare-routing": "npx tsx scripts/cloudflare-routing.test.ts",
     "test:config-backup": "rolldown scripts/config-backup.test.ts --platform=node --format=esm --file=node_modules/.cache/newsnook/config-backup.test.mjs && node node_modules/.cache/newsnook/config-backup.test.mjs",
     "test:product-tour": "npx tsx scripts/product-tour.test.ts",

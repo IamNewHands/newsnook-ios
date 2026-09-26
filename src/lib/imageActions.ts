@@ -46,7 +46,28 @@ function mimeFromExtension(ext: string): string {
   }
 }
 
-async function fetchImageBytes(url: string): Promise<{ base64: string; mime: string }> {
+/**
+ * 灯箱动作的取图顺序：已经在页面里拿到的 blob 优先（Linux.do 的字节只能经会话通道取回，
+ * 原始地址在 CapacitorHttp 里会被 Cloudflare 403；blob: 由 WebView 直接读，无需再请求），
+ * 拿不到 blob 时才回退到原始地址。
+ */
+export function imageActionSources(displaySrc: string, actionSrc?: string): string[] {
+  const sources: string[] = []
+  if (displaySrc.startsWith('blob:')) sources.push(displaySrc)
+  if (actionSrc && actionSrc !== displaySrc) sources.push(actionSrc)
+  if (!sources.length) sources.push(displaySrc)
+  return sources
+}
+
+export async function fetchImageBytes(url: string): Promise<{ base64: string; mime: string }> {
+  if (url.startsWith('blob:')) {
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`读取图片失败 HTTP ${response.status}`)
+    const blob = await response.blob()
+    const mime = blob.type || mimeFromExtension(extensionFromUrl(url, blob.type))
+    return { base64: await blobToBase64(blob), mime }
+  }
+
   if (Capacitor.isNativePlatform()) {
     const response = await CapacitorHttp.get({
       url,

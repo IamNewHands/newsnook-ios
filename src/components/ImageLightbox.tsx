@@ -9,7 +9,7 @@ import {
 } from 'react'
 import { ChevronLeft, ChevronRight, Download, Loader2, RefreshCcw, Share2, X } from 'lucide-react'
 
-import { saveImageToGallery, shareImage } from '../lib/imageActions'
+import { imageActionSources, saveImageToGallery, shareImage } from '../lib/imageActions'
 import { lockBodyScroll } from '../lib/bodyScrollLock'
 import { recoverAppScrollSurfaces } from '../lib/gestureStyles'
 
@@ -398,12 +398,25 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
     setBusy(action)
     setStatus(null)
     try {
-      const source = actionSrc || src
+      let lastError: unknown
+      // 优先用页面里已经拿到的 blob，失败再退回原始地址（见 imageActionSources）。
+      for (const source of imageActionSources(src, actionSrc)) {
+        try {
+          if (action === 'save') await saveImageToGallery(source)
+          else await shareImage(source, alt || '分享图片')
+          lastError = undefined
+          break
+        } catch (error) {
+          // 用户取消不再换下一个源，否则会二次弹出系统面板。
+          const message = error instanceof Error ? error.message : ''
+          if (/cancel|abort|dismiss/i.test(message)) throw error
+          lastError = error
+        }
+      }
+      if (lastError) throw lastError
       if (action === 'save') {
-        await saveImageToGallery(source)
         setStatus('已保存到相册 有所闻')
       } else {
-        await shareImage(source, alt || '分享图片')
         setMenuOpen(false)
         setStatus(null)
       }
