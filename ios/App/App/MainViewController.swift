@@ -11,6 +11,10 @@ public final class MainViewController: CAPBridgeViewController {
 
     public override func capacitorDidLoad() {
         bridge?.registerPluginInstance(DeviceMediaControlsPlugin())
+        bridge?.registerPluginInstance(ProxiedHttpPlugin())
+        bridge?.registerPluginInstance(SecureStorePlugin())
+        bridge?.registerPluginInstance(ZhihuSessionPlugin())
+        bridge?.registerPluginInstance(LinuxDoSessionPlugin())
         // 系统内置翻译要求 iOS 18+，低版本不注册，JS 侧 isPluginAvailable 会如实返回 false。
         if #available(iOS 18.0, *) {
             bridge?.registerPluginInstance(AppleTranslationPlugin())

@@ -14,6 +14,12 @@
 		A11000000000000000000002 /* DeviceMediaControlsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11000000000000000000001 /* DeviceMediaControlsPlugin.swift */; };
 		A11000000000000000000004 /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11000000000000000000003 /* MainViewController.swift */; };
 		A13000000000000000000002 /* AppleTranslationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13000000000000000000001 /* AppleTranslationPlugin.swift */; };
+		A14000000000000000000002 /* ProxiedHttpPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14000000000000000000001 /* ProxiedHttpPlugin.swift */; };
+		A15000000000000000000002 /* SecureStorePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15000000000000000000001 /* SecureStorePlugin.swift */; };
+		A16000000000000000000002 /* ZhihuSessionPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16000000000000000000001 /* ZhihuSessionPlugin.swift */; };
+		A17000000000000000000002 /* LinuxDoUserApiAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17000000000000000000001 /* LinuxDoUserApiAuth.swift */; };
+		A18000000000000000000002 /* LinuxDoBrowserSessionSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18000000000000000000001 /* LinuxDoBrowserSessionSupport.swift */; };
+		A19000000000000000000002 /* LinuxDoSessionPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19000000000000000000001 /* LinuxDoSessionPlugin.swift */; };
 		A12000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A12000000000000000000001 /* PrivacyInfo.xcprivacy */; };
 		504EC30D1FED79650016851F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30B1FED79650016851F /* Main.storyboard */; };
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
@@ -35,6 +41,12 @@
 		A11000000000000000000001 /* DeviceMediaControlsPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceMediaControlsPlugin.swift; sourceTree = "<group>"; };
 		A11000000000000000000003 /* MainViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
 		A13000000000000000000001 /* AppleTranslationPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleTranslationPlugin.swift; sourceTree = "<group>"; };
+		A14000000000000000000001 /* ProxiedHttpPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxiedHttpPlugin.swift; sourceTree = "<group>"; };
+		A15000000000000000000001 /* SecureStorePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureStorePlugin.swift; sourceTree = "<group>"; };
+		A16000000000000000000001 /* ZhihuSessionPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZhihuSessionPlugin.swift; sourceTree = "<group>"; };
+		A17000000000000000000001 /* LinuxDoUserApiAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinuxDoUserApiAuth.swift; sourceTree = "<group>"; };
+		A18000000000000000000001 /* LinuxDoBrowserSessionSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinuxDoBrowserSessionSupport.swift; sourceTree = "<group>"; };
+		A19000000000000000000001 /* LinuxDoSessionPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinuxDoSessionPlugin.swift; sourceTree = "<group>"; };
 		A12000000000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -73,6 +85,12 @@
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				A13000000000000000000001 /* AppleTranslationPlugin.swift */,
+				A14000000000000000000001 /* ProxiedHttpPlugin.swift */,
+				A15000000000000000000001 /* SecureStorePlugin.swift */,
+				A16000000000000000000001 /* ZhihuSessionPlugin.swift */,
+				A17000000000000000000001 /* LinuxDoUserApiAuth.swift */,
+				A18000000000000000000001 /* LinuxDoBrowserSessionSupport.swift */,
+				A19000000000000000000001 /* LinuxDoSessionPlugin.swift */,
 				A11000000000000000000001 /* DeviceMediaControlsPlugin.swift */,
 				A11000000000000000000003 /* MainViewController.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -172,6 +190,12 @@
 				A11000000000000000000002 /* DeviceMediaControlsPlugin.swift in Sources */,
 				A11000000000000000000004 /* MainViewController.swift in Sources */,
 				A13000000000000000000002 /* AppleTranslationPlugin.swift in Sources */,
+				A14000000000000000000002 /* ProxiedHttpPlugin.swift in Sources */,
+				A15000000000000000000002 /* SecureStorePlugin.swift in Sources */,
+				A16000000000000000000002 /* ZhihuSessionPlugin.swift in Sources */,
+				A17000000000000000000002 /* LinuxDoUserApiAuth.swift in Sources */,
+				A18000000000000000000002 /* LinuxDoBrowserSessionSupport.swift in Sources */,
+				A19000000000000000000002 /* LinuxDoSessionPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

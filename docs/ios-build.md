@@ -146,7 +146,13 @@ xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk 
 - 界面字体：`设置 → 界面字体` 可切换字体、字号与字重，全部使用 iOS 内置字体，不依赖网络。
 - 阅读正文页的**悬浮上下翻页按钮**：半透明的竖排 ▲ / ▼ 两个按钮，点一下滚动一屏（0.9 屏，与阅读滚动指示器一致）。整组按钮可直接拖动到屏幕任意位置（拖动与点击按 6px 位移阈值区分，拖完不会误翻页），位置按设备保存在本地（`newsnook:reader-float-nav`）。默认开启；可在阅读器的「更多操作」菜单里关闭/打开（`floatReaderNav` 偏好，本地生效、不同步到云端）。墨水屏分页模式下不显示。
 - 应用内更新（`src/features/appUpdate`）与「下载 APK」横幅在 iOS 上自动关闭——上游已按平台判定（`Capacitor.getPlatform() === 'android' && isPluginAvailable('AppUpdate')`，以及 `shouldShowWebAppDownloadBanner`），iOS 上不会提示你下载 APK。
-- DLNA 投屏、媒体嗅探、知乎原生会话、同步通知、App Update 等 Android 原生能力在 iOS 上自动降级或不可用。
+- 原生能力移植状态（2026-09-26 起，**尚未经 macOS 编译与真机验证**）：
+  - 已移植：`ProxiedHttp`（代理隧道 + 知乎认证通道）、`SecureStore`（Keychain 取代 Android Keystore）、`ZhihuSession`（知乎登录）、`LinuxDoSession`（Linux.do 会话与请求）。
+  - iOS 上 `ProxiedHttp` **只支持 HTTP/HTTPS 代理**；SOCKS5 会明确报错——系统没有公开的 SOCKS 开关，继续执行只会静默直连。
+  - 仍未移植：DLNA 投屏、媒体嗅探、同步通知、App Update、音量键翻页、后台朗读（`ReadAloud` 原生播放）。这些在 iOS 上保持降级或不可用。
+  - DLNA 在 iOS 需要 Apple 特批的 multicast entitlement，自签 IPA 拿不到，所以不是「移植」而是另做（AirPlay 方向）。
+- `Info.plist` 的 `CFBundleURLTypes` 注册了 `newsnook` 与 `discourse` 两个 scheme：前者承载分享深链与账号 OAuth 回流（`newsnook://auth/callback`），后者承载 Linux.do 的 User-Api-Key 授权回流（`discourse://auth_redirect`，`ASWebAuthenticationSession`）。漏注册时 `npm run test:ios-platform` 会拦住。
+- iOS 原生插件登记有三处，缺一处就等于没编译进去：Swift 文件本身、`ios/App/App.xcodeproj/project.pbxproj`（PBXBuildFile + PBXFileReference + Sources）、`MainViewController.capacitorDidLoad()` 的 `registerPluginInstance`。`npm run test:ios-native-plugin` 会兜底检查前两处。
 - `DeviceMediaControlsPlugin.swift` 只实现亮度与媒体音量五个方法（`getBrightness` / `setBrightness` / `clearBrightness` / `getVolume` / `setVolume`）。因此 iOS 上全屏视频的**方向锁定会失败**并回落到播放器的 CSS 旋转兜底，`getNativeBattery()` 返回 `null`。
 - iOS 上 `nativeAvailable()` 为真，所以亮度手势走原生分支；`src/lib/deviceMediaControls.ts` 里「原生设置成功时清掉蒙层、失败时压暗蒙层」的补丁是 iOS 亮度手势能用的前提，**不要当成冗余代码删掉**。
 - 新闻源、偏好、历史、稍后读和缓存仍保存在本机。
