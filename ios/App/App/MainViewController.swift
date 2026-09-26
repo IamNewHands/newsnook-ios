@@ -18,6 +18,7 @@ public final class MainViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(SyncNotificationPlugin())
         bridge?.registerPluginInstance(ReadAloudPlugin())
         bridge?.registerPluginInstance(DlnaCastPlugin())
+        bridge?.registerPluginInstance(MediaSnifferPlugin())
         // 系统内置翻译要求 iOS 18+，低版本不注册，JS 侧 isPluginAvailable 会如实返回 false。
         if #available(iOS 18.0, *) {
             bridge?.registerPluginInstance(AppleTranslationPlugin())

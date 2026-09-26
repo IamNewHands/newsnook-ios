@@ -44,6 +44,10 @@
 	<string>用于将新闻正文中的图片保存到系统相册。</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<!-- 本机视频中转（MediaSniffer 的 /stream）走 http://127.0.0.1:<port>，
+		     播放器直接把这个地址当 src，因此必须放行本地网络的明文请求。 -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
 		<key>NSExceptionDomains</key>
 		<dict>
 			<key>163.com</key>

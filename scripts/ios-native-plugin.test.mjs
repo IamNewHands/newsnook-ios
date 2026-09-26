@@ -108,6 +108,13 @@ const portedPlugins = [
     // 所以多了「手动填电视 IP」这条补偿路径——这三个方法 Java 侧不存在。
     extraMethods: ['addManualDevice', 'removeManualDevice', 'listManualDevices'],
   },
+  {
+    jsName: 'MediaSniffer',
+    className: 'MediaSnifferPlugin',
+    java: 'android/app/src/main/java/com/aizeek/newsnook/MediaSnifferPlugin.java',
+    swift: 'ios/App/App/MediaSnifferPlugin.swift',
+    jsFile: 'src/features/mediaSniffer/native.ts',
+  },
 ]
 
 for (const plugin of portedPlugins) {
@@ -337,9 +344,67 @@ const castOverlay = readFileSync('src/components/inkVideoPlayer/CastOverlay.tsx'
 assert.match(castOverlay, /onAddManualDevice/)
 assert.match(castOverlay, /onAirPlay/)
 
-// 原生插件缺席时的降级契约。iOS 上 MediaSniffer 还没移植，而
-// `prepareNativeMediaPlayback` 是投屏（connectCastDevice）与播放器的必经调用；
-// 它一旦抛错，投屏就必然失败。所以这三处原生调用必须降级而不是 reject。
+// MediaSniffer：Android 靠 `WebViewClient.shouldInterceptRequest` 在网络层拦下
+// WebView 的每个子请求；WKWebView 跑在独立网络进程，iOS 15–17 没有公开的 HTTPS
+// 子请求拦截 API（URLProtocol 无效，只有 iOS 18+ 的 proxyConfigurations）。
+// 所以 iOS 是「注入脚本观察 + 本机中转补请求头」两条腿。
+const sniffer = readFileSync('ios/App/App/MediaSnifferPlugin.swift', 'utf8')
+const snifferProbe = readFileSync('ios/App/App/MediaSnifferProbeScript.swift', 'utf8')
+const snifferProxy = readFileSync('ios/App/App/MediaSnifferStreamProxy.swift', 'utf8')
+const snifferWeb = readFileSync('ios/App/App/MediaSnifferWebProbe.swift', 'utf8')
+const snifferJava = readFileSync(
+  'android/app/src/main/java/com/aizeek/newsnook/MediaSnifferPlugin.java',
+  'utf8',
+)
+const snifferSources = sniffer + snifferProbe + snifferProxy + snifferWeb
+// 注入脚本要覆盖 Android 探针的全部观察来源，少一类就少一大片站点。
+for (const marker of [
+  'window.fetch',
+  'XMLHttpRequest.prototype.open',
+  'MediaSource.prototype.addSourceBuffer',
+  'requestMediaKeySystemAccess',
+  "performance.getEntriesByType('resource')",
+  "querySelectorAll('video,audio')",
+  'inspectPayload',
+  'triggerPlayback',
+  'looksLikePlayerJson',
+]) {
+  assert.ok(snifferProbe.includes(marker), `probe script is missing: ${marker}`)
+}
+// 传输层换成 WKScriptMessageHandler；播放器常在跨域 iframe 里，必须一起注入。
+assert.match(snifferProbe, /messageHandlers\.newsnookSniffer/)
+assert.match(snifferWeb, /forMainFrameOnly: false/)
+assert.match(snifferWeb, /WKScriptMessageHandler/)
+assert.match(snifferWeb, /removeScriptMessageHandler/)
+// 安静退出只读 JS 记的时间戳，别把 isHighValue 的规则复制成第二份真相。
+assert.match(snifferWeb, /__newsnookLastHighValueAt/)
+// 本机中转：只监听回环、只服务 GET /stream、Range 透传、必须设 SO_NOSIGPIPE
+// （否则客户端断开时一次 send 就是 SIGPIPE，直接杀进程）。
+assert.match(snifferProxy, /inet_pton\(AF_INET, "127\.0\.0\.1"/)
+assert.match(snifferProxy, /SO_NOSIGPIPE/)
+assert.match(snifferProxy, /request\.path == "\/stream"/)
+assert.match(snifferProxy, /forHTTPHeaderField: "Range"/)
+assert.match(snifferProxy, /Accept-Ranges: bytes/)
+// 上游请求头白名单必须与 Java 完全一致（多一个就等于把敏感头交给任意上游）。
+for (const header of ['accept', 'accept-language', 'origin', 'referer', 'user-agent']) {
+  assert.ok(snifferJava.includes(`"${header}"`), `java whitelist is missing: ${header}`)
+  assert.ok(sniffer.includes(`"${header}"`), `swift whitelist is missing: ${header}`)
+}
+// 127.0.0.1 的明文媒体地址要被 ATS 放行，否则 <video src> 直接被系统拦掉。
+assert.match(infoPlist, /<key>NSAllowsLocalNetworking<\/key>/)
+// reject 文案与 Java 逐字一致。
+for (const message of [
+  '仅支持 HTTP/HTTPS 原文地址',
+  '媒体地址无效',
+  '无法启动本地视频代理',
+]) {
+  assert.ok(snifferJava.includes(`"${message}"`), `java is missing reject text: ${message}`)
+  assert.ok(snifferSources.includes(`"${message}"`), `swift is missing reject text: ${message}`)
+}
+
+// 原生插件缺席时的降级契约。`prepareNativeMediaPlayback` 是投屏
+// （connectCastDevice）与播放器的必经调用；插件缺席或平台没实现时一旦抛错，
+// 投屏就必然失败。所以这三处原生调用必须降级而不是 reject。
 const mediaSnifferNative = readFileSync('src/features/mediaSniffer/native.ts', 'utf8')
 for (const marker of [
   "log.sniffer.debug('native media prepare skipped'",

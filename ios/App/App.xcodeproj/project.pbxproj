@@ -24,6 +24,10 @@
 		A1B000000000000000000002 /* ReadAloudPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B000000000000000000001 /* ReadAloudPlugin.swift */; };
 		A1C000000000000000000002 /* DlnaCastUpnp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C000000000000000000001 /* DlnaCastUpnp.swift */; };
 		A1D000000000000000000002 /* DlnaCastPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D000000000000000000001 /* DlnaCastPlugin.swift */; };
+		A1E000000000000000000002 /* MediaSnifferPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1E000000000000000000001 /* MediaSnifferPlugin.swift */; };
+		A1F000000000000000000002 /* MediaSnifferWebProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F000000000000000000001 /* MediaSnifferWebProbe.swift */; };
+		A20000000000000000000002 /* MediaSnifferStreamProxy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* MediaSnifferStreamProxy.swift */; };
+		A21000000000000000000002 /* MediaSnifferProbeScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = A21000000000000000000001 /* MediaSnifferProbeScript.swift */; };
 		A12000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A12000000000000000000001 /* PrivacyInfo.xcprivacy */; };
 		504EC30D1FED79650016851F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30B1FED79650016851F /* Main.storyboard */; };
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
@@ -55,6 +59,10 @@
 		A1B000000000000000000001 /* ReadAloudPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadAloudPlugin.swift; sourceTree = "<group>"; };
 		A1C000000000000000000001 /* DlnaCastUpnp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DlnaCastUpnp.swift; sourceTree = "<group>"; };
 		A1D000000000000000000001 /* DlnaCastPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DlnaCastPlugin.swift; sourceTree = "<group>"; };
+		A1E000000000000000000001 /* MediaSnifferPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSnifferPlugin.swift; sourceTree = "<group>"; };
+		A1F000000000000000000001 /* MediaSnifferWebProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSnifferWebProbe.swift; sourceTree = "<group>"; };
+		A20000000000000000000001 /* MediaSnifferStreamProxy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSnifferStreamProxy.swift; sourceTree = "<group>"; };
+		A21000000000000000000001 /* MediaSnifferProbeScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSnifferProbeScript.swift; sourceTree = "<group>"; };
 		A12000000000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -103,6 +111,10 @@
 				A1B000000000000000000001 /* ReadAloudPlugin.swift */,
 				A1C000000000000000000001 /* DlnaCastUpnp.swift */,
 				A1D000000000000000000001 /* DlnaCastPlugin.swift */,
+				A1E000000000000000000001 /* MediaSnifferPlugin.swift */,
+				A1F000000000000000000001 /* MediaSnifferWebProbe.swift */,
+				A20000000000000000000001 /* MediaSnifferStreamProxy.swift */,
+				A21000000000000000000001 /* MediaSnifferProbeScript.swift */,
 				A11000000000000000000001 /* DeviceMediaControlsPlugin.swift */,
 				A11000000000000000000003 /* MainViewController.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -212,6 +224,10 @@
 				A1B000000000000000000002 /* ReadAloudPlugin.swift in Sources */,
 				A1C000000000000000000002 /* DlnaCastUpnp.swift in Sources */,
 				A1D000000000000000000002 /* DlnaCastPlugin.swift in Sources */,
+				A1E000000000000000000002 /* MediaSnifferPlugin.swift in Sources */,
+				A1F000000000000000000002 /* MediaSnifferWebProbe.swift in Sources */,
+				A20000000000000000000002 /* MediaSnifferStreamProxy.swift in Sources */,
+				A21000000000000000000002 /* MediaSnifferProbeScript.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

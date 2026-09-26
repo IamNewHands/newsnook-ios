@@ -228,13 +228,19 @@ export async function observeMediaInNativePage(
   }
 }
 
+/**
+ * 「原站播放器」内嵌视图：Android 是覆盖在 WebView 上的原生 WebView，
+ * iOS 同样是原生 WKWebView 覆盖层（`MediaSnifferLiveSession`）。
+ */
+const LIVE_SNIFF_PLATFORMS = ['android', 'ios']
+
 export async function startNativeLiveSniffSession(options: {
   url: string
   referrer?: string
   onObservation: (observation: MediaObservation) => void
 }): Promise<{ sessionId: string; stop: () => Promise<void> }> {
-  if (Capacitor.getPlatform() !== 'android') {
-    throw new Error('Live sniff session is Android-only')
+  if (!LIVE_SNIFF_PLATFORMS.includes(Capacitor.getPlatform())) {
+    throw new Error('Live sniff session requires a native shell')
   }
   const sessionId = typeof globalThis.crypto?.randomUUID === 'function'
     ? globalThis.crypto.randomUUID()
@@ -266,7 +272,7 @@ export async function startNativeLiveSniffSession(options: {
 }
 
 export async function setNativeLiveSessionVisible(visible: boolean): Promise<void> {
-  if (Capacitor.getPlatform() !== 'android') return
+  if (!LIVE_SNIFF_PLATFORMS.includes(Capacitor.getPlatform())) return
   await NativeMediaSniffer.setLiveSessionVisible({ visible }).catch(() => undefined)
 }
 
@@ -277,7 +283,7 @@ export async function setNativeLiveSessionBounds(bounds: {
   height: number
   cornerRadius?: number
 }): Promise<void> {
-  if (Capacitor.getPlatform() !== 'android') return
+  if (!LIVE_SNIFF_PLATFORMS.includes(Capacitor.getPlatform())) return
   await NativeMediaSniffer.setLiveSessionBounds(bounds).catch(() => undefined)
 }
 
