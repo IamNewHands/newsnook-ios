@@ -26,7 +26,9 @@
 
 ## 0b. 剩余工作
 
-1. **真机验收**：Tier 3 四套能力都只在 CI 上编译过，没有一次真机运行。验收项见
+1. **真机验收**：Tier 3 四套能力都只在 CI 上编译过。首轮真机结果（构建 `34-2688ad9`）：
+   **后台朗读 ✅**、**媒体嗅探 ✅**、**AirPlay ✅ 到「弹出系统本地网络权限框」这一步**（无 Apple TV，
+   投屏本身未验）；DLNA 单播扫段同样卡在「没有电视」。其余项见
    [`docs/ios-build.md`](../../ios-build.md) 的「2026-09-26 原生插件移植的真机验收项」。
 2. **DlnaCast 兼容中转（proxy 模式）未实现**：Android 在电视无法直连视频源时会把视频经
    本机前台服务中转（`CastMediaProxy` + `DlnaCastForegroundService`，614 行）。iOS 侧只做直连，
@@ -53,6 +55,42 @@
 
 验证：`test:edge-swipe` 扩了标记契约；`lint` / `tsc -b` / 全量 `test:*` 见 §0c。真机验收项见
 [`docs/ios-build.md`](../../ios-build.md) 的「2026-09-26 第三轮：返回手势的真机验收项」。
+
+真机结果（构建 `34-2688ad9`）：
+
+- ✅ **设置二级页左缘右滑返回**——本轮新增能力，用户确认可用。
+- ✅ 右滑返回不再「跳一下」，也不再像退两层。
+- ❌ 阅读器右滑返回**短暂闪一下空白**再返回：比修前好，但「还是不够丝滑」→ 见 §0e-2。
+
+## 0e-2. 第四轮：阅读器右滑返回闪空白（2026-09-26）
+
+真机反馈的关键是**对比**：设置页右滑丝滑，阅读器右滑闪空白。把四个调用方摆一起看，形状差异只有一个：
+
+| 调用方 | 被拖动的那一层 | 真机结果 |
+|---|---|---|
+| `SettingsShell` | 不透明根层（`absolute inset-0 … bg-ink`），入场动画在内层 | 丝滑 |
+| 知乎工作区 | 不透明根层（`section … bg-ink`），根层无动画 | 丝滑 |
+| Linux.do 工作区 | 不透明根层（`div … bg-ink`），根层无动画 | 丝滑 |
+| 阅读器 | 根层里那块 `flex-1` 的**正文面**；根层透明、且根层带 `reader-in` 动画 | 闪空白 |
+
+只拖正文面有两个后果：（a）根层上下两条安全区留白（`--sat` / `--sab`）原地不动，左右又直接露出下层
+列表，滑动过程中画面是「撕裂」的；（b）正文面处在一个带 `fill-mode` 终态的动画层内部，合成器必须
+重画那一层才能补上让出的区域，那几帧就是「空白」。
+
+修法：把阅读器对齐到另外三处**已在真机确认丝滑**的形状。
+
+| 改动 | 文件 |
+|---|---|
+| 根层（`absolute inset-0 z-30`）挂 `reader-swipe-surface` + `bg-ink`，`shellRef` 上移一层，根层成为被拖动的那一层 | `src/screens/ReaderScreen.tsx` |
+| `reader-in` 入场动画下移到内层 `flex min-h-0 flex-1 flex-col`（挂外层会被 `fill-mode` 终态顶掉内联 `transform`，与 `SettingsShell` 同一个坑） | 同上 |
+
+副作用检查：`touch-action` 的祖先链上仍然只有一个 `pan-y pinch-zoom`（原来在正文面、现在在根层），
+交集不变，正文里宽表格（`data-reader-horizontal-scroll`）的横向拖动不受影响；右缘左滑开评论的监听
+目标也一并从正文面挪到根层（根层是超集，手势路径不变）。
+
+验证：`test:edge-swipe` / `test:ios-native-plugin` / `test:reader-images` / `test:reader-font-pinch`
+全 ok；`lint` 0 errors（18 条既有 warning，数量与上一轮相同）；`npx tsc -b tsconfig.app.json` exit 0。
+真机验收项见 [`docs/ios-build.md`](../../ios-build.md) 的「2026-09-26 第四轮：阅读器右滑返回闪空白」。
 
 ## 0f. 滚动 Release（2026-09-26）
 
