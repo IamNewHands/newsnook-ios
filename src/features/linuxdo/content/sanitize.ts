@@ -511,7 +511,16 @@ function normalizeDiscourseMarkup(html: string): string {
     document.body.querySelectorAll('a.lightbox').forEach((element) => {
       const fullSize = absoluteLinuxDoUrl(element.getAttribute('href'))
       const image = element.querySelector('img')
-      if (fullSize && image) image.setAttribute('data-linuxdo-original-src', fullSize)
+      if (fullSize && image) {
+        image.setAttribute('data-linuxdo-original-src', fullSize)
+        // 正文直接显示原图。Discourse 的 optimized 变体只有 ~690px 宽（srcset 已在下面
+        // 移除），在高分屏上被放大后明显发虚；optimized 留作原图加载失败时的兜底。
+        const optimized = absoluteLinuxDoUrl(image.getAttribute('src'))
+        if (optimized && optimized !== fullSize) {
+          image.setAttribute('src', fullSize)
+          image.setAttribute('data-reader-image-fallbacks', JSON.stringify([optimized]))
+        }
+      }
       // Discourse uses this anchor only to launch its own lightbox. NewsNook owns
       // image preview, so leaving href here risks opening the browser as a second action.
       element.removeAttribute('href')

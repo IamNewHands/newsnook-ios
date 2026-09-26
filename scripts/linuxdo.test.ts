@@ -638,6 +638,14 @@ assert.doesNotMatch(discourseMedia, /<a[^>]+data-linuxdo-role="image-link"[^>]+h
 assert.match(discourseMedia, /https:\/\/linux\.do\/uploads\/default\/optimized/)
 assert.doesNotMatch(discourseMedia, /2134×230/)
 assert.doesNotMatch(discourseMedia, />image</)
+// 正文图片直接显示原图：Discourse 的 optimized 只有 ~690px 宽（srcset 已被移除），
+// 高分屏放大后明显发虚；optimized 只留作原图加载失败时的兜底。
+assert.match(
+  discourseMedia,
+  /<img[^>]+src="https:\/\/linux\.do\/uploads\/default\/original\/1X\/photo\.png"/,
+  '正文图片的 src 必须是原图',
+)
+assert.match(discourseMedia, /data-reader-image-fallbacks="[^"]*optimized[^"]*"/, 'optimized 变体必须留作兜底')
 
 const discourseSemantics = sanitizeLinuxDoCooked(`
   <aside class="quote" data-topic="321" data-post="7" data-username="alice">

@@ -159,17 +159,19 @@ export function useProgressiveImages(
       state.busy = true
       clearVisualState(img)
       try {
-        // 源站自带会话/挑战通道时先问它；它原样返回（管不了这个地址）再走通用原生兜底。
-        const custom = resolveImage ? await resolveImage(url) : url
-        if (disposed) {
-          if (!resolveImage) revokeBlobUrl(custom)
-          return
-        }
-        if (custom !== url) {
-          // 自定义 resolver 的 blob 归它自己的缓存所有，卸载时不能撤销。
-          if (!resolveImage && custom.startsWith('blob:')) ownedBlobUrls.add(custom)
-          setImageSource(img, state, custom)
-          return
+        // 源站自带会话/挑战通道时先逐个问它（含 HTML 里声明的备用地址，例如 Linux.do
+        // 的 optimized 变体）；全都原样返回（管不了这些地址）再走通用原生兜底。
+        if (resolveImage) {
+          const candidates = state.urls.length ? state.urls : [url]
+          for (const candidate of candidates) {
+            const resolved = await resolveImage(candidate)
+            if (disposed) return
+            if (resolved !== candidate) {
+              // 自定义 resolver 的 blob 归它自己的缓存所有，卸载时不能撤销。
+              setImageSource(img, state, resolved)
+              return
+            }
+          }
         }
         if (forceNativeFallback) {
           const playable = await resolvePlayableImageSrc(url, {

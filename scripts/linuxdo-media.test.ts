@@ -57,13 +57,13 @@ const progressiveSource = readFileSync('src/hooks/useProgressiveImages.ts', 'utf
 assert.match(progressiveSource, /resolveImage\?: \(url: string\) => Promise<string>/, 'useProgressiveImages 必须暴露 resolveImage')
 assert.match(
   progressiveSource,
-  /const custom = resolveImage \? await resolveImage\(url\) : url/,
-  '自定义 resolver 必须先于通用原生兜底被询问',
+  /for \(const candidate of candidates\) \{[\s\S]{0,600}if \(forceNativeFallback\) \{/,
+  '自定义 resolver 必须逐个试完备用地址，才轮到通用原生兜底',
 )
 assert.match(
   progressiveSource,
-  /if \(!resolveImage && custom\.startsWith\('blob:'\)\) ownedBlobUrls\.add\(custom\)/,
-  '自定义 resolver 的 blob 不能被 hook 撤销',
+  /if \(playable\.startsWith\('blob:'\)\) ownedBlobUrls\.add\(playable\)/,
+  '只有通用原生兜底的 blob 才归 hook 撤销',
 )
 
 const cookedBodySource = readFileSync('src/features/linuxdo/ui/LinuxDoCookedBody.tsx', 'utf8')
