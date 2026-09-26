@@ -7,6 +7,7 @@ import {
   looksLikeLinuxDoImageBytes,
   releaseLinuxDoImageCache,
   resolveLinuxDoImageSrc,
+  stripDataUrlPrefix,
 } from '../src/features/linuxdo/media/imageSource'
 
 // linux.do 主站图片落在 Cloudflare 托管挑战后面，必须走原生会话通道；CDN 是公开的。
@@ -21,7 +22,11 @@ assert.equal(
   'CDN 头像直连即可，不该走原生通道',
 )
 assert.equal(isLinuxDoHostedMedia('https://linux.do.evil.example/x.png'), false, '后缀域名不算主站')
-assert.equal(isLinuxDoHostedMedia('https://sub.linux.do/x.png'), false, '插件白名单只放行主站，子域回退直连')
+assert.equal(
+  isLinuxDoHostedMedia('https://sub.linux.do/x.png'),
+  true,
+  'linux.do 子域同样在挑战后面，必须一起走会话通道（构建 43 的「未知原因」就是被这条漏掉的）',
+)
 assert.equal(isLinuxDoHostedMedia('http://linux.do/x.png'), false, '只有 https 才走原生通道')
 assert.equal(isLinuxDoHostedMedia('/uploads/default/original/1X/a.png'), false, '相对地址不解析')
 assert.equal(isLinuxDoHostedMedia(''), false, '空地址不解析')
@@ -56,6 +61,29 @@ assert.match(
   /if \(!contentType\.startsWith\('image\/svg'\) && !looksLikeLinuxDoImageBytes\(bytes\)\) \{[\s\S]{0,200}不是图片/,
   '取到非图片字节必须抛错回退，不能返回 blob',
 )
+// 承载形式：小图用 data: URL（WKWebView 的 origin 是 capacitor://，blob: 加载依赖该方案实现），
+// 大图仍走 blob: 以免 base64 字符串把内存放大几倍。
+assert.match(
+  imageSourceSource,
+  /const DATA_URL_MAX_BYTES = [\d_]+/,
+  'data: URL 必须有字节上限',
+)
+assert.match(
+  imageSourceSource,
+  /bytes\.byteLength <= DATA_URL_MAX_BYTES[\s\S]{0,300}return `data:\$\{type\};base64,\$\{base64\}`/,
+  '小图必须用 data: URL 承载',
+)
+assert.match(
+  imageSourceSource,
+  /noteResolved\(url, `已取字节/,
+  '取字节成功也要留一条状态，占位才能区分「通道没取到」与「取到了不能用」',
+)
+assert.equal(
+  stripDataUrlPrefix('data:image/png;base64,AAAA'),
+  'AAAA',
+  '原生没剥干净 data: 前缀时 JS 侧要兜一次',
+)
+assert.equal(stripDataUrlPrefix('AAAA'), 'AAAA', '普通 base64 原样返回')
 
 // 非原生（Web / 测试环境）一律回退原地址：这条通道绝不能把网页端图片弄坏。
 const linuxDoImage = 'https://linux.do/uploads/default/original/1X/3a18b4b0da3e8cf96f7eea15241c3d251f28a39b.png'
@@ -79,9 +107,20 @@ assert.match(
   /isCloudflareChallenge\(status: status, body: text, headers: headers\)[\s\S]{0,1200}performBrowserMediaRequest/,
   '原生命中挑战后必须回落到浏览器传输',
 )
+assert.match(
+  pluginSource,
+  /guard Self\.isAllowedUrl\(url\) else \{[\s\S]{0,160}LINUXDO_MEDIA_URL/,
+  'fetchMedia 必须放行 linux.do 及其子域，否则子域地址会被插件直接拒绝',
+)
 
 const progressiveSource = readFileSync('src/hooks/useProgressiveImages.ts', 'utf8')
 assert.match(progressiveSource, /resolveImage\?: \(url: string\) => Promise<string>/, 'useProgressiveImages 必须暴露 resolveImage')
+assert.match(
+  progressiveSource,
+  /没走会话通道（地址不在 linux\.do）/,
+  '失败占位必须能区分「通道没取到字节」与「根本没走通道」',
+)
+assert.match(progressiveSource, /state\.resolverTried = true/, '必须记录 resolver 是否被问过')
 assert.match(
   progressiveSource,
   /for \(const candidate of candidates\) \{[\s\S]{0,600}if \(forceNativeFallback\) \{/,

@@ -547,7 +547,7 @@ URLSession 且不带 linux.do 任何 Cookie（插件把 Cookie 写在 `WKWebsite
 
 | JS 契约 | 行为 |
 |---|---|
-| `fetchMedia({ url, referer? })` | 只接受 `https://linux.do`（复用 `isApiAllowedUrl`，不含子域）；成功 resolve `{ status, base64, contentType?, transport }`；失败 reject `LINUXDO_MEDIA_URL` / `LINUXDO_MEDIA_NETWORK` / `LINUXDO_MEDIA_HTTP` / `LINUXDO_MEDIA_EMPTY` / `LINUXDO_MEDIA_BROWSER` |
+| `fetchMedia({ url, referer? })` | 只接受 `linux.do` 及其任意子域（`isAllowedUrl`；第八轮从严格的 `isApiAllowedUrl` 放宽，见 §8.10）；成功 resolve `{ status, base64, contentType?, transport }`；失败 reject `LINUXDO_MEDIA_URL` / `LINUXDO_MEDIA_NETWORK` / `LINUXDO_MEDIA_HTTP` / `LINUXDO_MEDIA_EMPTY` / `LINUXDO_MEDIA_BROWSER` |
 
 实现顺序（`performNativeMediaRequest` → `performBrowserMediaRequest`）：
 
@@ -706,5 +706,36 @@ https://cdn.ldstatic.com/…                            -> 无挑战（公开）
 **未证明 / 残留**：真机仍未复测。若构建 43 的正文图依旧不显示，失败占位会直接写出断在哪一步
 （`MEDIA_HTTP 媒体请求失败（HTTP 403）`＝传输拿到挑战；`MEDIA_BROWSER …`＝浏览器传输 fetch 抛错，
 多半是跨域/重定向；`媒体响应不是图片：…`＝拿到非图片正文）。**下一轮按占位文案取证，不再猜。**
+
+### 8.10 第七轮：构建 43 真机结果与两条新通路（2026-09-26）
+
+构建 43 真机结果：正文图仍然失败，占位文案是 **`图片加载失败 · 未知原因 · 点按重试`**。
+
+「未知原因」是 §8.9 埋的兜底文案，它只在**状态表里没有这个地址的记录**时出现。于是只有两种可能：
+
+| 可能 | 含义 |
+|---|---|
+| (A) 会话通道**取到了字节** | `resolveLinuxDoImageSrc` 成功返回 `blob:`，WebView 加载这个 blob 失败 —— 记录在成功分支被删掉了，所以占位显示兜底文案 |
+| (B) 这个地址**根本没走会话通道** | `isLinuxDoHostedMedia` 要求 host 恰好等于 `linux.do`；子域（如 `uploads.linux.do`）或 CDN 地址会被跳过，WebView 直连又被挑战 → 无记录 |
+
+两条都在这一轮堵上（构建 44）：
+
+| 位置 | 改动 |
+|---|---|
+| `imageSource.ts` 承载形式 | **≤ 1.5 MB 的图改用 `data:` URL**（`data:<type>;base64,…`）。WKWebView 的 origin 是 `capacitor://`，`blob:` 的加载依赖该自定义方案的实现，`data:` 自包含最稳；更大的图仍走 `blob:`，避免 base64 字符串把内存放大几倍 |
+| `imageSource.ts` host 判定 | `isLinuxDoHostedMedia` 放宽为 `linux.do` **及其任意子域**；`stripDataUrlPrefix` 兜一次原生没剥干净的前缀 |
+| `LinuxDoSessionPlugin.swift` `fetchMedia` | 守卫从严格的 `isApiAllowedUrl` 改为 `isAllowedUrl`（linux.do + 子域），与插件其它方法一致；错误文案同步改为「只允许请求 linux.do 站内 HTTPS 媒体」 |
+| `imageSource.ts` 状态表 | 成功也写一条 `已取字节（data/blob xKB）但加载失败`；失败写插件错误码 + 消息。占位据此区分「通道没取到」与「取到了不能用」 |
+| `useProgressiveImages.ts` | 状态表里两者都没有时写明 `没走会话通道（地址不在 linux.do）`；`resolverTried` 记录 resolver 是否被问过 |
+| `imageActions.ts` | `imageActionSources` 把 `data:` 也当作首选来源，`fetchImageBytes` 增加 `data:` 分支，灯箱保存/分享不再回退到会被 403 的原始地址 |
+
+验证：`tsc -b` 干净、`oxlint` 0 error、`test:linuxdo`（含 `linuxdo-media` / `linuxdo-readsync`）、
+`test:image-actions`、`test:zhihu-content`、`ios-native-plugin` 全过。
+
+**未证明 / 残留**：真机仍未复测。这一轮之后占位文案只剩三种，任何一种都能直接定位：
+`已取字节（data …）但加载失败`＝连 data URL 都装不上（要查 WebView 侧）；
+`MEDIA_*`＝会话通道本身没取到字节（要查 fetchMedia）；
+`没走会话通道（地址不在 linux.do）`＝地址形态判断错（要查 host 规则）。
+
 
 

@@ -13,6 +13,8 @@ type ImageRetryState = {
   index: number
   nativeTried: boolean
   busy: boolean
+  /** 自定义 resolver 是否被问过（用于区分「通道没取到字节」和「根本没走通道」）。 */
+  resolverTried: boolean
 }
 
 function safeHttpImageUrl(value: unknown): string | undefined {
@@ -144,10 +146,14 @@ export function useProgressiveImages(
         host?.classList.add('is-failed')
         linuxDoHost?.classList.remove('is-loaded')
         linuxDoHost?.classList.add('is-failed')
-        if (linuxDoHost) {
+        if (linuxDoHost && failureNote) {
           const state = retryStates.get(img)
           const firstUrl = state?.urls[0] ?? img.getAttribute('src') ?? ''
-          linuxDoHost.setAttribute('data-reader-image-error', (failureNote?.(firstUrl) ?? '').trim() || '未知原因')
+          const note = (failureNote(firstUrl) ?? '').trim()
+          linuxDoHost.setAttribute(
+            'data-reader-image-error',
+            note || (state?.resolverTried ? '会话通道没取到字节' : '没走会话通道（地址不在 linux.do）'),
+          )
         }
         return
       }
@@ -175,6 +181,7 @@ export function useProgressiveImages(
         // 源站自带会话/挑战通道时先逐个问它（含 HTML 里声明的备用地址，例如 Linux.do
         // 的 optimized 变体）；全都原样返回（管不了这些地址）再走通用原生兜底。
         if (resolveImage) {
+          state.resolverTried = true
           const candidates = state.urls.length ? state.urls : [url]
           for (const candidate of candidates) {
             const resolved = await resolveImage(candidate)
@@ -355,7 +362,7 @@ export function useProgressiveImages(
       }
 
       const urls = imageFallbackUrls(img)
-      retryStates.set(img, { urls, index: 0, nativeTried: false, busy: false })
+      retryStates.set(img, { urls, index: 0, nativeTried: false, busy: false, resolverTried: false })
       if (!premarkedBadge && !premarkedRelated) {
         img.classList.add('async-img')
         clearVisualState(img)

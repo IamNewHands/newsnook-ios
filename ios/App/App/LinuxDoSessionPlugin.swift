@@ -472,8 +472,8 @@ public final class LinuxDoSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         let url = call.getString("url") ?? ""
         let referer = call.getString("referer") ?? (Self.origin + "/")
 
-        guard Self.isApiAllowedUrl(url) else {
-            call.reject("只允许请求 linux.do 主站 HTTPS 媒体", "LINUXDO_MEDIA_URL")
+        guard Self.isAllowedUrl(url) else {
+            call.reject("只允许请求 linux.do 站内 HTTPS 媒体", "LINUXDO_MEDIA_URL")
             return
         }
 

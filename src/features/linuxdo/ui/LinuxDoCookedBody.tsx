@@ -1,7 +1,7 @@
 import { useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react'
 
 import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
-import { linuxDoMediaFailureNote, resolveLinuxDoImageSrc } from '../media/imageSource'
+import { linuxDoMediaStatusNote, resolveLinuxDoImageSrc } from '../media/imageSource'
 
 /**
  * 渲染 Linux.do 的 cooked HTML：帖子正文、资料页简介、动态摘要、搜索结果摘要。
@@ -26,7 +26,7 @@ export function LinuxDoCookedBody({
     forceNativeFallback: true,
     imageReferer: 'https://linux.do/',
     resolveImage: resolveLinuxDoImageSrc,
-    failureNote: linuxDoMediaFailureNote,
+    failureNote: linuxDoMediaStatusNote,
   })
 
   useEffect(() => {

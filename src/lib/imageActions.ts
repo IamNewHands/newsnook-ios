@@ -47,19 +47,27 @@ function mimeFromExtension(ext: string): string {
 }
 
 /**
- * 灯箱动作的取图顺序：已经在页面里拿到的 blob 优先（Linux.do 的字节只能经会话通道取回，
- * 原始地址在 CapacitorHttp 里会被 Cloudflare 403；blob: 由 WebView 直接读，无需再请求），
- * 拿不到 blob 时才回退到原始地址。
+ * 灯箱动作的取图顺序：已经在页面里拿到的 blob / data URL 优先（Linux.do 的字节只能经会话
+ * 通道取回，原始地址在 CapacitorHttp 里会被 Cloudflare 403；blob: / data: 由 WebView 直接读，
+ * 无需再请求），拿不到时才回退到原始地址。
  */
 export function imageActionSources(displaySrc: string, actionSrc?: string): string[] {
   const sources: string[] = []
-  if (displaySrc.startsWith('blob:')) sources.push(displaySrc)
+  if (displaySrc.startsWith('blob:') || displaySrc.startsWith('data:')) sources.push(displaySrc)
   if (actionSrc && actionSrc !== displaySrc) sources.push(actionSrc)
   if (!sources.length) sources.push(displaySrc)
   return sources
 }
 
 export async function fetchImageBytes(url: string): Promise<{ base64: string; mime: string }> {
+  if (url.startsWith('data:')) {
+    const comma = url.indexOf(',')
+    const header = comma >= 0 ? url.slice(5, comma) : ''
+    const base64 = comma >= 0 ? url.slice(comma + 1) : ''
+    if (!base64) throw new Error('图片数据为空')
+    return { base64, mime: header.split(';')[0].trim() || 'image/jpeg' }
+  }
+
   if (url.startsWith('blob:')) {
     const response = await fetch(url)
     if (!response.ok) throw new Error(`读取图片失败 HTTP ${response.status}`)
