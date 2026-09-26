@@ -83,6 +83,10 @@ const portedPlugins = [
     java: 'android/app/src/main/java/com/aizeek/newsnook/LinuxDoSessionPlugin.java',
     swift: 'ios/App/App/LinuxDoSessionPlugin.swift',
     jsFile: 'src/features/linuxdo/session/native.ts',
+    // iOS 专属：linux.do 主站图片在 Cloudflare 托管挑战后面，宿主 WebView 的跨站 <img>
+    // 与 CapacitorHttp 都拿不到放行，只能借本插件的会话 Cookie / 隐藏同源传输取字节。
+    // Android 的 WebView 与 CookieManager 共享会话，图片本来就能直接加载，故 Java 侧没有。
+    extraMethods: ['fetchMedia'],
   },
   {
     jsName: 'SyncNotification',
