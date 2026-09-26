@@ -476,6 +476,22 @@ for (const name of readdirSync('ios/App/App').filter((entry) => entry.endsWith('
     new RegExp(`${name} \\*/ = \\{isa = PBXFileReference`),
     `${name} has no PBXFileReference`,
   )
+  // 同一个坑的另一面：用了 Capacitor 的类型（JSObject / JSTypes / CAPPlugin…）
+  // 却没 import Capacitor，会以「cannot find type 'JSObject' in scope」这种
+  // 一次十几条错误的形式炸掉整个文件。这里提前拦（注释行先剔掉，
+  // 免得「本文件不是 CAPPlugin」这类说明文字误伤）。
+  const source = readFileSync(`ios/App/App/${name}`, 'utf8')
+  const code = source
+    .split('\n')
+    .filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line))
+    .join('\n')
+  if (/\b(JSObject|JSArray|JSValue|JSTypes|CAPPlugin|CAPPluginCall|CAPBridgedPlugin)\b/.test(code)) {
+    assert.match(
+      source,
+      /^import Capacitor$/m,
+      `${name} uses Capacitor types but does not import Capacitor`,
+    )
+  }
 }
 
 console.log('ios-native-plugin: ok')

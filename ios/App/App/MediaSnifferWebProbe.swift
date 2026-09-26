@@ -1,3 +1,4 @@
+import Capacitor
 import Foundation
 import UIKit
 import WebKit
