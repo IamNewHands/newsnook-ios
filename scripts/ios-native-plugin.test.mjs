@@ -337,6 +337,18 @@ const castOverlay = readFileSync('src/components/inkVideoPlayer/CastOverlay.tsx'
 assert.match(castOverlay, /onAddManualDevice/)
 assert.match(castOverlay, /onAirPlay/)
 
+// 原生插件缺席时的降级契约。iOS 上 MediaSniffer 还没移植，而
+// `prepareNativeMediaPlayback` 是投屏（connectCastDevice）与播放器的必经调用；
+// 它一旦抛错，投屏就必然失败。所以这三处原生调用必须降级而不是 reject。
+const mediaSnifferNative = readFileSync('src/features/mediaSniffer/native.ts', 'utf8')
+for (const marker of [
+  "log.sniffer.debug('native media prepare skipped'",
+  "log.sniffer.debug('native stream proxy unavailable'",
+  "log.sniffer.debug('native sniff unavailable'",
+]) {
+  assert.ok(mediaSnifferNative.includes(marker), `native.ts is missing degrade guard: ${marker}`)
+}
+
 // ProxiedHttp：iOS 没有 URLSessionTask.followRedirects 这种属性（那是 OkHttp 的），
 // 重定向必须由 URLSessionTaskDelegate 决定；写了这个属性会直接编译失败。
 const proxiedHttp = readFileSync('ios/App/App/ProxiedHttpPlugin.swift', 'utf8')
