@@ -14,17 +14,31 @@
 | `ZhihuSessionPlugin.swift` | 已落盘 834 行（WKWebView 登录） | pbxproj A160 + MainViewController | 方法表（2 个） |
 | `LinuxDoUserApiAuth.swift` | 已落盘 917 行（ASWebAuthenticationSession + RSA/Keychain） | pbxproj A170 | 兜底登记检查 |
 | `LinuxDoBrowserSessionSupport.swift` | 已落盘 857 行（WKWebView 会话恢复 + Cookie 提交） | pbxproj A180 | 兜底登记检查 |
-| `LinuxDoSessionPlugin.swift` | 进行中：10/14 方法（读路径）；上传 4 方法待补 | pbxproj A190 + MainViewController | 方法表待补全 |
-| `Info.plist` | `newsnook` + `discourse` 两个 scheme 已注册 | — | scheme ↔ `MOBILE_AUTH_CALLBACK_URL` / `callbackURLScheme` parity |
+| `LinuxDoSessionPlugin.swift` | 已落盘 2782 行（14 方法，含 4 个上传方法 + 进度事件） | pbxproj A190 + MainViewController | 方法表（14 个） |
+| `SyncNotificationPlugin.swift` | 已落盘 143 行（UNUserNotificationCenter + 深链回跳） | pbxproj A1A + MainViewController | 方法表 / 优先级 / 降级 / 深链 scheme |
+| `ReadAloudPlugin.swift` | 已落盘 896 行（AVSpeechSynthesizer + 后台音频 + 锁屏控制） | pbxproj A1B + MainViewController | 方法表（8 个）/ 后台音频 / 远端命令 / UTF-16 偏移 |
+| `DlnaCastUpnp.swift` + `DlnaCastPlugin.swift` | 已落盘 727 + 480 行（单播 SSDP + 手动 IP + SOAP 直连） | pbxproj A1C/A1D + MainViewController | 方法表（6+3）/ 禁组播 / UPnP 动作面 |
+| `MediaSnifferProbeScript.swift` + `MediaSnifferWebProbe.swift` + `MediaSnifferStreamProxy.swift` + `MediaSnifferPlugin.swift` | 已落盘 412 + 314 + 430 + 292 行（注入探针 + 本机媒体中转） | pbxproj A1E–A21 + MainViewController | 方法表（7 个）/ 探针来源 / 回环监听 / 请求头白名单 |
+| `Info.plist` | `newsnook` + `discourse` scheme、`UIBackgroundModes: audio`、`NSLocalNetworkUsageDescription`、`NSAllowsLocalNetworking` | — | scheme ↔ `MOBILE_AUTH_CALLBACK_URL` / ATS 放行本机中转 |
 
 测试入口（均在 CI 既有列表里，本地绿）：`npm run test:ios-native-plugin`、`npm run test:ios-platform`。
 `test:ios-native-plugin` 现在还会兜底断言 **`ios/App/App` 下每个 `.swift` 都登记进 Xcode Sources** —— 漏登记的文件「存在、测试也过」，但根本不参与编译。
 
 ## 0b. 剩余工作
 
-1. `LinuxDoSessionPlugin.swift` 补 4 个上传方法（`beginUpload` / `appendUploadChunk` / `finishUpload` / `cancelUpload` + `linuxDoUploadProgress` 事件），并把 `LinuxDoSession` 加进一致性测试表（14 个方法）。**进行中**。
-2. 编译验证：推分支走 `.github/workflows/ios-build.yml`（需用户授权推送）——这是唯一能证明 Swift 可编译的手段。
-3. Tier 3（`ReadAloud` / `VolumePageTurn` / `SyncNotification` / `MediaSniffer` / `DlnaCast`）按用户选择处理；`DlnaCast` 在 iOS 需要 Apple 特批 multicast entitlement，自签 IPA 不可用。
+1. **真机验收**：Tier 3 四套能力都只在 CI 上编译过，没有一次真机运行。验收项见
+   [`docs/ios-build.md`](../../ios-build.md) 的「2026-09-26 原生插件移植的真机验收项」。
+2. **DlnaCast 兼容中转（proxy 模式）未实现**：Android 在电视无法直连视频源时会把视频经
+   本机前台服务中转（`CastMediaProxy` + `DlnaCastForegroundService`，614 行）。iOS 侧只做直连，
+   直连确认失败时明确 reject，`session.mode` 恒为 `direct`。补它需要一个本机 HTTP 服务器
+   —— `MediaSnifferStreamProxy` 已经是同构实现，可以复用。
+3. **MediaSniffer 的覆盖缺口**：注入脚本拿不到跨进程的媒体子请求与 Service Worker 内部的请求
+   （平台限制）。若要更接近 Android，需要 iOS 18+ 的 `WKWebView.proxyConfigurations`
+   做真拦截，但那会把最低版本抬到 18。
+4. `VolumePageTurnPlugin.swift`（音量键翻页）：用户明确「暂时不做」。iOS 只能 KVO 观察
+   `AVAudioSession.outputVolume`，按一下音量会真的变，属可用但有副作用的方案。
+5. `performUpload` 在主线程同步序列化整个 multipart 请求体（256 MB 上限时可能冻 UI 数秒）——
+   应把序列化挪到后台队列。**仍待办**。
 
 ## 0c. 本轮已跑通的验证（本地，2026-09-26）
 
@@ -164,12 +178,26 @@ iOS 落到 `'web'` 分支，而 `platform === 'android'` 是整套 bearer 逻辑
 ### Tier 2 — 同类原始报错
 4. `SecureStorePlugin.swift`（Keychain 替代 AndroidKeyStore + AES-GCM）
 
-### Tier 3 — 功能缺口（已正确降级，但 iOS 缺能力；需产品决策）
-5. `VolumePageTurnPlugin.swift`（48 行，AVAudioSession 音量 KVO）
-6. `SyncNotificationPlugin.swift`（104 行，UNUserNotificationCenter）
-7. `ReadAloudPlugin.swift`（284 行，AVSpeechSynthesizer + 后台音频，需 Info.plist `UIBackgroundModes: audio`）
-8. `MediaSnifferPlugin.swift`（1555 行，WKWebView 拦截；架构与 Android 不同）
-9. `DlnaCastPlugin.swift`（1263 行；iOS 惯例是 AirPlay 而不是 DLNA，属于**改写**而非移植）
+### Tier 3 — 功能缺口（2026-09-26 第二轮，用户选择「1/2 做、3 两种都支持、4 不做」）
+5. `VolumePageTurnPlugin.swift`（48 行，AVAudioSession 音量 KVO）—— **本轮不做**
+6. `SyncNotificationPlugin.swift`（UNUserNotificationCenter）—— **已移植**，143 行
+7. `ReadAloudPlugin.swift`（AVSpeechSynthesizer + 后台音频 + MPNowPlayingInfoCenter）—— **已移植**，896 行
+8. `MediaSnifferPlugin.swift`（WKWebView 注入探针 + 本机媒体中转）—— **已移植**，1448 行（4 文件）
+9. `DlnaCastPlugin.swift`（单播 SSDP + 手动 IP + SOAP 直连）—— **已移植**，1207 行（2 文件）；
+   兼容中转（proxy 模式）未实现
+
+### Tier 3 的三处架构改写（不是「照抄 Java」，改的理由要留档）
+
+| 能力 | Android 做法 | iOS 做法 | 为什么不能照抄 |
+|---|---|---|---|
+| DlnaCast 发现 | UDP 组播 M-SEARCH 到 `239.255.255.250:1900` | 单播 M-SEARCH 扫本机网段 + 手动填 IP | 向组播地址发包需要 Apple 特批的 `com.apple.developer.networking.multicast`，自签/侧载拿不到，`sendto` 直接 EACCES |
+| MediaSniffer 观察 | `WebViewClient.shouldInterceptRequest` 拦网络层 | 注入脚本钩 fetch/XHR/MSE/performance/DOM | WKWebView 跑在独立网络进程，iOS 15–17 没有公开的 HTTPS 子请求拦截 API（`URLProtocol` 无效，只有 iOS 18+ 的 `proxyConfigurations`） |
+| MediaSniffer 补请求头 | OkHttp 拦截时注入 Referer/UA | 本机 127.0.0.1 HTTP 中转，JS 把 `<video src>` 换过去 | 同上：没有拦截点，只能改成显式换地址 |
+
+AirPlay 属于**新增**而非移植：iOS 上不需要原生代码，WKWebView 的 `HTMLMediaElement`
+自带 `webkitShowPlaybackTargetPicker()`，路由的是该 video 元素本身（比原生
+`AVRoutePickerView` 更准，后者只影响 App 的音频会话）。前提是 video 声明
+`x-webkit-airplay="allow"`。
 
 ## 4. 每个插件都必须完成的收尾项
 

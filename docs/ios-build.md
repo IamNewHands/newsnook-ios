@@ -146,11 +146,15 @@ xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk 
 - 界面字体：`设置 → 界面字体` 可切换字体、字号与字重，全部使用 iOS 内置字体，不依赖网络。
 - 阅读正文页的**悬浮上下翻页按钮**：半透明的竖排 ▲ / ▼ 两个按钮，点一下滚动一屏（0.9 屏，与阅读滚动指示器一致）。整组按钮可直接拖动到屏幕任意位置（拖动与点击按 6px 位移阈值区分，拖完不会误翻页），位置按设备保存在本地（`newsnook:reader-float-nav`）。默认开启；可在阅读器的「更多操作」菜单里关闭/打开（`floatReaderNav` 偏好，本地生效、不同步到云端）。墨水屏分页模式下不显示。
 - 应用内更新（`src/features/appUpdate`）与「下载 APK」横幅在 iOS 上自动关闭——上游已按平台判定（`Capacitor.getPlatform() === 'android' && isPluginAvailable('AppUpdate')`，以及 `shouldShowWebAppDownloadBanner`），iOS 上不会提示你下载 APK。
-- 原生能力移植状态（2026-09-26 起，**尚未经 macOS 编译与真机验证**）：
+- 原生能力移植状态（2026-09-26，**已过 macOS 编译；运行时行为仍需真机确认**）：
   - 已移植：`ProxiedHttp`（代理隧道 + 知乎认证通道）、`SecureStore`（Keychain 取代 Android Keystore）、`ZhihuSession`（知乎登录）、`LinuxDoSession`（Linux.do 会话与请求）。
+  - 已移植（第二轮）：`SyncNotification`（同步通知）、`ReadAloud`（系统朗读 + 后台播放 + 锁屏控制）、`DlnaCast`（DLNA 投屏）、`MediaSniffer`（媒体嗅探 + 本机中转）。
   - iOS 上 `ProxiedHttp` **只支持 HTTP/HTTPS 代理**；SOCKS5 会明确报错——系统没有公开的 SOCKS 开关，继续执行只会静默直连。
-  - 仍未移植：DLNA 投屏、媒体嗅探、同步通知、App Update、音量键翻页、后台朗读（`ReadAloud` 原生播放）。这些在 iOS 上保持降级或不可用。
-  - DLNA 在 iOS 需要 Apple 特批的 multicast entitlement，自签 IPA 拿不到，所以不是「移植」而是另做（AirPlay 方向）。
+  - 仍未移植：App Update（iOS 走 App Store，本来就不该有）、音量键翻页（用户明确暂不做）。
+  - **DLNA 发现**在 iOS 上不是组播：组播发包需要 Apple 特批的 `com.apple.developer.networking.multicast`，自签 IPA 拿不到。改成「单播 M-SEARCH 扫本机网段」+「手动填电视 IP」，两条路都不需要那个 entitlement（单播只触发一次「本地网络」隐私权限弹窗）。**兼容中转（proxy 模式）未实现**：电视无法直连视频源时会明确报错，而不是经手机中转。
+  - **媒体嗅探**在 iOS 上不是网络层拦截：WKWebView 跑在独立网络进程，iOS 15–17 没有公开的 HTTPS 子请求拦截 API。改成「注入脚本观察 fetch/XHR/MSE/performance/DOM + 播放器配置」+「本机 127.0.0.1 中转补 Referer/UA」。覆盖不到跨进程的媒体子请求与 Service Worker 内部的请求。
+  - **AirPlay** 是 iOS 独有的第二条投屏路径，不需要原生代码：WKWebView 的 `HTMLMediaElement` 自带 `webkitShowPlaybackTargetPicker()`，投屏浮层里的 AirPlay 入口直接调它（前提是 video 声明了 `x-webkit-airplay="allow"`，`InkVideoPlayer` 已用 `setAttribute` 打上）。
+  - 音量键翻页未做：iOS 只能 KVO 观察 `AVAudioSession.outputVolume`，按一下音量会真的变，属可用但有副作用的方案。
 - `Info.plist` 的 `CFBundleURLTypes` 注册了 `newsnook` 与 `discourse` 两个 scheme：前者承载分享深链与账号 OAuth 回流（`newsnook://auth/callback`），后者承载 Linux.do 的 User-Api-Key 授权回流（`discourse://auth_redirect`，`ASWebAuthenticationSession`）。漏注册时 `npm run test:ios-platform` 会拦住。
 - iOS 原生插件登记有三处，缺一处就等于没编译进去：Swift 文件本身、`ios/App/App.xcodeproj/project.pbxproj`（PBXBuildFile + PBXFileReference + Sources）、`MainViewController.capacitorDidLoad()` 的 `registerPluginInstance`。`npm run test:ios-native-plugin` 会兜底检查前两处。
 - `DeviceMediaControlsPlugin.swift` 只实现亮度与媒体音量五个方法（`getBrightness` / `setBrightness` / `clearBrightness` / `getVolume` / `setVolume`）。因此 iOS 上全屏视频的**方向锁定会失败**并回落到播放器的 CSS 旋转兜底，`getNativeBattery()` 返回 `null`。
@@ -189,6 +193,21 @@ xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk 
 
 规格与已知取舍：`docs/superpowers/specs/2026-09-26-*.md`（6 篇）；总体计划与审计见
 `docs/superpowers/plans/2026-09-26-ios-native-capability-port.md`。
+
+### 2026-09-26 第二轮（Tier 3）的真机验收项
+
+`SyncNotification` / `ReadAloud` / `DlnaCast` / `MediaSniffer` 四套能力同样只过了 macOS 编译。
+下面每条对应一处**纸面推断**，失败即说明该推断不成立：
+
+1. **同步通知**：在后台触发一次「首次同步完成」，确认通知中心出现一条**无声**通知；点开落到「账户与同步」。首次调用会弹一次通知权限框（不授权则静默跳过，同步照常）。
+2. **后台朗读**：开始朗读后按 Home 键切后台，确认**继续朗读**；锁屏/控制中心出现上一段/播放暂停/下一段；插拔耳机时朗读暂停（`noisy`）。
+3. **朗读进度与暂停**：暂停后再继续，确认从**当前词**接上而不是整段重念；进度条位置随朗读推进（UTF-16 码元偏移是否与 JS `substring` 对齐）。
+4. **AI TTS 音频**：用 AI 朗读通道念一段，确认能出声且结束后自动停止（`AVAudioPlayer` + base64 落盘路径）。
+5. **DLNA 单播扫段**：手机与电视同网段，首次搜索时系统弹出「本地网络」权限框；授权后能搜到电视。搜不到时用「手动添加电视 IP」填电视地址，确认能加上并开始投屏。
+6. **DLNA 直连**：投屏后确认电视真的开始播放（`confirmDirectPlayback` 要求连续 1.8 秒 playing）；进度条拖动、暂停/继续、音量条（电视支持 RenderingControl 时）都能用。
+7. **AirPlay**：投屏浮层里点 AirPlay，确认弹出系统路由选择器并能投到 Apple TV（`webkitShowPlaybackTargetPicker` 在 WKWebView 里是否可用是最大不确定项）。
+8. **媒体嗅探**：打开一个自定义源视频页，确认能嗅到 HLS/DASH 清单（探针脚本的 fetch/XHR 钩子在 WKWebView 里是否生效）。
+9. **本机中转**：遇到防盗链源时确认视频能播（`<video src>` 被换成 `http://127.0.0.1:<port>/stream?…`，`NSAllowsLocalNetworking` 是否足够放行）；拖动进度条确认 Range 透传正常、App 不会闪退（`SO_NOSIGPIPE`）。
 
 ## iOS 媒体音量说明
 

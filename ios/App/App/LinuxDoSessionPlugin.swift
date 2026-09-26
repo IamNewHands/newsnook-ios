@@ -1841,7 +1841,9 @@ public final class LinuxDoSessionPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        if let recovery = browserSessionRecovery {
+        // 这里只判空：真正的 `recovery` 由下面的 `withRecovery` 闭包给出，
+        // 写成 `if let recovery` 会与闭包参数同名、且外层那个从没被用到。
+        if browserSessionRecovery != nil {
             withRecovery { recovery in
                 // 只有 `canRequest` 放行的三个第一方端点才走恢复文档，
                 // 保证 CSRF token 与重试写入留在同一个第一方文档里。
