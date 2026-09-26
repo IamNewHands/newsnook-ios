@@ -68,6 +68,35 @@ function releaseBlob(entry: CacheEntry): void {
   entry.blobUrl = undefined
 }
 
+/**
+ * 诊断用：最近一次取字节失败的原因（按 URL 记录）。真机上没有日志面板，失败占位会把这行
+ * 文案显示出来（`data-reader-image-error`），一眼就能看出断在哪一步：原生/浏览器传输的
+ * HTTP 状态、传输标签、非图片响应，或插件 reject 的错误码与消息。
+ */
+const failureNotes = new Map<string, string>()
+const FAILURE_NOTE_LIMIT = 64
+
+function noteFailure(url: string, note: string): void {
+  failureNotes.set(url, note)
+  while (failureNotes.size > FAILURE_NOTE_LIMIT) {
+    const oldest = failureNotes.keys().next()
+    if (oldest.done) break
+    failureNotes.delete(oldest.value)
+  }
+}
+
+export function linuxDoMediaFailureNote(url: string): string | undefined {
+  return failureNotes.get(url)
+}
+
+function describeMediaError(error: unknown): string {
+  const rawCode = (error as { code?: unknown } | undefined)?.code
+  const code = typeof rawCode === 'string' ? rawCode.replace(/^LINUXDO_/, '') : ''
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  const detail = message.replace(/^Linux\.do\s*/, '').trim().slice(0, 44)
+  return [code, detail].filter(Boolean).join(' ') || '取字节失败'
+}
+
 /** 丢弃一条缓存：即使解析还在路上，落地后也会立刻撤销。 */
 function disposeEntry(entry: CacheEntry): void {
   entry.released = true
@@ -103,14 +132,19 @@ export async function resolveLinuxDoImageSrc(url: string): Promise<string> {
     try {
       const response = await fetchLinuxDoMedia({ url, referer: LINUX_DO_MEDIA_REFERER })
       const contentType = response.contentType?.toLowerCase() ?? ''
+      const transport = response.transport ?? 'native'
       const buffer = decodeLinuxDoMediaBase64(response.base64 ?? '')
-      if (buffer.byteLength === 0) throw new Error('Linux.do 媒体响应为空')
+      if (buffer.byteLength === 0) {
+        throw new Error(`媒体响应为空：${response.status} ${transport}`)
+      }
       const bytes = new Uint8Array(buffer)
       // 2xx 不等于图片：Cloudflare 挑战页、登录页都是 2xx 的 HTML。把它当图片返回，
-      // 调用方会误判「解析成功」而放弃 optimized 等备用地址，整张图永久失败。
-      // 所以这里按字节（SVG 按 content-type）判定，不是图片就抛错走原地址回退。
+      // 调用方会误判「解析成功」而放弃后续候选，整张图永久失败。所以这里按字节
+      // （SVG 按 content-type）判定，不是图片就抛错走原地址回退。
       if (!contentType.startsWith('image/svg') && !looksLikeLinuxDoImageBytes(bytes)) {
-        throw new Error('Linux.do 媒体响应不是图片')
+        throw new Error(
+          `媒体响应不是图片：${response.status} ${transport} ${contentType || '无类型'} ${bytes.byteLength}B`,
+        )
       }
       const type = contentType.startsWith('image/') ? contentType : 'image/jpeg'
       const blobUrl = URL.createObjectURL(new Blob([bytes], { type }))
@@ -118,9 +152,11 @@ export async function resolveLinuxDoImageSrc(url: string): Promise<string> {
         URL.revokeObjectURL(blobUrl)
         return url
       }
+      failureNotes.delete(url)
       entry.blobUrl = blobUrl
       return blobUrl
-    } catch {
+    } catch (error) {
+      noteFailure(url, describeMediaError(error))
       cache.delete(url)
       return url
     }

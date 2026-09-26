@@ -63,6 +63,11 @@ export function useProgressiveImages(
     imageReferer?: string
     /** 自定义失败兜底：源站自带会话/挑战通道时接管（Linux.do 用原生插件取字节）。 */
     resolveImage?: (url: string) => Promise<string>
+    /**
+     * 最终失败时给占位写一行可读原因（写到 `data-reader-image-error`，由 CSS 显示）。
+     * 真机上没有日志面板，这行文案是排查取字节链路断在哪一步的唯一现场证据。
+     */
+    failureNote?: (url: string) => string | undefined
   },
 ): void {
   const autoLoad = options?.autoLoad !== false
@@ -70,6 +75,7 @@ export function useProgressiveImages(
   const forceNativeFallback = options?.forceNativeFallback === true
   const imageReferer = options?.imageReferer
   const resolveImage = options?.resolveImage
+  const failureNote = options?.failureNote
   const inflightRef = useRef(new Map<string, () => void>())
 
   useEffect(() => {
@@ -99,6 +105,7 @@ export function useProgressiveImages(
       host?.classList.remove('is-failed', 'is-decorative')
       const linuxDoHost = linuxDoHostOf(img)
       linuxDoHost?.classList.remove('is-failed', 'is-loaded')
+      linuxDoHost?.removeAttribute('data-reader-image-error')
       linuxDoHost?.classList.add('is-loading', 'ink-shimmer')
     }
 
@@ -137,12 +144,18 @@ export function useProgressiveImages(
         host?.classList.add('is-failed')
         linuxDoHost?.classList.remove('is-loaded')
         linuxDoHost?.classList.add('is-failed')
+        if (linuxDoHost) {
+          const state = retryStates.get(img)
+          const firstUrl = state?.urls[0] ?? img.getAttribute('src') ?? ''
+          linuxDoHost.setAttribute('data-reader-image-error', (failureNote?.(firstUrl) ?? '').trim() || '未知原因')
+        }
         return
       }
       img.classList.remove('async-img-failed')
       img.classList.add('async-img-done')
       host?.classList.remove('is-failed')
       linuxDoHost?.classList.remove('is-failed')
+      linuxDoHost?.removeAttribute('data-reader-image-error')
       linuxDoHost?.classList.add('is-loaded')
       applyRole(img)
     }
@@ -200,10 +213,13 @@ export function useProgressiveImages(
 
     const advanceAfterError = (img: HTMLImageElement) => {
       const state = retryStates.get(img)
-      if (!state || state.busy || disposed) {
+      if (!state || disposed) {
         settle(img, false)
         return
       }
+      // 兜底链路（自定义 resolver / 原生兜底）正在跑：这次 error 只是上一张候选图收尾。
+      // 链路自己会在结束时给出结果（成功换 src、失败才 settle），这里不能抢先把图判死。
+      if (state.busy) return
       if (state.index + 1 < state.urls.length) {
         state.index += 1
         setImageSource(img, state, state.urls[state.index]!)
@@ -372,7 +388,7 @@ export function useProgressiveImages(
       ownedBlobUrls.forEach((url) => revokeBlobUrl(url))
       ownedBlobUrls.clear()
     }
-  }, [rootRef, html, enabled, autoLoad, forceNativeFallback, imageReferer, resolveImage, onDeferredPhase])
+  }, [rootRef, html, enabled, autoLoad, forceNativeFallback, imageReferer, resolveImage, failureNote, onDeferredPhase])
 
   useEffect(() => {
     const inflight = inflightRef.current

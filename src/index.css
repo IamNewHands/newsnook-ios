@@ -3143,7 +3143,8 @@ html[data-eink='1'] .lead-cover-veil {
 
 .reader-prose.linuxdo-post-prose [data-linuxdo-role='image-block'].is-failed::after,
 .reader-prose.linuxdo-post-prose [data-linuxdo-role='image-paragraph'].is-failed::after {
-  content: '图片加载失败 · 点按重试';
+  /* 带上取字节失败的原因（data-reader-image-error），真机排查时一眼看到断在哪一步。 */
+  content: '图片加载失败 · ' attr(data-reader-image-error) ' · 点按重试';
   display: flex;
   min-height: 96px;
   align-items: center;
@@ -3151,6 +3152,8 @@ html[data-eink='1'] .lead-cover-veil {
   color: var(--color-paper-faint);
   font-size: 12px;
   line-height: 1.5;
+  text-align: center;
+  padding: 0 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {
