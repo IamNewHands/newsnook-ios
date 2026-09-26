@@ -22,6 +22,25 @@ function numericDimension(element: Element, name: 'width' | 'height'): number | 
   return Number.isFinite(value) && value > 0 ? value : undefined
 }
 
+/**
+ * Discourse 的 `srcset` 里通常有比 1x 更大的 retina 变体（例如 `_2_1380x148.png 2x`）。
+ * 它们和 1x 是同一条上传/CDN 通道，正文用最大变体就能在高分屏上不发虚。
+ */
+function largestSrcsetVariant(srcset: string | null): string | undefined {
+  if (!srcset) return undefined
+  let best: { url: string; weight: number } | undefined
+  for (const entry of srcset.split(',')) {
+    const parts = entry.trim().split(/\s+/)
+    const raw = parts[0]
+    if (!raw) continue
+    const parsed = Number.parseFloat(parts[1] ?? '')
+    const weight = Number.isFinite(parsed) ? parsed : 1
+    const url = absoluteLinuxDoUrl(raw)
+    if (url && (!best || weight >= best.weight)) best = { url, weight }
+  }
+  return best?.url
+}
+
 function copySemanticAttribute(element: Element, source: string, target: string): void {
   const value = element.getAttribute(source)?.trim()
   if (value) element.setAttribute(target, value)
@@ -512,10 +531,26 @@ function normalizeDiscourseMarkup(html: string): string {
       const fullSize = absoluteLinuxDoUrl(element.getAttribute('href'))
       const image = element.querySelector('img')
       if (fullSize && image) {
-        // 只记录原图地址（留给灯箱），绝不改正文 src：正文必须用 cooked 里的原始 src。
-        // 构建 38 真机验证能显示的就是这条地址；之后把 src 换成 lightbox 的 href（原图）
-        // 或 srcset 的 retina 变体，正文图都在真机上全挂（规格 §8.7、§8.9）。
         image.setAttribute('data-linuxdo-original-src', fullSize)
+        // 正文用 srcset 里最大的 retina 变体（约 2x，高分屏不发虚）；1x 的 cooked src 留作
+        // 兜底候选。原图（href）不进正文 src —— 它可能是几千像素的大文件，只留给灯箱按需取用
+        //（「查看原图」走 data-linuxdo-original-src）。
+        const optimized = absoluteLinuxDoUrl(image.getAttribute('src'))
+        const retina = largestSrcsetVariant(image.getAttribute('srcset'))
+        const primary = retina ?? optimized
+        if (primary) {
+          image.setAttribute('src', primary)
+          const fallbacks = [
+            ...new Set(
+              [optimized, retina].filter(
+                (value): value is string => Boolean(value) && value !== primary,
+              ),
+            ),
+          ]
+          if (fallbacks.length > 0) {
+            image.setAttribute('data-reader-image-fallbacks', JSON.stringify(fallbacks))
+          }
+        }
       }
       // Discourse uses this anchor only to launch its own lightbox. NewsNook owns
       // image preview, so leaving href here risks opening the browser as a second action.

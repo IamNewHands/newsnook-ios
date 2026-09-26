@@ -160,5 +160,11 @@ assert.match(
   /useLinuxDoImageSrc\(badgeImageUrl\)/,
   '资料页勋章图必须走会话通道',
 )
+// 正文只放 2x 变体，原图按需取：灯箱的「查看原图」直连失败时回落到同一个会话通道。
+assert.match(
+  readFileSync('src/features/linuxdo/ui/ThreadViews.tsx', 'utf8'),
+  /onResolveOriginal=\{resolveLinuxDoImageSrc\}/,
+  '灯箱「查看原图」的兜底必须接上 Linux.do 媒体解析',
+)
 
 console.log('linuxdo media image source tests passed')

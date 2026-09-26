@@ -51,9 +51,16 @@ assert.match(
 const lightbox = readFileSync('src/components/ImageLightbox.tsx', 'utf8')
 assert.match(
   lightbox,
-  /for \(const source of imageActionSources\(src, actionSrc\)\)/,
+  /for \(const source of imageActionSources\(viewSrc, actionSrc\)\)/,
   '灯箱动作必须按 imageActionSources 逐个尝试',
 )
+assert.match(lightbox, /查看原图/, '灯箱必须有「查看原图」入口（正文只放 2x 变体，原图按需取）')
+assert.match(
+  lightbox,
+  /if \(isOriginal && onResolveOriginal && !originalFallbackTriedRef\.current\)/,
+  '原图直连失败必须能回落到调用方的会话通道，且只回落一次',
+)
+assert.match(lightbox, /const \[viewSrc, setViewSrc\] = useState\(src\)/, '灯箱显示地址要能被「查看原图」切换')
 assert.match(
   lightbox,
   /if \(\/cancel\|abort\|dismiss\/i\.test\(message\)\) throw error/,

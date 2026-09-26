@@ -7,7 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from 'react'
-import { ChevronLeft, ChevronRight, Download, Loader2, RefreshCcw, Share2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, Loader2, Maximize2, RefreshCcw, Share2, X } from 'lucide-react'
 
 import { imageActionSources, saveImageToGallery, shareImage } from '../lib/imageActions'
 import { lockBodyScroll } from '../lib/bodyScrollLock'
@@ -25,6 +25,11 @@ interface Props {
   total?: number
   /** 系统返回：先关菜单，再关灯箱 */
   overlayCloserRef?: MutableRefObject<(() => boolean) | null>
+  /**
+   * 「查看原图」直连失败时的兜底：交给调用方用自己的会话通道取字节（Linux.do 主站原图会被
+   * Cloudflare 挑战拦下，只能走原生插件）。返回同一个地址表示拿不到更好的源，灯箱保持错误态。
+   */
+  onResolveOriginal?: (url: string) => Promise<string>
 }
 
 const MIN_SCALE = 1
@@ -39,7 +44,7 @@ type BusyAction = 'save' | 'share' | null
 /**
  * 全屏看图：双指捏合、单指平移、双击缩放、下滑关闭；长按保存/分享。
  */
-export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, onNext, index = 0, total = 1, overlayCloserRef }: Props) {
+export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, onNext, index = 0, total = 1, overlayCloserRef, onResolveOriginal }: Props) {
   const stageRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
   const transformRef = useRef({ scale: 1, x: 0, y: 0 })
@@ -63,6 +68,10 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
   const [status, setStatus] = useState<string | null>(null)
   const [imageState, setImageState] = useState<'loading' | 'loaded' | 'error'>('loading')
   const [reloadKey, setReloadKey] = useState(0)
+  /** 当前显示的地址：默认是正文里那张（已按宽度取到最大变体），点「查看原图」后切到原图。 */
+  const [viewSrc, setViewSrc] = useState(src)
+  /** 原图的会话通道兜底只试一次，避免直连失败时反复请求插件。 */
+  const originalFallbackTriedRef = useRef(false)
 
   const clearLongPress = useCallback(() => {
     if (longPressTimerRef.current != null) {
@@ -193,8 +202,43 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
   useEffect(() => {
     setImageState('loading')
     setReloadKey(0)
+    setViewSrc(src)
+    originalFallbackTriedRef.current = false
     resetTransform(false)
   }, [src, resetTransform])
+
+  /** 切到原图（用于「查看原图」按钮）。 */
+  const showOriginal = useCallback(() => {
+    if (!actionSrc || actionSrc === viewSrc) return
+    originalFallbackTriedRef.current = false
+    setImageState('loading')
+    setReloadKey(0)
+    setViewSrc(actionSrc)
+    resetTransform(false)
+  }, [actionSrc, viewSrc, resetTransform])
+
+  /**
+   * 直连失败：如果正在看的是原图，先让调用方用会话通道再取一次字节（Linux.do 主站原图
+   * 走 Cloudflare 挑战，宿主 WebView 直连必 403）；拿到不同的地址就换上去，否则进错误态。
+   */
+  const handleImageError = useCallback(async () => {
+    const isOriginal = Boolean(actionSrc) && viewSrc === actionSrc
+    if (isOriginal && onResolveOriginal && !originalFallbackTriedRef.current) {
+      originalFallbackTriedRef.current = true
+      try {
+        const resolved = await onResolveOriginal(actionSrc!)
+        if (resolved && resolved !== actionSrc) {
+          setImageState('loading')
+          setReloadKey((value) => value + 1)
+          setViewSrc(resolved)
+          return
+        }
+      } catch {
+        /* 落到错误态，由占位按钮提供人工重试 */
+      }
+    }
+    setImageState('error')
+  }, [actionSrc, onResolveOriginal, viewSrc])
 
   const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y)
   const midpoint = (a: Point, b: Point): Point => ({
@@ -399,8 +443,8 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
     setStatus(null)
     try {
       let lastError: unknown
-      // 优先用页面里已经拿到的 blob，失败再退回原始地址（见 imageActionSources）。
-      for (const source of imageActionSources(src, actionSrc)) {
+      // 优先用页面里已经拿到的 blob / data URL，失败再退回原始地址（见 imageActionSources）。
+      for (const source of imageActionSources(viewSrc, actionSrc)) {
         try {
           if (action === 'save') await saveImageToGallery(source)
           else await shareImage(source, alt || '分享图片')
@@ -508,14 +552,14 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
           </>
         ) : null}
         <img
-          key={`${src}:${reloadKey}`}
+          key={`${viewSrc}:${reloadKey}`}
           ref={imgRef}
-          src={src}
+          src={viewSrc}
           alt={alt}
           draggable={false}
           referrerPolicy="no-referrer"
           onLoad={() => setImageState('loaded')}
-          onError={() => setImageState('error')}
+          onError={() => void handleImageError()}
           className="max-h-full max-w-full select-none object-contain"
           style={{
             transformOrigin: 'center center',
@@ -529,7 +573,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
       <p
         className="pointer-events-none text-center font-mono text-[10px] tracking-[0.14em] text-paper-faint safe-pb-12"
       >
-        {total > 1 ? '左右滑动切换 · ' : ''}长按保存或分享 · 双指缩放 · 下滑关闭
+        {total > 1 ? '左右滑动切换 · ' : ''}长按保存 / 查看原图 · 双指缩放 · 下滑关闭
       </p>
 
       {menuOpen && (
@@ -549,6 +593,21 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
           >
             <p className="mb-3 font-mono text-[10px] tracking-[0.16em] text-paper-faint">图片操作</p>
             <div className="grid gap-2">
+              {actionSrc && actionSrc !== viewSrc ? (
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setStatus(null)
+                    showOriginal()
+                  }}
+                  className="flex items-center gap-3 rounded-xl border border-haze bg-ink/50 px-4 py-3.5 text-left text-[14px] text-paper disabled:opacity-50"
+                >
+                  <Maximize2 size={18} strokeWidth={1.6} className="text-cinnabar-soft" />
+                  <span className="flex-1">查看原图</span>
+                </button>
+              ) : null}
               <button
                 type="button"
                 disabled={busy !== null}

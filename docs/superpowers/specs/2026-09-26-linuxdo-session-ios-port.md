@@ -772,6 +772,37 @@ content="no-referrer">`，不带 Referer、不带会话 Cookie）拿不到放行
 `cdn.ldstatic.com MEDIA_URL 只允许请求…`（说明主机仍不在白名单）或
 `cdn.ldstatic.com MEDIA_HTTP 媒体请求失败（HTTP 403）`（说明 CDN 侧连会话通道也挡）。
 
+### 8.12 结论修正：正文图全挂的真因是网络（手机代理没放行 CDN）+ 恢复 2x 变体与「查看原图」（2026-09-26）
+
+真机结果：构建 45 一开始仍不显示；**用户把 `cdn.ldstatic.com` 加入手机代理后，正文图全部显示。**
+
+于是这整条案的因果要改写：
+
+| 层次 | 结论 |
+|---|---|
+| 触发因（真因） | 手机侧代理规则没有覆盖站点 CDN 主机，`cdn.ldstatic.com` 的图片请求根本出不去。**这和「正文用哪个地址」无关** |
+| 为什么头像一直好 | 头像走的 CDN 路径命中了已有规则/被缓存，正文图（不同路径、不同大小）没命中 |
+| §8.7–§8.11 的地位 | 诊断方向在最后一轮是对的（占位写出主机名，才把「CDN + 网络」暴露出来），但前面几轮把症状当成「地址形态 / 判定错误」在改，属于在错误的层上反复修 |
+| 被推翻的旧结论 | §8.7「`/original/` 被挑战」、§8.8「原图通道没验证过」、§8.9「正文图必须用 cooked 原始 src」——这些结论都是在「CDN 不通」这个环境变量下观察到的 |
+
+因此本轮把显示路径恢复到「清晰」的目标，并按新的因果重做：
+
+| 位置 | 改动 |
+|---|---|
+| `sanitize.ts` | 正文 `src` = `srcset` 里**最大的 retina 变体**（约 2x，高分屏不发虚），1x 的 cooked `src` 写进 `data-reader-image-fallbacks` 作兜底；原图（href）仍只写 `data-linuxdo-original-src`（原图可能是几千像素的大文件，不该无条件进正文） |
+| `ImageLightbox.tsx` | 新增 `onResolveOriginal`（可选）与 `viewSrc` 状态：菜单里出现「查看原图」，切到 `actionSrc` 直连；直连失败时**只回落一次**到 `onResolveOriginal`（Linux.do 主站原图会被挑战拦下，只能走会话通道），拿到不同地址就换上去，否则进错误态。保存/分享改用当前显示地址（`viewSrc`） |
+| `ThreadViews.tsx` | 给灯箱接上 `onResolveOriginal={resolveLinuxDoImageSrc}` |
+| 上一轮保留的通道改动 | `fetchMedia` 的 CDN 放行、失败兜底不按主机白名单提前返回、失败占位带主机名：**保留**。它们不是这次显示问题的原因，但现在承担两件事——网络异常时占位能写出主机名（这轮就是靠它定位的），以及主站原图/子域媒体的取字节通道 |
+
+验证：`tsc -b` 干净、`oxlint` 0 error、`test:linuxdo`（含 `linuxdo-media` / `linuxdo-readsync`）、
+`test:image-actions`、`test:zhihu-content`、`ios-native-plugin` 全过；`linuxdo.test.ts` 断言回到
+「正文 src 必须是最大 retina 变体」「1x 必须留作兜底」「原图不得进正文 src / 兜底链」；
+`image-actions.test.ts` 断言灯箱有「查看原图」、原图失败只回落一次会话通道。
+
+**未证明 / 残留**：真机仍未复测「清晰度」。若 2x 变体在某些帖子上不存在（Discourse 不总会
+生成），会退回 1x（仍比全挂好），此时占位不会出现，属于预期降级。
+
+
 
 
 

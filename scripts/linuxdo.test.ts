@@ -638,33 +638,33 @@ assert.doesNotMatch(discourseMedia, /<a[^>]+data-linuxdo-role="image-link"[^>]+h
 assert.match(discourseMedia, /https:\/\/linux\.do\/uploads\/default\/optimized/)
 assert.doesNotMatch(discourseMedia, /2134×230/)
 assert.doesNotMatch(discourseMedia, />image</)
-// 正文只走构建 38 真机验证过的那条地址：Discourse cooked 里的原始 src（optimized 变体）。
-// 把正文 src 换成 lightbox 的 href（原图）或 srcset 的 retina 变体，真机正文图都全挂
-// （规格 §8.7、§8.9），所以这里也断言「不得替换」，并且不再声明兜底候选链（每张图只发一次取字节请求）。
+// 正文用 srcset 里最大的 retina 变体（约 2x，高分屏不发虚），1x 的 cooked src 留作兜底候选。
+// 原图（href）不进正文 src —— 它可能是几千像素的大文件，只留在 data-linuxdo-original-src
+// 给灯箱的「查看原图」按需取用。
 assert.match(
   discourseMedia,
-  /<img[^>]+\ssrc="https:\/\/linux\.do\/uploads\/default\/optimized\/1X\/photo_2_690x74\.png"/,
-  '正文图片的 src 必须是 cooked 里的原始 optimized 地址',
-)
-assert.doesNotMatch(
-  discourseMedia,
   /<img[^>]+\ssrc="https:\/\/linux\.do\/uploads\/default\/optimized\/1X\/photo_2_1380x148\.png"/,
-  'srcset 的 retina 变体不得替换正文 src',
+  '正文图片的 src 必须是 srcset 里最大的 retina 变体',
 )
 assert.doesNotMatch(
   discourseMedia,
   /<img[^>]+\ssrc="https:\/\/linux\.do\/uploads\/default\/original\/1X\/photo\.png"/,
   '原图不得出现在正文 src',
 )
+assert.match(
+  discourseMedia,
+  /data-reader-image-fallbacks="[^"]*photo_2_690x74\.png[^"]*"/,
+  '1x optimized 必须留作兜底候选',
+)
 assert.doesNotMatch(
   discourseMedia,
-  /data-reader-image-fallbacks/,
-  '正文不再声明兜底候选链（避免为每张图多发取字节请求）',
+  /data-reader-image-fallbacks="[^"]*\/original\/[^"]*"/,
+  '原图不得进兜底链',
 )
 assert.match(
   discourseMedia,
   /data-linuxdo-original-src="https:\/\/linux\.do\/uploads\/default\/original\/1X\/photo\.png"/,
-  '原图仍要留在 data-linuxdo-original-src 供灯箱取用',
+  '原图仍要留在 data-linuxdo-original-src 供灯箱「查看原图」取用',
 )
 
 const discourseMediaNoSrcset = sanitizeLinuxDoCooked(`

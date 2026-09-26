@@ -8,6 +8,7 @@ import { ConfirmDialog, OptionPickerDialog } from '../../../components/ConfirmDi
 import type { Point } from '../../../lib/contextActions'
 import { log } from '../../../lib/logger'
 import { LinuxDoCookedBody } from './LinuxDoCookedBody'
+import { resolveLinuxDoImageSrc } from '../media/imageSource'
 import {
   linuxDoApi,
   linuxDoDiscovery,
@@ -1555,7 +1556,7 @@ export function LinuxDoTopicView({
       {lightbox ? (() => {
         const current = lightbox.items[lightbox.index]
         if (!current) return null
-        return <ImageLightbox src={current.src} actionSrc={current.actionSrc} alt={current.alt} index={lightbox.index} total={lightbox.items.length} onPrevious={lightbox.index > 0 ? () => setLightbox((state) => state ? { ...state, index: state.index - 1 } : state) : undefined} onNext={lightbox.index < lightbox.items.length - 1 ? () => setLightbox((state) => state ? { ...state, index: state.index + 1 } : state) : undefined} onClose={() => setLightbox(null)} overlayCloserRef={overlayBackHandlerRef} />
+        return <ImageLightbox src={current.src} actionSrc={current.actionSrc} alt={current.alt} index={lightbox.index} total={lightbox.items.length} onResolveOriginal={resolveLinuxDoImageSrc} onPrevious={lightbox.index > 0 ? () => setLightbox((state) => state ? { ...state, index: state.index - 1 } : state) : undefined} onNext={lightbox.index < lightbox.items.length - 1 ? () => setLightbox((state) => state ? { ...state, index: state.index + 1 } : state) : undefined} onClose={() => setLightbox(null)} overlayCloserRef={overlayBackHandlerRef} />
       })() : null}
     </div>
   )
