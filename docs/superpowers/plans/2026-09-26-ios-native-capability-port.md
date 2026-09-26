@@ -76,8 +76,32 @@
 `ios-latest` tag 指向该次构建的提交，资产内 App 构建戳与说明里的 `34-2688ad9` 一致。
 
 旧的三条 release（`ios-v1.8.7` / `1.8.8` / `1.8.9`）已按用户点名授权删除，tag 一并删掉。
-影响：`ios-v1.8.8` 原本指向 `853e16d`，删 tag 后不再被任何远程 ref 引用（`ios-v1.8.7` 的
-`c63b754` 仍由 `ios-sync/v1.8.7` 分支兜着；`ios-v1.8.9` 的 `6bc0eb7` 本就在 `main` 历史里）。
+影响：`ios-v1.8.8` 原本指向 `853e16d`、`ios-v1.8.7` 的 `c63b754` 原本由 `ios-sync/v1.8.7` 分支
+兜着，删 tag 与删该分支后两者都不再被任何 ref 引用（`ios-v1.8.9` 的 `6bc0eb7` 本就在 `main`
+历史里，没影响）。两者都已在下面的 bundle 备份里。
+
+## 0g. 分支清理（2026-09-26）
+
+用户要求「分支里只留下有用的」。清点后**只保留 `main` 与 `ios-layer`**，删掉 10 条本地 + 2 条
+远程分支（都是 2026-09-22 初次移植留下的工作分支，内容已被 `main` 取代）：
+
+- 本地：`ios-layer-squash`、`ios-native-plugins`、`ios-port`、`layer-new`、`layer-new2`、
+  `main-new`、`main-new2`、`newsnook-backup-pre-188`、`sync-1.8.8`、`tmp-ui-font`
+- 远程：`ios-native-plugins`（Tier-1/2 移植的 6 个逐步提交）、`ios-sync/v1.8.7`（v1.8.7 时代的
+  13 个提交，含 `c63b754`）
+
+删除前把 11 条分支的独有提交打包成 bundle，**可回滚**（下面的命令已 `--dry-run` 实测通过）：
+
+```bash
+# 恢复：在任意含 main 的克隆里执行，11 条 ref 会落到 refs/restored/ 下（不覆盖现有分支）
+git fetch D:\GitHub_Clone\_port-analysis\newsnook-ios-branches-2026-09-26.bundle 'refs/*:refs/restored/*'
+```
+
+bundle：`D:\GitHub_Clone\_port-analysis\newsnook-ios-branches-2026-09-26.bundle`（731 658 字节，
+`git bundle verify` 通过；两条前置提交 `c90bd76` / `6bc0eb7` 都在 `main` 里，所以对 main 的克隆
+是自足的）。清理后 `git fsck` 只剩几个 dangling 对象（被删分支的 tip），属预期。
+
+清理后的 ref 拓扑就三条：分支 `main`、分支 `ios-layer`、tag `ios-latest`（滚动，会移动）。
 
 ## 0c. 本轮已跑通的验证（本地，2026-09-26）
 
