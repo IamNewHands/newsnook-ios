@@ -1085,6 +1085,14 @@ html[data-eink='1'] .preset-switcher-sheet {
 .reader-swipe-surface {
   touch-action: pan-y;
   overscroll-behavior-x: none;
+  /*
+   * 合成层在**挂载时**就建好，而不是等右滑的第一帧才建。
+   * 只靠 hook 在 begin() 里写 will-change 的话，「升层 + 首次栅格化」两件事都挤在
+   * 手指刚动的那几帧里；正文很长时那就是起步一顿、后面一路拖影。
+   */
+  will-change: transform;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
 }
 
 .reader-font-pinch-surface {
@@ -1093,6 +1101,24 @@ html[data-eink='1'] .preset-switcher-sheet {
 
 .reader-swipe-surface[data-swipe-back-active='true'] {
   box-shadow: -18px 0 38px rgb(0 0 0 / 38%);
+}
+
+/*
+ * 右滑返回期间关掉整棵子树的 backdrop 采样。
+ * backdrop-filter 每帧都要重新采样背景并重算模糊，挂在移动中的合成层里是持续的
+ * 帧率杀手（eink 模式对全页也是同一套处理，见文件末尾）。
+ */
+.reader-swipe-surface[data-swipe-back-active='true'] * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/*
+ * 顶栏原本靠 blur 遮住正文，blur 关掉后要换成不透明底色，
+ * 否则正文会从 90% 不透明的底色里透出来。
+ */
+.reader-swipe-surface[data-swipe-back-active='true'] [data-surface='reader-chrome'] {
+  background-color: var(--color-ink) !important;
 }
 
 .reader-prose img {
