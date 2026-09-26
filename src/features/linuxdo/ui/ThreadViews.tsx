@@ -7,7 +7,7 @@ import { ContextActionMenu } from '../../../components/ContextActionMenu'
 import { ConfirmDialog, OptionPickerDialog } from '../../../components/ConfirmDialog'
 import type { Point } from '../../../lib/contextActions'
 import { log } from '../../../lib/logger'
-import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
+import { LinuxDoCookedBody } from './LinuxDoCookedBody'
 import {
   linuxDoApi,
   linuxDoDiscovery,
@@ -78,38 +78,7 @@ function buildComposerTemplateVariables(
 }
 
 function LinuxDoPostBody({ html, onClick }: { html: string; onClick: (event: ReactMouseEvent<HTMLDivElement>) => void }) {
-  const rootRef = useRef<HTMLDivElement | null>(null)
-  useProgressiveImages(rootRef, html, Boolean(html), {
-    autoLoad: true,
-    forceNativeFallback: true,
-    imageReferer: 'https://linux.do/',
-  })
-
-  useEffect(() => {
-    const root = rootRef.current
-    if (!root) return
-    root.querySelectorAll<HTMLElement>('[data-linuxdo-role="poll-bar"]').forEach((bar) => {
-      const percent = bar.getAttribute('data-linuxdo-poll-percent')
-      if (percent) {
-        bar.style.width = `${percent}%`
-      }
-    })
-    root.querySelectorAll<HTMLElement>('[data-linuxdo-role="quote-category-dot"]').forEach((dot) => {
-      const color = dot.getAttribute('data-linuxdo-category-color')
-      if (color) {
-        dot.style.backgroundColor = color
-      }
-    })
-  }, [html])
-
-  return (
-    <div
-      ref={rootRef}
-      className="reader-prose linuxdo-post-prose mt-3 text-paper"
-      onClick={onClick}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  )
+  return <LinuxDoCookedBody html={html} className="reader-prose linuxdo-post-prose mt-3 text-paper" onClick={onClick} />
 }
 
 function ReactionSummary({ reactions, fallbackCount }: { reactions: LinuxDoReaction[]; fallbackCount: number }) {

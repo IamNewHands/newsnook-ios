@@ -1,0 +1,80 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+
+import {
+  decodeLinuxDoMediaBase64,
+  isLinuxDoHostedMedia,
+  releaseLinuxDoImageCache,
+  resolveLinuxDoImageSrc,
+} from '../src/features/linuxdo/media/imageSource'
+
+// linux.do 主站图片落在 Cloudflare 托管挑战后面，必须走原生会话通道；CDN 是公开的。
+assert.equal(
+  isLinuxDoHostedMedia('https://linux.do/uploads/default/original/3X/9/d/9dd49731091ce8656e94433a26a3ef36062b3994.png'),
+  true,
+  'linux.do 主站图片需要原生通道',
+)
+assert.equal(
+  isLinuxDoHostedMedia('https://cdn.ldstatic.com/letter_avatar/czm/48/6_22734026db12803ebb3e059622ac3534.png'),
+  false,
+  'CDN 头像直连即可，不该走原生通道',
+)
+assert.equal(isLinuxDoHostedMedia('https://linux.do.evil.example/x.png'), false, '后缀域名不算主站')
+assert.equal(isLinuxDoHostedMedia('https://sub.linux.do/x.png'), false, '插件白名单只放行主站，子域回退直连')
+assert.equal(isLinuxDoHostedMedia('http://linux.do/x.png'), false, '只有 https 才走原生通道')
+assert.equal(isLinuxDoHostedMedia('/uploads/default/original/1X/a.png'), false, '相对地址不解析')
+assert.equal(isLinuxDoHostedMedia(''), false, '空地址不解析')
+
+const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+const decoded = new Uint8Array(decodeLinuxDoMediaBase64(Buffer.from(png).toString('base64')))
+assert.deepEqual(Array.from(decoded), Array.from(png), 'base64 解码必须逐字节还原')
+assert.throws(() => decodeLinuxDoMediaBase64('not-base64!!'), '非法 base64 必须抛错，交给调用方回退')
+
+// 非原生（Web / 测试环境）一律回退原地址：这条通道绝不能把网页端图片弄坏。
+const linuxDoImage = 'https://linux.do/uploads/default/original/1X/3a18b4b0da3e8cf96f7eea15241c3d251f28a39b.png'
+assert.equal(await resolveLinuxDoImageSrc(linuxDoImage), linuxDoImage, '非原生环境原样返回')
+assert.equal(
+  await resolveLinuxDoImageSrc('https://cdn.ldstatic.com/letter_avatar/czm/48/6_22734026db12803ebb3e059622ac3534.png'),
+  'https://cdn.ldstatic.com/letter_avatar/czm/48/6_22734026db12803ebb3e059622ac3534.png',
+  'CDN 图片原样返回',
+)
+assert.equal(await resolveLinuxDoImageSrc('data:image/gif;base64,R0lGOD'), 'data:image/gif;base64,R0lGOD', '非 http 地址原样返回')
+releaseLinuxDoImageCache()
+
+// 原生契约：Swift 侧必须真的暴露 fetchMedia，否则 JS 侧只会拿到「未实现」。
+const pluginSource = readFileSync('ios/App/App/LinuxDoSessionPlugin.swift', 'utf8')
+assert.match(pluginSource, /CAPPluginMethod\(name: "fetchMedia"/, 'fetchMedia 必须注册进 pluginMethods')
+assert.match(pluginSource, /@objc func fetchMedia\(_ call: CAPPluginCall\)/, 'fetchMedia 必须实现')
+assert.match(pluginSource, /binary: Bool = false/, '隐藏传输必须支持 base64 取字节')
+assert.match(pluginSource, /readAsDataURL\(blob\)/, '浏览器传输必须把响应读成 data URL')
+assert.match(
+  pluginSource,
+  /isCloudflareChallenge\(status: status, body: text, headers: headers\)[\s\S]{0,1200}performBrowserMediaRequest/,
+  '原生命中挑战后必须回落到浏览器传输',
+)
+
+const progressiveSource = readFileSync('src/hooks/useProgressiveImages.ts', 'utf8')
+assert.match(progressiveSource, /resolveImage\?: \(url: string\) => Promise<string>/, 'useProgressiveImages 必须暴露 resolveImage')
+assert.match(
+  progressiveSource,
+  /const custom = resolveImage \? await resolveImage\(url\) : url/,
+  '自定义 resolver 必须先于通用原生兜底被询问',
+)
+assert.match(
+  progressiveSource,
+  /if \(!resolveImage && custom\.startsWith\('blob:'\)\) ownedBlobUrls\.add\(custom\)/,
+  '自定义 resolver 的 blob 不能被 hook 撤销',
+)
+
+const cookedBodySource = readFileSync('src/features/linuxdo/ui/LinuxDoCookedBody.tsx', 'utf8')
+assert.match(cookedBodySource, /resolveImage: resolveLinuxDoImageSrc/, '共享 cooked 渲染组件必须接上 Linux.do 媒体解析')
+for (const surface of ['src/features/linuxdo/ui/ThreadViews.tsx', 'src/features/linuxdo/ui/UserProfileView.tsx', 'src/features/linuxdo/ui/CommunityViews.tsx']) {
+  assert.match(readFileSync(surface, 'utf8'), /LinuxDoCookedBody/, `${surface} 必须复用共享 cooked 渲染组件`)
+}
+assert.match(
+  readFileSync('src/features/linuxdo/ui/UserProfileView.tsx', 'utf8'),
+  /useLinuxDoImageSrc\(badgeImageUrl\)/,
+  '资料页勋章图必须走会话通道',
+)
+
+console.log('linuxdo media image source tests passed')

@@ -31,7 +31,14 @@ import type {
   LinuxDoUserSummaryTopic,
 } from '../people/service'
 import type { LinuxDoCategory, LinuxDoTopicSummary } from '../types'
+import { LinuxDoCookedBody } from './LinuxDoCookedBody'
+import { useLinuxDoImageSrc } from './useLinuxDoImageSrc'
 import { ago, avatar, compact, readableError, tagGlyph } from './utils'
+
+function LinuxDoBadgeImage({ badgeImageUrl }: { badgeImageUrl?: string }) {
+  const src = useLinuxDoImageSrc(badgeImageUrl)
+  return src ? <img src={src} alt="" className="h-7 w-7 object-contain" /> : <Award size={19} />
+}
 
 export type UserProfileTab = 'overview' | 'activity' | 'topics' | 'replies' | 'likes' | 'boosts' | 'responses' | 'badges'
 type ActivityTab = Extract<UserProfileTab, 'activity' | 'topics' | 'replies' | 'likes' | 'responses'>
@@ -322,9 +329,9 @@ function ActivityCard({
         </button>
       ) : null}
       {action.excerpt ? (
-        <div
+        <LinuxDoCookedBody
+          html={action.excerpt}
           className="linuxdo-post-prose reader-prose mt-2 line-clamp-4 select-text text-[11.5px] leading-[1.65] text-paper-muted"
-          dangerouslySetInnerHTML={{ __html: action.excerpt }}
         />
       ) : null}
       <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[9.5px] text-paper-faint">
@@ -704,7 +711,7 @@ export function UserProfileView({
             </div>
           </div>
 
-          {profile.bioCooked ? <div className="linuxdo-post-prose reader-prose mt-3.5 select-text text-[12px] leading-[1.72] text-paper-muted" dangerouslySetInnerHTML={{ __html: profile.bioCooked }} /> : null}
+          {profile.bioCooked ? <LinuxDoCookedBody html={profile.bioCooked} className="linuxdo-post-prose reader-prose mt-3.5 select-text text-[12px] leading-[1.72] text-paper-muted" /> : null}
 
           <div className="mt-4 grid grid-cols-4 gap-1.5 sm:gap-2">
             {summaryMetrics.map(({ label, value, icon: Icon }) => (
@@ -954,7 +961,7 @@ export function UserProfileView({
                       >
                         <div className="flex items-start gap-3">
                           <span className={'grid h-10 w-10 shrink-0 place-items-center rounded-xl ' + (notificationTarget || featured ? 'bg-cinnabar/12 text-cinnabar-soft' : 'bg-paper/[0.04] text-paper-muted')}>
-                            {badge.imageUrl ? <img src={badge.imageUrl} alt="" className="h-7 w-7 object-contain" /> : <Award size={19} />}
+                            {badge.imageUrl ? <LinuxDoBadgeImage badgeImageUrl={badge.imageUrl} /> : <Award size={19} />}
                           </span>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">

@@ -12,9 +12,12 @@ import WebKit
 /// 同源隐藏 WebView 可以透明承载本次 App 会话的 API 流量。浏览器会话的唯一真相是
 /// `WKWebsiteDataStore`，本插件不额外持久化任何 Cookie。
 ///
-/// **本文件覆盖 10 个会话/请求方法 + 4 个上传方法**（见 `pluginMethods`，共 14 项）。
+/// **本文件覆盖 10 个会话/请求方法 + 4 个上传方法 + 1 个媒体方法**（见 `pluginMethods`，共 15 项）。
 /// 4 个上传方法（`beginUpload` / `appendUploadChunk` / `finishUpload` / `cancelUpload`）
 /// 与 `linuxDoUploadProgress` 事件在文件末的「上传」段落实现（见 port spec §13）。
+/// `fetchMedia` 是 iOS 侧新增（Android 无对应方法）：Linux.do 主站的图片同样落在
+/// Cloudflare 挑战后面，宿主 WebView 的跨站 `<img>` 与 `CapacitorHttp` 都拿不到放行，
+/// 只能复用本插件的会话 Cookie / 隐藏同源传输通道把字节取回来（见 §7b）。
 ///
 /// 线程模型：Capacitor 8 的 iOS bridge 在串行后台队列上调用插件方法
 /// （`CapacitorBridge.swift` 的 `dispatchQueue.async`，**不是主线程**）。
@@ -39,6 +42,7 @@ public final class LinuxDoSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "snapshot", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "browserSnapshot", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "request", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "fetchMedia", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "prepareBrowserSession", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "fetchConnectTrustPage", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearBrowserSession", returnType: CAPPluginReturnPromise),
@@ -456,6 +460,125 @@ public final class LinuxDoSessionPlugin: CAPPlugin, CAPBridgedPlugin {
                 body: body
             )
         }
+    }
+
+    // MARK: - 7b) fetchMedia
+
+    /// 取 Linux.do 主站媒体字节（图片等），以 base64 回传。
+    /// 宿主 WebView 的跨站 `<img>` 会被 Cloudflare 挑战拦下（`cf-mitigated: challenge`），
+    /// `CapacitorHttp` 兜底又不带会话 Cookie；这里先带 Cookie 走 URLSession，命中挑战
+    /// 再交给隐藏同源传输 WebView 取 blob 转 base64。iOS 新增，Android 无对应方法。
+    @objc func fetchMedia(_ call: CAPPluginCall) {
+        let url = call.getString("url") ?? ""
+        let referer = call.getString("referer") ?? (Self.origin + "/")
+
+        guard Self.isApiAllowedUrl(url) else {
+            call.reject("只允许请求 linux.do 主站 HTTPS 媒体", "LINUXDO_MEDIA_URL")
+            return
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                call.reject("Linux.do 媒体请求失败", "LINUXDO_MEDIA_NETWORK")
+                return
+            }
+            self.performNativeMediaRequest(call: call, url: url, referer: referer)
+        }
+    }
+
+    private func performNativeMediaRequest(call: CAPPluginCall, url: String, referer: String) {
+        readCookieHeader(origin: Self.origin) { [weak self] cookie in
+            guard let self, let target = URL(string: url) else {
+                call.reject("Linux.do 媒体请求失败", "LINUXDO_MEDIA_NETWORK")
+                return
+            }
+            let userAgent = self.currentUserAgent()
+            var request = URLRequest(url: target)
+            request.httpMethod = "GET"
+            request.timeoutInterval = Self.identityReadTimeout
+            request.setValue("image/avif,image/webp,image/apng,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
+            request.setValue("zh-CN,zh;q=0.9,en;q=0.8", forHTTPHeaderField: "Accept-Language")
+            if !referer.isEmpty { request.setValue(referer, forHTTPHeaderField: "Referer") }
+            if !userAgent.isEmpty { request.setValue(userAgent, forHTTPHeaderField: "User-Agent") }
+            if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+
+            let task = self.sharedIdentitySession().dataTask(with: request) { [weak self] data, response, error in
+                guard let self else { return }
+                let http = response as? HTTPURLResponse
+                let status = http?.statusCode ?? 0
+                let headers = http.map { Self.safeResponseHeaders($0) } ?? [:]
+                let body = data ?? Data()
+                let text = String(data: body, encoding: .utf8) ?? ""
+                let challenged = Self.isCloudflareChallenge(status: status, body: text, headers: headers)
+                let contentType = http?.value(forHTTPHeaderField: "Content-Type")?.lowercased()
+                // 非图片正文（例如被换成 HTML 拦截页）也算失败，交给浏览器传输重试。
+                let looksLikeMedia = contentType.map { $0.hasPrefix("image/") || $0.hasPrefix("video/") } ?? true
+                if error == nil, !challenged, looksLikeMedia, (200...299).contains(status), !body.isEmpty {
+                    DispatchQueue.main.async {
+                        self.resolveMedia(call: call, status: status, contentType: contentType, data: body, transport: "native")
+                    }
+                    return
+                }
+                // 隐藏传输 WebView 只能主线程创建/使用，URLSession 回调在后台队列。
+                DispatchQueue.main.async {
+                    self.performBrowserMediaRequest(url: url, call: call)
+                }
+            }
+            task.resume()
+        }
+    }
+
+    /// 隐藏同源传输 WebView 取字节：脚本把响应读成 data URL，这里剥掉前缀还原 base64。
+    private func performBrowserMediaRequest(url: String, call: CAPPluginCall) {
+        performBrowserTransportRequest(
+            url: url,
+            method: "GET",
+            requestHeaders: [:],
+            body: "",
+            binary: true,
+            onSuccess: { response in
+                guard (200...299).contains(response.status) else {
+                    call.reject("Linux.do 媒体请求失败（HTTP \(response.status)）", "LINUXDO_MEDIA_HTTP")
+                    return
+                }
+                let raw = response.data
+                let base64: String
+                if raw.hasPrefix("data:"), let comma = raw.firstIndex(of: ",") {
+                    base64 = String(raw[raw.index(after: comma)...])
+                } else {
+                    base64 = raw
+                }
+                guard !base64.isEmpty else {
+                    call.reject("Linux.do 媒体请求返回了空内容", "LINUXDO_MEDIA_EMPTY")
+                    return
+                }
+                var result: [String: Any] = [:]
+                result["status"] = response.status
+                result["base64"] = base64
+                result["contentType"] = Self.headerValue(response.headers, name: "content-type")
+                    ?? Self.dataUrlContentType(raw)
+                result["transport"] = response.transport
+                call.resolve(result)
+            },
+            onFailure: { message in
+                call.reject(message, "LINUXDO_MEDIA_BROWSER")
+            }
+        )
+    }
+
+    private func resolveMedia(call: CAPPluginCall, status: Int, contentType: String?, data: Data, transport: String) {
+        var result: [String: Any] = [:]
+        result["status"] = status
+        result["base64"] = data.base64EncodedString()
+        if let contentType, !contentType.isEmpty { result["contentType"] = contentType }
+        result["transport"] = transport
+        call.resolve(result)
+    }
+
+    private static func dataUrlContentType(_ value: String) -> String? {
+        guard value.hasPrefix("data:"), let semicolon = value.firstIndex(of: ";") else { return nil }
+        let type = String(value[value.index(value.startIndex, offsetBy: 5)..<semicolon])
+        return type.isEmpty ? nil : type
     }
 
     // MARK: - 8) prepareBrowserSession
@@ -1902,11 +2025,13 @@ public final class LinuxDoSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// 隐藏传输通道（恢复文档不可用时使用）。
+    /// `binary = true` 时脚本返回 data URL 字符串而不是正文文本（供 `fetchMedia` 取图片字节）。
     private func performBrowserTransportRequest(
         url: String,
         method: String,
         requestHeaders: [String: String],
         body: String,
+        binary: Bool = false,
         onSuccess: @escaping (BrowserFetchResponse) -> Void,
         onFailure: @escaping (String) -> Void
     ) {
@@ -1939,7 +2064,8 @@ public final class LinuxDoSessionPlugin: CAPPlugin, CAPBridgedPlugin {
                 url: url,
                 method: method,
                 headers: headers,
-                body: method == "GET" ? nil : body
+                body: method == "GET" ? nil : body,
+                binary: binary
             ) else {
                 self.browserFetches.removeValue(forKey: requestId)
                 timeout.cancel()
@@ -2146,15 +2272,22 @@ public final class LinuxDoSessionPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// 在隐藏传输 WebView 里执行的 fetch 脚本（等价 Java `performBrowserRequest` 内联脚本）。
+    /// `binary` 为真时把响应体读成 data URL（base64），供原生侧还原图片字节。
     private static func browserFetchScript(
         requestId: String,
         url: String,
         method: String,
         headers: [String: String],
-        body: String?
+        body: String?,
+        binary: Bool = false
     ) -> String? {
         guard let headersJson = jsonLiteral(headers) else { return nil }
         let bodyExpression = body.flatMap { jsonLiteral($0) } ?? "undefined"
+        let payloadExpression = binary
+            ? "response.blob().then(function(blob){return new Promise(function(resolve){var reader=new FileReader();reader.onload=function(){resolve(String(reader.result||''));};reader.onerror=function(){resolve('');};reader.readAsDataURL(blob);});})"
+            : "response.text()"
+        // 媒体允许跟随跳转（图片常被 301 到 CDN）；API 语义仍是不跟随，由调用方自己处理。
+        let redirectMode = binary ? "'follow'" : "'manual'"
         return """
         (function(){
           const id=\(jsonLiteral(requestId) ?? "\"\"");
@@ -2163,13 +2296,13 @@ public final class LinuxDoSessionPlugin: CAPPlugin, CAPBridgedPlugin {
           const headers=\(headersJson);
           const aborter=new AbortController();
           const deadline=setTimeout(function(){aborter.abort();},30000);
-          fetch(\(jsonLiteral(url) ?? "\"\""),{method:\(jsonLiteral(method) ?? "\"GET\""),headers:headers,credentials:'include',signal:aborter.signal,redirect:'manual',cache:'no-store',body:\(bodyExpression)})
+          fetch(\(jsonLiteral(url) ?? "\"\""),{method:\(jsonLiteral(method) ?? "\"GET\""),headers:headers,credentials:'include',signal:aborter.signal,redirect:\(redirectMode),cache:'no-store',body:\(bodyExpression)})
           .then(function(response){
             const h={};
             response.headers.forEach(function(v,k){h[k]=v;});
             bridge.postMessage({id:id,kind:'start',status:response.status,headers:JSON.stringify(h),url:response.url});
             if(response.status>=300&&response.status<400){clearTimeout(deadline);bridge.postMessage({id:id,kind:'done'});return null;}
-            return response.text();
+            return \(payloadExpression);
           })
           .then(function(text){
             if(text===null||text===undefined){return;}

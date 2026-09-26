@@ -522,3 +522,76 @@ JS 的进度会停在 0.15；补发一次至少让 `0.15 + 0.8 * 1.0 = 0.95` 收
 `pluginMethods` 数组：10 项 → **14 项**。`@objc func`：10 → **14**。
 （行数含本遍新增的注释；该数字取自追加完成时对文件的直接计数。）
 
+## 8. 追加一遍：`fetchMedia` 媒体字节（2026-09-27，第三遍）
+
+### 8.1 问题
+
+真机现象：Linux.do 帖子的**正文图片全部显示「图片加载失败 · 点按重试」**，但**头像正常**
+（头像走 `cdn.ldstatic.com`），同一帖子在 iPhone Safari 里图片正常。
+
+实测（2026-09-27，Windows 侧）：
+
+| 请求 | 结果 |
+|---|---|
+| `https://linux.do/uploads/...`（真实 3X/1X 上传路径） | **403 `Just a moment...`**，响应头 `cf-mitigated: challenge`；换 iPhone WKWebView UA / Chrome UA 一致 |
+| `https://linux.do/latest.json` | 403（同上，故 API 也必须走浏览器传输） |
+| `https://cdn.ldstatic.com/letter_avatar/...` | 200（公开，无挑战） |
+| `https://cdn.ldstatic.com/uploads/...` | 404（CDN 不服务 `/uploads/`，所以**不能**用改写域名来绕） |
+
+即：**主站图片落在 Cloudflare 托管挑战后面**。宿主 WebView 的跨站 `<img>` 拿不到放行
+（跨站 Cookie 策略），而通用兜底 `resolvePlayableImageSrc()` → `CapacitorHttp` 走的是
+URLSession 且不带 linux.do 任何 Cookie（插件把 Cookie 写在 `WKWebsiteDataStore`），
+两条路都 403。API 之所以没事，是因为 §1.2 的浏览器传输通道本来就是为这个挑战准备的。
+
+### 8.2 方法表
+
+| JS 契约 | 行为 |
+|---|---|
+| `fetchMedia({ url, referer? })` | 只接受 `https://linux.do`（复用 `isApiAllowedUrl`，不含子域）；成功 resolve `{ status, base64, contentType?, transport }`；失败 reject `LINUXDO_MEDIA_URL` / `LINUXDO_MEDIA_NETWORK` / `LINUXDO_MEDIA_HTTP` / `LINUXDO_MEDIA_EMPTY` / `LINUXDO_MEDIA_BROWSER` |
+
+实现顺序（`performNativeMediaRequest` → `performBrowserMediaRequest`）：
+
+1. **原生**：带 `readCookieHeader(origin:)` 的 Cookie 头 + `Referer` + 浏览器 UA + `Accept: image/*`
+   走 `sharedIdentitySession()`（不跟随重定向、不碰 Cookie 存储），2xx 且
+   `Content-Type` 是 `image/` `video/`（或缺省）时把字节 `base64EncodedString()` 回传；
+2. **浏览器传输**：命中挑战 / 非 2xx / 非媒体正文时，复用 §2 的隐藏同源传输 WebView，
+   `binary: true` 让内联脚本把响应读成 **data URL**（`response.blob()` → `FileReader.readAsDataURL`）
+   分片回传，原生侧剥掉 `data:<type>;base64,` 前缀还原 base64。媒体路径用 `redirect:'follow'`
+   （图片常被 301 到 CDN），API 路径仍是 `redirect:'manual'` 不变。
+
+### 8.3 JS 侧
+
+- `src/features/linuxdo/media/imageSource.ts`：`resolveLinuxDoImageSrc(url)` —— 非原生 / 非
+  `linux.do` 主站 / 失败一律原样返回（网页端与 CDN 图片不受影响）；成功时 `atob` → `Blob` →
+  `blob:` URL，按 URL 缓存（上限 96 条，FIFO 回收并 `revokeObjectURL`），登出与
+  「清除验证数据」调用 `releaseLinuxDoImageCache()`。
+- `src/features/linuxdo/ui/LinuxDoCookedBody.tsx`（新）：所有 cooked HTML 的唯一渲染入口
+  （帖子正文、资料页简介、动态摘要、搜索结果摘要），内部就是 `useProgressiveImages` +
+  `resolveImage: resolveLinuxDoImageSrc` + 投票条/分类点内联样式。`ThreadViews` 原来的
+  私有 `LinuxDoPostBody` 改为它的薄包装，不再各写一份。
+- `src/features/linuxdo/ui/useLinuxDoImageSrc.ts`（新）：React 直接渲染的图片（资料页勋章）
+  用这个 hook 解析，非主站/非原生/失败原样返回。
+- `src/hooks/useProgressiveImages.ts`：新增可选 `resolveImage`，接管失败兜底；先问自定义
+  resolver，它原样返回（管不了这个地址）才走通用原生兜底；自定义 resolver 返回的 blob
+  由它自己持有，hook 卸载时**不**撤销。给了 `resolveImage` 即视为存在兜底通道，不再要求
+  调用方同时打开 `forceNativeFallback`。
+
+### 8.4 验证要求
+
+同 §7.6：`npm run test:linuxdo-media`（新增，已并入 `test:linuxdo`）只断言 TS 契约、
+base64 解码、非原生回退，以及对 Swift 源文件的**形状**断言（`fetchMedia` 已注册、
+`binary` 分支存在、挑战后回落存在）；**不能**证明 Swift 编译通过或真机取到字节。
+必须在 macOS 上编译 + 真机走查：带图帖子的正文图片（先占位后渐显、点击可放大、同一图片
+第二次进入不再走网络、无图帖子不报错）、带简介与勋章的资料页、搜索结果里带图摘要。
+
+### 8.5 本节未改动的文件
+
+`project.pbxproj`、`MainViewController.swift`、`CapApp-SPM/Package.swift`、任何 Java、
+任何 Android 代码。`fetchMedia` 只加在 iOS 插件上（Android 的 WebView 与 CookieManager
+共享会话，图片本来就能直接加载），因此 Android 与 Web 行为完全不变。
+
+### 8.6 第三遍之后的目标文件规模
+
+`ios/App/App/LinuxDoSessionPlugin.swift`：2754 行 → **2917 行**。
+`pluginMethods` 数组：14 项 → **15 项**。`@objc func`：14 → **15**。
+
