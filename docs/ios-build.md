@@ -37,9 +37,19 @@ npm run ios:sync
 
 ### 两个 workflow
 
-- **iOS Build**（`ios-build.yml`）：手动触发。在 `macos-26` 上用 Xcode 26 编译出**未签名 IPA**，作为 Actions artifact 上传；勾选 `publish_release` 时同时发布 GitHub Release。
+- **iOS Build**（`ios-build.yml`）：手动触发。在 `macos-26` 上用 Xcode 26 编译出**未签名 IPA**，作为 Actions artifact 上传；`publish_release` 默认开，同时发布到滚动 Release。
   - `checkout_ref` 要填 **ref**：分支名、tag 名，或**完整 40 位** commit SHA。填短 SHA 会在 Checkout 步直接失败（`A branch or tag with the name '6ea45a0' could not be found`）——`actions/checkout` 的 `ref` 不接受缩写。日常就用 `main`。
-- **iOS Sync from Upstream**（`ios-sync.yml`）：每天 02:00 UTC（北京时间 10:00）检查上游 `t59688/newsnook` 的最新**稳定版** tag（`vX.Y.Z`，不含 `-beta.`）。发现新版本就自动重贴 iOS 层、构建 IPA、发布 `ios-v<版本>` Release，最后把 `main` 快进到新版本。
+- **iOS Sync from Upstream**（`ios-sync.yml`）：每天 02:00 UTC（北京时间 10:00）检查上游 `t59688/newsnook` 的最新**稳定版** tag（`vX.Y.Z`，不含 `-beta.`）。发现新版本就自动重贴 iOS 层、构建 IPA、发布滚动 Release，最后把 `main` 快进到新版本。
+
+### 滚动 Release：仓库里永远只有一条
+
+tag 固定 `ios-latest`，资产名固定 `NewsNook-unsigned.ipa`，**每次构建就地覆盖同一条 release、同一个资产**。上游升版也不会多出新的 release——发布入口只有这一个。
+
+- 稳定下载地址（写进书签/脚本都不会失效）：
+  `https://github.com/IamNewHands/newsnook-ios/releases/latest/download/NewsNook-unsigned.ipa`
+- Release 说明由 workflow 生成：上游版本、**构建戳 `<run>-<短SHA>`**、完整提交 SHA、自签提示，以及上面那条稳定地址。`release_notes` 输入（`ios-sync.yml` 会传）追加在最前面。
+- 发布前会先把 `ios-latest` tag 强推到本次构建的提交；tag 推不上去就整体失败，不会留下「资产换了、tag 还指着老提交」的半成品。
+- `ios-latest` tag 会移动，所以**不要**用它当版本基线；上游基线看 `vX.Y.Z`，iOS 层基线看 `ios-layer` 分支。
 
 两个 workflow 都不需要任何证书或描述文件 Secret：产物是未签名 IPA，签名由设备端（SideStore / LiveContainer / SideInstaller）用你自己的 Apple ID 完成。
 

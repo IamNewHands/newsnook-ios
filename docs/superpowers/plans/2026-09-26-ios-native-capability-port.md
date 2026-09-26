@@ -54,6 +54,26 @@
 验证：`test:edge-swipe` 扩了标记契约；`lint` / `tsc -b` / 全量 `test:*` 见 §0c。真机验收项见
 [`docs/ios-build.md`](../../ios-build.md) 的「2026-09-26 第三轮：返回手势的真机验收项」。
 
+## 0f. 滚动 Release（2026-09-26）
+
+用户要求：发包都进 Release，**仓库里只能有一条 release**，有更新就地覆盖。
+
+改动全在 `.github/workflows/ios-build.yml`：
+
+| 项 | 改前 | 改后 |
+|---|---|---|
+| Release tag | `ios-v<package.json version>`（上游升版就多一条 release） | 固定 `ios-latest` |
+| 资产名 | `NewsNook-<version>-unsigned.ipa`（升版即换名，下载地址失效） | 固定 `NewsNook-unsigned.ipa` |
+| 更新方式 | 同 tag 存在时只 `upload --clobber`，说明不更新 | `gh release edit` 更新标题/说明 + `upload --clobber`；`--latest` |
+| tag 指向 | 停在首次创建时的提交 | 每次发布先 `git push -f` 把 `ios-latest` 挪到本次构建的提交（放最前，失败即整体失败） |
+| 构建戳 | App 用 `GITHUB_SHA`（传 `checkout_ref` 时是触发分支的头，未必是真正构建的提交） | 新增 `Resolve build identity` 取 `git rev-parse HEAD`，并把 `GITHUB_SHA` 覆盖成它，App 构建戳 / release 说明 / 真机核对三处一致 |
+| 手动触发默认 | `publish_release` 默认 false | 默认 true |
+
+稳定地址：`https://github.com/IamNewHands/newsnook-ios/releases/latest/download/NewsNook-unsigned.ipa`
+
+本地验证：PyYAML 解析通过；四个 `run` 块 `bash -n` 通过；release 说明生成块干跑排版正确。
+旧的 `ios-v1.8.7/1.8.8/1.8.9` 三条 release 仍在，**删除需用户明确授权**（属既有数据）。
+
 ## 0c. 本轮已跑通的验证（本地，2026-09-26）
 
 | 套件 | 结果 |
