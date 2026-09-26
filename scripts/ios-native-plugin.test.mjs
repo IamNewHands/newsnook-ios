@@ -414,6 +414,19 @@ for (const marker of [
   assert.ok(mediaSnifferNative.includes(marker), `native.ts is missing degrade guard: ${marker}`)
 }
 
+// 「关于」页的构建戳必须每次构建都不一样。自签安装时 CFBundleShortVersionString
+// 固定跟随上游（1.8.9，设备端工具靠它判断有没有新版本），如果构建戳只到「年月」，
+// 同一个上游版本下的所有构建在设备上无法区分 —— 用户报「插件没生效」时，
+// 第一步就卡在「你装的是哪一版」，而答案决定了是代码问题还是装错包。
+const viteConfigSource = readFileSync('vite.config.ts', 'utf8')
+assert.match(viteConfigSource, /process\.env\.GITHUB_RUN_NUMBER/)
+assert.match(viteConfigSource, /process\.env\.GITHUB_SHA/)
+assert.doesNotMatch(
+  viteConfigSource,
+  /return `\$\{now\.getFullYear\(\)\}\.\$\{String\(now\.getMonth/,
+  'buildStamp() 又退回「年月」粒度了：同月内所有构建将无法区分',
+)
+
 // ProxiedHttp：iOS 没有 URLSessionTask.followRedirects 这种属性（那是 OkHttp 的），
 // 重定向必须由 URLSessionTaskDelegate 决定；写了这个属性会直接编译失败。
 const proxiedHttp = readFileSync('ios/App/App/ProxiedHttpPlugin.swift', 'utf8')
