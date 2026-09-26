@@ -304,6 +304,23 @@ xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk 
 4. **右缘左滑开评论**：右侧 38px 内向左滑仍能拉出评论（该手势的监听目标也从正文面挪到了根层）。
 5. **回归**：设置二级页、知乎 / Linux.do 工作区的右滑返回与之前一致（这次只动阅读器一层）。
 
+### 2026-09-26 第五轮：右滑返回的帧率优化
+
+第四轮之后真机反馈：「效果好很多了，但侧滑返回时动画有点生硬，感觉帧率不太足，有点拖影」。
+闪空白已经没了，剩下的是**持续的掉帧**。改的两处都与「每帧都要重算」直接相关：
+
+| 现象 | 归因 | 改动 |
+|---|---|---|
+| 起步一顿、之后一路拖影 | 合成层是**右滑第一帧**才升的（hook 在 `begin()` 里写 `will-change`）：升层与首次栅格化都挤在手指刚动的那几帧里，正文越长越明显 | `.reader-swipe-surface` 在 CSS 里常驻 `will-change: transform` + `backface-visibility: hidden`，挂载时就把层建好 |
+| 持续掉帧 | 顶栏是 `bg-ink/90 backdrop-blur-md`；`backdrop-filter` 每帧都要重新采样背景并重算模糊，挂在移动中的合成层里代价最高 | `[data-swipe-back-active='true']` 期间关掉整棵子树的 `backdrop-filter`，并给 `[data-surface='reader-chrome']` 换成不透明底色（eink 模式对全页本来就是同一套处理） |
+
+这两处**只动 CSS**，没有改手势判据、时长或缓动。验收：右滑拖动时应当从第一帧就跟手，
+顶栏不再有磨砂（变成实色），松手后的收尾动画全程顺滑。
+
+**如果真机上仍觉得生硬**，下一批候选（按代价从低到高）：把 `box-shadow: -18px 0 38px`
+换成左缘渐变条（38px 模糊阴影的栅格化很贵）、滑动期间让 `sticky` 顶栏改 `position: static`、
+把提交动画从 CSS transition 换成 `element.animate()` 的合成器动画。
+
 ## iOS 媒体音量说明
 
 iOS 没有公开的直接设置系统媒体音量 API。本项目通过公开的 `MPVolumeView` 控件尝试调整系统媒体音量；如果当前系统版本或音频路由没有提供可调滑块，应用会自动退回为调整当前视频元素音量，不会导致播放器退出。系统媒体音量效果需在实际支持版本的 iPhone 上确认，不能仅以模拟器结果作为结论。

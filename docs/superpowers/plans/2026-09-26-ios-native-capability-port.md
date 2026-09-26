@@ -92,6 +92,28 @@
 全 ok；`lint` 0 errors（18 条既有 warning，数量与上一轮相同）；`npx tsc -b tsconfig.app.json` exit 0。
 真机验收项见 [`docs/ios-build.md`](../../ios-build.md) 的「2026-09-26 第四轮：阅读器右滑返回闪空白」。
 
+真机结果（构建 `35-4ea4844`）：✅ 闪空白消失、「效果好很多了」；❌ 但「动画有点生硬、帧率不太足、
+有点拖影」→ 见 §0e-3。
+
+## 0e-3. 第五轮：右滑返回的帧率优化（2026-09-26）
+
+第四轮解决的是「有没有东西可看」，第五轮解决的是「每帧要算多少」。改的两处都只动 CSS：
+
+| 现象 | 归因 | 改动 |
+|---|---|---|
+| 起步一顿、之后一路拖影 | 合成层是右滑第一帧才升的（`useEdgeSwipeBack` 在 `begin()` 里写 `will-change`），升层与首次栅格化都挤在手指刚动的那几帧里 | `.reader-swipe-surface` 常驻 `will-change: transform` + `backface-visibility: hidden` |
+| 持续掉帧 | 顶栏 `bg-ink/90 backdrop-blur-md`：`backdrop-filter` 每帧重新采样背景并重算模糊 | `[data-swipe-back-active='true']` 期间关掉整棵子树的 `backdrop-filter`，`[data-surface='reader-chrome']` 换不透明底色（与 eink 模式同一套处理） |
+
+没有改手势判据、时长或缓动。下一批候选（若真机仍生硬）：`box-shadow` 换左缘渐变条、滑动期间
+顶栏改 `position: static`、提交动画改 `element.animate()`。
+
+## 0h. 关于页补上本版仓库（2026-09-26）
+
+`关于 → 项目与文档` 原本只有上游 `t59688/newsnook` 一个仓库入口。现在多一行
+`IamNewHands/newsnook-ios`（标签「本版」）——本版 iOS 层与未签名 IPA 都在这个仓库里，
+用户要核对版本时能直接找到发布源。两行共用抽出来的 `RepoRow`（整行开外链 + 右侧单独复制链接），
+避免出现两份只差 URL 的标记；`ABOUT_CONFIG.iosRepoUrl` 是唯一事实源。
+
 ## 0f. 滚动 Release（2026-09-26）
 
 用户要求：发包都进 Release，**仓库里只能有一条 release**，有更新就地覆盖。
