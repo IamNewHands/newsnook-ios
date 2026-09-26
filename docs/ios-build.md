@@ -138,6 +138,25 @@ xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk 
 5. 保持 Bundle Identifier 为 `com.aizeek.newsnook.ios`；如果该标识在你的团队中不可用，改成你自己的唯一标识。
 6. 连接 iPhone，选择设备后按 `Command + R`。
 
+## 怎么确认设备上装的是哪一版
+
+`CFBundleShortVersionString` 刻意跟随上游（现在是 `1.8.9`，设备端自签工具靠它判断有没有
+新版本），所以**同一个上游版本下的多次重新构建，版本号完全一样**。这带来一个真实陷阱：
+
+- 用 SideStore / LiveContainer 之类工具「覆盖安装」同版本包时，可能被判定成「已装同版本」
+  而**跳过替换**，于是设备上跑的还是旧包 —— 表现就是「我明明装了新包，插件却报
+  `"X" plugin is not implemented on ios`」（旧包里根本没有那个插件）。
+- **同一个上游版本内要换包时，先删掉 App 再装**，不要直接覆盖。
+
+**确认方法**：App 里「我的 → 关于」，那行小字是 `版本 <上游版本> · 构建 <构建戳>`。
+
+- 构建戳来自 `vite.config.ts` 的 `buildStamp()`：CI 上是 `<run number>-<短 SHA>`（例
+  `32-52802bd`），可以直接和 GitHub Actions 的 run 与 commit 对照；本地开发是
+  `YYYY.MM.DD-HHmm`。
+- **只到「年月」（如 `2026.09`）说明装的是 2026-09-26 之前的旧包** —— 那些包的构建戳只有
+  月份粒度，且没有 Tier 3 的原生插件。
+- `npm run test:ios-native-plugin` 会拦住构建戳退回「年月」粒度。
+
 ## iOS 功能边界
 
 - 翻译：支持 Google、Azure、DeepL、DeepLX 云翻译与 AI 翻译；Google / Microsoft 的 API Key 留空时走免密钥通道（`translate.googleapis.com` / Edge `translatetext`）；iOS 18 及以上额外提供**系统内置离线翻译**（`Translation` 框架，语言包由系统下载和管理）。**不包含** Android 的 ML Kit 与 Bergamot 语言模型下载。
