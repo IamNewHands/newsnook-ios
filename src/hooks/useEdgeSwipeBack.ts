@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 
 import {
   clampDragX,
+  isEdgeOnlyStart,
   isSwipeBackStart,
   resolveLock,
   shouldCommit,
@@ -22,6 +23,20 @@ interface Options {
   onBack: () => void
   disabled?: boolean
   reduced?: boolean
+  /**
+   * 只认左缘窄条起步。默认 false（阅读器沿用「下半屏整片可起步」的宽松区）。
+   * 列表 / 工作区应置 true：下半屏是内容区，右滑整片返回会误触并与横向手势冲突。
+   */
+  edgeOnly?: boolean
+  /**
+   * `onBack` 之后容器**不会**被卸载时置 true（例如工作区只是换路由内容、
+   * 根元素一直是同一个）。commit 动画故意把容器留在屏幕外等 React 卸载它，
+   * 若容器不卸载，那一页就会永久停在屏幕外——这时必须由本开关复位。
+   *
+   * 默认 false：整页阅读器这类 onBack 会卸载容器的调用方保持原行为，避免
+   * 复位瞬间把正文又画一帧（观感上是整页闪一下）。
+   */
+  resetAfterBack?: boolean
 }
 
 interface ActiveGesture {
@@ -32,6 +47,17 @@ interface ActiveGesture {
   lock: 'none' | 'horizontal'
   samples: GestureSample[]
 }
+
+/**
+ * 同一次滑动只能有一个实例认领。
+ *
+ * 每个实例都往 window 挂 touchmove/touchend，而 touchstart 会从目标元素一路
+ * 冒泡到每一个祖先实例。当两层同时挂载（阅读器是 `<main>` 之外的浮层，工作区
+ * 在 `<main>` 里，两者可以并存）时，两边都会认领同一次右滑并各自调用 onBack——
+ * 一次滑动就退了两层。冒泡顺序保证最内层先认领，也就是视觉上最上面那层拿到
+ * 手势，符合直觉。
+ */
+let gestureOwner: object | null = null
 
 function currentTranslateX(element: HTMLElement): number {
   const transform = window.getComputedStyle(element).transform
@@ -56,6 +82,8 @@ export function useEdgeSwipeBack({
   onBack,
   disabled = false,
   reduced = false,
+  edgeOnly = false,
+  resetAfterBack = false,
 }: Options): void {
   const onBackRef = useRef(onBack)
   onBackRef.current = onBack
@@ -68,6 +96,11 @@ export function useEdgeSwipeBack({
     const previousOverscrollX = element.style.overscrollBehaviorX
     element.style.touchAction = 'pan-y pinch-zoom'
     element.style.overscrollBehaviorX = 'none'
+
+    const token = {}
+    const releaseOwner = () => {
+      if (gestureOwner === token) gestureOwner = null
+    }
 
     let active: ActiveGesture | null = null
     let dragX = 0
@@ -125,6 +158,7 @@ export function useEdgeSwipeBack({
       pendingX = 0
       clearGestureCompositorStyles(element)
       setActiveVisual(false)
+      releaseOwner()
     }
 
     const releaseCapture = (pointerId: number) => {
@@ -134,6 +168,7 @@ export function useEdgeSwipeBack({
     const resetPointer = () => {
       const pointerId = active?.source === 'pointer' ? active.id : undefined
       active = null
+      releaseOwner()
       if (pointerId !== undefined) releaseCapture(pointerId)
     }
 
@@ -203,6 +238,18 @@ export function useEdgeSwipeBack({
         // the transform here briefly paints the article again before onBack's
         // state update is committed, which looks like a full-page flash.
         onBackRef.current()
+        // 容器不卸载的调用方（工作区）必须复位，否则整页永久停在屏幕外。
+        // 但**不能**和 onBack 挤在同一个 tick：React 这次状态更新要等到本轮
+        // 任务之后的调度里才提交，此时清 transform 会把旧页面画回屏幕原位
+        // 一帧——正是上面那段注释说的闪一下，观感上是「返回时跳一下」。
+        // 等两帧再复位，那时新路由已经画好。
+        if (resetAfterBack) {
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+              if (element.isConnected) clearVisual()
+            })
+          })
+        }
       })
     }
 
@@ -226,6 +273,8 @@ export function useEdgeSwipeBack({
       // Ignore new touches until a settle/commit animation has fully finished.
       // In particular, a left swipe must never catch and reverse the reader.
       if (committing || active || completionTimer) return false
+      // 已经被别的实例认领的滑动不再插手（嵌套时最内层先到，也就先赢）。
+      if (gestureOwner && gestureOwner !== token) return false
       if (
         target instanceof Element &&
         target.closest('pre, [data-reader-horizontal-scroll], [data-video-gestures]')
@@ -236,14 +285,17 @@ export function useEdgeSwipeBack({
       if (visualX > 0) return false
       const rect = element.getBoundingClientRect()
       const layoutLeft = rect.left - visualX
+      const bounds = {
+        left: layoutLeft,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      }
       if (
         visualX <= 0 &&
-        !isSwipeBackStart(clientX, clientY, {
-          left: layoutLeft,
-          top: rect.top,
-          width: rect.width,
-          height: rect.height,
-        })
+        !(edgeOnly
+          ? isEdgeOnlyStart(clientX, clientY, bounds)
+          : isSwipeBackStart(clientX, clientY, bounds))
       ) {
         return false
       }
@@ -253,6 +305,7 @@ export function useEdgeSwipeBack({
       // 零位时不要建立临时 transform；若手势随后判定为纵滑，Android
       // WebView 可能把文章滚动层留在失效的合成状态。
       if (visualX > 0) render(visualX)
+      gestureOwner = token
       active = {
         id,
         source,
@@ -459,5 +512,5 @@ export function useEdgeSwipeBack({
       element.style.touchAction = previousTouchAction
       element.style.overscrollBehaviorX = previousOverscrollX
     }
-  }, [containerRef, disabled, reduced])
+  }, [containerRef, disabled, reduced, edgeOnly, resetAfterBack])
 }

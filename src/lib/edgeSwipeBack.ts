@@ -64,6 +64,29 @@ export function isSwipeBackStart(
   )
 }
 
+/**
+ * 只认左缘窄条起步：列表 / 工作区用这个。
+ *
+ * `isSwipeBackStart` 把容器下半屏整片也算返回区，那是阅读器的人体工学取舍
+ * （拇指够不到窄边）。但列表和工作区下半屏就是内容区：右滑整片返回既不符合
+ * iOS 习惯，也会跟 Linux.do 的「左右滑切换标签」抢同一个手势。
+ */
+export function isEdgeOnlyStart(
+  clientX: number,
+  clientY: number,
+  bounds: SwipeBackBounds,
+  edgeWidthPx = EDGE_WIDTH_PX,
+): boolean {
+  const localX = clientX - bounds.left
+  const localY = clientY - bounds.top
+  const inside =
+    localX >= 0 &&
+    localX <= bounds.width &&
+    localY >= 0 &&
+    localY <= bounds.height
+  return inside && isEdgeStart(clientX, edgeWidthPx, bounds.left)
+}
+
 export function resolveLock(
   dx: number,
   dy: number,
@@ -105,4 +128,36 @@ export function shouldCommit(offset: number, releaseVelocityX: number, width: nu
   if (width <= 0) return false
   if (offset >= width * COMMIT_RATIO) return true
   return offset >= MIN_FLING_DISTANCE_PX && releaseVelocityX >= COMMIT_VELOCITY
+}
+
+/**
+ * 「这次挂载是右滑返回的结果」的时效窗口。
+ *
+ * 标记在 commit 动画收尾、调用 onBack 之前打下，接收方是同一次 React 提交里
+ * 新挂载的那一层，正常只差几十毫秒。窗口只用来兜住异常路径，不是行为阈值。
+ */
+export const SWIPE_BACK_MARK_TTL_MS = 600
+
+let swipeBackMarkedAt = 0
+
+/** 右滑返回即将触发导航：下一个挂载的页面据此跳过「从右滑入」的入场动画。 */
+export function markSwipeBackNavigation(now = Date.now()): void {
+  swipeBackMarkedAt = now
+}
+
+/**
+ * 查询当前是否处在右滑返回的时效窗口内。
+ *
+ * 故意做成**幂等查询**而不是「消费一次」：React StrictMode 会把新页面的渲染跑
+ * 两遍，一次性消费会在第二遍变成 false，入场动画又冒出来。标记靠时间窗自行
+ * 过期——设置页可能直接退到没有外壳的层级（关闭设置），那种情况没人查询它，
+ * 不能把标记留给下一次打开设置。
+ */
+export function isSwipeBackNavigation(now = Date.now()): boolean {
+  return swipeBackMarkedAt > 0 && now - swipeBackMarkedAt <= SWIPE_BACK_MARK_TTL_MS
+}
+
+/** 测试用：清掉标记，避免用例之间互相影响。 */
+export function clearSwipeBackNavigationMark(): void {
+  swipeBackMarkedAt = 0
 }

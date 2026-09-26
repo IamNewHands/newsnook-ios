@@ -347,3 +347,23 @@ export function rankRecommendations(
 
   return picked
 }
+
+/**
+ * 单源聚焦排序：**先按源裁剪，再排序截断**。
+ *
+ * 顺序不能反。`rankRecommendations` 会截断到 RECOMMEND_LIMIT，而推荐栏的候选池是
+ * 预设内全部信源：一天一两条的低频源（小众软件这类）永远挤不进全局前 N 条，
+ * 于是「先截断、后按源过滤」会让点开该源得到空列表，而信源入口上的条数徽标
+ * 明明显示有内容。裁剪后再排序，低频源只跟自己的条目比，条目数与徽标一致。
+ */
+export function rankRecommendationsForSource(
+  candidates: Article[],
+  profile: ReadingProfile,
+  sourceId: string | null,
+  options?: RankOptions,
+): Article[] {
+  const scoped = sourceId
+    ? candidates.filter((article) => article?.sourceId === sourceId)
+    : candidates
+  return rankRecommendations(scoped, profile, options)
+}

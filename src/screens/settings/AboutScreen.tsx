@@ -48,6 +48,8 @@ const ABOUT_CONFIG = {
   build: __APP_BUILD__,
   subtitle: '静态源新闻阅读客户端',
   repoUrl: 'https://github.com/t59688/newsnook',
+  /** 本版仓库：iOS 原生层（含四个 Tier 1/2 插件与 Tier 3 四套能力）与未签名 IPA 都在这里。 */
+  iosRepoUrl: 'https://github.com/IamNewHands/newsnook-ios',
   wechatArticleUrl: 'https://mp.weixin.qq.com/s/d8fJvLQ4o7wjr_4YBXGgqQ',
   wechatArticleTitle: '[有所闻]',
 }
@@ -80,6 +82,81 @@ async function openExternalUrl(url: string) {
   }
 }
 
+/**
+ * 「项目与文档」里的一行仓库入口：整行点开外链，右侧按钮单独复制链接。
+ * 原项目与本版 iOS 仓库两行共用，免得出现两份只差 URL 的标记。
+ */
+function RepoRow({
+  url,
+  title,
+  badge,
+}: {
+  url: string
+  title: string
+  badge: string
+}) {
+  const [copied, setCopied] = useState(false)
+
+  const copy = async (event: React.MouseEvent) => {
+    event.stopPropagation()
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // 忽略剪贴板写入异常
+    }
+  }
+
+  const open = () => void openExternalUrl(url)
+
+  return (
+    <li className="transition-colors hover:bg-ink-raised/30 active:bg-ink-raised/50">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={open}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') open()
+        }}
+        className="page-x flex w-full cursor-pointer items-center gap-3.5 py-4 text-left"
+      >
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ink-raised/60 text-paper">
+          <GithubIcon size={18} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-[14px] font-medium text-paper">{title}</span>
+            <span className="inline-flex items-center rounded bg-ink-raised px-1.5 py-0.5 font-mono text-[9px] text-paper-muted">
+              {badge}
+            </span>
+          </div>
+          <p className="mt-0.5 truncate font-mono text-[11px] text-paper-faint">
+            {url.replace(/^https?:\/\//, '')}
+          </p>
+        </div>
+
+        {/* 复制按钮 */}
+        <button
+          type="button"
+          onClick={copy}
+          title="复制仓库链接"
+          aria-label="复制仓库链接"
+          className="shrink-0 rounded-lg p-2 text-paper-faint transition-colors hover:bg-ink-raised hover:text-paper"
+        >
+          {copied ? (
+            <Check size={14} strokeWidth={2} className="text-emerald-500" />
+          ) : (
+            <Copy size={14} strokeWidth={1.6} />
+          )}
+        </button>
+
+        <ExternalLink size={14} strokeWidth={1.5} className="shrink-0 text-paper-faint" />
+      </div>
+    </li>
+  )
+}
+
 export function AboutScreen({
   onBack,
   resolvedTheme,
@@ -99,19 +176,6 @@ export function AboutScreen({
   flavorSwitchCaption,
   onSwitchFlavor,
 }: Props) {
-  const [copiedRepo, setCopiedRepo] = useState(false)
-
-  const copyRepo = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    try {
-      await navigator.clipboard.writeText(ABOUT_CONFIG.repoUrl)
-      setCopiedRepo(true)
-      setTimeout(() => setCopiedRepo(false), 2000)
-    } catch {
-      // 忽略剪贴板写入异常
-    }
-  }
-
   return (
     <SettingsShell
       title="关于"
@@ -263,50 +327,9 @@ export function AboutScreen({
 
       <SettingsSection title="项目与文档">
         <ul className="divide-y divide-haze border-y border-haze bg-ink">
-          {/* 开源仓库 */}
-          <li className="transition-colors hover:bg-ink-raised/30 active:bg-ink-raised/50">
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={() => openExternalUrl(ABOUT_CONFIG.repoUrl)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') openExternalUrl(ABOUT_CONFIG.repoUrl)
-              }}
-              className="page-x flex w-full cursor-pointer items-center gap-3.5 py-4 text-left"
-            >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ink-raised/60 text-paper">
-                <GithubIcon size={18} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-[14px] font-medium text-paper">Github仓库</span>
-                  <span className="inline-flex items-center rounded bg-ink-raised px-1.5 py-0.5 font-mono text-[9px] text-paper-muted">
-                    GitHub
-                  </span>
-                </div>
-                <p className="mt-0.5 truncate font-mono text-[11px] text-paper-faint">
-                  {ABOUT_CONFIG.repoUrl.replace(/^https?:\/\//, '')}
-                </p>
-              </div>
-
-              {/* 复制按钮 */}
-              <button
-                type="button"
-                onClick={copyRepo}
-                title="复制仓库链接"
-                aria-label="复制仓库链接"
-                className="shrink-0 rounded-lg p-2 text-paper-faint transition-colors hover:bg-ink-raised hover:text-paper"
-              >
-                {copiedRepo ? (
-                  <Check size={14} strokeWidth={2} className="text-emerald-500" />
-                ) : (
-                  <Copy size={14} strokeWidth={1.6} />
-                )}
-              </button>
-
-              <ExternalLink size={14} strokeWidth={1.5} className="shrink-0 text-paper-faint" />
-            </div>
-          </li>
+          {/* 原项目与本版仓库 */}
+          <RepoRow url={ABOUT_CONFIG.repoUrl} title="Github仓库" badge="GitHub" />
+          <RepoRow url={ABOUT_CONFIG.iosRepoUrl} title="iOS 版仓库" badge="本版" />
 
           {/* 公众号 */}
           <li className="transition-colors hover:bg-ink-raised/30 active:bg-ink-raised/50">

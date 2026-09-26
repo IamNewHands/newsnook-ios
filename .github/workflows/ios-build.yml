@@ -1,0 +1,286 @@
+name: iOS Build
+
+# 云端只负责编译出**未签名** IPA；签名与安装交给设备端
+# （SideStore / LiveContainer / SideInstaller 用你自己的 Apple ID 本地签名），
+# 因此本仓库不需要任何证书或描述文件 Secret，也不会碰你的 Apple ID。
+#
+# 手动触发：Actions → iOS Build → Run workflow
+# 自动触发：由 .github/workflows/ios-sync.yml 在检测到上游新稳定版后调用
+
+on:
+  workflow_dispatch:
+    inputs:
+      checkout_ref:
+        description: '要构建的 ref（留空 = 触发本次运行的 ref）'
+        required: false
+        type: string
+        default: ''
+      publish_release:
+        description: '构建成功后发布到滚动 Release（ios-latest，就地覆盖）'
+        required: true
+        type: boolean
+        default: true
+      release_notes:
+        description: 'Release 说明（追加在自动生成的构建信息之前；留空只用自动信息）'
+        required: false
+        type: string
+        default: ''
+  workflow_call:
+    inputs:
+      checkout_ref:
+        description: '要构建的 ref（留空 = 调用方的 ref）'
+        required: false
+        type: string
+        default: ''
+      publish_release:
+        description: '构建成功后发布到滚动 Release（ios-latest，就地覆盖）'
+        required: false
+        type: boolean
+        default: true
+      release_notes:
+        description: 'Release 说明'
+        required: false
+        type: string
+        default: ''
+    outputs:
+      version:
+        description: '构建出的版本号（取自 package.json）'
+        value: ${{ jobs.build.outputs.version }}
+      tag:
+        description: '滚动 Release tag（固定 ios-latest，每次都就地覆盖）'
+        value: ${{ jobs.build.outputs.tag }}
+      ipa_name:
+        description: 'IPA 文件名'
+        value: ${{ jobs.build.outputs.ipa_name }}
+
+permissions:
+  contents: write
+
+concurrency:
+  # 同一 ref 的构建串行：滚动 Release 只有一个，两个构建并发就会互相覆盖资产。
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-26
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      ipa_name: ${{ steps.package.outputs.ipa_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.checkout_ref || github.ref }}
+
+      - name: Resolve build identity
+        id: identity
+        run: |
+          set -euo pipefail
+          # 真正构建的提交。workflow_dispatch 传了 checkout_ref 时，GITHUB_SHA 是触发
+          # 分支的头，未必等于这里检出的提交，所以单独取 HEAD 作为唯一真相。
+          sha="$(git rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "short=${sha:0:7}" >> "$GITHUB_OUTPUT"
+          echo "stamp=${GITHUB_RUN_NUMBER}-${sha:0:7}" >> "$GITHUB_OUTPUT"
+          echo "构建标识：${GITHUB_RUN_NUMBER}-${sha:0:7}"
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          echo "=== 可用 Xcode ==="
+          ls -d /Applications/Xcode*.app || true
+          # Capacitor 8 要求 Xcode 26+；macos-26 镜像默认已满足，这里选最新一个。
+          latest="$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          sudo xcode-select -s "$latest"
+          xcode-select -p
+          xcodebuild -version
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Resolve version
+        id: meta
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # 滚动 Release：tag 固定，不跟上游版本走，否则每次上游升版都会多出一个 release。
+          echo "tag=ios-latest" >> "$GITHUB_OUTPUT"
+          echo "上游版本：$version"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund --registry=https://registry.npmjs.org
+
+      - name: Sync web assets and iOS platform
+        # 这一步会重新生成 iOS 图标/启动画面、构建 Web 产物，
+        # 并按 package.json 的 Capacitor 插件集合重写 CapApp-SPM/Package.swift。
+        #
+        # buildStamp() 读的是 process.env.GITHUB_SHA；传了 checkout_ref 时那个值是触发
+        # 分支的头，未必等于真正构建的提交。钉成 HEAD，让 App「关于」页显示的构建戳
+        # 与 release 说明、与真机核对时用的那串完全一致。
+        env:
+          GITHUB_SHA: ${{ steps.identity.outputs.sha }}
+        run: npm run ios:sync
+
+      - name: Verify generated SPM manifest
+        run: |
+          set -euo pipefail
+          echo "=== CapApp-SPM/Package.swift ==="
+          cat ios/App/CapApp-SPM/Package.swift
+          # Package.swift 必须只引用真实存在的插件；旧基线里的
+          # @capacitor/status-bar 已在上游被 SystemBars 取代，若仍出现说明
+          # cap sync 没有重写它，构建会失败在更靠后的位置。
+          if grep -q 'CapacitorStatusBar' ios/App/CapApp-SPM/Package.swift; then
+            echo "::error::Package.swift 仍引用 @capacitor/status-bar（已从依赖中移除），cap sync ios 未正确重写"
+            exit 1
+          fi
+
+      - name: Run iOS project checks
+        run: |
+          set -euo pipefail
+          # test:ios-project 依赖 macOS 自带的 plutil / sips，只能在 runner 上跑。
+          # 它同时校验 Bundle Identifier、MARKETING_VERSION 与 package.json 一致、
+          # Package.swift 无 Windows 反斜杠路径、图标尺寸与无 alpha 等。
+          npm run lint
+          npm run test:ios-platform
+          npm run test:ios-native-plugin
+          npm run test:ios-project
+          npm run test:native-platform
+          npm run test:device-media-controls
+          npm run test:apple-translation
+          npm run test:free-translation
+          npm run test:translation
+          npm run test:ui-font
+
+      - name: Resolve Swift packages
+        run: |
+          set -euo pipefail
+          cd ios/App
+          xcodebuild -resolvePackageDependencies \
+            -project App.xcodeproj \
+            -scheme App
+
+      - name: Build (unsigned)
+        run: |
+          set -euo pipefail
+          cd ios/App
+          xcodebuild build \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            MARKETING_VERSION="${{ steps.meta.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            2>&1 | tee xcodebuild.log | tail -60
+
+      - name: Package IPA
+        id: package
+        run: |
+          set -euo pipefail
+          cd ios/App
+          app="build/Build/Products/Release-iphoneos/App.app"
+          if [ ! -d "$app" ]; then
+            echo "::error::未找到 $app，构建产物路径与预期不符"
+            exit 1
+          fi
+          ipa="NewsNook-${{ steps.meta.outputs.version }}-unsigned.ipa"
+          # 未签名校验（必须在打包前做，Payload 稍后会被清理）
+          if codesign -dv "$app" 2>&1 | grep -q 'Signature='; then
+            echo "::warning::产物带有签名信息，预期为未签名包"
+          else
+            echo "已确认：产物未签名"
+          fi
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$app" Payload/
+          # 保证是干净的未签名包：移除可能残留的签名与描述文件。
+          rm -rf Payload/App.app/_CodeSignature
+          rm -f Payload/App.app/embedded.mobileprovision
+          zip -qry "$ipa" Payload
+          rm -rf Payload
+          echo "ipa_name=$ipa" >> "$GITHUB_OUTPUT"
+          echo "=== IPA ==="
+          ls -lh "$ipa"
+          echo "=== 包内结构（前 20 项）==="
+          unzip -l "$ipa" | head -20
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NewsNook-${{ steps.meta.outputs.version }}-unsigned-ipa
+          path: ios/App/${{ steps.package.outputs.ipa_name }}
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish rolling release
+        if: ${{ inputs.publish_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          TITLE: NewsNook iOS 未签名 IPA（滚动更新）
+          ASSET: NewsNook-unsigned.ipa
+          IPA: ios/App/${{ steps.package.outputs.ipa_name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          SHA: ${{ steps.identity.outputs.sha }}
+          STAMP: ${{ steps.identity.outputs.stamp }}
+          NOTES_INPUT: ${{ inputs.release_notes }}
+        run: |
+          set -euo pipefail
+          # 只有一个滚动 Release：tag 固定 ios-latest，资产名固定 NewsNook-unsigned.ipa，
+          # 每次构建就地覆盖。这样仓库里永远只有一条 release、一个下载文件，
+          # 而 releases/latest/download/<资产名> 是永不变化的稳定地址。
+          #
+          # 1) 先把滚动 tag 挪到本次构建的提交。放在最前面是有意的：tag 推不上去就整体
+          #    失败，不会留下「release 资产已经换过、tag 却还指着老提交」的半成品。
+          git tag -f "$TAG" "$SHA"
+          git push -f origin "refs/tags/$TAG"
+          # 2) 资产名不带版本号，否则上游一升版下载地址就变。
+          cp "$IPA" "$ASSET"
+          {
+            if [ -n "$NOTES_INPUT" ]; then printf '%s\n\n' "${NOTES_INPUT%$'\n'}"; fi
+            printf '上游版本：`%s`\n' "$VERSION"
+            printf '构建：`%s`（App 内「我的 → 关于」显示同一串）\n' "$STAMP"
+            printf '提交：`%s`\n\n' "$SHA"
+            printf '安装：下载后用 SideStore / LiveContainer / SideInstaller 以你自己的 Apple ID 本地签名。\n'
+            printf '同版本覆盖安装可能被判定成「已装同版本」而跳过替换，**换包时先删掉 App 再装**。\n\n'
+            printf '稳定下载地址（每次构建就地覆盖同一个资产）：\n'
+            printf 'https://github.com/%s/releases/latest/download/%s\n' "$GITHUB_REPOSITORY" "$ASSET"
+          } > release-notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "滚动 release $TAG 已存在，就地更新说明与资产"
+            gh release edit "$TAG" --title "$TITLE" --notes-file release-notes.md --latest
+          else
+            echo "创建滚动 release $TAG"
+            gh release create "$TAG" --title "$TITLE" --notes-file release-notes.md --latest
+          fi
+          gh release upload "$TAG" "$ASSET" --clobber
+          echo "=== 当前 release ==="
+          gh release view "$TAG" --json url,assets --jq '.url, (.assets[] | "\(.name)  \(.size) bytes")'
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## NewsNook iOS 构建"
+            echo ""
+            echo "- 上游版本：\`${{ steps.meta.outputs.version }}\`"
+            echo "- 构建：\`${{ steps.identity.outputs.stamp }}\`"
+            echo "- 产物：\`${{ steps.package.outputs.ipa_name }}\`"
+            echo "- 签名：未签名（设备端本地签名）"
+            echo "- Release：\`${{ steps.meta.outputs.tag }}\`（滚动，就地覆盖；publish_release=${{ inputs.publish_release }}）"
+          } >> "$GITHUB_STEP_SUMMARY"

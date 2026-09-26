@@ -360,6 +360,79 @@ assert.equal(
   assert.equal(requests[0]!.credentials, 'omit', 'Android 靠 bearer，不指望 WebView Cookie')
 }
 
+// --- iOS：与 Android 同一条原生路径（bearer + SecureStore / Keychain）--------
+
+{
+  const { fetchImpl, requests } = createFetchStub({
+    '/api/auth/sign-in/email': {
+      body: { user: { id: 'user-ios' } },
+      headers: { 'set-auth-token': 'ios-long-lived-token' },
+    },
+    '/api/v1/me': { body: meBody() },
+  })
+  const store = createMemorySecureStore()
+  const adapter = createAccountAdapter({
+    platform: 'ios',
+    baseUrl: BASE_URL,
+    secureStore: store,
+    fetchImpl,
+    openExternal: () => {},
+  })
+
+  await adapter.signIn('reader@example.test', 'correct-horse')
+
+  const stored = await readStoredSession(store)
+  assert.equal(
+    stored?.token,
+    'ios-long-lived-token',
+    'iOS 的长期 token 也要落 SecureStore（iOS 侧由 Keychain 实现）',
+  )
+  assert.equal(stored?.userId, 'user-ios')
+
+  const meRequest = requests.find((request) => request.url.endsWith('/api/v1/me'))!
+  assert.equal(meRequest.headers.authorization, 'Bearer ios-long-lived-token')
+  assert.equal(meRequest.credentials, 'omit', 'iOS 同样不依赖 WKWebView Cookie')
+
+  // 杀进程后重开：bearer 从 SecureStore 恢复，而不是指望 Cookie 还在
+  const restored = createAccountAdapter({
+    platform: 'ios',
+    baseUrl: BASE_URL,
+    secureStore: store,
+    fetchImpl,
+    openExternal: () => {},
+  })
+  assert.ok(await restored.restore(), 'iOS 重启后仍算已登录')
+}
+
+// --- iOS 社交登录：系统浏览器 + mobile/complete 原生回流 ----------------------
+
+{
+  const { fetchImpl, requests } = createFetchStub({
+    '/api/auth/sign-in/social': { body: { url: 'https://github.test/login/oauth' } },
+    '/api/v1/auth/mobile/link/github': {
+      body: { url: `${BASE_URL}/api/v1/auth/mobile/link/github?ott=handoff` },
+    },
+  })
+  const opened: string[] = []
+  const adapter = createAccountAdapter({
+    platform: 'ios',
+    baseUrl: BASE_URL,
+    secureStore: createMemorySecureStore(),
+    fetchImpl,
+    openExternal: (url) => {
+      opened.push(url)
+    },
+  })
+
+  assert.equal(await adapter.startSocialSignIn('github'), 'external')
+  assert.equal(
+    opened[0],
+    `${BASE_URL}/api/v1/auth/mobile/start/github`,
+    'iOS 与 Android 用同一个原生启动页（iOS 走系统浏览器面板，不落在 App 自己的 WebView）',
+  )
+  assert.equal(requests.length, 0, 'iOS 不再经 WebView fetch sign-in/social')
+}
+
 // --- Android 绑定回流：刷新已绑定列表，不换会话 -------------------------------
 
 {

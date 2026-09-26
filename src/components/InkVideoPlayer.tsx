@@ -484,13 +484,19 @@ function InkVideoPlayerReady({
     castDevices,
     castSearching,
     castConnectingId,
+    castManualPending,
     castError,
     castSession,
     castStatus,
     castSessionError,
+    manualDeviceSupported,
+    airPlaySupported,
     openCastPicker,
     refreshCastDevices,
     connectCastDevice,
+    addManualCastDevice,
+    removeManualCastDevice,
+    startAirPlay,
     sendCastControl,
     endCast,
   } = useCastControls({
@@ -507,6 +513,15 @@ function InkVideoPlayerReady({
     exitFullscreen: () => toggleFullscreenRef.current(),
     showPlayerToast,
   })
+
+  /**
+   * iOS 只有在 video 元素声明了 `x-webkit-airplay="allow"` 时才把它当作 AirPlay
+   * 目标，进而 `webkitShowPlaybackTargetPicker()` 才会列出设备。React 的
+   * `VideoHTMLAttributes` 不含这个 WebKit 私有属性，所以用 setAttribute 打上。
+   */
+  useEffect(() => {
+    videoRef.current?.setAttribute('x-webkit-airplay', 'allow')
+  }, [videoRef])
 
   const syncBoostIndicator = useCallback((video: HTMLVideoElement) => {
     setBoosting(
@@ -2011,11 +2026,17 @@ function InkVideoPlayerReady({
         session={castSession}
         status={castStatus}
         fallbackDuration={duration}
+        manualSupported={manualDeviceSupported}
+        manualPending={castManualPending}
+        airPlaySupported={airPlaySupported}
         onClose={() => setCastOpen(false)}
         onRefresh={() => void refreshCastDevices()}
         onConnect={(device) => void connectCastDevice(device)}
         onControl={(action, value) => void sendCastControl(action, value)}
         onStop={() => void endCast()}
+        onAddManualDevice={(address) => void addManualCastDevice(address)}
+        onRemoveManualDevice={(deviceId) => void removeManualCastDevice(deviceId)}
+        onAirPlay={startAirPlay}
       />,
       document.body,
     )}

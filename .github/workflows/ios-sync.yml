@@ -1,0 +1,273 @@
+name: iOS Sync from Upstream
+
+# 每天检查上游 t59688/newsnook 的**稳定版** tag（不含 -beta.），
+# 一旦发现新版本就把 iOS 层「重贴」到新 tag 上，构建未签名 IPA 并发布 Release。
+#
+# 同步策略：重贴补丁
+#   ios-layer 分支的 tip 永远是一个单提交 = 「某个上游 tag + 完整 iOS 层」。
+#   同步时把 main 的树替换成新 tag 的树，再 cherry-pick ios-layer，
+#   由 git 做三方合并：能自动合就自动合，合不了就**明确失败并开 issue**，
+#   绝不静默产出坏包。
+#
+# 历史策略：main 只快进、永不 force-push。
+#   每个同步提交的 parent 都是 main 的上一个提交，因此 main 是纯追加历史。
+#   只有内部的 ios-layer 分支会被 force-push（它是补丁源，不是用户分支）。
+#
+# 注意：GitHub 对 60 天无活动的仓库会停用 schedule；本 workflow 每次同步都会
+# 产生提交，正常跟版时不会触发停用。若上游长期停更，需要手动 Run workflow 保活。
+
+on:
+  schedule:
+    # 每天 02:00 UTC = 北京时间 10:00
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: '指定上游 tag（留空 = 自动取最新稳定版）'
+        required: false
+        type: string
+        default: ''
+      force:
+        description: '版本未变化也重新同步并构建'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: ios-sync
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_URL: https://github.com/t59688/newsnook.git
+
+jobs:
+  sync:
+    name: Re-apply iOS layer onto upstream stable tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      changed: ${{ steps.detect.outputs.changed }}
+      branch: ${{ steps.merge.outputs.branch }}
+      version: ${{ steps.detect.outputs.version }}
+      tag: ${{ steps.detect.outputs.tag }}
+      layer_sha: ${{ steps.merge.outputs.layer_sha }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Fetch upstream refs and tags
+        run: |
+          set -euo pipefail
+          if git remote get-url upstream >/dev/null 2>&1; then
+            git remote set-url upstream "$UPSTREAM_URL"
+          else
+            git remote add upstream "$UPSTREAM_URL"
+          fi
+          git fetch --no-tags upstream '+refs/heads/*:refs/remotes/upstream/*'
+          git fetch upstream '+refs/tags/*:refs/tags/*'
+          # 需要 origin/ios-layer 来做下面的一致性校验
+          git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Verify ios-layer matches main
+        run: |
+          set -euo pipefail
+          # 同步时是用 ios-layer 这个「单提交 iOS 层」重贴到新 tag 上的。
+          # 如果 main 上有改动没折叠进 ios-layer，那些改动会在下一次同步时被
+          # 静默抹掉。这里提前拦住，而不是等它丢了才发现。
+          if ! git diff --quiet origin/ios-layer main; then
+            echo "::error::main 与 ios-layer 的树不一致：main 上有未折叠进 ios-layer 的改动"
+            git --no-pager diff --stat origin/ios-layer main
+            echo "把 main 的改动整理进 ios-layer（见 docs/ios-build.md「同步失败怎么修」）后重跑。"
+            exit 1
+          fi
+          echo "ios-layer 与 main 的树一致。"
+
+      - name: Detect latest stable version
+        id: detect
+        run: |
+          set -euo pipefail
+          requested="${{ inputs.upstream_tag }}"
+          if [ -n "$requested" ]; then
+            target="$requested"
+          else
+            # 只跟稳定版：vX.Y.Z，排除 vX.Y.Z-beta.N
+            target="$(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+          fi
+          if [ -z "$target" ]; then
+            echo "::error::没有找到任何稳定版 tag"
+            exit 1
+          fi
+          version="${target#v}"
+          current="$(node -p "require('./package.json').version")"
+          {
+            echo "tag=$target"
+            echo "version=$version"
+            echo "current=$current"
+          } >> "$GITHUB_OUTPUT"
+          echo "上游最新稳定版：$target（当前 main：$current）"
+          if [ "$version" = "$current" ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "版本未变化，跳过同步与构建。"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Re-apply iOS layer
+        id: merge
+        if: steps.detect.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          tag="${{ steps.detect.outputs.tag }}"
+          version="${{ steps.detect.outputs.version }}"
+          branch="ios-sync/$tag"
+          {
+            echo "branch=$branch"
+            echo "tag=$tag"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+
+          # 1) 把 main 的树整体替换成新 tag 的树，但让提交的 parent 仍是 main，
+          #    这样 main 的历史是纯追加的（后续只需快进推送，不必 force）。
+          git checkout -B "$branch" "$tag"
+          git reset --soft main
+          git commit -m "chore(ios): take upstream $tag tree"
+
+          # 2) 重贴 iOS 层。ios-layer 的 parent 是旧 tag，因此这里是一次干净的
+          #    三方合并：能自动合就自动合，冲突就明确失败。
+          if ! git cherry-pick -x origin/ios-layer; then
+            echo "::error::iOS 层无法自动重贴到 $tag —— 上游改动触及了 iOS 层依赖的文件，需要人工介入"
+            git cherry-pick --abort || true
+            exit 1
+          fi
+          echo "layer_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+          # 3) 版本号跟随上游（本地 Xcode 打开工程时也要正确）
+          node scripts/ios-set-marketing-version.mjs "$version"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(ios): set MARKETING_VERSION to $version"
+          fi
+
+          git push origin "HEAD:refs/heads/$branch"
+          echo "已推送同步分支：$branch"
+          git --no-pager log --oneline -4
+
+  build:
+    name: Build unsigned IPA
+    needs: sync
+    if: needs.sync.outputs.changed == 'true'
+    uses: ./.github/workflows/ios-build.yml
+    with:
+      checkout_ref: ${{ needs.sync.outputs.branch }}
+      publish_release: true
+      release_notes: |
+        上游稳定版 v${{ needs.sync.outputs.version }} 的 iOS 移植（未签名 IPA）。
+
+        由 `iOS Sync from Upstream` 自动重贴 iOS 层并构建。
+        安装：下载后用 SideStore / LiveContainer / SideInstaller 以你自己的 Apple ID 本地签名。
+
+  promote:
+    name: Promote to main
+    needs: [sync, build]
+    if: needs.sync.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Fast-forward main
+        env:
+          BRANCH: ${{ needs.sync.outputs.branch }}
+        run: |
+          set -euo pipefail
+          git fetch origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+          # main 只在构建成功后才前进；这里必然是快进（同步提交的 parent 就是 main）。
+          git push origin "refs/remotes/origin/$BRANCH:refs/heads/main"
+          echo "main 已快进到 $BRANCH"
+
+      - name: Advance ios-layer patch source
+        env:
+          LAYER_SHA: ${{ needs.sync.outputs.layer_sha }}
+        run: |
+          set -euo pipefail
+          # ios-layer 只是补丁源，必须始终是「上游 tag + 单提交 iOS 层」，
+          # 因此这里用 force 把它收敛到本次的纯 iOS 层提交（不含版本号提交）。
+          git push --force origin "$LAYER_SHA:refs/heads/ios-layer"
+          echo "ios-layer 已指向 $LAYER_SHA"
+
+  report-failure:
+    name: Report failure
+    needs: [sync, build]
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            const title = 'iOS 自动同步失败：iOS 层无法重贴到新的上游稳定版'
+            const body = [
+              '自动同步上游稳定版时失败了。**main 未被改动**，也没有发布任何 Release。',
+              '',
+              `- 工作流运行：${runUrl}`,
+              `- 触发版本：\`${{ needs.sync.outputs.tag || '（未检测到）' }}\``,
+              `- 同步分支：\`${{ needs.sync.outputs.branch || '（未创建）' }}\``,
+              '',
+              '最常见原因：上游这次改动碰到了 iOS 层依赖的文件',
+              '（`src/BootstrapRoot.tsx`、`src/lib/deviceMediaControls.ts`、`capacitor.config.ts`、`package.json`），',
+              '导致 `git cherry-pick ios-layer` 冲突。',
+              '',
+              '处理方式：手动跑一次 `iOS Sync from Upstream`（可指定 `upstream_tag`）看冲突文件，',
+              '修好后把 `ios-layer` 分支更新为新的单提交 iOS 层，再重跑。',
+            ].join('\n')
+
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            })
+            const found = existing.data.find((issue) => issue.title === title)
+            if (found) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: found.number,
+                body,
+              })
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+              })
+            }

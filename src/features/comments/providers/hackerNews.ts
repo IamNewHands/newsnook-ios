@@ -66,6 +66,7 @@ interface HnItemResponse {
 }
 
 export const hackerNewsCommentProvider: CommentProvider = {
+  label: '讨论',
   canHandle(article) {
     if (article.sourceId === 'hn') return true
     if (article.originUrl?.includes('news.ycombinator.com/item')) return true

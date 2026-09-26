@@ -1,9 +1,10 @@
 /**
- * 同步的 Android 通知栏出口。
+ * 同步的系统通知出口（Android 通知栏 / iOS 通知中心）。
  *
  * 策略在 `notifier.ts` 的 `mapSyncEventToNotification` 里，这里只负责投递：
- * 非 Android、插件缺席、系统未授权都静默跳过——通知是加分项，缺了不影响同步。
- * 也不会为了同步在冷启动时主动索要 `POST_NOTIFICATIONS`。
+ * 非原生平台、插件缺席、系统未授权都静默跳过——通知是加分项，缺了不影响同步。
+ * 也不会为了同步在冷启动时主动索要通知权限（Android `POST_NOTIFICATIONS`、
+ * iOS `UNUserNotificationCenter` 授权）；iOS 侧是在第一次真的要发通知时才弹框。
  */
 
 import { Capacitor, registerPlugin } from '@capacitor/core'
@@ -23,8 +24,14 @@ export interface SyncNotificationPlugin {
 
 const SyncNotificationNative = registerPlugin<SyncNotificationPlugin>('SyncNotification')
 
+/** 有原生通知出口的平台。Web 上没有这条路径，通知由页面内 Toast 承担。 */
+const NATIVE_NOTIFICATION_PLATFORMS = ['android', 'ios']
+
 function available(): boolean {
-  return Capacitor.getPlatform() === 'android' && Capacitor.isPluginAvailable('SyncNotification')
+  return (
+    NATIVE_NOTIFICATION_PLATFORMS.includes(Capacitor.getPlatform()) &&
+    Capacitor.isPluginAvailable('SyncNotification')
+  )
 }
 
 export async function postSyncNotification(model: SyncNotificationModel): Promise<boolean> {
