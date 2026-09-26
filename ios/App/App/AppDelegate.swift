@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import UserNotifications
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -7,7 +8,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // 同步通知点开的回调必须在启动完成前就有 delegate，否则「点通知冷启动」
+        // 那一次会直接丢失。插件要等 Capacitor bridge 起来才存在，所以装配点在这里。
+        UNUserNotificationCenter.current().delegate = SyncNotificationCenterDelegate.shared
         return true
     }
 

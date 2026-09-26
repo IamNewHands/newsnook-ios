@@ -20,6 +20,8 @@
 		A17000000000000000000002 /* LinuxDoUserApiAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17000000000000000000001 /* LinuxDoUserApiAuth.swift */; };
 		A18000000000000000000002 /* LinuxDoBrowserSessionSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A18000000000000000000001 /* LinuxDoBrowserSessionSupport.swift */; };
 		A19000000000000000000002 /* LinuxDoSessionPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19000000000000000000001 /* LinuxDoSessionPlugin.swift */; };
+		A1A000000000000000000002 /* SyncNotificationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A000000000000000000001 /* SyncNotificationPlugin.swift */; };
+		A1B000000000000000000002 /* ReadAloudPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B000000000000000000001 /* ReadAloudPlugin.swift */; };
 		A12000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A12000000000000000000001 /* PrivacyInfo.xcprivacy */; };
 		504EC30D1FED79650016851F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30B1FED79650016851F /* Main.storyboard */; };
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
@@ -47,6 +49,8 @@
 		A17000000000000000000001 /* LinuxDoUserApiAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinuxDoUserApiAuth.swift; sourceTree = "<group>"; };
 		A18000000000000000000001 /* LinuxDoBrowserSessionSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinuxDoBrowserSessionSupport.swift; sourceTree = "<group>"; };
 		A19000000000000000000001 /* LinuxDoSessionPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinuxDoSessionPlugin.swift; sourceTree = "<group>"; };
+		A1A000000000000000000001 /* SyncNotificationPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncNotificationPlugin.swift; sourceTree = "<group>"; };
+		A1B000000000000000000001 /* ReadAloudPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadAloudPlugin.swift; sourceTree = "<group>"; };
 		A12000000000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -91,6 +95,8 @@
 				A17000000000000000000001 /* LinuxDoUserApiAuth.swift */,
 				A18000000000000000000001 /* LinuxDoBrowserSessionSupport.swift */,
 				A19000000000000000000001 /* LinuxDoSessionPlugin.swift */,
+				A1A000000000000000000001 /* SyncNotificationPlugin.swift */,
+				A1B000000000000000000001 /* ReadAloudPlugin.swift */,
 				A11000000000000000000001 /* DeviceMediaControlsPlugin.swift */,
 				A11000000000000000000003 /* MainViewController.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -196,6 +202,8 @@
 				A17000000000000000000002 /* LinuxDoUserApiAuth.swift in Sources */,
 				A18000000000000000000002 /* LinuxDoBrowserSessionSupport.swift in Sources */,
 				A19000000000000000000002 /* LinuxDoSessionPlugin.swift in Sources */,
+				A1A000000000000000000002 /* SyncNotificationPlugin.swift in Sources */,
+				A1B000000000000000000002 /* ReadAloudPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
