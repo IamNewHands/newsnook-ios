@@ -620,3 +620,41 @@ base64 解码、非原生回退，以及对 Swift 源文件的**形状**断言�
 走查确认产物为 `src=original` + `fallbacks=[2x, 1x]`。仍未证明：真机能否取到 `original`
 字节 —— 若挑战对 `original` 路径恒成立，正文实际显示的是 2x 变体（清晰度接近原图）。
 
+### 8.8 第五轮：把原图从正文显示路径上摘掉（2026-09-26）
+
+§8.7 的修复（字节判定 + 候选链）**没有**在真机上恢复正文图：用户装完构建 41（`7c435cf`）
+后仍然「图片不能显示」。§8.7 的根因表只覆盖了「原图被挑战」这一种机制，而它依赖一条
+**从未在真机上验证过能直连的通道**（`/original/`）；第三轮（`aede0ad`）之前正文用的是
+`/optimized/` 通道，那条是**真机已证能直连**的。两次事故的共同点不是挑战怎么来，而是：
+
+> 一次纯粹的「显示更清晰」增强，把正文显示路径换成了一条没有真机证据的地址。
+
+修复方向因此改为**收回该增强对显示路径的所有权**：
+
+| 位置 | 改动 |
+|---|---|
+| `sanitize.ts` `a.lightbox` 循环 | 正文 `src` 不再提升为 `href`（原图）；改为 `srcset` 里**最大的 retina 变体**（约 2x，与 1x 同一条 `/optimized/` 通道），没有 `srcset` 时用 1x `optimized`。`data-reader-image-fallbacks` 只放同通道的另一个变体，**原图绝不进候选链** |
+| `data-linuxdo-original-src` | 语义不变，仍写原图，供灯箱按需取用（当前 `src/` 内无读取方，属预留） |
+
+于是正文显示路径只会出现 `/optimized/` 地址 —— 与构建 38（用户确认「图片都显示了」）**完全同一族**，
+同时分辨率从 690px 提到约 2x，第三轮想修的模糊没有回退。
+
+保留 §8.7 的两项：`looksLikeLinuxDoImageBytes` 字节判定（resolver 契约修正，与显示路径无关）
+与 `useProgressiveImages` 的候选链（现在兜底是 1x `optimized`，仍在同一条已证通道内）。
+
+验证：`tsc -b` 干净、`oxlint` 0 error、`test:linuxdo` / `test:linuxdo-media` /
+`test:image-actions` / `ios-native-plugin` 全过；新增断言「正文 `src` 必须是最大 retina 变体」
+「原图不得出现在正文 `src` 与兜底链里」「无 `srcset` 时用 1x optimized」。真 cooked HTML 走查：
+
+```text
+cdn:    src=…/optimized/…_2_918x1000.png  fallbacks=[…/optimized/…_2_459x500.png]
+        data-linuxdo-original-src=…/original/…8bf3ae….png
+legacy: src=https://linux.do/uploads/default/optimized/1X/photo_2_1380x148.png
+        fallbacks=[…/photo_2_690x74.png]  original-src=…/original/1X/photo.png
+```
+
+**未证明 / 残留**：真机仍未复测。若构建 42 的正文图**依旧**不显示，则「`/original/` 被挑战」
+这个根因假设被推翻，剩下两个待查方向：(a) 装的不是新构建（先核对「我的 → 关于」的构建戳）；
+(b) `/optimized/` 在用户所测帖子上的地址形态与构建 38 时不同（例如非 CDN 主站托管、或
+`//linuxdo-uploads.s3.ldstatic.com/…` 这类协议相对地址）。届时按这两个方向取证，不再盲改。
+

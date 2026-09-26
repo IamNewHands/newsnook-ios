@@ -638,20 +638,46 @@ assert.doesNotMatch(discourseMedia, /<a[^>]+data-linuxdo-role="image-link"[^>]+h
 assert.match(discourseMedia, /https:\/\/linux\.do\/uploads\/default\/optimized/)
 assert.doesNotMatch(discourseMedia, /2134×230/)
 assert.doesNotMatch(discourseMedia, />image</)
-// 正文图片直接显示原图：Discourse 的 optimized 只有 ~690px 宽（srcset 已被移除），
-// 高分屏放大后明显发虚；optimized 只留作原图加载失败时的兜底。
+// 正文只走 optimized 通道：取 srcset 里最大的 retina 变体（约 2x，高分屏不发虚），1x 留作
+// 兜底。原图（href）不进正文 src —— 把原图提升成 src 曾让真机正文图两次全挂（规格 §8.7），
+// 原图只留在 data-linuxdo-original-src 给灯箱按需取用。
 assert.match(
   discourseMedia,
-  /<img[^>]+src="https:\/\/linux\.do\/uploads\/default\/original\/1X\/photo\.png"/,
-  '正文图片的 src 必须是原图',
+  /<img[^>]+\ssrc="https:\/\/linux\.do\/uploads\/default\/optimized\/1X\/photo_2_1380x148\.png"/,
+  '正文图片的 src 必须是 optimized 通道里最大的 retina 变体',
 )
-assert.match(discourseMedia, /data-reader-image-fallbacks="[^"]*optimized[^"]*"/, 'optimized 变体必须留作兜底')
-// 原图取不到时（Cloudflare 挑战 / 登录页）先退回 srcset 里最大的 retina 变体，
-// 只有它也没有才用 1x，避免正文退回 690px 又被高分屏放大发虚。
+assert.doesNotMatch(
+  discourseMedia,
+  /<img[^>]+\ssrc="https:\/\/linux\.do\/uploads\/default\/original\/1X\/photo\.png"/,
+  '原图不得出现在正文 src',
+)
 assert.match(
   discourseMedia,
-  /data-reader-image-fallbacks="[^"]*photo_2_1380x148\.png[^"]*photo_2_690x74\.png[^"]*"/,
-  '兜底顺序必须是最大 retina 变体在前、1x 在后',
+  /data-reader-image-fallbacks="[^"]*photo_2_690x74\.png[^"]*"/,
+  '1x optimized 必须留作兜底',
+)
+assert.doesNotMatch(
+  discourseMedia,
+  /data-reader-image-fallbacks="[^"]*\/original\/[^"]*"/,
+  '原图不得进兜底链',
+)
+
+const discourseMediaNoSrcset = sanitizeLinuxDoCooked(`
+  <div class="lightbox-wrapper">
+    <a class="lightbox" href="/uploads/default/original/1X/solo.png">
+      <img src="/uploads/default/optimized/1X/solo_2_690x74.png" width="690" height="74">
+    </a>
+  </div>
+`)
+assert.match(
+  discourseMediaNoSrcset,
+  /<img[^>]+\ssrc="https:\/\/linux\.do\/uploads\/default\/optimized\/1X\/solo_2_690x74\.png"/,
+  '没有 srcset 时正文 src 用 1x optimized（真机已证的通道）',
+)
+assert.match(
+  discourseMediaNoSrcset,
+  /data-linuxdo-original-src="https:\/\/linux\.do\/uploads\/default\/original\/1X\/solo\.png"/,
+  '原图仍要留在 data-linuxdo-original-src 供灯箱取用',
 )
 
 const discourseSemantics = sanitizeLinuxDoCooked(`
