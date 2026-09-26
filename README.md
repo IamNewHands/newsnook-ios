@@ -34,12 +34,15 @@
 > 上游 [t59688/newsnook](https://github.com/t59688/newsnook) 是 Android 客户端。本仓库在其基础上叠加 iOS 层，
 > 并用 GitHub Actions 云编译**未签名 IPA**：
 >
-> - **下载**：[Releases](https://github.com/IamNewHands/newsnook-ios/releases)，版本号形如 `ios-v<上游版本>`
+> - **下载**：[`NewsNook-unsigned.ipa`](https://github.com/IamNewHands/newsnook-ios/releases/latest/download/NewsNook-unsigned.ipa)
+>   —— 这个地址固定不变，永远指向最新一次构建
 > - **安装**：下载 IPA 后用 SideStore / LiveContainer / SideInstaller 以你自己的 Apple ID 本地签名（产物不含任何证书，也不需要你提供证书）
+> - **确认装的是哪一版**：「我的 → 关于」的副标题显示 `构建 <run>-<短SHA>`，例如 `36-8d141d1`
 > - **翻译开箱可用**：Google / Microsoft 免密钥通道不用填任何 Key，iOS 18 及以上还有系统内置的离线翻译；正文顶栏可直接切换翻译通道
 > - **编译与自动化**：[`docs/ios-build.md`](./docs/ios-build.md)
 > - **自动跟版**：每天检查上游**稳定版** tag，发现新版本就重贴 iOS 层、构建 IPA、发布 Release
-> - **分支约定**：`main` = 上游稳定版代码 + iOS 层；`ios-layer` 是重贴补丁用的内部单提交分支
+> - **Release 只有一条**：tag 固定 `ios-latest`，资产固定 `NewsNook-unsigned.ipa`，每次构建就地覆盖，不再按上游版本堆 tag
+> - **分支约定**：`main` = 上游稳定版代码 + iOS 层（只快进）；`ios-layer` 是重贴补丁用的内部单提交分支
 > - **与上游的差异**：见 [`docs/ios-build.md` 的「iOS 功能边界」](./docs/ios-build.md#ios-功能边界)（本地翻译引擎、应用内更新、投屏与媒体嗅探等）
 
 ## NewsNook 是什么
@@ -364,9 +367,12 @@ NewsNook 的设计遵循几个明确原则：
 
 本仓库提供**未签名 IPA**，用你自己的 Apple ID 在设备端本地签名安装：
 
-1. 到 **[Releases](https://github.com/IamNewHands/newsnook-ios/releases)** 下载 `NewsNook-<版本>-unsigned.ipa`（Release tag 形如 `ios-v1.8.7`）。
+1. 下载 [**`NewsNook-unsigned.ipa`**](https://github.com/IamNewHands/newsnook-ios/releases/latest/download/NewsNook-unsigned.ipa)（固定地址，永远是最新构建；也可以到 [Releases](https://github.com/IamNewHands/newsnook-ios/releases) 页面下载）。
 2. 用 SideStore / LiveContainer / SideInstaller 等工具签名并安装。
 3. 仓库与 Release 里不含任何证书或描述文件，也不需要你提供 Apple ID。
+
+装好后到「我的 → 关于」核对副标题里的 `构建 <run>-<短SHA>`，就能确认装的是哪一次构建
+（`CFBundleShortVersionString` 跟随上游版本，不随每次构建变化）。
 
 最低系统要求 iOS 15.0。**系统内置离线翻译需要 iOS 18 及以上**，低于 18 时该选项不会出现，其余功能不受影响。
 
@@ -439,7 +445,7 @@ iOS 不需要本地 Mac 也能出包：推送 `main` 后手动触发 `iOS Build`
 
 ~~~bash
 # 云端构建：Actions → iOS Build → Run workflow
-# 产物：NewsNook-<版本>-unsigned.ipa
+# 产物：NewsNook-unsigned.ipa（就地覆盖到 ios-latest 那条 Release）
 
 # 本地只跑前端检查
 npm run test:translation      # 翻译链路（含免密钥通道与段落切分）
@@ -538,7 +544,7 @@ newsnook/
 | [用户指南](./docs/user-guide.md) | 面向使用者的功能说明 |
 | [架构](./docs/architecture.md) | 应用分层、数据流、状态模型 |
 | [新闻源](./docs/news-sources.md) | 内置来源与解析说明 |
-| [iOS 编译](./docs/ios-build.md) | iOS 层、云编译 IPA、自动跟版与功能边界 |
+| [iOS 编译](./docs/ios-build.md) | iOS 层、云编译 IPA、自动跟版、实现取舍与功能边界 |
 | [Android 构建](./docs/android-build.md) | Android 环境、签名、调试与发版 |
 | [Cloud 部署](./docs/cloud-deploy.md) | 可选同步服务 |
 | [本地推荐](./docs/local-recommend.md) | 本地推荐算法与隐私边界 |
@@ -574,7 +580,7 @@ NewsNook 仍在持续演进。
 
 如果你发现某个来源失效，请提交 Issue，并尽量附上：
 
-- NewsNook 版本（`ios-v…` 表示 iOS 版，上游 tag 表示 Android 版）
+- NewsNook 版本（iOS：关于页里的 `构建 <run>-<短SHA>`；Android：上游 tag）
 - 平台、系统版本与设备型号（Android 版本 / iOS 版本 + 机型）
 - 来源 / 站点名称
 - 文章或页面 URL
