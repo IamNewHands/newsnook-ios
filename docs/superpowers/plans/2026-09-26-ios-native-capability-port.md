@@ -40,6 +40,20 @@
 5. `performUpload` 在主线程同步序列化整个 multipart 请求体（256 MB 上限时可能冻 UI 数秒）——
    应把序列化挪到后台队列。**仍待办**。
 
+## 0e. 第三轮：返回手势（2026-09-26）
+
+真机反馈：右滑返回能用但「跳一下、像返回了两层」；设置页进二级页后不能右滑返回。
+
+| 症状 | 归因 | 改动 |
+|---|---|---|
+| 工作区右滑返回跳一下 | `resetAfterBack` 与 `onBack` 挤在同一 tick 复位合成层，旧页面被画回原位一帧（`commit()` 上方注释早就写了这个坑，`resetAfterBack` 又踩了一次） | `useEdgeSwipeBack.ts`：复位延后两帧 + `isConnected` 守卫 |
+| 其他源右滑返回跳一下 | `closeReader()` 同一 tick 调 `recoverAppScrollAfterNavigation()`，清掉正在退场的阅读器壳 `transform`。上游代码，一直存在；新包更重，React 提交被推到绘制之后才显形 | `App.tsx`：`closeReader` 的复位延后两帧 |
+| 一次滑动退两层 | 每个 hook 实例都往 `window` 挂 `touchmove`，`touchstart` 冒泡到每个祖先实例；阅读器（`<main>` 之外的浮层）与工作区（`<main>` 之内）可同时挂载，两边各调一次 `onBack`。**未能真机复现，属代码可证的洞** | `useEdgeSwipeBack.ts`：模块级单实例认领（最内层先到先赢） |
+| 设置二级页不能右滑 | 从未接线 | `SettingsShell.tsx`：接 `useEdgeSwipeBack(edgeOnly)`，一处覆盖全部设置页；入场动画挪到内层（CSS 动画优先级高于内联 `transform`，否则整页拖不动）；`edgeSwipeBack.ts` 加右滑返回时间窗标记，让返回不重复播入场动画 |
+
+验证：`test:edge-swipe` 扩了标记契约；`lint` / `tsc -b` / 全量 `test:*` 见 §0c。真机验收项见
+[`docs/ios-build.md`](../../ios-build.md) 的「2026-09-26 第三轮：返回手势的真机验收项」。
+
 ## 0c. 本轮已跑通的验证（本地，2026-09-26）
 
 | 套件 | 结果 |

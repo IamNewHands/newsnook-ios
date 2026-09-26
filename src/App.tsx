@@ -576,7 +576,12 @@ export default function App() {
   const closeReader = useCallback(() => {
     setReading(null)
     clearShareLocation()
-    recoverAppScrollAfterNavigation()
+    // 右滑返回的收尾动画故意把阅读器停在屏幕外、等 React 卸载它。同一 tick 里
+    // 复位合成层会把正文画回屏幕原位一帧——观感是「返回时跳一下」。等两帧再
+    // 收拾：那时阅读器已经不在了，这里只清列表侧的残留。
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(recoverAppScrollAfterNavigation)
+    })
   }, [])
 
   const dismissDeepLinkError = useCallback(() => {

@@ -129,3 +129,35 @@ export function shouldCommit(offset: number, releaseVelocityX: number, width: nu
   if (offset >= width * COMMIT_RATIO) return true
   return offset >= MIN_FLING_DISTANCE_PX && releaseVelocityX >= COMMIT_VELOCITY
 }
+
+/**
+ * 「这次挂载是右滑返回的结果」的时效窗口。
+ *
+ * 标记在 commit 动画收尾、调用 onBack 之前打下，接收方是同一次 React 提交里
+ * 新挂载的那一层，正常只差几十毫秒。窗口只用来兜住异常路径，不是行为阈值。
+ */
+export const SWIPE_BACK_MARK_TTL_MS = 600
+
+let swipeBackMarkedAt = 0
+
+/** 右滑返回即将触发导航：下一个挂载的页面据此跳过「从右滑入」的入场动画。 */
+export function markSwipeBackNavigation(now = Date.now()): void {
+  swipeBackMarkedAt = now
+}
+
+/**
+ * 查询当前是否处在右滑返回的时效窗口内。
+ *
+ * 故意做成**幂等查询**而不是「消费一次」：React StrictMode 会把新页面的渲染跑
+ * 两遍，一次性消费会在第二遍变成 false，入场动画又冒出来。标记靠时间窗自行
+ * 过期——设置页可能直接退到没有外壳的层级（关闭设置），那种情况没人查询它，
+ * 不能把标记留给下一次打开设置。
+ */
+export function isSwipeBackNavigation(now = Date.now()): boolean {
+  return swipeBackMarkedAt > 0 && now - swipeBackMarkedAt <= SWIPE_BACK_MARK_TTL_MS
+}
+
+/** 测试用：清掉标记，避免用例之间互相影响。 */
+export function clearSwipeBackNavigationMark(): void {
+  swipeBackMarkedAt = 0
+}

@@ -6,10 +6,14 @@ import {
   EDGE_WIDTH_PX,
   LOWER_START_RATIO,
   MIN_FLING_DISTANCE_PX,
+  SWIPE_BACK_MARK_TTL_MS,
   clampDragX,
+  clearSwipeBackNavigationMark,
   isEdgeOnlyStart,
   isEdgeStart,
+  isSwipeBackNavigation,
   isSwipeBackStart,
+  markSwipeBackNavigation,
   resolveLock,
   shouldCommit,
   velocityX,
@@ -65,5 +69,24 @@ assert.equal(
   ]),
   0.2,
 )
+
+// 右滑返回的「跳过入场动画」标记：幂等查询 + 时间窗过期。
+// 幂等是刚需：React StrictMode 会把新页面渲染两遍，一次性消费会在第二遍失效，
+// 入场动画又冒出来。
+clearSwipeBackNavigationMark()
+assert.equal(isSwipeBackNavigation(1_000), false)
+
+markSwipeBackNavigation(1_000)
+assert.equal(isSwipeBackNavigation(1_000), true)
+assert.equal(isSwipeBackNavigation(1_050), true)
+assert.equal(isSwipeBackNavigation(1_000 + SWIPE_BACK_MARK_TTL_MS), true)
+assert.equal(isSwipeBackNavigation(1_001 + SWIPE_BACK_MARK_TTL_MS), false)
+
+// 过期后不能把标记留给下一次打开设置。
+clearSwipeBackNavigationMark()
+assert.equal(isSwipeBackNavigation(1_000 + SWIPE_BACK_MARK_TTL_MS * 10), false)
+
+// 窗口只兜异常路径，不该长到能跨过一次「关闭设置 → 再打开设置」。
+assert.ok(SWIPE_BACK_MARK_TTL_MS <= 2_000, 'mark window must stay short')
 
 console.log('edge-swipe-back: ok')
