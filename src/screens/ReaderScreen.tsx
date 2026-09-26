@@ -1353,11 +1353,11 @@ export function ReaderScreen({
 
   return (
     <div
-      className="absolute inset-0 z-30 flex flex-col"
+      ref={shellRef}
+      className="reader-swipe-surface absolute inset-0 z-30 flex flex-col bg-ink"
       style={{
         paddingTop: 'var(--sat)',
         paddingBottom: 'var(--sab)',
-        animation: reduced ? undefined : 'reader-in 360ms var(--ease-ink) both',
       }}
     >
       <style>{`@keyframes reader-in { from { opacity: 0; transform: translateY(24px) } to { opacity: 1; transform: none } }`}</style>
@@ -1372,9 +1372,17 @@ export function ReaderScreen({
         </div>
       )}
 
+      {/*
+        入场动画挂在内层而不是上面那层：CSS 动画（含 fill-mode 的终态）优先级高于
+        内联 style，动画挂在外层会把右滑返回写的内联 transform 顶掉。同理，右滑
+        返回要拖动的必须是**这一整层不透明的壳**（含上下安全区），而不是壳里那块
+        `flex-1` 的正文面 —— 只拖正文面时，安全区那两条留白原地不动、左右又露出
+        下层列表，观感就是「返回时闪一下空白、不够丝滑」。设置外壳与两个站点工作
+        区都是这个形状。
+      */}
       <div
-        ref={shellRef}
-        className="reader-swipe-surface flex min-h-0 flex-1 flex-col bg-ink"
+        className="flex min-h-0 flex-1 flex-col"
+        style={{ animation: reduced ? undefined : 'reader-in 360ms var(--ease-ink) both' }}
       >
         <header
           data-surface="reader-chrome"
