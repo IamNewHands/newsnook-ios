@@ -658,3 +658,53 @@ legacy: src=https://linux.do/uploads/default/optimized/1X/photo_2_1380x148.png
 (b) `/optimized/` 在用户所测帖子上的地址形态与构建 38 时不同（例如非 CDN 主站托管、或
 `//linuxdo-uploads.s3.ldstatic.com/…` 这类协议相对地址）。届时按这两个方向取证，不再盲改。
 
+### 8.9 第六轮：真机复测结论 + 收回所有显示地址增强（2026-09-26）
+
+真机复测（用户确认「我的 → 关于」= `42-6204d49`，即构建 42 确实装上了）：
+
+| 对象 | 结果 |
+|---|---|
+| 正文图片 | **全部「图片加载失败」** |
+| 表情包（`/images/emoji/…`） | **显示不出来** |
+| 头像（`cdn.ldstatic.com`） | 正常 |
+| 帖子里的视频 | 正常 |
+
+于是 §8.8 的两个待查方向都被排除：(a) 装的确实是新构建；(b) `/optimized/` 的地址形态无关 ——
+因为**连表情包也挂**，而表情包没有任何 `srcset`/`href` 变体，正文 `src` 就是 cooked 原值。
+
+本轮补测（Windows 侧，同一台机器）确认主站资源整体在挑战后面，不只是 `/uploads/`：
+
+```text
+https://linux.do/images/emoji/twitter/smile.png?v=12 -> 403  cf-mitigated: challenge
+https://linux.do/latest.json                          -> 403  cf-mitigated: challenge
+https://linux.do/uploads/                             -> 403  cf-mitigated: challenge
+https://cdn.ldstatic.com/…                            -> 无挑战（公开）
+```
+
+关键推理：`7ac73a1..6204d49` **没有改过任何 `ios/**`**，也就是说 `fetchMedia` 的 Swift/JS
+实现在构建 38 与构建 42 之间逐字节相同。构建 38 真机能显示、构建 42 全挂，差别只可能在
+**请求了哪些地址**与**对响应的判定**，不可能在传输实现本身。而两轮「改判定」（§8.7 字节魔数、
+§8.8 换地址）都没能恢复显示，说明继续在判定/地址形态上加分支只会继续盲改。
+
+因此本轮**收回所有对正文显示地址的增强**，回到唯一有真机证据的那条路：
+
+| 位置 | 改动 |
+|---|---|
+| `sanitize.ts` `a.lightbox` 循环 | 正文 `src` **不再被替换**：既不是 `href`（原图），也不是 `srcset` 的 retina 变体，就是 cooked 里的原始 `src`；同时**不再写** `data-reader-image-fallbacks`，每张图只发一次取字节请求 |
+| `data-linuxdo-original-src` | 语义不变（仍写原图，供灯箱按需取用） |
+| `useProgressiveImages.ts` | 兜底链路在跑（`state.busy`）时收到 `error` 不再抢先把整张图判死，交给链路自己收敛；最终失败把原因写进 `data-reader-image-error`，成功/重试时清除 |
+| `imageSource.ts` | 记录每次取字节失败的原因：插件错误码 + 消息、HTTP 状态、传输标签、`content-type`、字节数 |
+| `index.css` | 失败占位文案带上该原因（`attr(data-reader-image-error)`）—— 真机没有日志面板，这行就是现场证据 |
+
+清晰度（§8.6 的 2x 变体）暂时让位：先用有真机证据的地址把显示恢复，再单独做一轮。
+
+验证：`tsc -b` 干净、`oxlint` 0 error、`test:linuxdo`（含 `linuxdo-media` / `linuxdo-readsync`）、
+`test:image-actions`、`test:zhihu-content`、`ios-native-plugin` 全过；`linuxdo.test.ts` 断言改为
+「正文 `src` 必须是 cooked 原始 optimized 地址」「retina 变体不得替换正文 `src`」「原图不得进正文」
+「不再声明兜底候选链」「原图仍留在 `data-linuxdo-original-src`」。
+
+**未证明 / 残留**：真机仍未复测。若构建 43 的正文图依旧不显示，失败占位会直接写出断在哪一步
+（`MEDIA_HTTP 媒体请求失败（HTTP 403）`＝传输拿到挑战；`MEDIA_BROWSER …`＝浏览器传输 fetch 抛错，
+多半是跨域/重定向；`媒体响应不是图片：…`＝拿到非图片正文）。**下一轮按占位文案取证，不再猜。**
+
+
