@@ -85,7 +85,7 @@ git push origin "$M:main"                        # 快进
 git push --force origin "$L:refs/heads/ios-layer"
 ```
 
-最终 SHA：`main = fc56e3f`，`ios-layer = 2ad5505`（树同为 `6e245be…`）。
+最终 refs 以 `git rev-parse origin/main origin/ios-layer` 为准（两者树必须一致）；不要在这里写死 SHA——每次折叠都会变，写死必然过期。
 零删除：`git diff --diff-filter=D --name-only <旧 main> <新 main>` 为空。
 
 ## 0d. 账号 iOS 平台适配（已完成）
