@@ -98,6 +98,16 @@ const portedPlugins = [
     swift: 'ios/App/App/ReadAloudPlugin.swift',
     jsFile: 'src/features/readAloud/native.ts',
   },
+  {
+    jsName: 'DlnaCast',
+    className: 'DlnaCastPlugin',
+    java: 'android/app/src/main/java/com/aizeek/newsnook/DlnaCastPlugin.java',
+    swift: 'ios/App/App/DlnaCastPlugin.swift',
+    jsFile: 'src/lib/dlnaCast.ts',
+    // iOS 上组播 SSDP 需要 Apple 特批的 multicast entitlement，自签拿不到，
+    // 所以多了「手动填电视 IP」这条补偿路径——这三个方法 Java 侧不存在。
+    extraMethods: ['addManualDevice', 'removeManualDevice', 'listManualDevices'],
+  },
 ]
 
 for (const plugin of portedPlugins) {
@@ -130,11 +140,27 @@ for (const plugin of portedPlugins) {
     )
   }
 
+  // iOS 专属方法（例如 DlnaCast 的手动填 IP）单独声明，不混进 Java 方法表，
+  // 这样「Java 加了方法但 Swift 忘了」仍然会被抓出来。
+  const extraMethods = plugin.extraMethods ?? []
+  for (const method of extraMethods) {
+    assert.match(
+      swift,
+      new RegExp(`CAPPluginMethod\\(name: "${method}", returnType: CAPPluginReturnPromise\\)`),
+      `${plugin.swift} is missing CAPPluginMethod(${method})`,
+    )
+    assert.match(
+      swift,
+      new RegExp(`@objc func ${method}\\(_ call: CAPPluginCall\\)`),
+      `${plugin.swift} is missing @objc func ${method}(_ call:)`,
+    )
+  }
+
   const declared = [...swift.matchAll(/CAPPluginMethod\(name: "(\w+)"/g)].map((match) => match[1])
   assert.deepEqual(
     declared.slice().sort(),
-    methods.slice().sort(),
-    `${plugin.swift} method table must match ${plugin.java} exactly`,
+    [...methods, ...extraMethods].sort(),
+    `${plugin.swift} method table must match ${plugin.java} + iOS-only extras exactly`,
   )
 
   // 工程登记：pbxproj 的文件引用 + Sources 条目 + MainViewController 实例注册，
@@ -244,6 +270,72 @@ for (const [name, source] of [
     `${name} must route iOS to the native ReadAloud path`,
   )
 }
+
+// DlnaCast：Android 用 UDP 组播做 SSDP 发现，iOS 上组播需要 Apple 特批的
+// com.apple.developer.networking.multicast（自签拿不到，sendto 直接 EACCES），
+// 因此换成单播扫段 + 手动填 IP。控制面（SOAP）两边一致。
+const dlna = readFileSync('ios/App/App/DlnaCastPlugin.swift', 'utf8')
+const dlnaUpnp = readFileSync('ios/App/App/DlnaCastUpnp.swift', 'utf8')
+const dlnaJava = readFileSync(
+  'android/app/src/main/java/com/aizeek/newsnook/DlnaCastPlugin.java',
+  'utf8',
+)
+const jsDlna = readFileSync('src/lib/dlnaCast.ts', 'utf8')
+// 只允许单播：出现组播套接字选项就说明有人把 Android 的写法照搬过来了。
+assert.match(dlnaUpnp, /sendto\(/)
+assert.doesNotMatch(dlnaUpnp, /IP_MULTICAST_IF|IP_ADD_MEMBERSHIP|MulticastSocket/)
+// 单播扫段要算本机网段；手动填 IP 要先试单播 M-SEARCH 再退回探测描述路径。
+assert.match(dlnaUpnp, /getifaddrs/)
+assert.match(dlnaUpnp, /sweepHosts\(/)
+assert.match(dlna, /resolveManualDevice/)
+assert.match(dlna, /manualSearchSeconds/)
+// 「本地网络」隐私权限在 iOS 14+ 是弹窗，必须有用途说明，否则系统不给弹。
+assert.match(infoPlist, /<key>NSLocalNetworkUsageDescription<\/key>/)
+// UPnP 动作面：少一个都会让投屏在某个环节静默失败。
+for (const action of [
+  'SetAVTransportURI',
+  'Play',
+  'Pause',
+  'Stop',
+  'Seek',
+  'GetTransportInfo',
+  'GetPositionInfo',
+  'GetMediaInfo',
+  'GetVolume',
+  'SetVolume',
+]) {
+  assert.ok(dlna.includes(`"${action}"`), `swift is missing UPnP action: ${action}`)
+}
+// 直连确认的判据与 Java 一致：连续 1.8 秒 playing 才算成功。
+assert.match(dlna, /directProbeStableSeconds: TimeInterval = 1\.8/)
+// 本轮只做直连：没有本机中转服务器（proxy 模式）。真加了就要同步改这里。
+assert.doesNotMatch(dlna, /NWListener/)
+assert.match(dlna, /mode: "direct"/)
+// reject 文案与 Java 逐字一致。
+for (const message of [
+  '缺少投屏设备',
+  '当前视频是临时媒体流，无法发送到电视',
+  'DASH 视频源暂不支持投屏',
+  '投屏设备已失效，请重新搜索',
+]) {
+  assert.ok(dlnaJava.includes(`"${message}"`), `java is missing reject text: ${message}`)
+  assert.ok(dlna.includes(`"${message}"`), `swift is missing reject text: ${message}`)
+}
+// JS 侧：平台闸门放开 iOS，手动添加只对 iOS 暴露。
+assert.match(jsDlna, /NATIVE_CAST_PLATFORMS = \['android', 'ios'\]/)
+assert.match(jsDlna, /export function isManualDlnaDeviceSupported/)
+assert.match(jsDlna, /registerPlugin<DlnaCastPlugin>\('DlnaCast'\)/)
+// AirPlay：走 WebKit 的 webkitShowPlaybackTargetPicker（路由 video 元素本身），
+// 前提是 video 声明了 x-webkit-airplay。
+const airPlay = readFileSync('src/components/inkVideoPlayer/airPlay.ts', 'utf8')
+const inkPlayer = readFileSync('src/components/InkVideoPlayer.tsx', 'utf8')
+assert.match(airPlay, /webkitShowPlaybackTargetPicker/)
+assert.match(inkPlayer, /setAttribute\('x-webkit-airplay', 'allow'\)/)
+assert.match(inkPlayer, /onAirPlay=\{startAirPlay\}/)
+// 投屏浮层要同时提供两条路径的入口。
+const castOverlay = readFileSync('src/components/inkVideoPlayer/CastOverlay.tsx', 'utf8')
+assert.match(castOverlay, /onAddManualDevice/)
+assert.match(castOverlay, /onAirPlay/)
 
 // ProxiedHttp：iOS 没有 URLSessionTask.followRedirects 这种属性（那是 OkHttp 的），
 // 重定向必须由 URLSessionTaskDelegate 决定；写了这个属性会直接编译失败。

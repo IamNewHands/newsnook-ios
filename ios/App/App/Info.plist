@@ -36,6 +36,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于在局域网内搜索电视和投屏设备，并把视频发送到电视播放。不会向局域网外发送任何数据。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>用于读取相册信息并确认图片保存位置。</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

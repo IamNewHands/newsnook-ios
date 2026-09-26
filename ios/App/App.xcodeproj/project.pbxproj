@@ -22,6 +22,8 @@
 		A19000000000000000000002 /* LinuxDoSessionPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19000000000000000000001 /* LinuxDoSessionPlugin.swift */; };
 		A1A000000000000000000002 /* SyncNotificationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1A000000000000000000001 /* SyncNotificationPlugin.swift */; };
 		A1B000000000000000000002 /* ReadAloudPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B000000000000000000001 /* ReadAloudPlugin.swift */; };
+		A1C000000000000000000002 /* DlnaCastUpnp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C000000000000000000001 /* DlnaCastUpnp.swift */; };
+		A1D000000000000000000002 /* DlnaCastPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D000000000000000000001 /* DlnaCastPlugin.swift */; };
 		A12000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A12000000000000000000001 /* PrivacyInfo.xcprivacy */; };
 		504EC30D1FED79650016851F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30B1FED79650016851F /* Main.storyboard */; };
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
@@ -51,6 +53,8 @@
 		A19000000000000000000001 /* LinuxDoSessionPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinuxDoSessionPlugin.swift; sourceTree = "<group>"; };
 		A1A000000000000000000001 /* SyncNotificationPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncNotificationPlugin.swift; sourceTree = "<group>"; };
 		A1B000000000000000000001 /* ReadAloudPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadAloudPlugin.swift; sourceTree = "<group>"; };
+		A1C000000000000000000001 /* DlnaCastUpnp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DlnaCastUpnp.swift; sourceTree = "<group>"; };
+		A1D000000000000000000001 /* DlnaCastPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DlnaCastPlugin.swift; sourceTree = "<group>"; };
 		A12000000000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -97,6 +101,8 @@
 				A19000000000000000000001 /* LinuxDoSessionPlugin.swift */,
 				A1A000000000000000000001 /* SyncNotificationPlugin.swift */,
 				A1B000000000000000000001 /* ReadAloudPlugin.swift */,
+				A1C000000000000000000001 /* DlnaCastUpnp.swift */,
+				A1D000000000000000000001 /* DlnaCastPlugin.swift */,
 				A11000000000000000000001 /* DeviceMediaControlsPlugin.swift */,
 				A11000000000000000000003 /* MainViewController.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -204,6 +210,8 @@
 				A19000000000000000000002 /* LinuxDoSessionPlugin.swift in Sources */,
 				A1A000000000000000000002 /* SyncNotificationPlugin.swift in Sources */,
 				A1B000000000000000000002 /* ReadAloudPlugin.swift in Sources */,
+				A1C000000000000000000002 /* DlnaCastUpnp.swift in Sources */,
+				A1D000000000000000000002 /* DlnaCastPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

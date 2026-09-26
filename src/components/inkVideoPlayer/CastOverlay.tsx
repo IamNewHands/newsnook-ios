@@ -4,10 +4,13 @@
 
 import { useEffect, useState } from 'react'
 import {
+  Airplay,
   Cast,
+  ChevronDown,
   LoaderCircle,
   Pause,
   Play,
+  Plus,
   RefreshCw,
   SkipBack,
   SkipForward,
@@ -33,11 +36,17 @@ export function CastOverlay({
   session,
   status,
   fallbackDuration,
+  manualSupported,
+  manualPending,
+  airPlaySupported,
   onClose,
   onRefresh,
   onConnect,
   onControl,
   onStop,
+  onAddManualDevice,
+  onRemoveManualDevice,
+  onAirPlay,
 }: {
   open: boolean
   devices: DlnaCastDevice[]
@@ -47,14 +56,24 @@ export function CastOverlay({
   session: DlnaCastSession | null
   status: DlnaCastStatus | null
   fallbackDuration: number
+  /** 是否支持手动填电视 IP（只有 iOS 需要这条补偿路径）。 */
+  manualSupported: boolean
+  manualPending: boolean
+  /** 是否提供系统 AirPlay（WKWebView 的 webkitShowPlaybackTargetPicker）。 */
+  airPlaySupported: boolean
   onClose: () => void
   onRefresh: () => void
   onConnect: (device: DlnaCastDevice) => void
   onControl: (action: 'play' | 'pause' | 'seek' | 'volume', value?: number) => void
   onStop: () => void
+  onAddManualDevice: (address: string) => void
+  onRemoveManualDevice: (deviceId: string) => void
+  onAirPlay: () => void
 }) {
   const [seekDraft, setSeekDraft] = useState<number | null>(null)
   const [volumeDraft, setVolumeDraft] = useState<number | null>(null)
+  const [manualOpen, setManualOpen] = useState(false)
+  const [manualAddress, setManualAddress] = useState('')
   useHardwareBackLayer(open, () => {
     onClose()
     return true
@@ -64,6 +83,8 @@ export function CastOverlay({
     if (!open) {
       setSeekDraft(null)
       setVolumeDraft(null)
+      setManualOpen(false)
+      setManualAddress('')
     }
   }, [open])
 
@@ -151,6 +172,74 @@ export function CastOverlay({
 
         {!session ? (
           <div className="max-h-[58vh] overflow-y-auto overscroll-contain px-3 py-3">
+            {airPlaySupported && (
+              <button
+                type="button"
+                onClick={onAirPlay}
+                className="mb-2 flex w-full items-center gap-3 rounded-2xl border border-paper/10 px-3 py-3 text-left active:bg-paper/10"
+              >
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-paper/10">
+                  <Airplay size={20} strokeWidth={1.8} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-medium">AirPlay</span>
+                  <span className="mt-0.5 block text-[11px] text-paper/50">
+                    用系统 AirPlay 投到 Apple TV 或支持 AirPlay 的电视
+                  </span>
+                </span>
+              </button>
+            )}
+
+            {manualSupported && (
+              <div className="mb-2 rounded-2xl border border-paper/10 px-3 py-3">
+                <button
+                  type="button"
+                  onClick={() => setManualOpen((value) => !value)}
+                  className="flex w-full items-center gap-2 text-left"
+                >
+                  <Plus size={16} className="shrink-0 text-paper/60" />
+                  <span className="min-w-0 flex-1 text-[13px] font-medium">手动添加电视 IP</span>
+                  <ChevronDown
+                    size={15}
+                    className={`shrink-0 text-paper/50 transition-transform ${manualOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+                {manualOpen && (
+                  <form
+                    className="mt-2 flex gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      onAddManualDevice(manualAddress)
+                    }}
+                  >
+                    <input
+                      value={manualAddress}
+                      onChange={(event) => setManualAddress(event.currentTarget.value)}
+                      inputMode="numeric"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      placeholder="192.168.1.10"
+                      aria-label="电视的局域网 IP"
+                      className="min-w-0 flex-1 rounded-xl border border-paper/15 bg-black/25 px-3 py-2 font-mono text-[13px] outline-none placeholder:text-paper/35"
+                    />
+                    <button
+                      type="submit"
+                      disabled={manualPending || !manualAddress.trim()}
+                      className="shrink-0 rounded-xl bg-paper px-3.5 py-2 text-[13px] font-medium text-ink-deep disabled:opacity-40"
+                    >
+                      {manualPending ? '添加中…' : '添加并投屏'}
+                    </button>
+                  </form>
+                )}
+                {manualOpen && (
+                  <p className="mt-2 text-[11px] leading-relaxed text-paper/45">
+                    电视 IP 一般在「设置 → 网络」里能看到。添加后会记住，下次直接出现在列表里。
+                  </p>
+                )}
+              </div>
+            )}
+
             {searching && devices.length === 0 && (
               <div className="flex min-h-36 flex-col items-center justify-center gap-2 text-paper/60">
                 <LoaderCircle size={22} className="animate-spin" />
@@ -163,6 +252,7 @@ export function CastOverlay({
                 <Tv2 size={28} strokeWidth={1.5} />
                 <p className="text-[12px] leading-relaxed">
                   未发现可投屏设备。请确认手机和电视连接同一局域网，并在电视上开启投屏或 DLNA。
+                  {manualSupported ? '也可以直接填电视的 IP 手动添加。' : ''}
                 </p>
               </div>
             )}
@@ -174,28 +264,39 @@ export function CastOverlay({
                   .filter(Boolean)
                   .join(' · ')
                 return (
-                  <button
-                    key={device.id}
-                    type="button"
-                    disabled={Boolean(connectingId)}
-                    onClick={() => onConnect(device)}
-                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors active:bg-paper/10 disabled:opacity-50"
-                  >
-                    <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-paper/10">
-                      <Tv2 size={20} strokeWidth={1.8} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[14px] font-medium">{device.name}</span>
-                      <span className="mt-0.5 block truncate text-[11px] text-paper/50">
-                        {details || device.address}
+                  <div key={device.id} className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={Boolean(connectingId)}
+                      onClick={() => onConnect(device)}
+                      className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors active:bg-paper/10 disabled:opacity-50"
+                    >
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-paper/10">
+                        <Tv2 size={20} strokeWidth={1.8} />
                       </span>
-                    </span>
-                    {connecting ? (
-                      <LoaderCircle size={18} className="animate-spin text-paper/70" />
-                    ) : (
-                      <Cast size={17} className="text-paper/45" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[14px] font-medium">{device.name}</span>
+                        <span className="mt-0.5 block truncate text-[11px] text-paper/50">
+                          {details || device.address}
+                        </span>
+                      </span>
+                      {connecting ? (
+                        <LoaderCircle size={18} className="animate-spin text-paper/70" />
+                      ) : (
+                        <Cast size={17} className="text-paper/45" />
+                      )}
+                    </button>
+                    {device.manual && (
+                      <button
+                        type="button"
+                        aria-label={`移除 ${device.name}`}
+                        onClick={() => onRemoveManualDevice(device.id)}
+                        className="flex size-8 shrink-0 items-center justify-center rounded-full text-paper/45 active:bg-paper/10"
+                      >
+                        <X size={15} />
+                      </button>
                     )}
-                  </button>
+                  </div>
                 )
               })}
             </div>
