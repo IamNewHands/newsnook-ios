@@ -234,7 +234,7 @@ public final class DlnaCastPlugin: CAPPlugin, CAPBridgedPlugin {
                 }
                 guard
                     let currentURI = try self.readCurrentTransportURI(device: device),
-                    currentURI == saved.transportURL
+                    currentURI == saved.transportURL.absoluteString
                 else {
                     self.clearResume()
                     Self.resolve(call, [:])

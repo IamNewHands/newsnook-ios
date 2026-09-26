@@ -39,7 +39,7 @@ public final class SyncNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("id, title and body are required")
             return
         }
-        let route = call.getString("route", "account-sync") ?? "account-sync"
+        let route = call.getString("route", "account-sync")
 
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in

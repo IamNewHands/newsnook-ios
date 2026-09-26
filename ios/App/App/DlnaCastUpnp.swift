@@ -244,8 +244,6 @@ enum DlnaSsdp {
         }
         guard bound == 0 else { throw DlnaError.socketUnavailable }
 
-        let payloads = searchTargets.map { searchPayload(target: $0) }
-
         func burst(_ targets: [String]) -> Int32 {
             var failure: Int32 = 0
             for host in hosts {
@@ -414,24 +412,24 @@ enum DlnaXml {
         parser.shouldProcessNamespaces = true
         parser.delegate = delegate
         parser.parse()
-        let description = delegate.description
+        let parsed = delegate.parsed
 
         // 没有 AVTransport 就不是能投屏的渲染器（可能是路由器/打印机之类的 UPnP 设备）。
-        guard let avTransport = description.avTransport else { return nil }
+        guard let avTransport = parsed.avTransport else { return nil }
 
         let host = location.host ?? ""
-        let name = description.friendlyName
-            ?? description.modelName
+        let name = parsed.friendlyName
+            ?? parsed.modelName
             ?? (host.isEmpty ? location.absoluteString : host)
         return DlnaRendererDevice(
-            id: description.udn ?? location.absoluteString,
+            id: parsed.udn ?? location.absoluteString,
             name: name,
-            manufacturer: description.manufacturer,
-            model: description.modelName,
+            manufacturer: parsed.manufacturer,
+            model: parsed.modelName,
             host: host,
             descriptionURL: location,
             avTransport: avTransport,
-            renderingControl: description.renderingControl
+            renderingControl: parsed.renderingControl
         )
     }
 
@@ -493,7 +491,9 @@ private final class FirstTextParser: NSObject, XMLParserDelegate {
 }
 
 private final class DeviceDescriptionParser: NSObject, XMLParserDelegate {
-    struct Description {
+    /// 名字不能叫 `description`：`NSObject` 已经有一个 `description: String`，
+    /// 同名的存储属性会直接编译失败。
+    struct ParsedDescription {
         var friendlyName: String?
         var manufacturer: String?
         var modelName: String?
@@ -508,7 +508,7 @@ private final class DeviceDescriptionParser: NSObject, XMLParserDelegate {
     private var buffer = ""
     private var serviceType: String?
     private var serviceControlURL: String?
-    private(set) var description = Description()
+    private(set) var parsed = ParsedDescription()
 
     init(location: URL) {
         self.location = location
@@ -543,15 +543,15 @@ private final class DeviceDescriptionParser: NSObject, XMLParserDelegate {
         let text = DlnaXml.nonEmpty(buffer) ?? ""
         switch elementName {
         case "friendlyName":
-            if description.friendlyName == nil { description.friendlyName = text }
+            if parsed.friendlyName == nil { parsed.friendlyName = text }
         case "manufacturer":
-            if description.manufacturer == nil { description.manufacturer = text }
+            if parsed.manufacturer == nil { parsed.manufacturer = text }
         case "modelName":
-            if description.modelName == nil { description.modelName = text }
+            if parsed.modelName == nil { parsed.modelName = text }
         case "UDN":
-            if description.udn == nil { description.udn = text }
+            if parsed.udn == nil { parsed.udn = text }
         case "deviceType":
-            if description.deviceType == nil { description.deviceType = text }
+            if parsed.deviceType == nil { parsed.deviceType = text }
         case "serviceType":
             serviceType = text
         case "controlURL":
@@ -560,15 +560,15 @@ private final class DeviceDescriptionParser: NSObject, XMLParserDelegate {
             if let type = serviceType, let control = serviceControlURL,
                let url = DlnaXml.resolve(control, relativeTo: location)
             {
-                if type.contains(":service:AVTransport:"), description.avTransport == nil {
-                    description.avTransport = DlnaServiceEndpoint(
+                if type.contains(":service:AVTransport:"), parsed.avTransport == nil {
+                    parsed.avTransport = DlnaServiceEndpoint(
                         serviceType: type,
                         controlURL: url
                     )
                 } else if type.contains(":service:RenderingControl:"),
-                          description.renderingControl == nil
+                          parsed.renderingControl == nil
                 {
-                    description.renderingControl = DlnaServiceEndpoint(
+                    parsed.renderingControl = DlnaServiceEndpoint(
                         serviceType: type,
                         controlURL: url
                     )
