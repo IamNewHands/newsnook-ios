@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import {
   decodeLinuxDoMediaBase64,
   isLinuxDoHostedMedia,
+  looksLikeLinuxDoImageBytes,
   releaseLinuxDoImageCache,
   resolveLinuxDoImageSrc,
 } from '../src/features/linuxdo/media/imageSource'
@@ -29,6 +30,32 @@ const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const decoded = new Uint8Array(decodeLinuxDoMediaBase64(Buffer.from(png).toString('base64')))
 assert.deepEqual(Array.from(decoded), Array.from(png), 'base64 解码必须逐字节还原')
 assert.throws(() => decodeLinuxDoMediaBase64('not-base64!!'), '非法 base64 必须抛错，交给调用方回退')
+
+// 2xx 不等于图片：Cloudflare 挑战页与 Discourse 登录页都是 2xx 的 HTML。
+// 只有字节确实是图片才允许转 blob，否则调用方会误判「解析成功」而放弃 optimized 备用地址。
+const htmlBytes = new Uint8Array(Buffer.from('<!DOCTYPE html><html><body>Just a moment...</body></html>'))
+assert.equal(looksLikeLinuxDoImageBytes(htmlBytes), false, 'HTML 挑战页不能被当成图片')
+assert.equal(looksLikeLinuxDoImageBytes(new Uint8Array(0)), false, '空响应不能被当成图片')
+assert.equal(looksLikeLinuxDoImageBytes(new Uint8Array([0xff, 0xd8, 0xff, 0xe0])), true, 'JPEG 魔数')
+assert.equal(looksLikeLinuxDoImageBytes(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), true, 'PNG 魔数')
+assert.equal(looksLikeLinuxDoImageBytes(new Uint8Array(Buffer.from('GIF89a'))), true, 'GIF 魔数')
+assert.equal(
+  looksLikeLinuxDoImageBytes(Uint8Array.from([0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50])),
+  true,
+  'WEBP 魔数',
+)
+assert.equal(
+  looksLikeLinuxDoImageBytes(Uint8Array.from([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66])),
+  true,
+  'AVIF/HEIC 容器魔数',
+)
+
+const imageSourceSource = readFileSync('src/features/linuxdo/media/imageSource.ts', 'utf8')
+assert.match(
+  imageSourceSource,
+  /if \(!contentType\.startsWith\('image\/svg'\) && !looksLikeLinuxDoImageBytes\(bytes\)\) \{[\s\S]{0,200}不是图片/,
+  '取到非图片字节必须抛错回退，不能返回 blob',
+)
 
 // 非原生（Web / 测试环境）一律回退原地址：这条通道绝不能把网页端图片弄坏。
 const linuxDoImage = 'https://linux.do/uploads/default/original/1X/3a18b4b0da3e8cf96f7eea15241c3d251f28a39b.png'

@@ -595,3 +595,28 @@ base64 解码、非原生回退，以及对 Swift 源文件的**形状**断言�
 `ios/App/App/LinuxDoSessionPlugin.swift`：2754 行 → **2917 行**。
 `pluginMethods` 数组：14 项 → **15 项**。`@objc func`：14 → **15**。
 
+### 8.7 第四轮：正文原图取不到时的兜底（2026-09-26）
+
+第三轮把正文 `img.src` 提升为 `original` 之后，真机上 Linux.do 主站正文图再次全部变成
+「图片加载失败 · 点按重试」。根因不在取字节，而在**判定**：
+
+| 环节 | 事实 |
+|---|---|
+| 触发 | `original` 路径被 Cloudflare 托管挑战拦下；`performBrowserMediaRequest` 用 `redirect:'follow'`，跟随后拿到的是挑战页 / 登录页，**HTTP 200 + `text/html`** |
+| 误判 | `resolveLinuxDoImageSrc` 只看「响应非空」，把 HTML 字节包成 `Blob({ type: 'image/jpeg' })` 返回，违反「返回不同地址 ⇒ 已产出可用图片」的契约 |
+| 放大 | `useProgressiveImages.tryNativeFallback` 以 `resolved !== candidate` 判定成功并**立即返回**，`data-reader-image-fallbacks` 里的 optimized 备用地址永远不会被尝试 |
+| 结果 | `<img>` 解码 blob 失败 → 重试状态已耗尽 → 永久占位。CDN（`cdn3.ldstatic.com`）图片在 WebView 里直连即可加载，所以头像 / 勋章不受影响 |
+
+修复（owner 是 resolver 的契约，不是 hook 的循环）：
+
+- `imageSource.ts`：新增 `looksLikeLinuxDoImageBytes(bytes)`（PNG / JPEG / GIF / BMP / ICO /
+  TIFF / WEBP 偏移 8 的 `WEBP` fourcc / `ftyp` 容器）；`resolveLinuxDoImageSrc` 必须**字节像
+  图片**（或 `Content-Type: image/svg*`）才转 blob，否则抛错回退原地址 —— 候选链于是继续试下一个地址。
+- `sanitize.ts`：`data-reader-image-fallbacks` 从 `[1x optimized]` 变为
+  `[srcset 里最大的 retina 变体, 1x optimized]`：原图取不到时先用 `_2_…_2x` 变体，避免退回
+  690px 又被高分屏放大发虚（第三轮的模糊结论在挑战路径上仍然成立）。
+
+验证：`test:linuxdo`（含 `test:linuxdo-media`）新增字节魔数与兜底顺序断言；用真 cooked HTML
+走查确认产物为 `src=original` + `fallbacks=[2x, 1x]`。仍未证明：真机能否取到 `original`
+字节 —— 若挑战对 `original` 路径恒成立，正文实际显示的是 2x 变体（清晰度接近原图）。
+

@@ -22,6 +22,25 @@ function numericDimension(element: Element, name: 'width' | 'height'): number | 
   return Number.isFinite(value) && value > 0 ? value : undefined
 }
 
+/**
+ * Discourse 的 `srcset` 里通常有比 1x 更大的 retina 变体（例如 `_2_918x1000.png 2x`）。
+ * 它们和 1x 走同一条 optimized 通道，取不到原图时用最大变体兜底，避免退回 1x 被高分屏放大发虚。
+ */
+function largestSrcsetVariant(srcset: string | null): string | undefined {
+  if (!srcset) return undefined
+  let best: { url: string; weight: number } | undefined
+  for (const entry of srcset.split(',')) {
+    const parts = entry.trim().split(/\s+/)
+    const raw = parts[0]
+    if (!raw) continue
+    const parsed = Number.parseFloat(parts[1] ?? '')
+    const weight = Number.isFinite(parsed) ? parsed : 1
+    const url = absoluteLinuxDoUrl(raw)
+    if (url && (!best || weight >= best.weight)) best = { url, weight }
+  }
+  return best?.url
+}
+
 function copySemanticAttribute(element: Element, source: string, target: string): void {
   const value = element.getAttribute(source)?.trim()
   if (value) element.setAttribute(target, value)
@@ -514,11 +533,16 @@ function normalizeDiscourseMarkup(html: string): string {
       if (fullSize && image) {
         image.setAttribute('data-linuxdo-original-src', fullSize)
         // 正文直接显示原图。Discourse 的 optimized 变体只有 ~690px 宽（srcset 已在下面
-        // 移除），在高分屏上被放大后明显发虚；optimized 留作原图加载失败时的兜底。
+        // 移除），在高分屏上被放大后明显发虚；取不到原图时先退回 srcset 里最大的 retina
+        // 变体（同一条 optimized 通道），最后才是 1x 兜底。
         const optimized = absoluteLinuxDoUrl(image.getAttribute('src'))
         if (optimized && optimized !== fullSize) {
+          const retina = largestSrcsetVariant(image.getAttribute('srcset'))
+          const fallbacks = [retina, optimized].filter(
+            (value): value is string => Boolean(value) && value !== fullSize,
+          )
           image.setAttribute('src', fullSize)
-          image.setAttribute('data-reader-image-fallbacks', JSON.stringify([optimized]))
+          image.setAttribute('data-reader-image-fallbacks', JSON.stringify([...new Set(fallbacks)]))
         }
       }
       // Discourse uses this anchor only to launch its own lightbox. NewsNook owns

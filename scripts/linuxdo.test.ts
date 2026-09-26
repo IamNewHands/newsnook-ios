@@ -625,7 +625,7 @@ const discourseMedia = sanitizeLinuxDoCooked(`
   <p>before <img src="/images/emoji/twitter/smiley.png" class="emoji" alt="smiley" width="20" height="20"> after</p>
   <div class="lightbox-wrapper">
     <a class="lightbox" href="/uploads/default/original/1X/photo.png">
-      <img src="/uploads/default/optimized/1X/photo_2_690x74.png" width="690" height="74">
+      <img src="/uploads/default/optimized/1X/photo_2_690x74.png" width="690" height="74" srcset="/uploads/default/optimized/1X/photo_2_690x74.png, /uploads/default/optimized/1X/photo_2_1035x111.png 1.5x, /uploads/default/optimized/1X/photo_2_1380x148.png 2x">
       <div class="meta"><span class="filename">image</span><span class="informations">2134×230 22.6 KB</span></div>
     </a>
   </div>
@@ -646,6 +646,13 @@ assert.match(
   '正文图片的 src 必须是原图',
 )
 assert.match(discourseMedia, /data-reader-image-fallbacks="[^"]*optimized[^"]*"/, 'optimized 变体必须留作兜底')
+// 原图取不到时（Cloudflare 挑战 / 登录页）先退回 srcset 里最大的 retina 变体，
+// 只有它也没有才用 1x，避免正文退回 690px 又被高分屏放大发虚。
+assert.match(
+  discourseMedia,
+  /data-reader-image-fallbacks="[^"]*photo_2_1380x148\.png[^"]*photo_2_690x74\.png[^"]*"/,
+  '兜底顺序必须是最大 retina 变体在前、1x 在后',
+)
 
 const discourseSemantics = sanitizeLinuxDoCooked(`
   <aside class="quote" data-topic="321" data-post="7" data-username="alice">
