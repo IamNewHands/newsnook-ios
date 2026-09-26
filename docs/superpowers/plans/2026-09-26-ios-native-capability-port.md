@@ -72,7 +72,12 @@
 稳定地址：`https://github.com/IamNewHands/newsnook-ios/releases/latest/download/NewsNook-unsigned.ipa`
 
 本地验证：PyYAML 解析通过；四个 `run` 块 `bash -n` 通过；release 说明生成块干跑排版正确。
-旧的 `ios-v1.8.7/1.8.8/1.8.9` 三条 release 仍在，**删除需用户明确授权**（属既有数据）。
+已用一次真实发布验证：run 34 发布 `ios-latest`（资产 `NewsNook-unsigned.ipa`，3 036 594 字节），
+`ios-latest` tag 指向该次构建的提交，资产内 App 构建戳与说明里的 `34-2688ad9` 一致。
+
+旧的三条 release（`ios-v1.8.7` / `1.8.8` / `1.8.9`）已按用户点名授权删除，tag 一并删掉。
+影响：`ios-v1.8.8` 原本指向 `853e16d`，删 tag 后不再被任何远程 ref 引用（`ios-v1.8.7` 的
+`c63b754` 仍由 `ios-sync/v1.8.7` 分支兜着；`ios-v1.8.9` 的 `6bc0eb7` 本就在 `main` 历史里）。
 
 ## 0c. 本轮已跑通的验证（本地，2026-09-26）
 
