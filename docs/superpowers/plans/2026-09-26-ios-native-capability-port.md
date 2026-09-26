@@ -43,7 +43,7 @@
 
 - 全部改动已提交到**本地分支** `ios-native-plugins`（commit `60b40bb`，23 个文件，+8280/−15）。`main` 未动，未推送。
 - 提交信息见 `D:\GitHub_Clone\_port-analysis\commit-msg-newsnook-ios-native-plugins.txt`。
-- 编译验证需要推送到远端后用 `ios-build.yml` 的 `workflow_dispatch` + `checkout_ref=ios-native-plugins`（`publish_release=false`）触发；**待用户确认推哪个 ref**（功能分支 / 先折叠回 `ios-layer` / 不推）。
+- 编译验证已用 `ios-build.yml` 的 `workflow_dispatch` + `checkout_ref`（`publish_release=false`）完成，随后折叠进 `ios-layer` 与 `main`（见 §0c-4）。
 - 已知待修：`performUpload` 在主线程同步序列化整个 multipart 请求体（256 MB 上限时可能冻 UI 数秒）——应把序列化挪到后台队列，完成后再回主线程起 `uploadTask`。**排在编译通过之后做**，避免第一次 CI 失败混入自造错误。
 - 已知取舍：iOS 上选了 SOCKS5 代理时，`transport.ts` 仍返回 `native-tunnel`，由 `ProxiedHttpPlugin` 在请求时明确 reject 并给出中文原因。**不要改成 `unsupported`**——`src/lib/http.ts` 对 `unsupported` 的处理是「不带 tunnel 直接请求」，那会变成静默直连（最坏结果）；设置页提前提示属于 UI 改进，可另做。
 
@@ -66,9 +66,27 @@
 
 **结论：6 个 Swift 文件全部通过编译器**（ProxiedHttp / SecureStore / ZhihuSession / LinuxDoSession / LinuxDoUserApiAuth / LinuxDoBrowserSessionSupport）。仍未验证的是**运行时行为**：代理出口 IP、Set-Cookie 逐条回传、`loadHTMLString` 的 document.origin、上传进度回调等，只能真机点检（各 port spec 列了清单）。
 
-## 0c-4. 待用户确认的收尾动作：折叠回 `ios-layer`
+## 0c-4. 折叠回 `ios-layer`（已完成，2026-09-26）
 
-当前产物在功能分支 `ios-native-plugins`（5 个 commit：1 个移植 + 4 个编译修复）。按 `docs/ios-build.md` 的不变量，iOS 层改动必须折叠回 `ios-layer`，否则下一次上游同步会抹掉。折叠配方（用户已复验）需要 **force-push `ios-layer`**，并可能重写 `main` 历史——属于破坏性 git 操作，必须先确认。
+产物已折叠进 iOS 层，三个不变量本地与远端都验证通过：
+
+| 不变量 | 结果 |
+|---|---|
+| `ios-layer^` 的树 == 上游 `v1.8.9` tag 的树 | ✅ `e4cf937…` |
+| `ios-layer` 与 `main` 的树一致（`ios-sync.yml` 的 drift guard 就是这条） | ✅ `git diff --quiet origin/ios-layer origin/main` 退出 0 |
+| 旧 `main` 是新 `main` 的祖先（main 只快进，从不 force-push） | ✅ |
+
+做法（`ios-layer` 是补丁源，force-push 是它的正常更新方式，`ios-sync.yml` 自己也这么推）：
+
+```bash
+L=$(git commit-tree <新树> -p 4ea4d1a -m 'feat(ios): v1.8.9 + 完整 iOS 层…')   # 层提交
+M=$(git commit-tree <新树> -p <旧 main> -F <消息文件>)                          # main 提交
+git push origin "$M:main"                        # 快进
+git push --force origin "$L:refs/heads/ios-layer"
+```
+
+最终 SHA：`main = fc56e3f`，`ios-layer = 2ad5505`（树同为 `6e245be…`）。
+零删除：`git diff --diff-filter=D --name-only <旧 main> <新 main>` 为空。
 
 ## 0d. 账号 iOS 平台适配（已完成）
 
