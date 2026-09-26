@@ -75,8 +75,8 @@ assert.match(
 )
 assert.match(
   imageSourceSource,
-  /noteResolved\(url, `已取字节/,
-  '取字节成功也要留一条状态，占位才能区分「通道没取到」与「取到了不能用」',
+  /noteResolved\(url, `\$\{hostOf\(url\)\} 已取字节/,
+  '取字节成功也要留一条状态（带主机名），占位才能区分「通道没取到」与「取到了不能用」',
 )
 assert.equal(
   stripDataUrlPrefix('data:image/png;base64,AAAA'),
@@ -84,6 +84,24 @@ assert.equal(
   '原生没剥干净 data: 前缀时 JS 侧要兜一次',
 )
 assert.equal(stripDataUrlPrefix('AAAA'), 'AAAA', '普通 base64 原样返回')
+
+// 失败兜底（resolveImage）不再按主机白名单提前返回：真机实测正文图会落在站点 CDN 主机上，
+// 按 linux.do 过滤会让它「没走会话通道」直接失败；主机判定交给原生守卫。
+assert.doesNotMatch(
+  imageSourceSource,
+  /if \(!isLinuxDoHostedMedia\(url\)\) return url/,
+  '失败兜底不得再按主机白名单提前返回',
+)
+assert.match(
+  imageSourceSource,
+  /noteStatus\(url, `\$\{hostOf\(url\)\} \$\{describeMediaError\(error\)\}`\)/,
+  '失败记录必须带上主机名（真机上只能靠占位这行看到地址在哪台主机）',
+)
+assert.match(
+  readFileSync('src/features/linuxdo/ui/useLinuxDoImageSrc.ts', 'utf8'),
+  /if \(!isLinuxDoHostedMedia\(url\)\) return/,
+  '提前解析的勋章路径仍要保留主机过滤，避免给 CDN 头像多发插件调用',
+)
 
 // 非原生（Web / 测试环境）一律回退原地址：这条通道绝不能把网页端图片弄坏。
 const linuxDoImage = 'https://linux.do/uploads/default/original/1X/3a18b4b0da3e8cf96f7eea15241c3d251f28a39b.png'
@@ -109,8 +127,8 @@ assert.match(
 )
 assert.match(
   pluginSource,
-  /guard Self\.isAllowedUrl\(url\) else \{[\s\S]{0,160}LINUXDO_MEDIA_URL/,
-  'fetchMedia 必须放行 linux.do 及其子域，否则子域地址会被插件直接拒绝',
+  /guard Self\.isAllowedMediaUrl\(url\) else \{[\s\S]{0,160}LINUXDO_MEDIA_URL/,
+  'fetchMedia 必须放行 linux.do 及子域与站点 CDN（*.ldstatic.com），否则 CDN 上的正文图会被插件直接拒绝',
 )
 
 const progressiveSource = readFileSync('src/hooks/useProgressiveImages.ts', 'utf8')

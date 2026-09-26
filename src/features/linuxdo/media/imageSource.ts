@@ -105,19 +105,28 @@ function noteResolved(url: string, note: string): void {
 
 /**
  * 失败占位展示的原因：取字节在哪一步断的。三种形态：
- * - `MEDIA_HTTP 媒体请求失败（HTTP 403）` 等 → 会话通道没取到字节；
- * - `已取字节（data 42KB）但加载失败` → 取到了，但 WebView 用不了这个地址；
- * - 没有记录 → 这个地址根本没走会话通道（见 hook 里的兜底文案）。
+ * - `<主机> MEDIA_HTTP 媒体请求失败（HTTP 403）` 等 → 会话通道没取到字节（主机名会一起写出来，
+ *   真机上「地址到底在哪台主机」只能靠这行看到）；
+ * - `<主机> 已取字节（data 42KB）但加载失败` → 取到了，但 WebView 用不了这个地址；
+ * - 没有记录 → 这个地址没被问过（见 hook 里的兜底文案）。
  */
 export function linuxDoMediaStatusNote(url: string): string | undefined {
   return statusNotes.get(url)
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase() || '未知主机'
+  } catch {
+    return '未知主机'
+  }
 }
 
 function describeMediaError(error: unknown): string {
   const rawCode = (error as { code?: unknown } | undefined)?.code
   const code = typeof rawCode === 'string' ? rawCode.replace(/^LINUXDO_/, '') : ''
   const message = error instanceof Error ? error.message : String(error ?? '')
-  const detail = message.replace(/^Linux\.do\s*/, '').trim().slice(0, 44)
+  const detail = message.replace(/^Linux\.do\s*/, '').trim().slice(0, 40)
   return [code, detail].filter(Boolean).join(' ') || '取字节失败'
 }
 
@@ -139,14 +148,17 @@ function remember(url: string, entry: CacheEntry): void {
 }
 
 /**
- * Linux.do 图片的可播放地址：主站图片由原生侧带会话 Cookie / 隐藏同源传输取回字节，
- * 转成 data: / blob: URL；非原生、非主站或取不到字节时一律回退原地址（WebView 再试一次，
- * 失败仍是正文里可见的「点按重试」占位）。
+ * Linux.do 图片的可播放地址：由原生侧带会话 Cookie / 隐藏同源传输取回字节，转成 data: / blob:
+ * URL；非原生或取不到字节时一律回退原地址（WebView 再试一次，失败仍是正文里可见的「点按重试」占位）。
+ *
+ * **不做主机白名单**：调用方只在 WebView 直连失败后才走到这里（见 useProgressiveImages 的
+ * resolveImage），而真机实测正文图会落在站点 CDN 主机上（头像同族）—— 直连被热链策略挡下、
+ * 又不在 linux.do 名下。主机判定交给原生守卫，被拒时占位会写出主机名。只有「提前解析」的
+ * 路径（资料页勋章 useLinuxDoImageSrc）才先用 isLinuxDoHostedMedia 过滤，避免无谓的插件调用。
  */
 export async function resolveLinuxDoImageSrc(url: string): Promise<string> {
   if (!url.startsWith('http')) return url
   if (!Capacitor.isNativePlatform()) return url
-  if (!isLinuxDoHostedMedia(url)) return url
 
   const cached = cache.get(url)
   if (cached) return cached.promise
@@ -176,7 +188,7 @@ export async function resolveLinuxDoImageSrc(url: string): Promise<string> {
       // 小图直接用 data: URL：WKWebView 的 origin 是 capacitor://，blob: 的加载依赖该方案
       // 的实现，data: 最稳。大图仍走 blob:，避免 base64 字符串把内存翻几倍。
       if (bytes.byteLength <= DATA_URL_MAX_BYTES) {
-        noteResolved(url, `已取字节（data ${size}）但加载失败`)
+        noteResolved(url, `${hostOf(url)} 已取字节（data ${size}）但加载失败`)
         entry.blobUrl = undefined
         return `data:${type};base64,${base64}`
       }
@@ -185,11 +197,11 @@ export async function resolveLinuxDoImageSrc(url: string): Promise<string> {
         URL.revokeObjectURL(blobUrl)
         return url
       }
-      noteResolved(url, `已取字节（blob ${size}）但加载失败`)
+      noteResolved(url, `${hostOf(url)} 已取字节（blob ${size}）但加载失败`)
       entry.blobUrl = blobUrl
       return blobUrl
     } catch (error) {
-      noteStatus(url, describeMediaError(error))
+      noteStatus(url, `${hostOf(url)} ${describeMediaError(error)}`)
       cache.delete(url)
       return url
     }

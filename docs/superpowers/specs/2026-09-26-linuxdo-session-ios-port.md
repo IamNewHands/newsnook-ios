@@ -547,7 +547,7 @@ URLSession 且不带 linux.do 任何 Cookie（插件把 Cookie 写在 `WKWebsite
 
 | JS 契约 | 行为 |
 |---|---|
-| `fetchMedia({ url, referer? })` | 只接受 `linux.do` 及其任意子域（`isAllowedUrl`；第八轮从严格的 `isApiAllowedUrl` 放宽，见 §8.10）；成功 resolve `{ status, base64, contentType?, transport }`；失败 reject `LINUXDO_MEDIA_URL` / `LINUXDO_MEDIA_NETWORK` / `LINUXDO_MEDIA_HTTP` / `LINUXDO_MEDIA_EMPTY` / `LINUXDO_MEDIA_BROWSER` |
+| `fetchMedia({ url, referer? })` | 只接受 `linux.do` 及其任意子域，以及站点 CDN `*.ldstatic.com`（`isAllowedMediaUrl`；第八轮先放宽到子域，第九轮再纳入 CDN，见 §8.10/§8.11）；成功 resolve `{ status, base64, contentType?, transport }`；失败 reject `LINUXDO_MEDIA_URL` / `LINUXDO_MEDIA_NETWORK` / `LINUXDO_MEDIA_HTTP` / `LINUXDO_MEDIA_EMPTY` / `LINUXDO_MEDIA_BROWSER` |
 
 实现顺序（`performNativeMediaRequest` → `performBrowserMediaRequest`）：
 
@@ -736,6 +736,42 @@ https://cdn.ldstatic.com/…                            -> 无挑战（公开）
 `已取字节（data …）但加载失败`＝连 data URL 都装不上（要查 WebView 侧）；
 `MEDIA_*`＝会话通道本身没取到字节（要查 fetchMedia）；
 `没走会话通道（地址不在 linux.do）`＝地址形态判断错（要查 host 规则）。
+
+### 8.11 第八轮：构建 44 真机结果 —— 正文图不在 linux.do 名下（2026-09-26）
+
+构建 44 真机结果：正文图仍然失败，占位文案是 **`图片加载失败 · 会话通道没取到字节 · 点按重试`**。
+
+这句是 hook 的兜底文案，只在 **`resolverTried === true` 且状态表里没有该地址的记录** 时出现。
+`resolveLinuxDoImageSrc` 的 catch 一定写记录，所以「没有记录」只能是它**提前返回**了，而提前返回
+的分支只有三个：非 http(s)、非原生、**`isLinuxDoHostedMedia` 判否**。前两个在本场景不可能成立
+（候选地址由 `safeHttpImageUrl` 过滤，iOS 是原生）。于是得到硬结论：
+
+> **正文图的地址不在 `linux.do`，也不在它的任何子域下** —— 它落在站点 CDN 主机上
+> （与头像同族，例如 `cdn.ldstatic.com` / `cdn3.ldstatic.com`）。
+
+这也解释了 §8.1 以来一直对不上的现象：头像在 CDN 上直连就能加载，所以从没被这条规则挡住；
+正文图也在 CDN 上，但它带热链/来源校验，宿主 WebView 的跨站 `<img>`（`<meta name="referrer"
+content="no-referrer">`，不带 Referer、不带会话 Cookie）拿不到放行，而唯一能补上 Referer 与
+会话的 `fetchMedia` 通道又被主机白名单挡在门外 —— 两头都堵。
+
+本轮改动：
+
+| 位置 | 改动 |
+|---|---|
+| `imageSource.ts` `resolveLinuxDoImageSrc` | **删掉主机白名单提前返回**。这条路径只在 WebView 直连失败后才被调用（`useProgressiveImages` 的 `resolveImage`），主机判定交给原生守卫；被拒时占位会写出主机名 |
+| `imageSource.ts` 状态记录 | 失败记录前缀加上 `hostOf(url)` —— 真机上「地址在哪台主机」只能靠占位这行看到 |
+| `useLinuxDoImageSrc.ts` | 保留 `isLinuxDoHostedMedia` 过滤：它是**提前**解析（没有「直连失败」这个信号），CDN 头像直连即可，不该多发插件调用 |
+| `LinuxDoSessionPlugin.swift` | 新增 `isAllowedMediaUrl`：放行 `linux.do` + 子域 + `*.ldstatic.com`（站点 CDN，头像与上传同族），`fetchMedia` 改用它 |
+
+验证：`tsc -b` 干净、`oxlint` 0 error、`test:linuxdo`（含 `linuxdo-media` / `linuxdo-readsync`）、
+`test:image-actions`、`test:zhihu-content`、`ios-native-plugin` 全过；`linuxdo-media.test.ts` 新增
+「失败兜底不得再按主机白名单提前返回」「失败记录必须带主机名」「勋章路径保留过滤」「Swift 守卫
+必须放行 CDN」等断言。
+
+**未证明 / 残留**：真机仍未复测。若构建 45 仍失败，占位文案会直接给出主机名与断点，例如
+`cdn.ldstatic.com MEDIA_URL 只允许请求…`（说明主机仍不在白名单）或
+`cdn.ldstatic.com MEDIA_HTTP 媒体请求失败（HTTP 403）`（说明 CDN 侧连会话通道也挡）。
+
 
 
 

@@ -472,8 +472,8 @@ public final class LinuxDoSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         let url = call.getString("url") ?? ""
         let referer = call.getString("referer") ?? (Self.origin + "/")
 
-        guard Self.isAllowedUrl(url) else {
-            call.reject("只允许请求 linux.do 站内 HTTPS 媒体", "LINUXDO_MEDIA_URL")
+        guard Self.isAllowedMediaUrl(url) else {
+            call.reject("只允许请求 linux.do 站内与站点 CDN 的 HTTPS 媒体", "LINUXDO_MEDIA_URL")
             return
         }
 
@@ -2509,6 +2509,17 @@ public final class LinuxDoSessionPlugin: CAPPlugin, CAPBridgedPlugin {
         guard components.scheme?.lowercased() == "https" else { return false }
         guard let host = components.host?.lowercased(), !host.isEmpty else { return false }
         return host == "linux.do" || host.hasSuffix(".linux.do")
+    }
+
+    /// `fetchMedia` 放行的主机：站点自身（`linux.do` 及子域）与站点 CDN（`*.ldstatic.com`）。
+    /// 真机实测正文图会落在 CDN 主机上（与头像同族）：宿主 WebView 直连被热链/挑战挡下，
+    /// 又不在 `linux.do` 名下，所以这条通道必须能覆盖 CDN，否则正文图无路可取。
+    private static func isAllowedMediaUrl(_ value: String) -> Bool {
+        guard !value.isEmpty, let components = URLComponents(string: value) else { return false }
+        guard components.scheme?.lowercased() == "https" else { return false }
+        guard let host = components.host?.lowercased(), !host.isEmpty else { return false }
+        if host == "linux.do" || host.hasSuffix(".linux.do") { return true }
+        return host == "ldstatic.com" || host.hasSuffix(".ldstatic.com")
     }
 
     // MARK: - 会话级 HTTP 客户端
