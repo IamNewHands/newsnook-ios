@@ -176,6 +176,20 @@ xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk 
 - 全屏视频右侧竖滑调整系统媒体音量。
 - 深浅色状态栏、安全区和横竖屏布局正常。
 
+### 2026-09-26 原生插件移植的真机验收项
+
+这 6 个 Swift 文件已通过 macOS 编译（`ios-build.yml` 全绿），但**运行时行为只能在真机确认**。
+逐项清单在各 port spec 里；下面是最关键的 5 条（任何一条失败都说明对应假设不成立）：
+
+1. **代理出口**：设置里填 HTTP 代理后拉一个国际源，确认真的走了代理（`connectionProxyDictionary` 的键名与代理凭据 407 回调都是纸面推断）。
+2. **知乎 Cookie 回传**：知乎登录后翻两页，确认会话不因 `Set-Cookie` 被合并成逗号串而失效（`ProxiedHttp` 逐条回传 `setCookies`）。
+3. **Linux.do 隐藏传输**：打开 Linux.do 正文/阅读记录同步，确认 `loadHTMLString` 的 `document.origin` 是 `https://linux.do`，同源 `fetch` 能带上 Cookie。
+4. **上传进度**：Linux.do 发一张图，确认进度条是平滑推进而不是 15% 直接跳 95%（`didSendBodyData` 是否按块回调）。
+5. **知乎登录整链**：`登录知乎` → 系统登录页 → 回到 App 后账号页显示已登录；杀进程重开仍登录（Cookie 落 Keychain）。
+
+规格与已知取舍：`docs/superpowers/specs/2026-09-26-*.md`（6 篇）；总体计划与审计见
+`docs/superpowers/plans/2026-09-26-ios-native-capability-port.md`。
+
 ## iOS 媒体音量说明
 
 iOS 没有公开的直接设置系统媒体音量 API。本项目通过公开的 `MPVolumeView` 控件尝试调整系统媒体音量；如果当前系统版本或音频路由没有提供可调滑块，应用会自动退回为调整当前视频元素音量，不会导致播放器退出。系统媒体音量效果需在实际支持版本的 iPhone 上确认，不能仅以模拟器结果作为结论。
