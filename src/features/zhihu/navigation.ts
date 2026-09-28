@@ -1,4 +1,4 @@
-import type { RouteAction, RouteFrame, ZhihuRoute } from './types'
+import type { RouteAction, RouteFrame, ZhihuRoute, ZhihuSearchState } from './types'
 
 export function zhihuRouteKey(route: ZhihuRoute): string {
   switch (route.screen) {
@@ -7,7 +7,7 @@ export function zhihuRouteKey(route: ZhihuRoute): string {
     case 'entity':
       return `entity:${route.ref.kind}:${route.ref.id}`
     case 'search':
-      return `search:${route.query}`
+      return `search:${route.restrictedMemberHashId ?? 'all'}:${route.query}`
     case 'editor':
       return `editor:${route.localDraftId}`
     case 'conversation':
@@ -43,4 +43,10 @@ export function reduceRoutes(frames: RouteFrame[], action: RouteAction): RouteFr
 
 export function createZhihuRootFrame(mode: 'recommended' | 'hot' | 'following' = 'recommended'): RouteFrame {
   return { route: { screen: 'feed', mode }, scrollTop: 0 }
+}
+
+export function updateCurrentSearchState(frames: RouteFrame[], searchState: ZhihuSearchState): RouteFrame[] {
+  const current = frames.at(-1)
+  if (!current || current.route.screen !== 'search') return frames
+  return [...frames.slice(0, -1), { ...current, searchState }]
 }

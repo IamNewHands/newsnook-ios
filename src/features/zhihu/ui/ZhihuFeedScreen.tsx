@@ -39,6 +39,7 @@ interface Props {
     item: ZhihuContentSummary,
     action: 'not-interested' | 'less-author',
   ) => void
+  homeRefreshRef?: MutableRefObject<(() => void) | null>
 }
 
 function errorMessage(error: ZhihuApiError): string {
@@ -120,6 +121,7 @@ export function ZhihuFeedScreen({
   onOpen,
   onImpression,
   onRecommendationFeedback,
+  homeRefreshRef,
 }: Props) {
   const pullSurfaceRef = useRef<HTMLDivElement>(null)
   const swipeTrackRef = useRef<HTMLDivElement>(null)
@@ -160,11 +162,19 @@ export function ZhihuFeedScreen({
           : []),
       ]
     : []
-  const { indicatorRef, phase, cancel: cancelPull } = usePullToRefresh({
+  const { indicatorRef, phase, cancel: cancelPull, trigger: triggerPullRefresh } = usePullToRefresh({
     onRefresh,
     containerRef: scrollContainerRef,
     surfaceRef: pullSurfaceRef,
   })
+
+  useEffect(() => {
+    if (!homeRefreshRef) return
+    homeRefreshRef.current = triggerPullRefresh
+    return () => {
+      if (homeRefreshRef.current === triggerPullRefresh) homeRefreshRef.current = null
+    }
+  }, [homeRefreshRef, triggerPullRefresh])
 
   useEffect(() => {
     loadRequestKeyRef.current = ''

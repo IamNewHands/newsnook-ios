@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import { ArrowLeft, Bell, Home, Loader2, ScrollText, Search, UserRound } from 'lucide-react'
 
+import { HomeRefreshButton } from '../../../components/HomeRefreshButton'
 import { PresetSwitcher, type PresetSwitcherProps } from '../../../components/PresetSwitcher'
 import type { CloudTranslationConfig } from '../../translation/types'
 import { ZhihuCollectionService } from '../collection/service'
@@ -18,7 +19,7 @@ import { clearZhihuRecommendationProfile, type ZhihuRecommendationSignalItem } f
 import { createZhihuFeedService } from '../feed/service'
 import { useZhihuFeed } from '../feed/useZhihuFeed'
 import { ZhihuInteractionService } from '../interaction/service'
-import { createZhihuRootFrame, reduceRoutes } from '../navigation'
+import { createZhihuRootFrame, reduceRoutes, updateCurrentSearchState, zhihuRouteKey } from '../navigation'
 import { ZhihuNotificationService } from '../notification/service'
 import { ZhihuMessageDraftStore } from '../notification/draftStore'
 import { ZhihuPeopleService } from '../people/service'
@@ -29,6 +30,7 @@ import type {
   ZhihuContentSummary,
   ZhihuEntityRef,
   ZhihuFeedMode,
+  ZhihuSearchState,
 } from '../types'
 import type { ZhihuSessionSnapshot } from '../session/types'
 import { ZhihuContentScreen, type ZhihuSpeedReadHeaderAction } from './ZhihuContentScreen'
@@ -67,6 +69,7 @@ interface FeedRouteProps {
   ) => void
   authenticated: boolean
   scrollContainerRef: MutableRefObject<HTMLDivElement | null>
+  homeRefreshRef: MutableRefObject<(() => void) | null>
 }
 
 /**
@@ -82,6 +85,7 @@ function ZhihuFeedRoute({
   onRecommendationFeedback,
   authenticated,
   scrollContainerRef,
+  homeRefreshRef,
 }: FeedRouteProps) {
   const openItem = useCallback((item: ZhihuContentSummary) => {
     onOpen(item)
@@ -104,6 +108,7 @@ function ZhihuFeedRoute({
       onOpen={openItem}
       onImpression={onImpression}
       onRecommendationFeedback={onRecommendationFeedback}
+      homeRefreshRef={homeRefreshRef}
     />
   )
 }
@@ -143,7 +148,10 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
   const [speedReadHeaderAction, setSpeedReadHeaderAction] = useState<ZhihuSpeedReadHeaderAction | null>(null)
   const [frames, setFrames] = useState<RouteFrame[]>(() => retainedFrames?.map((frame) => ({ ...frame })) ?? [createZhihuRootFrame()])
   const current = frames.at(-1) ?? createZhihuRootFrame()
+  const currentRouteKey = zhihuRouteKey(current.route)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const feedHomeRefreshRef = useRef<(() => void) | null>(null)
+  const answerPreviewHostRef = useRef<HTMLDivElement>(null)
   const contentOverlayCloserRef = useRef<(() => boolean) | null>(null)
   const feedPreviewRef = useRef(new Map<string, ZhihuContentSummary>())
   const rootFeedFrame = frames.find((frame) => frame.route.screen === 'feed')
@@ -185,7 +193,7 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
     const node = scrollRef.current
     if (!node) return
     requestAnimationFrame(() => node.scrollTo({ top: current.scrollTop }))
-  }, [current])
+  }, [current.scrollTop, currentRouteKey])
 
   const saveScroll = useCallback((source: RouteFrame[]) => {
     if (!source.length) return source
@@ -278,6 +286,17 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
     }))
   }, [saveScroll])
 
+  const updateSearchState = useCallback((state: ZhihuSearchState) => {
+    setFrames((prev) => updateCurrentSearchState(prev, state))
+  }, [])
+
+  const openSearchResult = useCallback((ref: ZhihuEntityRef, state: ZhihuSearchState) => {
+    setFrames((prev) => reduceRoutes(saveScroll(updateCurrentSearchState(prev, state)), {
+      type: 'push',
+      frame: { route: { screen: 'entity', ref }, scrollTop: 0 },
+    }))
+  }, [saveScroll])
+
   const goBack = useCallback(() => {
     if (frames.length <= 1) return false
     setFrames((prev) => reduceRoutes(prev, { type: 'back' }))
@@ -292,6 +311,14 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
     })
     return true
   }, [homeFeedMode, saveScroll])
+
+  const refreshHomeFeed = useCallback(() => {
+    retainedFeedScrolls[homeFeedMode] = 0
+    setFrames((prev) => prev.map((frame) => frame.route.screen === 'feed' && frame.route.mode === homeFeedMode
+      ? { ...frame, scrollTop: 0 }
+      : frame))
+    feedHomeRefreshRef.current?.()
+  }, [homeFeedMode])
 
   const primaryRoute = current.route.screen === 'feed' || current.route.screen === 'notifications' || current.route.screen === 'profile'
   const handleWorkspaceBack = useCallback(() => {
@@ -418,16 +445,18 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
             onRecommendationFeedback={recordFeedRecommendationFeedback}
             authenticated={sessionSnapshot.auth === 'authenticated'}
             scrollContainerRef={scrollRef}
+            homeRefreshRef={feedHomeRefreshRef}
           />
         )
       case 'search':
         return (
           <ZhihuSearchScreen
             initialQuery={current.route.query}
+            initialState={current.searchState}
             service={feedService}
             restrictedMemberHashId={current.route.restrictedMemberHashId}
             restrictedMemberName={current.route.restrictedMemberName}
-            onQueryChange={(query) => setFrames((prev) => reduceRoutes(prev, {
+            onQueryChange={(query, state) => setFrames((prev) => reduceRoutes(prev, {
               type: 'replace',
               frame: {
                 route: {
@@ -437,12 +466,14 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
                   restrictedMemberName: current.route.screen === 'search' ? current.route.restrictedMemberName : undefined,
                 },
                 scrollTop: 0,
+                searchState: state,
               },
             }))}
+            onStateChange={updateSearchState}
             onClearRestriction={() => setFrames((prev) => reduceRoutes(prev, {
               type: 'replace', frame: { route: { screen: 'search', query: current.route.screen === 'search' ? current.route.query : '' }, scrollTop: 0 },
             }))}
-            onOpen={pushEntity}
+            onOpen={openSearchResult}
             scrollContainerRef={scrollRef}
           />
         )
@@ -499,6 +530,7 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
             onRecommendationSignal={recordRecommendationSignal}
             onWriteAnswer={(questionId) => void openAnswerEditor(questionId)}
             scrollContainerRef={scrollRef}
+            answerPreviewHostRef={answerPreviewHostRef}
             fontScale={fontScale}
             onFontScale={onFontScale}
             speedReadConfig={speedReadConfig}
@@ -597,29 +629,35 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
         {primaryRoute && <PresetSwitcher {...presetSwitcher} />}
       </header>
 
-      <div ref={scrollRef} className="reader-font-pinch-surface scroll-hidden min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {sessionRestoreError && (
-          <div role="alert" className="mx-4 mt-3 rounded-xl border border-cinnabar/35 bg-cinnabar/5 px-3 py-2.5 text-[12px] leading-5 text-paper-muted sm:mx-6">
-            账号恢复失败：{sessionRestoreError}。已保留本机数据，请到“我的”重试验证。
-          </div>
-        )}
-        {workspaceError && (
-          <div role="alert" className="mx-4 mt-3 rounded-xl border border-cinnabar/35 bg-cinnabar/5 px-3 py-2.5 text-[12px] leading-5 text-paper-muted sm:mx-6">
-            {workspaceError}
-          </div>
-        )}
-        {body}
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div ref={answerPreviewHostRef} className="pointer-events-none absolute inset-0 z-0 overflow-hidden bg-ink" aria-hidden />
+        <div ref={scrollRef} className="reader-font-pinch-surface scroll-hidden relative z-10 h-full overflow-y-auto overscroll-contain bg-ink">
+          {sessionRestoreError && (
+            <div role="alert" className="mx-4 mt-3 rounded-xl border border-cinnabar/35 bg-cinnabar/5 px-3 py-2.5 text-[12px] leading-5 text-paper-muted sm:mx-6">
+              账号恢复失败：{sessionRestoreError}。已保留本机数据，请到“我的”重试验证。
+            </div>
+          )}
+          {workspaceError && (
+            <div role="alert" className="mx-4 mt-3 rounded-xl border border-cinnabar/35 bg-cinnabar/5 px-3 py-2.5 text-[12px] leading-5 text-paper-muted sm:mx-6">
+              {workspaceError}
+            </div>
+          )}
+          {body}
+        </div>
       </div>
 
       {primaryRoute && (
       <nav className="absolute inset-x-0 bottom-0 z-20 grid grid-cols-3 border-t border-haze/50 bg-ink/92 backdrop-blur-xl" style={{ paddingBottom: 'var(--sab)' }} aria-label="知乎主导航">
-        <button
-          type="button"
-          onClick={goHome}
+        <HomeRefreshButton
+          active={current.route.screen === 'feed'}
+          refreshing={feed.loading}
+          onNavigateHome={goHome}
+          onRefresh={refreshHomeFeed}
           className={`group flex min-h-13 flex-col items-center justify-center gap-0.5 font-mono text-[10.5px] tracking-[0.12em] transition-colors ${current.route.screen === 'feed' ? 'font-medium text-cinnabar' : 'text-paper-muted/75 hover:text-paper'}`}
+          aria-label="首页"
         >
           <Home size={20} strokeWidth={current.route.screen === 'feed' ? 2 : 1.5} className={current.route.screen === 'feed' ? 'scale-105' : ''} /><span>首页</span>
-        </button>
+        </HomeRefreshButton>
         <button
           type="button"
           onClick={() => openPrimaryRoute('notifications')}
