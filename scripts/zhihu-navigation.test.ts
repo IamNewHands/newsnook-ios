@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import { loadActiveSiteId, saveActiveSiteId, type LayoutStorage } from '../src/features/sites/layoutState'
-import { createZhihuRootFrame, reduceRoutes } from '../src/features/zhihu/navigation'
-import type { RouteFrame } from '../src/features/zhihu/types'
+import { createZhihuRootFrame, reduceRoutes, updateCurrentSearchState } from '../src/features/zhihu/navigation'
+import type { RouteFrame, ZhihuSearchState } from '../src/features/zhihu/types'
 import { SOURCES, findSource, findSite } from '../src/sources/registry'
 import { allRegisteredSources } from '../src/sources/preferences/categoryPrefs'
 import { parseSourcePayload } from '../src/lib/parseFeed'
@@ -33,6 +33,33 @@ assert.equal(repeated.at(-1)?.scrollTop, 12)
 assert.deepEqual(reduceRoutes([], { type: 'back' }), [])
 const root = [createZhihuRootFrame()]
 assert.deepEqual(reduceRoutes(root, { type: 'back' }), root, '根栈退出由 App 宿主负责，reducer 不删除根 frame')
+
+const searchState: ZhihuSearchState = {
+  input: '本地优先',
+  query: '本地优先',
+  tab: 'general',
+  sort: 'latest',
+  contentType: 'answer',
+  timeRange: 'month',
+  items: [{
+    ref: { kind: 'answer', id: 'search-answer-1' },
+    title: '搜索结果',
+    excerpt: '已加载结果必须保留',
+    url: 'https://www.zhihu.com/answer/search-answer-1',
+  }],
+  nextCursor: 'search-page-2',
+}
+const searchFrames = updateCurrentSearchState([
+  createZhihuRootFrame(),
+  { route: { screen: 'search', query: '本地优先' }, scrollTop: 640 },
+], searchState)
+const searchAnswerFrames = reduceRoutes(searchFrames, {
+  type: 'push',
+  frame: { route: { screen: 'entity', ref: { kind: 'answer', id: 'search-answer-1' } }, scrollTop: 0 },
+})
+const restoredSearchFrame = reduceRoutes(searchAnswerFrames, { type: 'back' }).at(-1)
+assert.equal(restoredSearchFrame?.scrollTop, 640, '从回答返回搜索结果必须恢复滚动位置')
+assert.deepEqual(restoredSearchFrame?.searchState, searchState, '从回答返回搜索结果必须恢复筛选、结果与分页游标')
 
 const answerStack: RouteFrame[] = [
   createZhihuRootFrame('hot'),

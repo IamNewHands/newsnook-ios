@@ -34,6 +34,43 @@ function htmlText(value: unknown): string {
   return value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+function pinContentHtml(value: unknown): string {
+  if (!Array.isArray(value)) return ''
+  return value.map((rawItem) => {
+    const item = asRecord(rawItem)
+    if (!item) return ''
+    if (item.type === 'image') {
+      const src = imageFromValue(item)
+      if (!src) return ''
+      const alt = stringValue(item.alt_text) ?? stringValue(item.alt) ?? ''
+      return `<figure><img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"></figure>`
+    }
+    const content = stringValue(item.content)?.trim()
+    if (!content) return ''
+    return /<\/?[a-z][^>]*>/i.test(content)
+      ? content
+      : `<p>${escapeHtml(content).replace(/\r?\n/g, '<br>')}</p>`
+  }).filter(Boolean).join('')
+}
+
+function pinContentText(value: unknown): string {
+  if (!Array.isArray(value)) return ''
+  return value
+    .map(asRecord)
+    .map((item) => htmlText(item?.content))
+    .filter(Boolean)
+    .join(' ')
+}
+
 function safeImageUrl(value: unknown): string | undefined {
   const raw = stringValue(value)?.trim().replaceAll('&amp;', '&')
   if (!raw) return undefined
@@ -306,15 +343,17 @@ export function decodeZhihuSummary(value: unknown): ZhihuContentSummary | null {
   const ref: ZhihuEntityRef = { kind, id }
   const question = asRecord(object.question)
   const title = htmlText(stringValue(object.title) ?? stringValue(question?.title) ?? stringValue(object.name))
-  const excerpt = htmlText(stringValue(object.excerpt)) || htmlText(object.content) || ''
-  if (!title && !excerpt) return null
+  const excerpt = htmlText(stringValue(object.excerpt))
+    || htmlText(object.content)
+    || (kind === 'pin' ? pinContentText(object.content) : '')
+  if (!title && !excerpt && kind !== 'pin') return null
   return {
     ref,
-    title: title || excerpt,
+    title: title || excerpt || '知乎想法',
     excerpt: title ? excerpt : '',
     url: canonicalUrl(ref, object),
     author: decodeZhihuAuthor(object.author),
-    voteupCount: numberValue(object.voteup_count),
+    voteupCount: numberValue(object.voteup_count) ?? (kind === 'pin' ? numberValue(object.like_count) : undefined),
     commentCount: numberValue(object.comment_count),
     createdAt: numberValue(object.created_time) ?? numberValue(object.created_at),
     imageUrl: summaryImage(object),
@@ -429,7 +468,10 @@ export function decodeZhihuContentDetail(value: unknown): ZhihuContentDetail {
   const object = asRecord(value)
   const summary = decodeZhihuSummary(object)
   if (!object || !summary) throw new Error('知乎正文缺少实体 id/type')
-  const contentHtml = stringValue(object.content) ?? stringValue(object.detail) ?? ''
+  const contentHtml = stringValue(object.content)
+    ?? (summary.ref.kind === 'pin' ? pinContentHtml(object.content) : undefined)
+    ?? stringValue(object.detail)
+    ?? ''
   const question = asRecord(object.question)
   const reaction = asRecord(object.reaction)
   const relation = asRecord(reaction?.relation)

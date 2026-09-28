@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent, MutableRefObject, ReactNode, RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import { Browser } from '@capacitor/browser'
 import { ChevronDown, ChevronUp, Copy, ExternalLink, Heart, Info, Loader2, LockKeyhole, MessageCircle, MessageSquareQuote, SquarePen, ThumbsDown, ThumbsUp, UserPlus, X } from 'lucide-react'
 import type { ZhihuCommentDraftStore } from '../comments/draftStore'
@@ -8,7 +9,8 @@ import type { ZhihuContentDetail } from '../api/decode'
 import { ZhihuApiError } from '../api/errors'
 import { parseZhihuLink, parseZhihuVideoId } from '../content/links'
 import { normalizeZhihuContentHtml } from '../content/normalize'
-import { ZhihuAnswerNavigator, type ZhihuAnswerNeighbors } from '../content/answerNavigation'
+import { ZhihuAnswerDetailPreloader, ZhihuAnswerNavigator, type ZhihuAnswerNeighbors } from '../content/answerNavigation'
+import { useAnswerSwipe } from '../content/useAnswerSwipe'
 import type { ZhihuContentService } from '../content/service'
 import type { ZhihuRecommendationSignalItem } from '../feed/recommendation'
 import type { ZhihuFeedService } from '../feed/service'
@@ -26,6 +28,7 @@ import { InlineVideoPages } from '../../../components/InlineVideoPages'
 import type { MediaDescriptor } from '../../mediaSniffer/types'
 import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
 import { useReaderFontPinch } from '../../../hooks/useReaderFontPinch'
+import { useReducedMotion } from '../../../hooks/useReducedMotion'
 import { useSpeedRead } from '../../speedRead/useSpeedRead'
 import type { SpeedReadUiState } from '../../speedRead/types'
 import type { CloudTranslationConfig } from '../../translation/types'
@@ -33,7 +36,9 @@ import { ZhihuCollectionPicker } from './ZhihuCollectionPicker'
 import { ZhihuCommentsSection } from './ZhihuCommentsSection'
 import {
   ZhihuAuthorAvatar,
+  ZhihuAnswerContinuation,
   ZhihuAnswerMeta,
+  ZhihuAnswerPeek,
   ZhihuContentRow,
   ZhihuEntityIcon,
   ZhihuErrorBanner,
@@ -63,6 +68,7 @@ interface Props {
   ) => void
   onWriteAnswer: (questionId: string) => void
   scrollContainerRef: RefObject<HTMLElement | null>
+  answerPreviewHostRef: RefObject<HTMLElement | null>
   fontScale: number
   onFontScale: (next: number) => void
   speedReadConfig: CloudTranslationConfig
@@ -299,7 +305,7 @@ export function ZhihuAnswerCommentsDialog({ open, onClose, children }: ZhihuAnsw
   )
 }
 
-export function ZhihuContentScreen({ refValue, preview, contentService, feedService, commentsService, onNavigate, onReplaceNavigate, overlayCloserRef, restoreAnchor, authenticated, accountId, commentDraftStore, interaction, onRecommendationSignal, onWriteAnswer, scrollContainerRef, fontScale, onFontScale, speedReadConfig, onSpeedReadHeaderActionChange }: Props) {
+export function ZhihuContentScreen({ refValue, preview, contentService, feedService, commentsService, onNavigate, onReplaceNavigate, overlayCloserRef, restoreAnchor, authenticated, accountId, commentDraftStore, interaction, onRecommendationSignal, onWriteAnswer, scrollContainerRef, answerPreviewHostRef, fontScale, onFontScale, speedReadConfig, onSpeedReadHeaderActionChange }: Props) {
   const [detail, setDetail] = useState<ZhihuContentDetail | null>(null)
   const [answers, setAnswers] = useState<ZhihuContentSummary[]>([])
   const [answerOrder, setAnswerOrder] = useState<ZhihuQuestionAnswerOrder>('default')
@@ -308,11 +314,18 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
   const [answersLoadingMore, setAnswersLoadingMore] = useState(false)
   const [answersError, setAnswersError] = useState<string | null>(null)
   const answerNavigator = useMemo(() => new ZhihuAnswerNavigator(feedService), [feedService])
+  const answerDetailPreloader = useMemo(() => new ZhihuAnswerDetailPreloader(contentService), [contentService])
   const [answerNeighbors, setAnswerNeighbors] = useState<{
     questionId: string
     answerId: string
     value: ZhihuAnswerNeighbors
   } | null>(null)
+  const [answerNavigationLoading, setAnswerNavigationLoading] = useState(false)
+  const [answerNavigationError, setAnswerNavigationError] = useState<string | null>(null)
+  const [answerNavigationAttempt, setAnswerNavigationAttempt] = useState(0)
+  const [, setAnswerPreviewRevision] = useState(0)
+  const [answerPreviewAttempt, setAnswerPreviewAttempt] = useState(0)
+  const [answerPreviewErrors, setAnswerPreviewErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [voteState, setVoteState] = useState<ZhihuVoteState>('neutral')
@@ -340,6 +353,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
   const [segmentCommentsOpen, setSegmentCommentsOpen] = useState(false)
   const [segmentBusy, setSegmentBusy] = useState(false)
   const [segmentError, setSegmentError] = useState<string | null>(null)
+  const reduced = useReducedMotion()
   const { hudLabel } = useReaderFontPinch({
     targetRef: scrollContainerRef,
     fontScale,
@@ -422,6 +436,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
     setSelectedSegment(null)
     setSegmentCommentsOpen(false)
     setSegmentError(null)
+    setAnswerNavigationError(null)
   }, [refValue.id, refValue.kind, restoreAnchor])
 
   useEffect(() => {
@@ -478,15 +493,19 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
 
   useEffect(() => {
     const controller = new AbortController()
-    setDetail(preview ? detailFromPreview(preview) : null)
+    const cachedAnswer = refValue.kind === 'answer' ? answerDetailPreloader.peek(refValue) : undefined
+    setDetail(cachedAnswer ?? (preview ? detailFromPreview(preview) : null))
     setAnswers([])
     setAnswersCursor(undefined)
     setAnswersHasMore(false)
     setAnswersError(null)
-    setLoading(true)
+    setLoading(!cachedAnswer)
     setError(null)
     setGuestLimited(!authenticated && Boolean(preview))
-    void contentService.read(refValue, controller.signal).then(
+    const detailRequest = refValue.kind === 'answer'
+      ? answerDetailPreloader.load(refValue)
+      : contentService.read(refValue, controller.signal)
+    void detailRequest.then(
       async (value) => {
         if (controller.signal.aborted) return
         setDetail(value)
@@ -527,7 +546,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
       },
     )
     return () => controller.abort()
-  }, [answerOrder, authenticated, contentService, feedService, preview, refValue])
+  }, [answerDetailPreloader, answerOrder, authenticated, contentService, feedService, preview, refValue])
 
   useEffect(() => {
     if (refValue.kind !== 'answer' || detail?.ref.kind !== 'answer' || detail.ref.id !== refValue.id || !detail.questionId) return
@@ -535,16 +554,106 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
     const answerId = refValue.id
     const controller = new AbortController()
     setAnswerNeighbors((current) => current?.questionId === questionId && current.answerId === answerId ? current : null)
+    setAnswerNavigationLoading(true)
+    setAnswerNavigationError(null)
     void answerNavigator.neighbors(questionId, answerId, controller.signal).then(
       (value) => {
-        if (!controller.signal.aborted) setAnswerNeighbors({ questionId, answerId, value })
+        if (!controller.signal.aborted) {
+          setAnswerNeighbors({ questionId, answerId, value })
+          setAnswerNavigationLoading(false)
+        }
       },
-      () => {
-        // 正文已经可读时，回答队列失败只影响上/下一个导航，不抹掉正文。
+      (reason) => {
+        if (!controller.signal.aborted) {
+          setAnswerNavigationError(reason instanceof Error ? reason.message : '回答顺序加载失败')
+          setAnswerNavigationLoading(false)
+        }
       },
     )
     return () => controller.abort()
-  }, [answerNavigator, detail?.questionId, detail?.ref.id, detail?.ref.kind, refValue.id, refValue.kind])
+  }, [answerNavigationAttempt, answerNavigator, detail?.questionId, detail?.ref.id, detail?.ref.kind, refValue.id, refValue.kind])
+
+  const resolvedAnswerNeighbors = answerNeighbors
+    && answerNeighbors.questionId === detail?.questionId
+    && answerNeighbors.answerId === refValue.id
+    ? answerNeighbors.value
+    : null
+  const previousAnswerRef = resolvedAnswerNeighbors?.previous
+  const nextAnswerRef = resolvedAnswerNeighbors?.next
+  useEffect(() => {
+    const targets = [previousAnswerRef, nextAnswerRef].filter((value): value is ZhihuEntityRef => Boolean(value))
+    if (targets.length === 0) return
+    let alive = true
+    for (const target of targets) {
+      if (answerDetailPreloader.peek(target)) {
+        setAnswerPreviewErrors((current) => {
+          if (!(target.id in current)) return current
+          const next = { ...current }
+          delete next[target.id]
+          return next
+        })
+        continue
+      }
+      setAnswerPreviewErrors((current) => {
+        if (!(target.id in current)) return current
+        const next = { ...current }
+        delete next[target.id]
+        return next
+      })
+      void answerDetailPreloader.load(target).then(
+        () => {
+          if (!alive) return
+          setAnswerPreviewErrors((current) => {
+            if (!(target.id in current)) return current
+            const next = { ...current }
+            delete next[target.id]
+            return next
+          })
+          setAnswerPreviewRevision((value) => value + 1)
+        },
+        (reason) => {
+          if (!alive) return
+          setAnswerPreviewErrors((current) => ({
+            ...current,
+            [target.id]: reason instanceof Error ? reason.message : '回答正文预加载失败',
+          }))
+        },
+      )
+    }
+    return () => { alive = false }
+  }, [answerDetailPreloader, answerPreviewAttempt, nextAnswerRef, previousAnswerRef])
+
+  const navigateToAnswer = useCallback((target: ZhihuEntityRef) => {
+    const cached = answerDetailPreloader.peek(target)
+    if (cached) {
+      setDetail(cached)
+      setVoteState(cached.voteState)
+      setVoteCount(cached.voteupCount)
+      setFollowing(cached.isFollowing)
+      setGuestLimited(false)
+      setLoading(false)
+      setError(null)
+    }
+    onReplaceNavigate(target)
+  }, [answerDetailPreloader, onReplaceNavigate])
+
+  const answerSwipe = useAnswerSwipe({
+    containerRef: scrollContainerRef,
+    enabled: refValue.kind === 'answer'
+      && Boolean(detail?.questionId)
+      && !loading
+      && !guestLimited
+      && !lightbox
+      && !commentsOpen
+      && !selectedSegment
+      && !speedReadOpen,
+    reduced,
+    canGo: (direction) => Boolean(direction === 'previous' ? previousAnswerRef : nextAnswerRef),
+    onCommit: (direction) => {
+      const target = direction === 'previous' ? previousAnswerRef : nextAnswerRef
+      if (target) navigateToAnswer(target)
+    },
+  })
 
   const loadMoreAnswers = async () => {
     if (refValue.kind !== 'question' || !answersCursor || answersLoadingMore) return
@@ -712,21 +821,61 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
 
   const voteWritable = canExecuteZhihuOperation('vote.set')
   const questionFollowWritable = canExecuteZhihuOperation(following ? 'follow.question.clear' : 'follow.question.set')
-  const resolvedAnswerNeighbors = answerNeighbors
-    && answerNeighbors.questionId === detail.questionId
-    && answerNeighbors.answerId === refValue.id
-    ? answerNeighbors.value
-    : null
-  const previousAnswerRef = resolvedAnswerNeighbors?.previous
-  const nextAnswerRef = resolvedAnswerNeighbors?.next
   const voteCountLabel = formatZhihuCount(voteCount)
   const commentCountLabel = formatZhihuCount(detail.commentCount)
 
   const actionClass = 'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full border border-haze bg-ink-raised/55 px-3 text-[11px] text-paper-muted transition-colors hover:border-paper-faint/45 hover:bg-ink-raised hover:text-paper disabled:opacity-35'
   const activeActionClass = 'border-cinnabar/45 bg-cinnabar/12 text-cinnabar-soft'
+  const answerPreviewItem = answerSwipe.direction === 'previous'
+    ? resolvedAnswerNeighbors?.previousPreview
+    : resolvedAnswerNeighbors?.nextPreview
+  const answerPreviewRef = answerSwipe.direction === 'previous' ? previousAnswerRef : nextAnswerRef
+  const answerPreviewDetail = answerPreviewRef ? answerDetailPreloader.peek(answerPreviewRef) : undefined
+  const answerPreviewError = answerPreviewRef ? answerPreviewErrors[answerPreviewRef.id] : undefined
+  const answerPreviewUnavailable = answerNavigationError
+    ? '回答顺序加载失败，请在正文底部重试'
+    : answerPreviewError
+      ? `正文预加载失败：${answerPreviewError}。松开后可重试打开`
+    : answerNavigationLoading || !resolvedAnswerNeighbors
+      ? '正在预加载完整回答…'
+      : answerSwipe.direction === 'previous'
+        ? '已是第一个回答'
+        : answerPreviewRef
+          ? '正在预加载完整回答…'
+          : '已是最后一个回答'
+  const answerPreviewProgress = answerSwipe.viewportHeight > 0
+    ? Math.min(1, Math.abs(answerSwipe.dragY) / answerSwipe.viewportHeight)
+    : 0
+  const answerPreviewPortal = answerSwipe.direction && answerPreviewHostRef.current
+    ? createPortal(
+        <div
+          className="absolute inset-0 will-change-transform"
+          style={{
+            transform: answerSwipe.direction === 'previous'
+              ? `translate3d(0, calc(${answerSwipe.dragY}px - 100%), 0)`
+              : `translate3d(0, calc(${answerSwipe.dragY}px + 100%), 0)`,
+            transition: answerSwipe.transitionMs > 0
+              ? `transform ${answerSwipe.transitionMs}ms var(--ease-ink)`
+              : 'none',
+            backfaceVisibility: 'hidden',
+            opacity: 0.86 + answerPreviewProgress * 0.14,
+          }}
+        >
+          <ZhihuAnswerPeek
+            direction={answerSwipe.direction}
+            phase={answerSwipe.phase === 'ready' || answerSwipe.phase === 'committing' ? 'ready' : 'pulling'}
+            item={answerPreviewItem}
+            detail={answerPreviewDetail}
+            unavailableLabel={answerPreviewUnavailable}
+          />
+        </div>,
+        answerPreviewHostRef.current,
+      )
+    : null
 
   return (
     <article className={`mx-auto w-full max-w-3xl px-4 pt-5 sm:px-6 ${refValue.kind === 'answer' ? 'pb-28' : 'pb-24'}`}>
+      {answerPreviewPortal}
       {hudLabel && (
         <div
           className="pointer-events-none fixed left-1/2 top-[40%] z-[70] -translate-x-1/2 rounded-full border border-haze bg-ink/92 px-3.5 py-1.5 font-mono text-[12px] text-paper shadow-lg backdrop-blur-md"
@@ -931,8 +1080,26 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
           onUpVote={() => void toggleVote()}
           onDownVote={() => void toggleDownVote()}
           onOpenComments={() => setCommentsOpen(true)}
-          onPreviousAnswer={previousAnswerRef ? () => onReplaceNavigate(previousAnswerRef) : undefined}
-          onNextAnswer={nextAnswerRef ? () => onReplaceNavigate(nextAnswerRef) : undefined}
+          onPreviousAnswer={previousAnswerRef ? () => navigateToAnswer(previousAnswerRef) : undefined}
+          onNextAnswer={nextAnswerRef ? () => navigateToAnswer(nextAnswerRef) : undefined}
+        />
+      )}
+
+      {refValue.kind === 'answer' && !guestLimited && detail.questionId && (
+        <ZhihuAnswerContinuation
+          state={answerNavigationError || (nextAnswerRef && answerPreviewErrors[nextAnswerRef.id])
+            ? 'error'
+            : answerNavigationLoading || !resolvedAnswerNeighbors
+              ? 'loading'
+              : nextAnswerRef
+                ? 'ready'
+                : 'end'}
+          error={answerNavigationError ?? (nextAnswerRef ? answerPreviewErrors[nextAnswerRef.id] : undefined)}
+          onRetry={answerNavigationError
+            ? () => setAnswerNavigationAttempt((value) => value + 1)
+            : nextAnswerRef && answerPreviewErrors[nextAnswerRef.id]
+              ? () => setAnswerPreviewAttempt((value) => value + 1)
+              : undefined}
         />
       )}
 

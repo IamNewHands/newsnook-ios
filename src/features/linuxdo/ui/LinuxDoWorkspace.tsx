@@ -1,6 +1,7 @@
 import { ArrowLeft, Bell, CheckCircle2, ChevronDown, Compass, Flame, History, ListFilter, Loader2, MessageCircle, Plus, RefreshCcw, Search, Trophy, UserRound, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 
+import { HomeRefreshButton } from '../../../components/HomeRefreshButton'
 import { PresetSwitcher, type PresetSwitcherProps } from '../../../components/PresetSwitcher'
 import { LinuxDoBoostComposer, LinuxDoComposer, LinuxDoTopicView } from './ThreadViews'
 import { BookmarksView, NotificationsView, SearchView } from './CommunityViews'
@@ -99,6 +100,7 @@ function FeedView({
   onSessionExpired,
   categoriesById,
   cacheRef,
+  homeRefreshRef,
 }: {
   mode: LinuxDoFeedMode
   session: LinuxDoSessionSnapshot
@@ -111,6 +113,7 @@ function FeedView({
   onSessionExpired: () => void
   categoriesById: Record<number, LinuxDoCategory>
   cacheRef: MutableRefObject<LinuxDoFeedCache>
+  homeRefreshRef: MutableRefObject<(() => void) | null>
 }) {
   const [items, setItems] = useState<LinuxDoTopicSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -207,6 +210,19 @@ function FeedView({
       }
     }
   }, [mode, session.authenticated, cacheRef, onSessionExpired])
+
+  useEffect(() => {
+    homeRefreshRef.current = () => {
+      if (busyRef.current) return
+      const activeMode = currentModeRef.current
+      if (scrollerRef.current) scrollerRef.current.scrollTo({ top: 0 })
+      cacheRef.current[activeMode] = { ...cacheRef.current[activeMode], scrollTop: 0 }
+      void load(true)
+    }
+    return () => {
+      homeRefreshRef.current = null
+    }
+  }, [cacheRef, homeRefreshRef, load])
 
   useEffect(() => {
     requestIdRef.current += 1
@@ -509,6 +525,9 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
   const [route, setRoute] = useState<Route>({ kind: 'feed', mode: 'latest' })
   const [history, setHistory] = useState<Route[]>([])
   const feedCacheRef = useRef<LinuxDoFeedCache>(createFeedCache())
+  const feedHomeRefreshRef = useRef<(() => void) | null>(null)
+  const lastFeedModeRef = useRef<LinuxDoFeedMode>('latest')
+  if (route.kind === 'feed') lastFeedModeRef.current = route.mode
   const discoverCacheRef = useRef(createLinuxDoDiscoveryCache())
   const searchCacheRef = useRef(createLinuxDoSearchCache())
   const [session, setSession] = useState<LinuxDoSessionSnapshot>({ authenticated: false, authMode: 'none' })
@@ -734,6 +753,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
             onLogin={() => navigate({ kind: 'account' })}
             onSessionExpired={expireWorkspaceSession}
             categoriesById={workspaceCategories}
+            homeRefreshRef={feedHomeRefreshRef}
           />
         ) : route.kind === 'topic' ? (
           <LinuxDoTopicView summary={route.topic} session={session} targetPostNumber={route.targetPostNumber} postMutation={topicPostMutation} overlayBackHandlerRef={topicOverlayBackHandlerRef} onReadProgress={applyTopicReadProgress} onSession={applyWorkspaceSession} onBack={() => { if (!goBack()) setRoute({ kind: 'feed', mode: 'latest' }) }} onCompose={(topic, options) => { setComposerTopic(topic); setComposerEditPost(undefined); setComposerInitialRaw(options?.initialRaw || ''); setComposerReplyTo(options?.replyToPostNumber); setComposerOpen(true) }} onBoost={setBoostPost} onOpenUser={(username) => navigate({ kind: 'user', username })} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenTag={(name) => navigate({ kind: 'discover', scope: { kind: 'tag', name } })} onOpenCategory={(category) => navigate({ kind: 'discover', scope: { kind: 'category', category } })} categoriesById={workspaceCategories} onEdit={(topic, post) => {
@@ -761,7 +781,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
       </div>
 
       <nav className="linuxdo-bottom-nav linuxdo-control relative z-30 mx-2 sm:mx-3 mb-[max(10px,var(--sab))] mt-2 grid shrink-0 grid-cols-5 items-end rounded-[22px] sm:rounded-[24px] border border-haze/70 bg-ink-raised/95 px-2 py-1.5 shadow-2xl backdrop-blur-xl select-none">
-        <button type="button" onClick={() => setRoute({ kind: 'feed', mode: route.kind === 'feed' ? route.mode : 'latest' })} className={'linuxdo-nav-item ' + (route.kind === 'feed' ? 'is-active' : '')} aria-label="首页"><MessageCircle size={18} /><span>首页</span></button>
+        <HomeRefreshButton active={route.kind === 'feed'} onNavigateHome={() => setRoute({ kind: 'feed', mode: lastFeedModeRef.current })} onRefresh={() => feedHomeRefreshRef.current?.()} className={'linuxdo-nav-item ' + (route.kind === 'feed' ? 'is-active' : '')} aria-label="首页"><MessageCircle size={18} /><span>首页</span></HomeRefreshButton>
         <button type="button" onClick={() => setRoute({ kind: 'discover' })} className={'linuxdo-nav-item ' + (route.kind === 'discover' ? 'is-active' : '')} aria-label="发现"><Compass size={18} /><span>发现</span></button>
         <button type="button" onClick={() => { setComposerTopic(undefined); setComposerEditPost(undefined); setComposerInitialRaw(''); setComposerReplyTo(undefined); setComposerOpen(true) }} className="linuxdo-nav-compose" aria-label="发布"><span className="grid h-12 w-12 place-items-center rounded-full bg-cinnabar text-white shadow-lg"><Plus size={22} /></span><span>发布</span></button>
         <button type="button" onClick={() => setRoute({ kind: 'notifications' })} className={'linuxdo-nav-item relative ' + (route.kind === 'notifications' ? 'is-active' : '')} aria-label="通知"><Bell size={18} /><span>通知</span>{notificationUnread > 0 ? <i className="absolute right-[24%] top-1 h-2 w-2 rounded-full bg-[#ff4d4f]" /> : null}</button>
