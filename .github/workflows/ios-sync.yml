@@ -152,14 +152,19 @@ jobs:
             git cherry-pick --abort || true
             exit 1
           fi
-          echo "layer_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-          # 3) 版本号跟随上游（本地 Xcode 打开工程时也要正确）
+          # 3) 版本号跟随上游（本地 Xcode 打开工程时也要正确）。
+          #    必须并进上面这个「iOS 层」提交，**不能**再单独提交一次：
+          #    main 的树必须与 ios-layer 的树逐字节一致（下一次运行的 drift guard 会校验），
+          #    而 promote 推给 ios-layer 的正是 layer_sha。单独提交版本号会让两者立刻差一个
+          #    文件（MARKETING_VERSION），下一次同步就会挂在 drift guard 上。
           node scripts/ios-set-marketing-version.mjs "$version"
           git add -A
           if ! git diff --cached --quiet; then
-            git commit -m "chore(ios): set MARKETING_VERSION to $version"
+            git commit --amend --no-edit
           fi
+
+          echo "layer_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
           git push origin "HEAD:refs/heads/$branch"
           echo "已推送同步分支：$branch"
@@ -214,7 +219,9 @@ jobs:
         run: |
           set -euo pipefail
           # ios-layer 只是补丁源，必须始终是「上游 tag + 单提交 iOS 层」，
-          # 因此这里用 force 把它收敛到本次的纯 iOS 层提交（不含版本号提交）。
+          # 因此这里用 force 把它收敛到本次的 iOS 层提交。
+          # 注意：这个提交里已经并进了 MARKETING_VERSION 的改动，与 main 的树逐字节一致 ——
+          # drift guard 要求两者相同，所以版本号不能拆成单独提交。
           git push --force origin "$LAYER_SHA:refs/heads/ios-layer"
           echo "ios-layer 已指向 $LAYER_SHA"
 

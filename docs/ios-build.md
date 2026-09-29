@@ -58,8 +58,10 @@ tag 固定 `ios-latest`，资产名固定 `NewsNook-unsigned.ipa`，**每次构�
 `ios-layer` 分支的 tip 永远是一个**单提交**，内容 = 「某个上游 tag + 完整 iOS 层」。同步时：
 
 1. 把 `main` 的树整体换成新 tag 的树，但让提交的 parent 仍是 `main`。因此 `main` 是纯追加历史，**只快进、从不 force-push**。
-2. `git cherry-pick ios-layer` 做三方合并：能自动合就自动合。
-3. 冲突就**明确失败并开 issue**——`main` 不动，也不发布任何 Release，绝不静默产出坏包。
+2. `git cherry-pick ios-layer` 做三方合并：能自动合就自动合。`MARKETING_VERSION`
+   的同步也**并进这一个提交**（`--amend`），不能拆成单独提交——`main` 与 `ios-layer`
+   的树必须逐字节相同，`promote` 又只把「iOS 层提交」推给 `ios-layer`。
+3. 冲突就**明确失败并报在 run summary**——`main` 不动，也不发布任何 Release，绝不静默产出坏包。
 
 冲突几乎只会出现在 iOS 层依赖的这几个文件上：`src/BootstrapRoot.tsx`、`src/lib/deviceMediaControls.ts`、`capacitor.config.ts`、`package.json`。
 
