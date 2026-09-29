@@ -1,11 +1,15 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
 
 import { mapConcurrent as sharedMapConcurrent } from '../../lib/asyncPool'
+import { translateAzureFreeBatch, translateGoogleFreeBatch } from './freeProviders'
 import {
+  AppleTranslation,
   BergamotTranslation,
+  isAppleTranslationAvailable,
   isBergamotTranslationAvailable,
   isLocalTranslationAvailable,
   MlKitTranslation,
+  type AppleTranslationApi,
 } from './native'
 import {
   assertOpenAiConfig,
@@ -43,6 +47,18 @@ const LANGUAGE_MAP: Record<
     en: 'en',
     'zh-Hans': 'zh',
     'zh-Hant': 'zh',
+    ja: 'ja',
+    ko: 'ko',
+    fr: 'fr',
+    de: 'de',
+    es: 'es',
+  },
+  // Apple 的 Translation 框架直接吃 BCP-47，所以这里保持应用自己的语言 id，
+  // 让 zh-Hans / zh-Hant 在系统侧保持区分。
+  apple: {
+    en: 'en',
+    'zh-Hans': 'zh-Hans',
+    'zh-Hant': 'zh-Hant',
     ja: 'ja',
     ko: 'ko',
     fr: 'fr',
@@ -126,6 +142,11 @@ function cloudSourceLanguage(
 
 export function mlKitLanguage(code: TranslationLanguage): TranslationLanguage {
   return language('mlkit', code) as TranslationLanguage
+}
+
+/** iOS 系统翻译的语言标识（BCP-47，与应用自身的语言 id 一致）。 */
+export function appleLanguage(code: TranslationLanguage): TranslationLanguage {
+  return language('apple', code) as TranslationLanguage
 }
 
 function assertCloudConfig(
@@ -398,6 +419,44 @@ async function mapConcurrentBestEffort<T, R>(
   return results
 }
 
+/**
+ * 把待翻译文本切成批次。
+ *
+ * `groupIds` 给出来源段落的分组（同一个段落里的多个文本节点同组）：
+ * 段落一旦被切到两个批次，前半段先出译文、后半段还留在原文，
+ * 读者会看到「一段的末尾还是英文，等下一批才补上」。所以只在组边界上切批，
+ * 组内文本永远整批送出——批次因此可能比 `maxItems` 多几项。
+ */
+export function planBatches(
+  lengths: readonly number[],
+  maxItems: number,
+  maxChars: number,
+  groupIds?: readonly number[],
+): { start: number; end: number }[] {
+  const grouped = groupIds != null && groupIds.length === lengths.length
+  const ranges: { start: number; end: number }[] = []
+  let start = 0
+  let chars = 0
+
+  for (let index = 0; index < lengths.length; index += 1) {
+    const length = lengths[index]
+    const atGroupBoundary =
+      !grouped || index === 0 || groupIds[index] !== groupIds[index - 1]
+    if (
+      index > start &&
+      atGroupBoundary &&
+      (index - start >= maxItems || chars + length > maxChars)
+    ) {
+      ranges.push({ start, end: index })
+      start = index
+      chars = 0
+    }
+    chars += length
+  }
+  if (start < lengths.length) ranges.push({ start, end: lengths.length })
+  return ranges
+}
+
 async function inBatches(
   texts: string[],
   maxItems: number,
@@ -405,31 +464,25 @@ async function inBatches(
   translateBatch: (batch: string[]) => Promise<string[]>,
   signal?: AbortSignal,
   onBatch?: (batchTranslations: string[], startIndex: number) => void,
+  groupIds?: readonly number[],
 ): Promise<string[]> {
   const result: string[] = []
-  let batch: string[] = []
-  let chars = 0
+  const ranges = planBatches(
+    texts.map((text) => text.length),
+    maxItems,
+    maxChars,
+    groupIds,
+  )
 
-  const flush = async () => {
-    if (!batch.length) return
+  for (const { start, end } of ranges) {
     if (signal?.aborted) throw new DOMException('翻译已取消', 'AbortError')
-    const currentStartIndex = result.length
-    const currentBatch = batch
-    batch = []
-    chars = 0
-
+    const currentBatch = texts.slice(start, end)
     const translated = await translateBatch(currentBatch)
     if (translated.length !== currentBatch.length) throw new Error('翻译服务返回的段落数量不匹配')
     result.push(...translated)
-    onBatch?.(translated, currentStartIndex)
+    onBatch?.(translated, start)
   }
 
-  for (const text of texts) {
-    if (batch.length && (batch.length >= maxItems || chars + text.length > maxChars)) await flush()
-    batch.push(text)
-    chars += text.length
-  }
-  await flush()
   return result
 }
 
@@ -453,8 +506,54 @@ export class MlKitProvider implements TranslationProvider {
         ).translations,
       request.signal,
       request.onBatch,
+      request.groupIds,
     )
     return response
+  }
+}
+
+/**
+ * 系统语言包由 iOS 自己下载与管理，App 只能读状态、不能装。
+ * 而**只有** `.translationTask` 交出来的 session 能触发系统的下载弹窗，
+ * 所以翻译前先问一次状态：没装就先 `prepareTranslation()` 把系统弹窗带出来，
+ * 用户确认后同语对的 session 会被原生侧复用，接着就能翻。
+ *
+ * 抽成独立函数是为了能在 Node 测试里用假 API 验证这条分支。
+ */
+export async function ensureAppleLanguagePack(
+  api: Pick<AppleTranslationApi, 'getLanguageStatus' | 'prepareLanguagePack'>,
+  sourceLanguage: TranslationLanguage,
+  targetLanguage: TranslationLanguage,
+): Promise<void> {
+  const state = await api.getLanguageStatus({ sourceLanguage, targetLanguage })
+  if (state.status !== 'supported') return
+  await api.prepareLanguagePack({ sourceLanguage, targetLanguage })
+}
+
+/** iOS 18+ 系统内置翻译：语言包由系统管理，装好之后完全离线。 */
+export class AppleTranslationProvider implements TranslationProvider {
+  readonly id = 'apple' as const
+
+  async translate(request: TranslationRequest): Promise<string[]> {
+    if (!isAppleTranslationAvailable()) {
+      throw new Error('当前系统不支持 iOS 内置翻译（需要 iOS 18 及以上）')
+    }
+    const sourceLanguage = requireConcreteSource(this.id, request.sourceLanguage)
+    const source = language(this.id, sourceLanguage) as TranslationLanguage
+    const target = language(this.id, request.targetLanguage) as TranslationLanguage
+    // 自动检测时原文语言是本地识别出来的具体语言，这里同样能按需触发下载。
+    await ensureAppleLanguagePack(AppleTranslation, source, target)
+    return inBatches(
+      request.texts,
+      DEFAULT_BATCH_ITEMS,
+      DEFAULT_BATCH_CHARS,
+      async (texts) =>
+        (await AppleTranslation.translate({ texts, sourceLanguage: source, targetLanguage: target }))
+          .translations,
+      request.signal,
+      request.onBatch,
+      request.groupIds,
+    )
   }
 }
 
@@ -484,6 +583,7 @@ export class BergamotProvider implements TranslationProvider {
         ).translations,
       request.signal,
       request.onBatch,
+      request.groupIds,
     )
     return response
   }
@@ -503,8 +603,21 @@ export class GoogleProvider extends CloudProvider {
   readonly id = 'google' as const
 
   async translate(request: TranslationRequest): Promise<string[]> {
-    assertCloudConfig(this.config)
     const source = cloudSourceLanguage(this.id, request.sourceLanguage)
+    const target = language(this.id, request.targetLanguage)
+    // 未填 Key：走 Chrome 系内置翻译的免费端点；填了 Key 才用官方 Cloud Translation。
+    if (!this.config.apiKey.trim()) {
+      return inBatches(
+        request.texts,
+        DEFAULT_BATCH_ITEMS,
+        DEFAULT_BATCH_CHARS,
+        (texts) => translateGoogleFreeBatch(texts, source, target, request.signal),
+        request.signal,
+        request.onBatch,
+        request.groupIds,
+      )
+    }
+    assertCloudConfig(this.config)
     return inBatches(
       request.texts,
       DEFAULT_BATCH_ITEMS,
@@ -515,7 +628,7 @@ export class GoogleProvider extends CloudProvider {
           {
             q: texts,
             ...(source ? { source } : {}),
-            target: language(this.id, request.targetLanguage),
+            target,
             format: 'text',
           },
           { 'X-Goog-Api-Key': this.config.apiKey.trim() },
@@ -529,6 +642,7 @@ export class GoogleProvider extends CloudProvider {
       },
       request.signal,
       request.onBatch,
+      request.groupIds,
     )
   }
 }
@@ -537,12 +651,25 @@ export class AzureProvider extends CloudProvider {
   readonly id = 'azure' as const
 
   async translate(request: TranslationRequest): Promise<string[]> {
+    const source = cloudSourceLanguage(this.id, request.sourceLanguage)
+    const target = language(this.id, request.targetLanguage)
+    // 未填 Key：走 Edge 内置翻译的免费令牌网关；填了 Key 才用官方 Azure Translator。
+    if (!this.config.apiKey.trim()) {
+      return inBatches(
+        request.texts,
+        DEFAULT_BATCH_ITEMS,
+        DEFAULT_BATCH_CHARS,
+        (texts) => translateAzureFreeBatch(texts, source, target, request.signal),
+        request.signal,
+        request.onBatch,
+        request.groupIds,
+      )
+    }
     assertCloudConfig(this.config)
     const url = new URL(this.config.endpoint)
     url.searchParams.set('api-version', '3.0')
-    const source = cloudSourceLanguage(this.id, request.sourceLanguage)
     if (source) url.searchParams.set('from', source)
-    url.searchParams.set('to', language(this.id, request.targetLanguage))
+    url.searchParams.set('to', target)
     return inBatches(
       request.texts,
       DEFAULT_BATCH_ITEMS,
@@ -568,6 +695,7 @@ export class AzureProvider extends CloudProvider {
       },
       request.signal,
       request.onBatch,
+      request.groupIds,
     )
   }
 }
@@ -599,6 +727,7 @@ export class DeepLProvider extends CloudProvider {
       },
       request.signal,
       request.onBatch,
+      request.groupIds,
     )
   }
 }
@@ -660,6 +789,7 @@ export class DeepLXProvider extends CloudProvider {
         },
         request.signal,
         request.onBatch,
+        request.groupIds,
       )
     }
 
@@ -871,6 +1001,7 @@ export function createTranslationProvider(
 ): TranslationProvider {
   if (providerId === 'mlkit') return new MlKitProvider()
   if (providerId === 'bergamot') return new BergamotProvider()
+  if (providerId === 'apple') return new AppleTranslationProvider()
   if (!config) throw new Error('翻译服务配置缺失')
   if (providerId === 'google') return new GoogleProvider(config)
   if (providerId === 'azure') return new AzureProvider(config)

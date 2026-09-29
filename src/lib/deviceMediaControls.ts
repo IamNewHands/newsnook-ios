@@ -121,6 +121,10 @@ const MIN_BRIGHTNESS = 0.02
 /** 蒙层兜底时最多压暗到这个程度，保留可辨识的画面。 */
 const MAX_SCRIM = 0.82
 
+export function brightnessScrimForLevel(level: number): number {
+  return (1 - clampLevel(level)) * MAX_SCRIM
+}
+
 /**
  * @param applyScrim 蒙层兜底的渲染回调，入参为 0~1 的压暗程度。
  */
@@ -133,7 +137,7 @@ export function createBrightnessControl(applyScrim: (dim: number) => void): Leve
       },
       async write(next) {
         level = clampLevel(next)
-        applyScrim((1 - level) * MAX_SCRIM)
+        applyScrim(brightnessScrimForLevel(level))
         return level
       },
       release() {
@@ -156,12 +160,15 @@ export function createBrightnessControl(applyScrim: (dim: number) => void): Leve
       const target = Math.max(MIN_BRIGHTNESS, clampLevel(next))
       try {
         const { value } = await DeviceMediaControls.setBrightness({ value: target })
+        applyScrim(0)
         return clampLevel(value)
       } catch {
+        applyScrim(brightnessScrimForLevel(target))
         return target
       }
     },
     release() {
+      applyScrim(0)
       void DeviceMediaControls.clearBrightness().catch(() => {})
     },
   }

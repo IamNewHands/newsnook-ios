@@ -15,15 +15,29 @@ import { planNodeUpstream } from './src/features/proxy/nodeAgent.ts'
 import type { ProxyPrefs } from './src/features/proxy/types.ts'
 import { type NewsSource } from './src/sources/registry.ts'
 import { applyWebViewCssCompat } from './scripts/webview-css-compat.ts'
+import { applyUiScale } from './scripts/ui-scale-css.ts'
 
 const { version: appVersion } = JSON.parse(readFileSync('./package.json', 'utf-8')) as {
   version: string
 }
 
-/** 构建年月戳，如 2026.08 */
+/**
+ * 构建戳，显示在「我的 → 关于」的「构建」上。
+ *
+ * 必须**每次构建都不一样**。自签安装时 `CFBundleShortVersionString` 固定跟随上游
+ * （1.8.9，设备端工具靠它判断有没有新版本，不能改），所以如果这里也只到「年月」，
+ * 同一个上游版本下的所有构建在设备上完全无法区分：用户报「插件没生效」时，
+ * 第一步就卡在「你到底装的是哪一版」，而答案恰恰决定了是代码问题还是装错包。
+ * CI 里用 run number + 短 SHA；本地开发用日期 + 时分。
+ */
 function buildStamp(): string {
+  const run = process.env.GITHUB_RUN_NUMBER?.trim()
+  const sha = process.env.GITHUB_SHA?.trim().slice(0, 7)
+  if (run) return sha ? `${run}-${sha}` : run
   const now = new Date()
-  return `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}`
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const date = `${now.getFullYear()}.${pad(now.getMonth() + 1)}.${pad(now.getDate())}`
+  return `${date}-${pad(now.getHours())}${pad(now.getMinutes())}`
 }
 
 const BROWSER_UA =
@@ -700,7 +714,8 @@ function unlayerCssPlugin(): Plugin {
 
           // lightningcss 不降级 :where()（Chrome 88+）；剥离 @property 后部分
           // Android WebView 又匹配不到 Tailwind 的 @supports 变量兜底 → divide-y 等失效
-          file.source = applyWebViewCssCompat(css)
+          // 最后一步：把所有 px 字号挂到 --ui-scale 上，供「界面字体」设置项消费
+          file.source = applyUiScale(applyWebViewCssCompat(css))
         }
       }
     },

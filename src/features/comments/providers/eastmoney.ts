@@ -167,6 +167,7 @@ function briefUrl(newsId: string): string {
 }
 
 export const eastmoneyCommentProvider: CommentProvider = {
+  label: '跟贴',
   canHandle(article) {
     if (article.sourceId && EASTMONEY_SOURCE_IDS.has(article.sourceId)) return true
     if (isEastmoneyHost(article.originUrl)) return true
