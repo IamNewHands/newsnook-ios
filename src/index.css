@@ -91,53 +91,11 @@
   --color-cinnabar-soft: var(--tone-cinnabar-soft);
   --color-haze: var(--tone-haze);
 
-  /*
-   * 界面字体：--ui-font / --ui-font-display 是「界面字体」设置项的落点，
-   * usePreferences 会以 documentElement 行内样式覆盖同名变量。
-   * 这里的两条默认值与加入该设置项之前完全一致，默认档零观感变化。
-   *
-   * --ui-scale 由构建期把生成的所有 px 字号挂上去（scripts/ui-scale-css.ts），
-   * 因此源码里的 text-[11px] 之类的写法不需要逐个改写。
-   */
-  --ui-font: 'Noto Sans SC', 'PingFang SC', system-ui, sans-serif;
-  --ui-font-display: 'Noto Serif SC', 'Songti SC', serif;
-  --ui-scale: 1;
-
-  /*
-   * 界面字重：Tailwind v4 的 font-normal / font-medium / font-semibold 会生成
-   * `font-weight: var(--font-weight-*)`，所以覆盖这几个主题变量即可整体抬升界面字重，
-   * 不必逐个改写 250 多处工具类。这里的默认值与 Tailwind 缺省一致，默认档零观感变化。
-   * 正文（.reader-prose / .reader-table-scroll 等）用的是独立字重，不受本设置影响。
-   */
-  --font-weight-normal: 400;
-  --font-weight-medium: 500;
-  --font-weight-semibold: 600;
-  --font-weight-bold: 700;
-
-  --font-display: 'Instrument Serif', var(--ui-font-display);
-  --font-body: var(--ui-font);
+  --font-display: 'Instrument Serif', 'Noto Serif SC', 'Songti SC', serif;
+  --font-body: 'Noto Sans SC', 'PingFang SC', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SFMono-Regular', ui-monospace, monospace;
 
   --ease-ink: cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-/*
- * 界面字重档位：在 Tailwind 缺省值上整体 +100 / +200，上限 800（再高汉字容易糊成一团）。
- * 放在 @theme 之外、不加 @layer，因此晚于 @layer theme 生效并能覆盖主题变量。
- * 由 usePreferences 把档位写到 documentElement 的 data-ui-weight 上。
- */
-:root[data-ui-weight='medium'] {
-  --font-weight-normal: 500;
-  --font-weight-medium: 600;
-  --font-weight-semibold: 700;
-  --font-weight-bold: 800;
-}
-
-:root[data-ui-weight='bold'] {
-  --font-weight-normal: 600;
-  --font-weight-medium: 700;
-  --font-weight-semibold: 800;
-  --font-weight-bold: 800;
 }
 
 /* 夜读（默认）：冷墨底 + 暖纸字 */
@@ -355,7 +313,7 @@
   --dim-hidden: brightness(0.72);
   --grain-opacity: 0;
 
-  --font-display: var(--ui-font);
+  --font-display: 'Noto Sans SC', 'PingFang SC', system-ui, sans-serif;
 
   --color-ink: var(--tone-ink);
   --color-ink-raised: var(--tone-ink-raised);
@@ -399,7 +357,7 @@
   --dim-hidden: contrast(0.78) saturate(0.5);
   --grain-opacity: 0;
 
-  --font-display: var(--ui-font);
+  --font-display: 'Noto Sans SC', 'PingFang SC', system-ui, sans-serif;
 
   --color-ink: var(--tone-ink);
   --color-ink-raised: var(--tone-ink-raised);
@@ -1085,14 +1043,6 @@ html[data-eink='1'] .preset-switcher-sheet {
 .reader-swipe-surface {
   touch-action: pan-y;
   overscroll-behavior-x: none;
-  /*
-   * 合成层在**挂载时**就建好，而不是等右滑的第一帧才建。
-   * 只靠 hook 在 begin() 里写 will-change 的话，「升层 + 首次栅格化」两件事都挤在
-   * 手指刚动的那几帧里；正文很长时那就是起步一顿、后面一路拖影。
-   */
-  will-change: transform;
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
 }
 
 .reader-font-pinch-surface {
@@ -1101,46 +1051,6 @@ html[data-eink='1'] .preset-switcher-sheet {
 
 .reader-swipe-surface[data-swipe-back-active='true'] {
   box-shadow: -18px 0 38px rgb(0 0 0 / 38%);
-}
-
-/*
- * 右滑返回期间关掉会跟着一起移动的毛玻璃采样。
- *
- * 这里只点名真正挂了 backdrop-filter 的宿主（阅读器顶栏、翻页手柄），不在整棵
- * 正文字树上用 `*` 广播：正文动辄几千个节点，`X *` 会让每次手势起步都要全量
- * 重算样式、并把整层重新栅格化，手指刚动的那一帧就顿一下。挪走毛玻璃的宿主
- * 只有这几个，采样成本却能省掉。
- */
-.reader-swipe-surface[data-swipe-back-active='true'] [data-surface='reader-chrome'],
-.reader-swipe-surface[data-swipe-back-active='true'] [data-reader-float-nav] {
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-}
-
-/*
- * 顶栏原本靠 blur 遮住正文，blur 关掉后要换成不透明底色，
- * 否则正文会从 90% 不透明的底色里透出来。
- */
-.reader-swipe-surface[data-swipe-back-active='true'] [data-surface='reader-chrome'] {
-  background-color: var(--color-ink) !important;
-}
-
-/*
- * 浮层（跟贴抽屉 / 底部面板）的右滑返回表面。
- *
- * 这里**故意不写** `will-change: transform`：静态提升会把浮层根节点变成自己的
- * backdrop root，抽屉遮罩的 `backdrop-blur` 就再也采样不到身后的正文（挂载时
- * 就得建层的活由 hook 在手势判定的那一帧做，浮层只有一屏，代价远小于正文）。
- * 拖动期间遮罩的毛玻璃要关掉，否则每帧都要重新采样身后的正文。
- */
-.swipe-back-surface[data-swipe-back-active='true'] {
-  box-shadow: -16px 0 34px rgb(0 0 0 / 34%);
-}
-
-.swipe-back-surface[data-swipe-back-active='true'],
-.swipe-back-surface[data-swipe-back-active='true'] > * {
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
 }
 
 .reader-prose img {
@@ -3165,8 +3075,7 @@ html[data-eink='1'] .lead-cover-veil {
 
 .reader-prose.linuxdo-post-prose [data-linuxdo-role='image-block'].is-failed::after,
 .reader-prose.linuxdo-post-prose [data-linuxdo-role='image-paragraph'].is-failed::after {
-  /* 带上取字节失败的原因（data-reader-image-error），真机排查时一眼看到断在哪一步。 */
-  content: '图片加载失败 · ' attr(data-reader-image-error) ' · 点按重试';
+  content: '图片加载失败 · 点按重试';
   display: flex;
   min-height: 96px;
   align-items: center;
@@ -3174,8 +3083,6 @@ html[data-eink='1'] .lead-cover-veil {
   color: var(--color-paper-faint);
   font-size: 12px;
   line-height: 1.5;
-  text-align: center;
-  padding: 0 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {

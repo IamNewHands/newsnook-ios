@@ -1,7 +1,6 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 
 import { getRuntimeProxyPrefs } from '../../lib/http'
-import { log } from '../../lib/logger'
 import { currentProxyRuntime } from '../proxy/runtime'
 import { resolveProxyTransport } from '../proxy/transport'
 import { isHttpUrl } from './classifier'
@@ -109,23 +108,15 @@ export async function prepareNativeMediaPlayback(options: {
   const playbackUrl = nativePreparePlaybackUrl(options)
   const origins = collectPlaybackOrigins(options)
   if (!playbackUrl) return intercept
-  try {
-    await NativeMediaSniffer.preparePlayback({
-      url: playbackUrl,
-      intercept,
-      sourcePage: options.sourcePage,
-      format: options.format,
-      headers: options.headers,
-      ...(origins.length ? { origins } : {}),
-      ...(transport.kind === 'native-tunnel' ? { proxy: transport.tunnel } : {}),
-    })
-  } catch (error: unknown) {
-    // 原生播放上下文是**加分项**：它只是把抓到的 Referer/Cookie 交给原生链路。
-    // 插件缺席或平台没实现（例如 iOS）时必须降级成「直连播放」，绝不能让
-    // 调用方（投屏、播放器）因为这一步失败而整体失败。
-    log.sniffer.debug('native media prepare skipped', { error })
-    return false
-  }
+  await NativeMediaSniffer.preparePlayback({
+    url: playbackUrl,
+    intercept,
+    sourcePage: options.sourcePage,
+    format: options.format,
+    headers: options.headers,
+    ...(origins.length ? { origins } : {}),
+    ...(transport.kind === 'native-tunnel' ? { proxy: transport.tunnel } : {}),
+  })
   return intercept
 }
 
@@ -134,17 +125,11 @@ let cachedStreamProxyPort: number | null = null
 export async function getNativeStreamProxyPort(): Promise<number | null> {
   if (!Capacitor.isNativePlatform()) return null
   if (cachedStreamProxyPort != null) return cachedStreamProxyPort
-  try {
-    const result = await NativeMediaSniffer.getStreamProxyPort()
-    const port = Number(result?.port)
-    if (!Number.isFinite(port) || port <= 0) return null
-    cachedStreamProxyPort = port
-    return port
-  } catch (error: unknown) {
-    // 没有本地中转端口就等于「不需要中转」，不是错误：直连播放照常。
-    log.sniffer.debug('native stream proxy unavailable', { error })
-    return null
-  }
+  const result = await NativeMediaSniffer.getStreamProxyPort()
+  const port = Number(result?.port)
+  if (!Number.isFinite(port) || port <= 0) return null
+  cachedStreamProxyPort = port
+  return port
 }
 
 export async function nativeStreamProxyUrl(url: string, session?: string): Promise<string | null> {
@@ -207,16 +192,10 @@ export async function observeMediaInNativePage(
       // Older installed native shells may not expose the incremental event;
       // the final sniff result remains a compatible fallback.
     }
-    let final: MediaObservation[] = []
-    try {
-      const result = await NativeMediaSniffer.sniff({ url, timeoutMs, referrer, sessionId })
-      final = Array.isArray(result.observations)
-        ? observationsWithoutSessionNonce(result.observations)
-        : []
-    } catch (error: unknown) {
-      // 插件缺席或平台没实现：保留已经流式收到的观察结果，别一起丢掉。
-      log.sniffer.debug('native sniff unavailable', { error })
-    }
+    const result = await NativeMediaSniffer.sniff({ url, timeoutMs, referrer, sessionId })
+    const final = Array.isArray(result.observations)
+      ? observationsWithoutSessionNonce(result.observations)
+      : []
     const seen = new Set(final.map(observationIdentity))
     for (const observation of streamed) {
       if (seen.has(observationIdentity(observation))) continue
@@ -228,19 +207,13 @@ export async function observeMediaInNativePage(
   }
 }
 
-/**
- * 「原站播放器」内嵌视图：Android 是覆盖在 WebView 上的原生 WebView，
- * iOS 同样是原生 WKWebView 覆盖层（`MediaSnifferLiveSession`）。
- */
-const LIVE_SNIFF_PLATFORMS = ['android', 'ios']
-
 export async function startNativeLiveSniffSession(options: {
   url: string
   referrer?: string
   onObservation: (observation: MediaObservation) => void
 }): Promise<{ sessionId: string; stop: () => Promise<void> }> {
-  if (!LIVE_SNIFF_PLATFORMS.includes(Capacitor.getPlatform())) {
-    throw new Error('Live sniff session requires a native shell')
+  if (Capacitor.getPlatform() !== 'android') {
+    throw new Error('Live sniff session is Android-only')
   }
   const sessionId = typeof globalThis.crypto?.randomUUID === 'function'
     ? globalThis.crypto.randomUUID()
@@ -272,7 +245,7 @@ export async function startNativeLiveSniffSession(options: {
 }
 
 export async function setNativeLiveSessionVisible(visible: boolean): Promise<void> {
-  if (!LIVE_SNIFF_PLATFORMS.includes(Capacitor.getPlatform())) return
+  if (Capacitor.getPlatform() !== 'android') return
   await NativeMediaSniffer.setLiveSessionVisible({ visible }).catch(() => undefined)
 }
 
@@ -283,7 +256,7 @@ export async function setNativeLiveSessionBounds(bounds: {
   height: number
   cornerRadius?: number
 }): Promise<void> {
-  if (!LIVE_SNIFF_PLATFORMS.includes(Capacitor.getPlatform())) return
+  if (Capacitor.getPlatform() !== 'android') return
   await NativeMediaSniffer.setLiveSessionBounds(bounds).catch(() => undefined)
 }
 

@@ -34,6 +34,43 @@ function htmlText(value: unknown): string {
   return value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+function pinContentHtml(value: unknown): string {
+  if (!Array.isArray(value)) return ''
+  return value.map((rawItem) => {
+    const item = asRecord(rawItem)
+    if (!item) return ''
+    if (item.type === 'image') {
+      const src = imageFromValue(item)
+      if (!src) return ''
+      const alt = stringValue(item.alt_text) ?? stringValue(item.alt) ?? ''
+      return `<figure><img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"></figure>`
+    }
+    const content = stringValue(item.content)?.trim()
+    if (!content) return ''
+    return /<\/?[a-z][^>]*>/i.test(content)
+      ? content
+      : `<p>${escapeHtml(content).replace(/\r?\n/g, '<br>')}</p>`
+  }).filter(Boolean).join('')
+}
+
+function pinContentText(value: unknown): string {
+  if (!Array.isArray(value)) return ''
+  return value
+    .map(asRecord)
+    .map((item) => htmlText(item?.content))
+    .filter(Boolean)
+    .join(' ')
+}
+
 function safeImageUrl(value: unknown): string | undefined {
   const raw = stringValue(value)?.trim().replaceAll('&amp;', '&')
   if (!raw) return undefined
@@ -306,15 +343,17 @@ export function decodeZhihuSummary(value: unknown): ZhihuContentSummary | null {
   const ref: ZhihuEntityRef = { kind, id }
   const question = asRecord(object.question)
   const title = htmlText(stringValue(object.title) ?? stringValue(question?.title) ?? stringValue(object.name))
-  const excerpt = htmlText(stringValue(object.excerpt)) || htmlText(object.content) || ''
-  if (!title && !excerpt) return null
+  const excerpt = htmlText(stringValue(object.excerpt))
+    || htmlText(object.content)
+    || (kind === 'pin' ? pinContentText(object.content) : '')
+  if (!title && !excerpt && kind !== 'pin') return null
   return {
     ref,
-    title: title || excerpt,
+    title: title || excerpt || '知乎想法',
     excerpt: title ? excerpt : '',
     url: canonicalUrl(ref, object),
     author: decodeZhihuAuthor(object.author),
-    voteupCount: numberValue(object.voteup_count),
+    voteupCount: numberValue(object.voteup_count) ?? (kind === 'pin' ? numberValue(object.like_count) : undefined),
     commentCount: numberValue(object.comment_count),
     createdAt: numberValue(object.created_time) ?? numberValue(object.created_at),
     imageUrl: summaryImage(object),
@@ -425,63 +464,14 @@ export interface ZhihuContentDetail extends ZhihuContentSummary {
   isFollowing: boolean
 }
 
-/**
- * 详情接口的实体身份。
- *
- * 列表接口可以靠「标题与摘要都没有就不算一条内容」把脏数据丢掉，详情接口不能：
- * 付费回答、纯视频回答、被折叠的回答都可能一个字的文本都没有，但实体本身还在。
- * 认不出 type 时还可以退回调用方请求的 ref——既然这次请求就是冲着它来的，
- * 就不该因为上游漏了 type 把整篇正文报成「缺少实体 id/type」。
- */
-function detailEntityRef(object: JsonRecord, fallback?: ZhihuEntityRef): ZhihuEntityRef | null {
-  const kind = entityKind(object.type) ?? (object.question && object.content ? 'answer' : null)
-  const id = stringValue(object.id)
-  if (kind && id) return { kind, id }
-  return fallback ?? null
-}
-
-/**
- * 详情接口的兜底摘要：只要实体身份成立就返回，正文照原样交给上层渲染。
- * 标题只在真拿到标题时才用：把正文首段当标题会在详情页顶出一整篇正文。
- */
-function decodeDetailSummary(object: JsonRecord, fallback?: ZhihuEntityRef): ZhihuContentSummary | null {
-  // 错误载荷没有实体身份可言，不能拿请求的 ref 硬认领成一篇空正文。
-  if (isZhihuErrorPayload(object)) return null
-  const ref = detailEntityRef(object, fallback)
-  if (!ref) return null
-  const question = asRecord(object.question)
-  const contentHtml = stringValue(object.content) ?? stringValue(object.detail) ?? ''
-  const shortExcerpt = htmlText(stringValue(object.excerpt))
-  return {
-    ref,
-    title: htmlText(stringValue(object.title) ?? stringValue(question?.title) ?? stringValue(object.name)) || shortExcerpt,
-    excerpt: shortExcerpt || htmlText(contentHtml),
-    url: canonicalUrl(ref, object),
-    author: decodeZhihuAuthor(object.author),
-    voteupCount: numberValue(object.voteup_count),
-    commentCount: numberValue(object.comment_count),
-    createdAt: numberValue(object.created_time) ?? numberValue(object.created_at),
-    imageUrl: summaryImage(object),
-  }
-}
-
-/** 上游对已删除 / 不可访问的内容返回错误载荷：既没有实体身份，也没有正文。 */
-function isZhihuErrorPayload(object: JsonRecord): boolean {
-  return Boolean(object.error) || typeof object.code === 'number'
-}
-
-export function decodeZhihuContentDetail(
-  value: unknown,
-  requestedRef?: ZhihuEntityRef,
-): ZhihuContentDetail {
+export function decodeZhihuContentDetail(value: unknown): ZhihuContentDetail {
   const object = asRecord(value)
-  if (!object) throw new Error('知乎正文缺少实体 id/type')
-  const summary = decodeZhihuSummary(object) ?? decodeDetailSummary(object, requestedRef)
-  if (!summary) {
-    if (isZhihuErrorPayload(object)) throw new Error('这条知乎内容已被删除或暂时不可访问')
-    throw new Error('知乎正文缺少实体 id/type')
-  }
-  const contentHtml = stringValue(object.content) ?? stringValue(object.detail) ?? ''
+  const summary = decodeZhihuSummary(object)
+  if (!object || !summary) throw new Error('知乎正文缺少实体 id/type')
+  const contentHtml = stringValue(object.content)
+    ?? (summary.ref.kind === 'pin' ? pinContentHtml(object.content) : undefined)
+    ?? stringValue(object.detail)
+    ?? ''
   const question = asRecord(object.question)
   const reaction = asRecord(object.reaction)
   const relation = asRecord(reaction?.relation)

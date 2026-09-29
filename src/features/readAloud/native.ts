@@ -65,15 +65,9 @@ interface ReadAloudNativePlugin {
 export const ReadAloudNative =
   registerPlugin<ReadAloudNativePlugin>('ReadAloud')
 
-/**
- * 有原生朗读出口的平台。Android 是 `ReadAloudPlugin` + `ReadAloudPlaybackService`，
- * iOS 是 `ReadAloudPlugin`（AVSpeechSynthesizer + 后台音频会话），JS 侧接口一致。
- */
-const NATIVE_READ_ALOUD_PLATFORMS = ['android', 'ios']
-
 export function isNativeReadAloudAvailable(): boolean {
   return (
-    NATIVE_READ_ALOUD_PLATFORMS.includes(Capacitor.getPlatform()) &&
+    Capacitor.getPlatform() === 'android' &&
     Capacitor.isPluginAvailable('ReadAloud')
   )
 }

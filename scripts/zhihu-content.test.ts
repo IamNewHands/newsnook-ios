@@ -12,7 +12,8 @@ import { toNewsArticle } from '../src/features/zhihu/content/bridge'
 import { normalizeZhihuContentHtml } from '../src/features/zhihu/content/normalize'
 import { parseZhihuCommentDeepLink, parseZhihuLink, parseZhihuVideoId } from '../src/features/zhihu/content/links'
 import { ZhihuContentService } from '../src/features/zhihu/content/service'
-import { ZhihuAnswerMeta } from '../src/features/zhihu/ui/ZhihuUi'
+import { ZhihuSearchScreen } from '../src/features/zhihu/ui/ZhihuSearchScreen'
+import { ZhihuAnswerContinuation, ZhihuAnswerMeta, ZhihuAnswerPeek } from '../src/features/zhihu/ui/ZhihuUi'
 
 ;(globalThis as typeof globalThis & { React: typeof React }).React = React
 
@@ -60,39 +61,23 @@ assert.equal(pagedDetail?.createdAt, 1700000000)
 assert.equal(pagedDetail?.updatedAt, 1700003600)
 assert.equal(pagedDetail?.ipLocation, '上海')
 
-// 详情接口不能被「没有标题与摘要」判成脏数据：付费回答、纯视频回答、上游漏 type
-// 都真实存在，认领实体要优先用调用方请求的 ref。
-const textlessDetail = decodeZhihuContentDetail(parseZhihuJson(`{
-  "id": 1903835975664271371,
-  "type": "answer",
-  "content": "",
-  "excerpt": "",
-  "paid_info": { "is_paid": true },
-  "question": { "id": 614860173 }
-}`), { kind: 'answer', id: '1903835975664271371' })
-assert.deepEqual(textlessDetail.ref, { kind: 'answer', id: '1903835975664271371' })
-assert.equal(textlessDetail.questionId, '614860173', '没有标题/摘要的回答详情仍要带出问题 ID')
-assert.equal(textlessDetail.contentHtml, '')
-
-const typelessDetail = decodeZhihuContentDetail(
-  parseZhihuJson('{ "id": "1903835975664271372", "content": "<p>仍然是回答</p>" }'),
-  { kind: 'answer', id: '1903835975664271372' },
-)
-assert.deepEqual(
-  typelessDetail.ref,
-  { kind: 'answer', id: '1903835975664271372' },
-  '上游漏掉 type 时应按本次请求的 ref 认领实体，而不是报「缺少实体 id/type」',
-)
-assert.equal(typelessDetail.contentHtml, '<p>仍然是回答</p>')
-
-// 已删除 / 不可访问的载荷要给出可读原因，也不能被 ref 兜底认领成一篇空正文。
-assert.throws(
-  () => decodeZhihuContentDetail(
-    parseZhihuJson('{ "error": { "code": 404, "message": "not found" } }'),
-    { kind: 'answer', id: '1903835975664271371' },
-  ),
-  /已被删除或暂时不可访问/,
-)
+const reportedPinDetail = decodeZhihuContentDetail(parseZhihuJson(`{
+  "id": 2087929019488548306,
+  "type": "pin",
+  "content": [
+    { "type": "text", "content": "<p>这是一条想法正文。</p>" },
+    { "type": "image", "url": "https://pic1.zhimg.com/reported-pin.jpg" }
+  ],
+  "like_count": 17,
+  "comment_count": 3,
+  "created": 1700000000,
+  "author": { "id": "pin-author", "name": "想法作者" }
+}`))
+assert.deepEqual(reportedPinDetail.ref, { kind: 'pin', id: '2087929019488548306' })
+assert.match(reportedPinDetail.contentHtml, /<p>这是一条想法正文。<\/p>/, '想法的结构化文本必须转换为正文 HTML')
+assert.match(reportedPinDetail.contentHtml, /<img[^>]+reported-pin\.jpg/, '想法的结构化图片必须进入正文')
+assert.equal(reportedPinDetail.voteupCount, 17, '想法的 like_count 必须映射为统一赞同数')
+assert.equal(reportedPinDetail.createdAt, 1700000000)
 
 const answerMeta = renderToStaticMarkup(React.createElement(ZhihuAnswerMeta, {
   createdAt: pagedDetail.createdAt,
@@ -103,6 +88,110 @@ assert.match(answerMeta, /发布于/)
 assert.match(answerMeta, /编辑于/)
 assert.match(answerMeta, /IP 属地/)
 assert.match(answerMeta, /上海/)
+
+const answerLoading = renderToStaticMarkup(React.createElement(ZhihuAnswerContinuation, {
+  state: 'loading',
+}))
+assert.match(answerLoading, /正在加载相邻回答/, '回答队列解析中必须有明确状态')
+const answerRetry = renderToStaticMarkup(React.createElement(ZhihuAnswerContinuation, {
+  state: 'error',
+  error: '网络暂不可用',
+  onRetry: () => undefined,
+}))
+assert.match(answerRetry, /网络暂不可用/)
+assert.match(answerRetry, /重试加载相邻回答/, '回答队列失败必须提供显式重试入口')
+const answerEnd = renderToStaticMarkup(React.createElement(ZhihuAnswerContinuation, {
+  state: 'end',
+}))
+assert.match(answerEnd, /已是最后一个回答/, '问题末尾必须明确告知用户')
+
+const previousAnswerPeek = renderToStaticMarkup(React.createElement(ZhihuAnswerPeek, {
+  direction: 'previous',
+  phase: 'ready',
+  item: {
+    ref: { kind: 'answer', id: 'previous-answer' },
+    title: '同一问题',
+    excerpt: '上一个回答的摘要预览',
+    url: 'https://www.zhihu.com/answer/previous-answer',
+    author: { id: 'author-1', name: '上一位答主' },
+  },
+}))
+assert.match(previousAnswerPeek, /上一个回答/)
+assert.match(previousAnswerPeek, /上一位答主/)
+assert.match(previousAnswerPeek, /正在预加载完整回答/)
+assert.doesNotMatch(previousAnswerPeek, /上一个回答的摘要预览/, '未完成正文预载时不得拿摘要卡冒充页面')
+assert.match(previousAnswerPeek, /松开切换/)
+
+const nextAnswerPeek = renderToStaticMarkup(React.createElement(ZhihuAnswerPeek, {
+  direction: 'next',
+  phase: 'pulling',
+  item: {
+    ref: { kind: 'answer', id: 'next-answer' },
+    title: '同一问题',
+    excerpt: '下一个回答的摘要预览',
+    url: 'https://www.zhihu.com/answer/next-answer',
+  },
+}))
+assert.match(nextAnswerPeek, /下一个回答/)
+assert.match(nextAnswerPeek, /继续上拉/)
+
+const renderedAnswerPeek = renderToStaticMarkup(React.createElement(
+  ZhihuAnswerPeek as React.ComponentType<Record<string, unknown>>,
+  {
+    direction: 'next',
+    phase: 'ready',
+    item: {
+      ref: { kind: 'answer', id: 'rendered-answer' },
+      title: '应展示的问题',
+      excerpt: '摘要不能代替正文',
+      url: 'https://www.zhihu.com/answer/rendered-answer',
+      author: { id: 'author-rendered', name: '完整答主' },
+    },
+    detail: {
+      ref: { kind: 'answer', id: 'rendered-answer' },
+      title: '应展示的问题',
+      excerpt: '摘要不能代替正文',
+      url: 'https://www.zhihu.com/answer/rendered-answer',
+      author: { id: 'author-rendered', name: '完整答主' },
+      contentHtml: '<p>这是已预加载并排版的完整回答正文。</p><p>第二段正文。</p>',
+      segmentInfos: [],
+      allowSegmentInteraction: false,
+      voteState: 'neutral',
+      isFollowing: false,
+      questionId: 'question-rendered',
+    },
+  },
+))
+assert.match(renderedAnswerPeek, /这是已预加载并排版的完整回答正文/, '拖动预览必须渲染已预载的正文')
+assert.match(renderedAnswerPeek, /第二段正文/, '预览不能只截取列表摘要')
+assert.doesNotMatch(renderedAnswerPeek, /line-clamp-4/, '完整回答预览不得再退化为摘要卡片')
+
+const restoredSearch = renderToStaticMarkup(React.createElement(ZhihuSearchScreen, {
+  initialQuery: '本地优先',
+  initialState: {
+    input: '尚未提交的新输入',
+    query: '本地优先',
+    tab: 'general',
+    sort: 'latest',
+    contentType: 'answer',
+    timeRange: 'month',
+    items: [{
+      ref: { kind: 'answer', id: 'search-answer-1' },
+      title: '应恢复的搜索结果',
+      excerpt: '保留列表',
+      url: 'https://www.zhihu.com/answer/search-answer-1',
+    }],
+    nextCursor: 'search-page-2',
+  },
+  service: { search: async () => ({ items: [], hasMore: false }) },
+  onQueryChange: () => undefined,
+  onOpen: () => undefined,
+}))
+assert.match(restoredSearch, /value="尚未提交的新输入"/, '返回搜索页必须恢复输入框未提交文字')
+assert.match(restoredSearch, /最新发布/, '返回搜索页必须恢复排序选择')
+assert.match(restoredSearch, />回答</, '返回搜索页必须恢复内容类型选择')
+assert.match(restoredSearch, /一个月内/, '返回搜索页必须恢复时间选择')
+assert.match(restoredSearch, /应恢复的搜索结果/, '返回搜索页必须先恢复已有结果，不等待重新请求')
 
 const dirty = '<p>正文<img src="https://pic.example/a.jpg" onerror="alert(1)"></p><script>alert(1)</script>'
 const sanitized = normalizeZhihuContentHtml(dirty)

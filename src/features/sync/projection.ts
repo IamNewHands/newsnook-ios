@@ -34,15 +34,12 @@ export const SETTING_KEYS = {
 
 /**
  * 明确留在本机、永远不上传的设置。
- * 墨水屏与流量策略跟着具体硬件走，预存策略跟着本机存储容量走；
- * 界面字体跟着设备上实际装了什么字体走（iOS 有苹方/宋体/楷体，桌面端没有），
- * 界面字号也跟着屏幕尺寸走，同步过去只会互相打架。
+ * 墨水屏与流量策略跟着具体硬件走，预存策略跟着本机存储容量走。
  */
 export const DEVICE_LOCAL_SETTING_FIELDS = [
   'einkMode',
   'wifiOnlyAutoLoadMedia',
   'prestore',
-  'ui',
 ] as const
 
 export const CLOUD_TRANSLATION_PROVIDER_IDS: CloudTranslationProviderId[] = [

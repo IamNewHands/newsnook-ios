@@ -1,4 +1,4 @@
-export type LocalTranslationProviderId = 'mlkit' | 'bergamot' | 'apple'
+export type LocalTranslationProviderId = 'mlkit' | 'bergamot'
 
 export type CloudTranslationProviderId = 'google' | 'azure' | 'deepl' | 'deeplx' | 'openai'
 
@@ -92,11 +92,6 @@ export interface TranslationRequest {
   targetLanguage: TranslationLanguage
   /** 与 texts 等长；缺省时 OpenAI 按 paragraph 处理 */
   textKinds?: TranslationTextKind[]
-  /**
-   * 与 texts 等长；同一个来源段落拆出的多个文本节点共用一个分组号。
-   * 批处理只在分组边界切批，避免一个段落被切到两批、出现半段译文半段原文。
-   */
-  groupIds?: readonly number[]
   signal?: AbortSignal
   onBatch?: (batchTranslations: string[], startIndex: number) => void
 }
@@ -129,6 +124,6 @@ export interface TranslateArticleOptions {
 export function isLocalTranslationProviderId(
   id: TranslationProviderId,
 ): id is LocalTranslationProviderId {
-  return id === 'mlkit' || id === 'bergamot' || id === 'apple'
+  return id === 'mlkit' || id === 'bergamot'
 }
 

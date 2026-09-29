@@ -43,6 +43,7 @@ export interface RouteFrame {
   /** 评论/段落等稳定锚点；返回时交由页面恢复。 */
   anchor?: string
   scrollTop: number
+  searchState?: ZhihuSearchState
 }
 
 export type RouteAction =
@@ -73,4 +74,15 @@ export interface ZhihuContentSummary {
   recommendationSource?: 'web' | 'android' | 'hot' | 'following' | 'local'
   /** 本地推荐必须解释“为什么看到它”，不能做黑箱排序。 */
   recommendationReason?: string
+}
+
+export interface ZhihuSearchState {
+  input: string
+  query: string
+  tab: 'general' | 'people' | 'topic'
+  sort: 'default' | 'latest' | 'most-voted'
+  contentType: 'all' | 'answer' | 'article'
+  timeRange: 'all' | 'day' | 'week' | 'month' | 'three-months' | 'half-year' | 'year'
+  items: ZhihuContentSummary[]
+  nextCursor?: string
 }

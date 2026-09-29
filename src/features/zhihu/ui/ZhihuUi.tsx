@@ -1,7 +1,9 @@
-import type { ReactNode } from 'react'
+import { useMemo, useRef, type ReactNode } from 'react'
 import {
   Bookmark,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   CircleHelp,
   FileText,
   Hash,
@@ -14,6 +16,9 @@ import {
 } from 'lucide-react'
 
 import type { ZhihuAuthor, ZhihuContentSummary, ZhihuEntityKind } from '../types'
+import type { ZhihuContentDetail } from '../api/decode'
+import { normalizeZhihuContentHtml } from '../content/normalize'
+import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
 import { formatZhihuCount, zhihuEntityLabel } from './ZhihuUiUtils'
 
 export function ZhihuEntityIcon({ kind, size = 13 }: { kind: ZhihuEntityKind; size?: number }) {
@@ -110,6 +115,134 @@ export function ZhihuErrorBanner({ children }: { children: ReactNode }) {
   return (
     <div role="alert" className="rounded-xl border border-cinnabar/30 bg-cinnabar/8 px-3.5 py-3 text-[12px] leading-relaxed text-paper-muted">
       {children}
+    </div>
+  )
+}
+
+export function ZhihuAnswerContinuation({
+  state,
+  error,
+  onRetry,
+}: {
+  state: 'loading' | 'ready' | 'end' | 'error'
+  error?: string | null
+  onRetry?: () => void
+}) {
+  return (
+    <div className="mt-8 flex min-h-20 items-center justify-center border-t border-haze/45 pt-5 text-center font-mono text-[10.5px] tracking-[0.06em] text-paper-faint">
+      {state === 'loading' && (
+        <span className="inline-flex items-center gap-2">
+          <LoaderCircle size={14} className="animate-spin text-cinnabar-soft" />
+          正在加载相邻回答…
+        </span>
+      )}
+      {state === 'ready' && <span>到达底部后，再持续上拉预览下一个回答</span>}
+      {state === 'end' && <span>已是最后一个回答</span>}
+      {state === 'error' && (
+        <div className="flex flex-col items-center gap-2.5">
+          <span className="max-w-md text-cinnabar-soft">{error || '回答顺序加载失败'}</span>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="min-h-9 rounded-full border border-cinnabar/40 bg-cinnabar/10 px-4 text-cinnabar-soft transition-colors hover:bg-cinnabar/18"
+            >
+              重试加载相邻回答
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function ZhihuAnswerPeek({
+  direction,
+  phase,
+  item,
+  detail,
+  unavailableLabel,
+}: {
+  direction: 'previous' | 'next'
+  phase: 'pulling' | 'ready'
+  item?: ZhihuContentSummary
+  detail?: ZhihuContentDetail
+  unavailableLabel?: string
+}) {
+  const previous = direction === 'previous'
+  const proseRef = useRef<HTMLDivElement | null>(null)
+  const normalizedHtml = useMemo(
+    () => detail
+      ? normalizeZhihuContentHtml(detail.contentHtml, detail.segmentInfos, detail.ref)
+      : '',
+    [detail],
+  )
+  const normalizedMarkup = useMemo(() => ({ __html: normalizedHtml }), [normalizedHtml])
+  useProgressiveImages(proseRef, normalizedHtml, Boolean(normalizedHtml), {
+    autoLoad: true,
+    forceNativeFallback: true,
+    imageReferer: 'https://www.zhihu.com/',
+  })
+  const content = detail ?? item
+  return (
+    <div className="relative h-full w-full overflow-hidden bg-ink" aria-hidden>
+      <div className={`pointer-events-none absolute inset-x-0 z-10 flex justify-center px-4 ${previous ? 'bottom-3' : 'top-3'}`}>
+        <div className="flex items-center gap-2 rounded-full border border-haze/75 bg-ink/92 px-3 py-1.5 font-mono text-[10px] tracking-[0.1em] text-cinnabar-soft shadow-lg backdrop-blur-xl">
+          {previous ? <ChevronUp size={14} strokeWidth={1.8} /> : <ChevronDown size={14} strokeWidth={1.8} />}
+          <span>{previous ? '上一个回答' : '下一个回答'}</span>
+          <span className="text-paper-faint">{phase === 'ready' ? '松开切换' : previous ? '继续下拉' : '继续上拉'}</span>
+        </div>
+      </div>
+
+      <article className="mx-auto w-full max-w-3xl px-4 pb-24 pt-5 sm:px-6">
+        <header className="border-b border-haze/55 pb-5">
+          {content ? (
+            <>
+              <h1 className="font-display text-[27px] font-medium leading-[1.34] tracking-[0.003em] text-paper sm:text-[31px]">
+                {content.title}
+              </h1>
+              {content.author && (
+                <div className="mt-3 flex items-center gap-2 text-[12px] text-paper-muted">
+                  <ZhihuAuthorAvatar author={content.author} className="size-8" />
+                  <span className="max-w-[18rem] truncate font-medium">{content.author.name}</span>
+                  {content.author.headline && <span className="max-w-full truncate text-paper-faint">{content.author.headline}</span>}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="space-y-3 py-1">
+              <div className="h-8 w-[82%] rounded-lg bg-haze/45" />
+              <div className="h-8 w-36 rounded-full bg-haze/35" />
+            </div>
+          )}
+        </header>
+
+        {detail ? (
+          <>
+            <div
+              ref={proseRef}
+              className="reader-prose zhihu-prose mt-6 text-paper"
+              data-article-lang="zh"
+              dangerouslySetInnerHTML={normalizedMarkup}
+            />
+            <ZhihuAnswerMeta
+              createdAt={detail.createdAt}
+              updatedAt={detail.updatedAt}
+              ipLocation={detail.ipLocation}
+            />
+          </>
+        ) : (
+          <div className="mt-6 space-y-3" role="status">
+            <div className="h-4 w-full rounded bg-haze/38" />
+            <div className="h-4 w-[94%] rounded bg-haze/35" />
+            <div className="h-4 w-[88%] rounded bg-haze/32" />
+            <div className="h-4 w-[72%] rounded bg-haze/28" />
+            <p className="pt-3 text-center font-mono text-[10px] tracking-[0.06em] text-paper-faint">
+              {unavailableLabel ?? '正在预加载完整回答…'}
+            </p>
+          </div>
+        )}
+      </article>
     </div>
   )
 }

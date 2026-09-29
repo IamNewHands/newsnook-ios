@@ -1,10 +1,8 @@
 import { ArrowLeft, Bell, CheckCircle2, ChevronDown, Compass, Flame, History, ListFilter, Loader2, MessageCircle, Plus, RefreshCcw, Search, Trophy, UserRound, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 
+import { HomeRefreshButton } from '../../../components/HomeRefreshButton'
 import { PresetSwitcher, type PresetSwitcherProps } from '../../../components/PresetSwitcher'
-import { useEdgeSwipeBack } from '../../../hooks/useEdgeSwipeBack'
-import { useReducedMotion } from '../../../hooks/useReducedMotion'
-import { EDGE_WIDTH_PX, isEdgeStart } from '../../../lib/edgeSwipeBack'
 import { LinuxDoBoostComposer, LinuxDoComposer, LinuxDoTopicView } from './ThreadViews'
 import { BookmarksView, NotificationsView, SearchView } from './CommunityViews'
 import { DiscoverView } from './DiscoverView'
@@ -102,6 +100,7 @@ function FeedView({
   onSessionExpired,
   categoriesById,
   cacheRef,
+  homeRefreshRef,
 }: {
   mode: LinuxDoFeedMode
   session: LinuxDoSessionSnapshot
@@ -114,6 +113,7 @@ function FeedView({
   onSessionExpired: () => void
   categoriesById: Record<number, LinuxDoCategory>
   cacheRef: MutableRefObject<LinuxDoFeedCache>
+  homeRefreshRef: MutableRefObject<(() => void) | null>
 }) {
   const [items, setItems] = useState<LinuxDoTopicSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -212,6 +212,19 @@ function FeedView({
   }, [mode, session.authenticated, cacheRef, onSessionExpired])
 
   useEffect(() => {
+    homeRefreshRef.current = () => {
+      if (busyRef.current) return
+      const activeMode = currentModeRef.current
+      if (scrollerRef.current) scrollerRef.current.scrollTo({ top: 0 })
+      cacheRef.current[activeMode] = { ...cacheRef.current[activeMode], scrollTop: 0 }
+      void load(true)
+    }
+    return () => {
+      homeRefreshRef.current = null
+    }
+  }, [cacheRef, homeRefreshRef, load])
+
+  useEffect(() => {
     requestIdRef.current += 1
     busyRef.current = false
     currentModeRef.current = mode
@@ -272,18 +285,6 @@ function FeedView({
   const onTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
     if (target.closest('button,a,input,textarea,[role="dialog"]')) {
-      touchStartX.current = null
-      touchStartY.current = null
-      touchIntent.current = null
-      return
-    }
-    const touch = event.touches[0]
-    // 左缘窄条是返回手势的起步区：切标签必须让位，否则一次右滑会同时
-    // 「返回上一级 + 切到上一个标签」。判据与 useEdgeSwipeBack(edgeOnly) 同源。
-    if (
-      touch &&
-      isEdgeStart(touch.clientX, EDGE_WIDTH_PX, event.currentTarget.getBoundingClientRect().left)
-    ) {
       touchStartX.current = null
       touchStartY.current = null
       touchIntent.current = null
@@ -524,8 +525,9 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
   const [route, setRoute] = useState<Route>({ kind: 'feed', mode: 'latest' })
   const [history, setHistory] = useState<Route[]>([])
   const feedCacheRef = useRef<LinuxDoFeedCache>(createFeedCache())
-  const shellRef = useRef<HTMLDivElement | null>(null)
-  const reduced = useReducedMotion()
+  const feedHomeRefreshRef = useRef<(() => void) | null>(null)
+  const lastFeedModeRef = useRef<LinuxDoFeedMode>('latest')
+  if (route.kind === 'feed') lastFeedModeRef.current = route.mode
   const discoverCacheRef = useRef(createLinuxDoDiscoveryCache())
   const searchCacheRef = useRef(createLinuxDoSearchCache())
   const [session, setSession] = useState<LinuxDoSessionSnapshot>({ authenticated: false, authMode: 'none' })
@@ -679,39 +681,19 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
     setComposerEditPost(undefined)
   }, [])
 
-  /**
-   * 工作区统一返回优先级，系统返回键与左缘右滑共用同一份实现——
-   * 两条入口若各写一套，迟早会漂移（一边能关弹层、另一边直接退工作区）。
-   */
-  const handleWorkspaceBack = useCallback(() => {
-    if (topicOverlayBackHandlerRef.current?.()) return true
-    if (boostPost) { setBoostPost(null); return true }
-    if (composerOpen) { composerRequestCloseRef.current?.(); return true }
-    if (route.kind === 'discover' && route.scope) {
-      setRoute({ kind: 'discover' })
-      return true
-    }
-    return goBack()
-  }, [boostPost, composerOpen, goBack, route])
-
   useEffect(() => {
-    backHandlerRef.current = handleWorkspaceBack
+    backHandlerRef.current = () => {
+      if (topicOverlayBackHandlerRef.current?.()) return true
+      if (boostPost) { setBoostPost(null); return true }
+      if (composerOpen) { composerRequestCloseRef.current?.(); return true }
+      if (route.kind === 'discover' && route.scope) {
+        setRoute({ kind: 'discover' })
+        return true
+      }
+      return goBack()
+    }
     return () => { backHandlerRef.current = null }
-  }, [backHandlerRef, handleWorkspaceBack])
-
-  // 左缘右滑返回：与系统返回同一套优先级（主题内浮层 → 加精弹层 → 发帖器 →
-  // 发现子域 → 路由栈），退到根仍无历史时交给 onExit 退出工作区。
-  // 弹层打开时禁用拖拽，避免把底下的工作区拖走。
-  useEdgeSwipeBack({
-    containerRef: shellRef,
-    onBack: () => {
-      if (!handleWorkspaceBack()) onExit()
-    },
-    disabled: composerOpen || Boolean(boostPost),
-    edgeOnly: true,
-    reduced,
-    resetAfterBack: true,
-  })
+  }, [backHandlerRef, boostPost, composerOpen, goBack, route])
 
   const verify = async (): Promise<boolean> => {
     try {
@@ -738,7 +720,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
                     : '我的'
 
   return (
-    <div ref={shellRef} className="linuxdo-workspace relative flex h-full min-h-0 flex-col overflow-hidden bg-ink text-paper">
+    <div className="linuxdo-workspace relative flex h-full min-h-0 flex-col overflow-hidden bg-ink text-paper">
       {route.kind !== 'topic' ? <header className="linuxdo-brand-header linuxdo-control shrink-0 border-b border-haze/60 bg-ink/95 page-x select-none">
         <div className="flex min-h-[60px] items-center gap-1.5 py-2 sm:gap-2">
           <button type="button" onClick={() => { if (route.kind === 'discover' && route.scope) { setRoute({ kind: 'discover' }); return } if (!goBack()) onExit() }} className="linuxdo-icon-button grid h-10 w-10 shrink-0 place-items-center rounded-full text-paper-muted" aria-label="返回 NewsNook"><ArrowLeft size={18} /></button>
@@ -771,6 +753,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
             onLogin={() => navigate({ kind: 'account' })}
             onSessionExpired={expireWorkspaceSession}
             categoriesById={workspaceCategories}
+            homeRefreshRef={feedHomeRefreshRef}
           />
         ) : route.kind === 'topic' ? (
           <LinuxDoTopicView summary={route.topic} session={session} targetPostNumber={route.targetPostNumber} postMutation={topicPostMutation} overlayBackHandlerRef={topicOverlayBackHandlerRef} onReadProgress={applyTopicReadProgress} onSession={applyWorkspaceSession} onBack={() => { if (!goBack()) setRoute({ kind: 'feed', mode: 'latest' }) }} onCompose={(topic, options) => { setComposerTopic(topic); setComposerEditPost(undefined); setComposerInitialRaw(options?.initialRaw || ''); setComposerReplyTo(options?.replyToPostNumber); setComposerOpen(true) }} onBoost={setBoostPost} onOpenUser={(username) => navigate({ kind: 'user', username })} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenTag={(name) => navigate({ kind: 'discover', scope: { kind: 'tag', name } })} onOpenCategory={(category) => navigate({ kind: 'discover', scope: { kind: 'category', category } })} categoriesById={workspaceCategories} onEdit={(topic, post) => {
@@ -798,7 +781,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
       </div>
 
       <nav className="linuxdo-bottom-nav linuxdo-control relative z-30 mx-2 sm:mx-3 mb-[max(10px,var(--sab))] mt-2 grid shrink-0 grid-cols-5 items-end rounded-[22px] sm:rounded-[24px] border border-haze/70 bg-ink-raised/95 px-2 py-1.5 shadow-2xl backdrop-blur-xl select-none">
-        <button type="button" onClick={() => setRoute({ kind: 'feed', mode: route.kind === 'feed' ? route.mode : 'latest' })} className={'linuxdo-nav-item ' + (route.kind === 'feed' ? 'is-active' : '')} aria-label="首页"><MessageCircle size={18} /><span>首页</span></button>
+        <HomeRefreshButton active={route.kind === 'feed'} onNavigateHome={() => setRoute({ kind: 'feed', mode: lastFeedModeRef.current })} onRefresh={() => feedHomeRefreshRef.current?.()} className={'linuxdo-nav-item ' + (route.kind === 'feed' ? 'is-active' : '')} aria-label="首页"><MessageCircle size={18} /><span>首页</span></HomeRefreshButton>
         <button type="button" onClick={() => setRoute({ kind: 'discover' })} className={'linuxdo-nav-item ' + (route.kind === 'discover' ? 'is-active' : '')} aria-label="发现"><Compass size={18} /><span>发现</span></button>
         <button type="button" onClick={() => { setComposerTopic(undefined); setComposerEditPost(undefined); setComposerInitialRaw(''); setComposerReplyTo(undefined); setComposerOpen(true) }} className="linuxdo-nav-compose" aria-label="发布"><span className="grid h-12 w-12 place-items-center rounded-full bg-cinnabar text-white shadow-lg"><Plus size={22} /></span><span>发布</span></button>
         <button type="button" onClick={() => setRoute({ kind: 'notifications' })} className={'linuxdo-nav-item relative ' + (route.kind === 'notifications' ? 'is-active' : '')} aria-label="通知"><Bell size={18} /><span>通知</span>{notificationUnread > 0 ? <i className="absolute right-[24%] top-1 h-2 w-2 rounded-full bg-[#ff4d4f]" /> : null}</button>
