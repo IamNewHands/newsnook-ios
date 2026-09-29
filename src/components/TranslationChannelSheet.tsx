@@ -1,5 +1,7 @@
+import { useRef } from 'react'
 import { Check, X } from 'lucide-react'
 
+import { useSwipeDismiss } from '../hooks/useEdgeSwipeBack'
 import type { TranslationProviderOption } from '../features/translation/config'
 import type { TranslationProviderId } from '../features/translation/types'
 
@@ -16,10 +18,18 @@ interface Props {
  * 选项由调用方从 `availableTranslationProviders()` 传入，与设置页共用同一份判断。
  */
 export function TranslationChannelSheet({ open, active, providers, onClose, onSelect }: Props) {
+  // 左缘右滑返回：通道面板与遮罩一起滑出，回到正文。
+  const surfaceRef = useRef<HTMLDivElement>(null)
+  useSwipeDismiss(surfaceRef, open, onClose)
+
   if (!open) return null
 
   return (
-    <div className="absolute inset-0 z-40 flex flex-col justify-end" data-no-page-tap>
+    <div
+      ref={surfaceRef}
+      className="swipe-back-surface absolute inset-0 z-40 flex flex-col justify-end"
+      data-no-page-tap
+    >
       <button
         type="button"
         aria-label="关闭翻译通道选择"

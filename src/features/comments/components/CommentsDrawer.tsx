@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 
 import { commentsDefaultTabFor, commentsLabelFor, fetchArticleComments } from '../service'
+import { useSwipeDismiss } from '../../../hooks/useEdgeSwipeBack'
 import type {
   CommentItem,
   CommentTab,
@@ -144,10 +145,14 @@ export function CommentsDrawer({ open, onClose, article }: Props) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [open, onClose])
 
+  // 左缘右滑返回：把整个抽屉（含遮罩）一起拖出屏幕，露出下面的正文。
+  const surfaceRef = useRef<HTMLDivElement>(null)
+  useSwipeDismiss(surfaceRef, open, onClose)
+
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <div ref={surfaceRef} className="swipe-back-surface fixed inset-0 z-50 flex justify-end">
       {/* 遮罩背景 */}
       <div
         className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"

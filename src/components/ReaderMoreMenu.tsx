@@ -1,4 +1,7 @@
+import { useRef } from 'react'
 import { Copy, FileDown, Globe, RefreshCw, Share2, X, type LucideIcon } from 'lucide-react'
+
+import { useSwipeDismiss } from '../hooks/useEdgeSwipeBack'
 
 interface Props {
   open: boolean
@@ -60,10 +63,18 @@ export function ReaderMoreMenu({
   floatReaderNav = true,
   onToggleFloatReaderNav,
 }: Props) {
+  // 左缘右滑返回：整块菜单（含遮罩）一起滑出，露出正文。
+  const surfaceRef = useRef<HTMLDivElement>(null)
+  useSwipeDismiss(surfaceRef, open, onClose)
+
   if (!open) return null
 
   return (
-    <div className="absolute inset-0 z-40 flex flex-col justify-end" data-no-page-tap>
+    <div
+      ref={surfaceRef}
+      className="swipe-back-surface absolute inset-0 z-40 flex flex-col justify-end"
+      data-no-page-tap
+    >
       <button
         type="button"
         aria-label="关闭更多菜单"

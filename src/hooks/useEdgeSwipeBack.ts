@@ -11,6 +11,7 @@ import {
   type GestureSample,
 } from '../lib/edgeSwipeBack'
 import { clearGestureCompositorStyles } from '../lib/gestureStyles'
+import { useReducedMotion } from './useReducedMotion'
 
 const SETTLE_MS = 220
 const COMMIT_MIN_MS = 120
@@ -513,4 +514,29 @@ export function useEdgeSwipeBack({
       element.style.overscrollBehaviorX = previousOverscrollX
     }
   }, [containerRef, disabled, reduced, edgeOnly, resetAfterBack])
+}
+
+/**
+ * 浮层（跟贴抽屉、底部面板）的右滑返回。
+ *
+ * 拖动的是浮层自己的根节点，不借用阅读器那层壳：右滑时整个浮层跟着手指移出屏幕，
+ * 露出来的是下面的正文／上一级页面，正好是「侧滑返回到帖子正文」。只认左缘窄条
+ * 起步（`edgeOnly`），浮层里的纵向滚动不会被抢走。
+ *
+ * `open` 参与 `disabled`：关闭时拆掉监听；下次打开时依赖变化会重新接线，
+ * 并在 React 挂好 ref 之后（effects 晚于 ref 赋值）拿到真正的根节点。
+ */
+export function useSwipeDismiss(
+  surfaceRef: React.RefObject<HTMLElement | null>,
+  open: boolean,
+  onClose: () => void,
+): void {
+  const reduced = useReducedMotion()
+  useEdgeSwipeBack({
+    containerRef: surfaceRef,
+    onBack: onClose,
+    disabled: !open,
+    edgeOnly: true,
+    reduced,
+  })
 }

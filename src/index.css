@@ -1104,11 +1104,15 @@ html[data-eink='1'] .preset-switcher-sheet {
 }
 
 /*
- * 右滑返回期间关掉整棵子树的 backdrop 采样。
- * backdrop-filter 每帧都要重新采样背景并重算模糊，挂在移动中的合成层里是持续的
- * 帧率杀手（eink 模式对全页也是同一套处理，见文件末尾）。
+ * 右滑返回期间关掉会跟着一起移动的毛玻璃采样。
+ *
+ * 这里只点名真正挂了 backdrop-filter 的宿主（阅读器顶栏、翻页手柄），不在整棵
+ * 正文字树上用 `*` 广播：正文动辄几千个节点，`X *` 会让每次手势起步都要全量
+ * 重算样式、并把整层重新栅格化，手指刚动的那一帧就顿一下。挪走毛玻璃的宿主
+ * 只有这几个，采样成本却能省掉。
  */
-.reader-swipe-surface[data-swipe-back-active='true'] * {
+.reader-swipe-surface[data-swipe-back-active='true'] [data-surface='reader-chrome'],
+.reader-swipe-surface[data-swipe-back-active='true'] [data-reader-float-nav] {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
@@ -1119,6 +1123,24 @@ html[data-eink='1'] .preset-switcher-sheet {
  */
 .reader-swipe-surface[data-swipe-back-active='true'] [data-surface='reader-chrome'] {
   background-color: var(--color-ink) !important;
+}
+
+/*
+ * 浮层（跟贴抽屉 / 底部面板）的右滑返回表面。
+ *
+ * 这里**故意不写** `will-change: transform`：静态提升会把浮层根节点变成自己的
+ * backdrop root，抽屉遮罩的 `backdrop-blur` 就再也采样不到身后的正文（挂载时
+ * 就得建层的活由 hook 在手势判定的那一帧做，浮层只有一屏，代价远小于正文）。
+ * 拖动期间遮罩的毛玻璃要关掉，否则每帧都要重新采样身后的正文。
+ */
+.swipe-back-surface[data-swipe-back-active='true'] {
+  box-shadow: -16px 0 34px rgb(0 0 0 / 34%);
+}
+
+.swipe-back-surface[data-swipe-back-active='true'],
+.swipe-back-surface[data-swipe-back-active='true'] > * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 .reader-prose img {
