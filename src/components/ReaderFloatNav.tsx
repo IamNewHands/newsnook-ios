@@ -11,6 +11,9 @@ interface Props {
  * 整组按钮都可拖动——按住任意位置拖即移动，轻点才算翻页。
  * 位置持久化到 localStorage（`newsnook:reader-float-nav`）。
  *
+ * 静置时整组降到半透明、底色只留很淡的一层，被手柄挡住的正文仍读得出来；
+ * 两个箭头之间刻意留出 gap，避免拇指按上/下一屏时串到另一边。
+ *
  * 拖动 vs 点击：pointer 位移超过阈值即判定为拖动，并在 pointerup 后抑制那次 click，
  * 避免拖完手一松又翻一屏。容器上 `touch-action: none` 让浏览器不抢手势。
  */
@@ -167,8 +170,8 @@ export function ReaderFloatNav({ targetRef }: Props) {
       role="group"
       aria-label="上下翻页"
       onPointerDown={onRootPointerDown}
-      className={`fixed z-[60] flex select-none flex-col overflow-hidden rounded-2xl border border-haze/40 bg-ink/45 text-paper shadow-lg backdrop-blur-md transition-opacity duration-200 ${
-        dragging ? 'cursor-grabbing opacity-100 ring-1 ring-cinnabar/50' : 'cursor-grab opacity-65 hover:opacity-100'
+      className={`fixed z-[60] flex select-none flex-col gap-2.5 overflow-hidden rounded-2xl border border-haze/40 bg-ink/30 text-paper shadow-lg backdrop-blur-[2px] transition-opacity duration-200 ${
+        dragging ? 'cursor-grabbing opacity-100 ring-1 ring-cinnabar/50' : 'cursor-grab opacity-50 hover:opacity-100'
       }`}
       style={{ touchAction: 'none' }}
     >

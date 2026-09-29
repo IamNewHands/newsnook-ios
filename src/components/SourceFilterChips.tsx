@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Bookmark, BookmarkCheck, ChevronDown, CircleMinus, Search, X } from 'lucide-react'
 
+import { useAnchoredPanel } from '../hooks/useAnchoredPanel'
 import { useLongPressAction } from '../hooks/useLongPressAction'
 import type { Point } from '../lib/contextActions'
 import type { NewsSource } from '../sources/registry'
+import { AnchoredPanel } from './AnchoredPanel'
 import { ContextActionMenu, type ContextActionItem } from './ContextActionMenu'
 
 interface Props {
@@ -20,41 +21,6 @@ interface Props {
 
 /** 信源多到这个数才给搜索框；再少的话面板本来就一屏放得下 */
 const SEARCH_THRESHOLD = 12
-const PANEL_MARGIN = 12
-const PANEL_MIN_WIDTH = 260
-const PANEL_MAX_WIDTH = 460
-const PANEL_MAX_HEIGHT = 420
-const PANEL_MIN_HEIGHT = 180
-
-interface PanelBox {
-  left: number
-  top: number
-  width: number
-  maxHeight: number
-}
-
-/**
- * 面板贴在触发按钮正下方，并夹在视口内：
- * 横向不越界，纵向高度按剩余空间收缩，保证底部的信源仍能滚到。
- */
-function resolvePanelBox(anchor: DOMRect): PanelBox {
-  const viewportWidth = window.innerWidth
-  const viewportHeight = window.innerHeight
-  const width = Math.max(
-    PANEL_MIN_WIDTH,
-    Math.min(PANEL_MAX_WIDTH, viewportWidth - PANEL_MARGIN * 2),
-  )
-  const left = Math.min(
-    Math.max(PANEL_MARGIN, anchor.left),
-    Math.max(PANEL_MARGIN, viewportWidth - width - PANEL_MARGIN),
-  )
-  const top = anchor.bottom + 6
-  const maxHeight = Math.max(
-    PANEL_MIN_HEIGHT,
-    Math.min(PANEL_MAX_HEIGHT, viewportHeight - top - PANEL_MARGIN),
-  )
-  return { left, top, width, maxHeight }
-}
 
 /**
  * 信源筛选入口：一个按钮 + 点击展开的小面板。
@@ -74,10 +40,10 @@ export function SourceFilterChips({
 }: Props) {
   const [panelOpen, setPanelOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const [box, setBox] = useState<PanelBox | null>(null)
   const [actionMenu, setActionMenu] = useState<{ sourceId: string; anchor: Point } | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
-  const panelRef = useRef<HTMLDivElement>(null)
+  const closePanel = useCallback(() => setPanelOpen(false), [])
+  const { panelRef, box } = useAnchoredPanel({ open: panelOpen, triggerRef, onClose: closePanel })
 
   const longPress = useLongPressAction<string>((sourceId, anchor) => {
     setActionMenu({ sourceId, anchor })
@@ -97,52 +63,6 @@ export function SourceFilterChips({
         source.label.toLowerCase().includes(keyword),
     )
   }, [query, sources])
-
-  const updateBox = useCallback(() => {
-    const anchor = triggerRef.current?.getBoundingClientRect()
-    if (!anchor) return
-    setBox(resolvePanelBox(anchor))
-  }, [])
-
-  useLayoutEffect(() => {
-    if (!panelOpen) {
-      setBox(null)
-      return
-    }
-    updateBox()
-  }, [panelOpen, updateBox])
-
-  useEffect(() => {
-    if (!panelOpen) return
-    window.addEventListener('resize', updateBox)
-    window.visualViewport?.addEventListener('resize', updateBox)
-    return () => {
-      window.removeEventListener('resize', updateBox)
-      window.visualViewport?.removeEventListener('resize', updateBox)
-    }
-  }, [panelOpen, updateBox])
-
-  // 点面板外面收起：用 pointerdown 而不是加一层遮罩，
-  // 头部有 backdrop-blur，fixed 遮罩会被它的包含块困住，尺寸不对。
-  useEffect(() => {
-    if (!panelOpen) return
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null
-      if (!target) return
-      if (triggerRef.current?.contains(target)) return
-      if (panelRef.current?.contains(target)) return
-      setPanelOpen(false)
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setPanelOpen(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [panelOpen])
 
   if (!sources.length) return null
 
@@ -219,7 +139,7 @@ export function SourceFilterChips({
             ? `全部信源，共 ${sources.length} 个`
             : `${source.name}${favorite ? '，已收藏' : ''}${manageHint ? '，长按管理' : ''}`
         }
-        className={`flex max-w-full shrink-0 cursor-pointer items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] transition-all duration-200 active:scale-95 ${
+        className={`custom-long-press-target flex max-w-full shrink-0 cursor-pointer items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] transition-all duration-200 active:scale-95 ${
           isSelected
             ? 'bg-paper font-medium text-ink shadow-2xs ring-1 ring-paper/25'
             : 'border border-haze/80 bg-ink-raised/60 text-paper-muted/90 hover:border-paper-faint/50 hover:bg-ink-raised hover:text-paper'
@@ -303,72 +223,55 @@ export function SourceFilterChips({
         )}
       </div>
 
-      {panelOpen &&
-        box &&
-        createPortal(
-          <div
-            ref={panelRef}
-            role="dialog"
-            aria-label="选择信源"
-            className="fixed z-[70] flex flex-col overflow-hidden rounded-2xl border border-haze/90 bg-ink-raised/98 text-paper shadow-[0_18px_48px_-18px_rgba(0,0,0,0.72),0_2px_10px_rgba(0,0,0,0.28)]"
-            style={{ left: box.left, top: box.top, width: box.width, maxHeight: box.maxHeight }}
-          >
-            <div className="flex items-center justify-between gap-2 border-b border-haze/70 px-3 py-2">
-              <span className="font-mono text-[10px] tracking-[0.16em] text-paper-faint">
-                信源 · {filteredSources.length}
-                {selectedSource ? ' · 已选 1' : ''}
-              </span>
-              <button
-                type="button"
-                onClick={() => setPanelOpen(false)}
-                aria-label="关闭信源面板"
-                className="flex h-6 w-6 items-center justify-center rounded-full text-paper-muted transition-colors hover:bg-paper/10 hover:text-paper"
-              >
-                <X size={13} strokeWidth={1.8} />
-              </button>
-            </div>
-
-            {sources.length > SEARCH_THRESHOLD && (
-              <div className="px-3 pt-2.5">
-                <div className="relative">
-                  <Search
-                    size={13}
-                    className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-paper-faint"
-                  />
-                  <input
-                    type="text"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="搜索信源…"
-                    aria-label="搜索信源"
-                    className="w-full rounded-lg border border-haze bg-ink py-1.5 pr-2.5 pl-7 text-[12.5px] text-paper placeholder:text-paper-faint/60 focus:border-cinnabar/50 focus:outline-none"
-                  />
-                </div>
+      {panelOpen && (
+        <AnchoredPanel
+          box={box}
+          panelRef={panelRef}
+          ariaLabel="选择信源"
+          closeLabel="关闭信源面板"
+          title={`信源 · ${filteredSources.length}${selectedSource ? ' · 已选 1' : ''}`}
+          onClose={closePanel}
+        >
+          {sources.length > SEARCH_THRESHOLD && (
+            <div className="px-3 pt-2.5">
+              <div className="relative">
+                <Search
+                  size={13}
+                  className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-paper-faint"
+                />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="搜索信源…"
+                  aria-label="搜索信源"
+                  className="w-full rounded-lg border border-haze bg-ink py-1.5 pr-2.5 pl-7 text-[12.5px] text-paper placeholder:text-paper-faint/60 focus:border-cinnabar/50 focus:outline-none"
+                />
               </div>
-            )}
-
-            <div
-              role="radiogroup"
-              aria-label="信源列表"
-              className="flex min-h-0 flex-1 flex-wrap content-start gap-1.5 overflow-y-auto px-3 py-2.5"
-            >
-              {renderPill(null)}
-              {filteredSources.map((source) => renderPill(source))}
-              {!filteredSources.length && (
-                <p className="w-full py-6 text-center text-[12px] text-paper-faint">
-                  没有匹配「{query.trim()}」的信源
-                </p>
-              )}
             </div>
+          )}
 
-            {manageHint && (
-              <p className="border-t border-haze/70 px-3 py-2 font-mono text-[9.5px] leading-relaxed text-paper-faint">
-                长按信源可收藏到当前预设或从分类移出
+          <div
+            role="radiogroup"
+            aria-label="信源列表"
+            className="flex min-h-0 flex-1 flex-wrap content-start gap-1.5 overflow-y-auto px-3 py-2.5"
+          >
+            {renderPill(null)}
+            {filteredSources.map((source) => renderPill(source))}
+            {!filteredSources.length && (
+              <p className="w-full py-6 text-center text-[12px] text-paper-faint">
+                没有匹配「{query.trim()}」的信源
               </p>
             )}
-          </div>,
-          document.body,
-        )}
+          </div>
+
+          {manageHint && (
+            <p className="border-t border-haze/70 px-3 py-2 font-mono text-[9.5px] leading-relaxed text-paper-faint">
+              长按信源可收藏到当前预设或从分类移出
+            </p>
+          )}
+        </AnchoredPanel>
+      )}
 
       <ContextActionMenu
         open={Boolean(actionSource && actionMenu)}
