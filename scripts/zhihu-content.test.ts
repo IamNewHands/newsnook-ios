@@ -60,6 +60,40 @@ assert.equal(pagedDetail?.createdAt, 1700000000)
 assert.equal(pagedDetail?.updatedAt, 1700003600)
 assert.equal(pagedDetail?.ipLocation, '上海')
 
+// 详情接口不能被「没有标题与摘要」判成脏数据：付费回答、纯视频回答、上游漏 type
+// 都真实存在，认领实体要优先用调用方请求的 ref。
+const textlessDetail = decodeZhihuContentDetail(parseZhihuJson(`{
+  "id": 1903835975664271371,
+  "type": "answer",
+  "content": "",
+  "excerpt": "",
+  "paid_info": { "is_paid": true },
+  "question": { "id": 614860173 }
+}`), { kind: 'answer', id: '1903835975664271371' })
+assert.deepEqual(textlessDetail.ref, { kind: 'answer', id: '1903835975664271371' })
+assert.equal(textlessDetail.questionId, '614860173', '没有标题/摘要的回答详情仍要带出问题 ID')
+assert.equal(textlessDetail.contentHtml, '')
+
+const typelessDetail = decodeZhihuContentDetail(
+  parseZhihuJson('{ "id": "1903835975664271372", "content": "<p>仍然是回答</p>" }'),
+  { kind: 'answer', id: '1903835975664271372' },
+)
+assert.deepEqual(
+  typelessDetail.ref,
+  { kind: 'answer', id: '1903835975664271372' },
+  '上游漏掉 type 时应按本次请求的 ref 认领实体，而不是报「缺少实体 id/type」',
+)
+assert.equal(typelessDetail.contentHtml, '<p>仍然是回答</p>')
+
+// 已删除 / 不可访问的载荷要给出可读原因，也不能被 ref 兜底认领成一篇空正文。
+assert.throws(
+  () => decodeZhihuContentDetail(
+    parseZhihuJson('{ "error": { "code": 404, "message": "not found" } }'),
+    { kind: 'answer', id: '1903835975664271371' },
+  ),
+  /已被删除或暂时不可访问/,
+)
+
 const answerMeta = renderToStaticMarkup(React.createElement(ZhihuAnswerMeta, {
   createdAt: pagedDetail.createdAt,
   updatedAt: pagedDetail.updatedAt,
