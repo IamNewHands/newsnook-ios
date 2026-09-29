@@ -375,7 +375,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.8.9;
+				MARKETING_VERSION = 1.8.10;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.aizeek.newsnook.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -397,7 +397,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.8.9;
+				MARKETING_VERSION = 1.8.10;
 				PRODUCT_BUNDLE_IDENTIFIER = com.aizeek.newsnook.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";

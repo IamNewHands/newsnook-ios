@@ -151,7 +151,7 @@ xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk 
 
 ## 怎么确认设备上装的是哪一版
 
-`CFBundleShortVersionString` 刻意跟随上游（现在是 `1.8.9`，设备端自签工具靠它判断有没有
+`CFBundleShortVersionString` 刻意跟随上游（现在是 `1.8.10`，设备端自签工具靠它判断有没有
 新版本），所以**同一个上游版本下的多次重新构建，版本号完全一样**。这带来一个真实陷阱：
 
 - 用 SideStore / LiveContainer 之类工具「覆盖安装」同版本包时，可能被判定成「已装同版本」
