@@ -192,8 +192,21 @@ assert.match(
   batchSystem,
   /reading the marked translations in sequence yields a fluent, natural Simplified Chinese sentence/,
 )
-assert.match(batchSystem, /Do not add subjects, pronouns, or words that are absent from the source/)
-assert.match(batchSystem, /keep each fragment's own leading or trailing punctuation/)
+// 「禁造内容」与「允许目标语言必需的功能词」分开写：中文片段边界必须能补「的/了」
+assert.match(batchSystem, /Do not invent content/)
+assert.match(batchSystem, /add no subjects, pronouns, facts, or modifiers that are absent from the source/)
+assert.match(batchSystem, /Structural function words that Simplified Chinese requires/)
+assert.match(batchSystem, /particles such as 的 \/ 了, measure words/)
+assert.match(batchSystem, /are allowed and expected when a fragment boundary calls for them/)
+assert.match(batchSystem, /do not turn it into a standalone sentence/)
+assert.match(batchSystem, /Keep each fragment's own leading or trailing punctuation/)
+// 非中文目标语言不给中文字例
+const batchSystemEn = openAiTranslationBatchSystemPrompt('zh-Hans', 'en', 'gpt-4o-mini')
+assert.match(
+  batchSystemEn,
+  /Structural function words that English requires \(particles, articles, measure words\)/,
+)
+assert.doesNotMatch(batchSystemEn, /的 \/ 了/)
 
 const batchUser = openAiTranslationBatchUserPrompt(['Hello', 'World'])
 assert.equal(batchUser, '原文：\n\n[[1]]\nHello\n\n[[2]]\nWorld')

@@ -108,6 +108,7 @@ export function openAiTranslationBatchSystemPrompt(
 ): string {
   const base = openAiTranslationSystemPrompt(sourceLanguage, targetLanguage, 'paragraph', model)
   const target = openAiLanguageLabel(targetLanguage)
+  const isChinese = targetLanguage === 'zh-Hans' || targetLanguage === 'zh-Hant'
   const rules = [
     'Batch mode: the user message contains several segments, each introduced by a marker of the form [[1]], [[2]], ....',
     `Translate every segment into ${target} and output each translation preceded by exactly the same marker, kept verbatim, on its own line.`,
@@ -115,7 +116,10 @@ export function openAiTranslationBatchSystemPrompt(
     'Output nothing before the first marker and nothing except the marked translations.',
     'Note: some consecutive segments are fragments of a single sentence — inline markup (links, bold, italics) around the source text split one sentence into several markers.',
     `Keep the markers one-to-one and in order, but translate each fragment as the part of that one sentence it is, so that reading the marked translations in sequence yields a fluent, natural ${target} sentence rather than disconnected phrases.`,
-    "Do not add subjects, pronouns, or words that are absent from the source; do not repeat content across fragments; keep each fragment's own leading or trailing punctuation, converted to target-language conventions.",
+    'Do not invent content: add no subjects, pronouns, facts, or modifiers that are absent from the source; do not repeat content across fragments.',
+    `Structural function words that ${target} requires${isChinese ? ' (particles such as 的 / 了, measure words)' : ' (particles, articles, measure words)'} are allowed and expected when a fragment boundary calls for them.`,
+    'When a fragment ends mid-sentence, do not turn it into a standalone sentence — leave it as the opening that the next marker continues.',
+    "Keep each fragment's own leading or trailing punctuation, converted to target-language conventions.",
   ]
   return base ? [base, '', ...rules].join('\n') : rules.join('\n')
 }
