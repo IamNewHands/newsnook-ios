@@ -92,6 +92,34 @@ export function cleanOpenAiTranslation(content: string): string {
   return text
 }
 
+const SEGMENT_MARKER = /\[\[\s*(\d{1,4})\s*\]\]/g
+
+/**
+ * 把批量翻译的返回切成逐段译文。
+ *
+ * 严格校验：标记数量、编号必须正好是 1..count 且按序出现，每段译文非空。
+ * 任何不符（模型漏段、重排、把两段合并、被 max_tokens 截断在半途）都返回 `null`，
+ * 调用方据此退回逐段请求——宁可多花几次请求，也不把错位的译文塞进正文。
+ * 第一个标记之前的内容（模型偶尔加的“以下是翻译”之类）直接丢弃。
+ */
+export function parseOpenAiSegmentTranslations(content: string, count: number): string[] | null {
+  if (count <= 0) return null
+  const matches = [...content.matchAll(SEGMENT_MARKER)]
+  if (matches.length !== count) return null
+
+  const segments: string[] = []
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index]
+    if (Number(match[1]) !== index + 1) return null
+    const start = (match.index ?? 0) + match[0].length
+    const end = index + 1 < matches.length ? (matches[index + 1].index ?? content.length) : content.length
+    const text = cleanOpenAiTranslation(content.slice(start, end))
+    if (!text) return null
+    segments.push(text)
+  }
+  return segments
+}
+
 function coerceJsonData(data: unknown): unknown {
   if (typeof data !== 'string') return data
   const trimmed = data.trim()

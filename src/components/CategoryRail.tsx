@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { CircleMinus, PencilLine } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { ChevronDown, CircleMinus, PencilLine } from 'lucide-react'
 
+import { useAnchoredPanel } from '../hooks/useAnchoredPanel'
 import { useLongPressAction } from '../hooks/useLongPressAction'
 import type { Point } from '../lib/contextActions'
 import {
@@ -10,6 +11,7 @@ import {
   type CategoryId,
   type NewsCategory,
 } from '../sources/categories'
+import { AnchoredPanel } from './AnchoredPanel'
 import { PromptDialog } from './ConfirmDialog'
 import { ContextActionMenu, type ContextActionItem } from './ContextActionMenu'
 
@@ -28,7 +30,9 @@ interface Props {
 const BASE_INDICATOR_WIDTH = 14 // 14px 对应原来的 w-3.5
 
 /**
- * 墨砚分类轨道：支持跟手横滑实时联动、丝滑水墨拉伸与自动居中对齐。
+ * 墨砚分类轨道：只铺满一行，超出屏幕的分类不再靠横滑找，
+ * 由行尾的 ▼ 触发按钮展开面板一次性列出全部分类。
+ * 列表横滑切换分类时，轨道仍跟手横滑联动、丝滑水墨拉伸与自动居中对齐。
  */
 export function CategoryRail({
   categories,
@@ -54,6 +58,10 @@ export function CategoryRail({
     null,
   )
   const [renameCategoryId, setRenameCategoryId] = useState<CategoryId | null>(null)
+  const [panelOpen, setPanelOpen] = useState(false)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const closePanel = useCallback(() => setPanelOpen(false), [])
+  const { panelRef, box } = useAnchoredPanel({ open: panelOpen, triggerRef, onClose: closePanel })
   const longPress = useLongPressAction<CategoryId>((categoryId, anchor) => {
     setActionMenu({ categoryId, anchor })
   })
@@ -68,6 +76,9 @@ export function CategoryRail({
     : undefined
   const isDynamicCategory = (id: CategoryId) =>
     id === FAVORITES_CATEGORY_ID || id === RECOMMEND_CATEGORY_ID
+  /** 「收藏」「推荐」是系统保留分类，不给重命名 / 移出 */
+  const canManageCategory = (id: CategoryId) =>
+    !isDynamicCategory(id) && Boolean(onRenameCategory || onRemoveCategory)
   const actionItems: ContextActionItem[] = actionCategory
     ? [
         ...(!isDynamicCategory(actionCategory.id) && onRenameCategory
@@ -226,18 +237,16 @@ export function CategoryRail({
   }, [activeId, currentCenter, isDragging, transitionMs])
 
   return (
-    <div className="relative">
+    <div className="relative flex items-center">
       <div
         ref={scrollerRef}
-        className="horizontal-scroll-rail scroll-hidden mask-fade-x relative flex gap-0.5 overflow-x-auto px-4 sm:px-6 md:px-8 lg:px-10"
+        className="horizontal-scroll-rail scroll-hidden mask-fade-x relative flex min-w-0 flex-1 gap-0.5 overflow-x-hidden px-4 sm:px-6 md:px-8 lg:px-10"
         role="tablist"
         aria-label="新闻分类"
       >
         {categories.map((category, index) => {
           const isActiveTab = category.id === activeId
-          const canManage =
-            (!isDynamicCategory(category.id) && Boolean(onRenameCategory)) ||
-            (!isDynamicCategory(category.id) && Boolean(onRemoveCategory))
+          const canManage = canManageCategory(category.id)
           // 计算字体的渐变权重 (0 ~ 1)
           let weight = 0
           if (isDragging || transitionMs > 0) {
@@ -318,6 +327,100 @@ export function CategoryRail({
           />
         )}
       </div>
+
+      {/* 一行放不下的分类：行尾 ▼ 展开面板一次看全，不必再左右滑着找 */}
+      <div className="shrink-0 pr-4 pl-1 sm:pr-6 md:pr-8 lg:pr-10">
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => setPanelOpen((open) => !open)}
+          aria-haspopup="dialog"
+          aria-expanded={panelOpen}
+          aria-label={`展开全部分类，共 ${categories.length} 个`}
+          className={`flex h-7 w-7 items-center justify-center rounded-full transition-all duration-200 active:scale-95 ${
+            panelOpen
+              ? 'border border-paper-faint/60 bg-ink-raised text-paper'
+              : 'border border-haze/80 bg-ink-raised/60 text-paper-muted/90 hover:border-paper-faint/50 hover:bg-ink-raised hover:text-paper'
+          }`}
+        >
+          <ChevronDown
+            size={14}
+            strokeWidth={2}
+            className={`transition-transform duration-200 ${panelOpen ? 'rotate-180' : ''}`}
+          />
+        </button>
+      </div>
+
+      {panelOpen && (
+        <AnchoredPanel
+          box={box}
+          panelRef={panelRef}
+          ariaLabel="选择分类"
+          closeLabel="关闭分类面板"
+          title={`分类 · ${categories.length}`}
+          onClose={closePanel}
+        >
+          <div
+            role="radiogroup"
+            aria-label="分类列表"
+            className="flex min-h-0 flex-1 flex-wrap content-start gap-1.5 overflow-y-auto px-3 py-2.5"
+          >
+            {categories.map((category) => {
+              const isSelected = category.id === activeId
+              const canManage = canManageCategory(category.id)
+              return (
+                <button
+                  key={category.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={isSelected}
+                  aria-haspopup={canManage ? 'menu' : undefined}
+                  aria-label={`${category.label}${canManage ? '，长按管理' : ''}`}
+                  onClick={() => {
+                    if (longPress.consumeClick(category.id)) return
+                    onChange(category.id)
+                    setPanelOpen(false)
+                  }}
+                  onPointerDown={
+                    canManage ? (event) => longPress.start(category.id, event) : undefined
+                  }
+                  onPointerMove={canManage ? longPress.move : undefined}
+                  onPointerUp={canManage ? longPress.cancel : undefined}
+                  onPointerCancel={canManage ? longPress.cancel : undefined}
+                  onPointerLeave={canManage ? longPress.cancel : undefined}
+                  onContextMenu={
+                    canManage
+                      ? (event) => {
+                          event.preventDefault()
+                          setActionMenu({
+                            categoryId: category.id,
+                            anchor: { x: event.clientX, y: event.clientY },
+                          })
+                        }
+                      : undefined
+                  }
+                  className={`custom-long-press-target flex max-w-full shrink-0 cursor-pointer items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] transition-all duration-200 active:scale-95 ${
+                    isSelected
+                      ? 'bg-paper font-medium text-ink shadow-2xs ring-1 ring-paper/25'
+                      : 'border border-haze/80 bg-ink-raised/60 text-paper-muted/90 hover:border-paper-faint/50 hover:bg-ink-raised hover:text-paper'
+                  }`}
+                  style={{ WebkitTouchCallout: 'none' }}
+                >
+                  <span className="max-w-[150px] truncate whitespace-nowrap">
+                    {category.label}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+
+          {Boolean(onRenameCategory || onRemoveCategory) && (
+            <p className="border-t border-haze/70 px-3 py-2 font-mono text-[9.5px] leading-relaxed text-paper-faint">
+              长按分类可重命名或从当前预设移出
+            </p>
+          )}
+        </AnchoredPanel>
+      )}
 
       <ContextActionMenu
         open={Boolean(actionCategory && actionMenu && actionItems.length)}

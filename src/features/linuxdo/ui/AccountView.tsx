@@ -3,6 +3,7 @@ import { BadgeCheck, Bookmark, ChevronRight, FileText, History, KeyRound, Loader
 import { useState } from 'react'
 
 import { linuxDoCapabilities } from '../capabilities'
+import { releaseLinuxDoImageCache } from '../media/imageSource'
 import { linuxDoApi as api } from '../runtime'
 import {
   authenticateLinuxDo,
@@ -88,6 +89,7 @@ export function AccountView({
 
   const logout = async () => {
     await Promise.all([clearLinuxDoSession(), clearLinuxDoBrowserSession()])
+    releaseLinuxDoImageCache()
     applySession({ authenticated: false, authMode: 'none' })
   }
 
@@ -138,7 +140,7 @@ export function AccountView({
         <div className="mt-4 border-t border-haze/70 pt-3">
           <button type="button" onClick={() => void verifyBrowser()} className="linuxdo-control text-[9.5px] text-paper-faint underline decoration-haze underline-offset-4">Cloudflare / 浏览器验证辅助</button>
           <span className="mx-2 text-paper-faint">·</span>
-          <button type="button" onClick={async () => { await clearLinuxDoBrowserSession(); setAccountError('') }} className="linuxdo-control text-[9.5px] text-paper-faint underline decoration-haze underline-offset-4">清除验证数据</button>
+          <button type="button" onClick={async () => { await clearLinuxDoBrowserSession(); releaseLinuxDoImageCache(); setAccountError('') }} className="linuxdo-control text-[9.5px] text-paper-faint underline decoration-haze underline-offset-4">清除验证数据</button>
         </div>
         {accountError ? <button type="button" onClick={() => setAccountError('')} className="mt-3 w-full rounded-xl border border-cinnabar/20 bg-cinnabar/[0.06] px-3 py-2 text-left text-[10.5px] leading-5 text-cinnabar">{accountError} · 点击关闭</button> : null}
       </section>

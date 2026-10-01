@@ -80,3 +80,52 @@ export function openAiTranslationUserPrompt(
   }
   return `原文：\n${text}`
 }
+
+/**
+ * 一次请求翻多段时的段落标记。模型必须原样保留标记，
+ * 客户端靠它把译文切回对应段落（见 `parseOpenAiSegmentTranslations`）。
+ */
+export function openAiSegmentMarker(index: number): string {
+  return `[[${index + 1}]]`
+}
+
+/**
+ * 批量翻译的 system prompt：在单段规则上追加「保序协议」与「碎片同句」规则。
+ *
+ * 为什么需要协议：一次请求塞进整篇能省掉几十次往返（也顺带让译文有全文上下文），
+ * 但必须能把返回的一整块文本切回各段落。标记是 ASCII 的 `[[n]]`，
+ * 比 JSON/XML 更不容易被模型改写；一旦模型漏写、重排或吞掉标记，
+ * 客户端会退回逐段请求，不会把错位的译文塞进正文。
+ *
+ * 为什么会碎成单词：标记的最小单位是 DOM 文本节点，段落里的内联标签
+ * （`<a>`/`<strong>`/`<em>`…）会把一句话切成好几片。所以额外要求模型
+ * 「片与片仍一一对应，但每片按它在整句里的位置译」，拼起来才是通顺的中文。
+ */
+export function openAiTranslationBatchSystemPrompt(
+  sourceLanguage: TranslationSourceLanguage,
+  targetLanguage: TranslationLanguage,
+  model?: string,
+): string {
+  const base = openAiTranslationSystemPrompt(sourceLanguage, targetLanguage, 'paragraph', model)
+  const target = openAiLanguageLabel(targetLanguage)
+  const isChinese = targetLanguage === 'zh-Hans' || targetLanguage === 'zh-Hant'
+  const rules = [
+    'Batch mode: the user message contains several segments, each introduced by a marker of the form [[1]], [[2]], ....',
+    `Translate every segment into ${target} and output each translation preceded by exactly the same marker, kept verbatim, on its own line.`,
+    'Never merge, split, reorder, renumber, or skip segments. Never translate, explain, or drop the markers.',
+    'Output nothing before the first marker and nothing except the marked translations.',
+    'Note: some consecutive segments are fragments of a single sentence — inline markup (links, bold, italics) around the source text split one sentence into several markers.',
+    `Keep the markers one-to-one and in order, but translate each fragment as the part of that one sentence it is, so that reading the marked translations in sequence yields a fluent, natural ${target} sentence rather than disconnected phrases.`,
+    'Do not invent content: add no subjects, pronouns, facts, or modifiers that are absent from the source; do not repeat content across fragments.',
+    `Structural function words that ${target} requires${isChinese ? ' (particles such as 的 / 了, measure words)' : ' (particles, articles, measure words)'} are allowed and expected when a fragment boundary calls for them.`,
+    'When a fragment ends mid-sentence, do not turn it into a standalone sentence — leave it as the opening that the next marker continues.',
+    "Keep each fragment's own leading or trailing punctuation, converted to target-language conventions.",
+  ]
+  return base ? [base, '', ...rules].join('\n') : rules.join('\n')
+}
+
+/** 批量翻译的 user prompt：`原文：` + 每段一行标记一行原文。 */
+export function openAiTranslationBatchUserPrompt(texts: readonly string[]): string {
+  const segments = texts.map((text, index) => `${openAiSegmentMarker(index)}\n${text}`)
+  return `原文：\n\n${segments.join('\n\n')}`
+}
