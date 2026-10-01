@@ -57,17 +57,36 @@ assert.match(editorial, /<span class="no">02<\/span><h3>重点脉络<\/h3>/)
 assert.match(editorial, /<span class="no">03<\/span><h3>值得注意<\/h3>/)
 assert.doesNotMatch(editorial, /<span class="no">02<\/span><h3>讽世<\/h3>/)
 
+const plainMarkdown = `## ${S.conclusion}
+结论
+## ${S.keyPoints}
+- a
+## ${S.warnings}
+- b
+`
+
 const empty = buildCardHtml(
   {
     articleTitle: '测试标题',
     sourceName: '测试源',
-    markdown: `## ${S.conclusion}\n结论\n## ${S.keyPoints}\n- a\n## ${S.warnings}\n- b\n`,
+    markdown: plainMarkdown,
   },
   'warm-paper',
 )
-assert.match(empty, /class="triad"/)
-assert.equal((empty.match(/>—</g) || []).length >= 3, true, '缺三评时每行占位为 —')
+assert.doesNotMatch(empty, /class="triad"/, '普通速读正文不再输出三评带')
 assert.doesNotMatch(empty, /暂无额外可评/)
+assert.doesNotMatch(empty, />—</, '无三评时不再用 — 占位')
+
+const emptyEditorial = buildCardHtml(
+  {
+    articleTitle: '测试标题',
+    sourceName: '测试源',
+    markdown: plainMarkdown,
+  },
+  'editorial',
+)
+assert.match(emptyEditorial, /<span class="no">01<\/span><h3>重点脉络<\/h3>/, '无三评时重点脉络从 01 起编')
+assert.match(emptyEditorial, /<span class="no">02<\/span><h3>值得注意<\/h3>/, '无三评时值得注意接 02')
 
 const answerMarkdown = `## ${A.conclusion}
 作者的直接答案。
