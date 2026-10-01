@@ -16,8 +16,15 @@ import {
   cleanOpenAiTranslation,
   extractOpenAiChatContent,
   OPENAI_TRANSLATION_STOP,
+  parseOpenAiSegmentTranslations,
 } from './openai'
-import { openAiTranslationSystemPrompt, openAiTranslationUserPrompt } from './prompts'
+import {
+  isHunyuanTranslationModel,
+  openAiTranslationBatchSystemPrompt,
+  openAiTranslationBatchUserPrompt,
+  openAiTranslationSystemPrompt,
+  openAiTranslationUserPrompt,
+} from './prompts'
 import type {
   CloudTranslationConfig,
   CloudTranslationProviderId,
@@ -365,58 +372,6 @@ async function mapConcurrent<T, R>(
     }
     throw error
   }
-}
-
-interface ConcurrentFailure {
-  index: number
-  error: unknown
-}
-
-/**
- * AI 长文翻译专用：单段失败不打断其它 worker，尽量完成剩余段落后再汇总报错。
- * 已成功项仍通过 onItemDone 逐段提交，因此 Reader 可以保留已完成译文。
- */
-async function mapConcurrentBestEffort<T, R>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T, index: number) => Promise<R>,
-  signal?: AbortSignal,
-  onItemDone?: (result: R, index: number) => void,
-): Promise<R[]> {
-  const results = new Array<R>(items.length)
-  const failures: ConcurrentFailure[] = []
-  let nextIndex = 0
-  const limit = Math.max(1, concurrency)
-
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (nextIndex < items.length) {
-      if (signal?.aborted) return
-      const currentIndex = nextIndex++
-      try {
-        const result = await fn(items[currentIndex], currentIndex)
-        results[currentIndex] = result
-        onItemDone?.(result, currentIndex)
-      } catch (error) {
-        if (isAbortError(error) || signal?.aborted) return
-        failures.push({ index: currentIndex, error })
-      }
-    }
-  })
-
-  await Promise.all(workers)
-  if (signal?.aborted) throw abortError()
-
-  if (failures.length > 0) {
-    failures.sort((a, b) => a.index - b.index)
-    const first = failures[0].error
-    const detail = first instanceof Error ? first.message : 'AI 翻译请求失败'
-    const completed = items.length - failures.length
-    throw new Error(
-      `${detail}（已完成 ${completed}/${items.length} 段，${failures.length} 段失败；已完成内容已保留。）`,
-    )
-  }
-
-  return results
 }
 
 /**
@@ -871,6 +826,53 @@ export class DeepLXProvider extends CloudProvider {
 /** 单个 OpenAiProvider 实例最多记住多少段成功译文（约两篇长文） */
 const OPENAI_COMPLETED_CACHE_LIMIT = 256
 
+/**
+ * 一次批量请求的最大原文字符数。
+ *
+ * 默认整篇一次发完（新闻正文通常远低于这个数），只有超长文章才切几大批。
+ * 上限存在的理由与逐段请求不同：现在限制的是**模型一次能吐多少**——
+ * 不设上限时，一次请求的输出可能被网关的 `max_tokens` 截断在半途，
+ * 段落标记数量对不上，客户端只能整批退回逐段重发（既慢又费额度）。
+ * 6000 字符与其它 provider 的 `DEFAULT_BATCH_CHARS` 同一量级：在常见默认
+ * `max_tokens` 下能完整返回，又把请求数从「每段一次」压到「整篇一次」。
+ */
+const OPENAI_BATCH_CHARS = 6_000
+
+/** 批量返回的段落标记对不上：调用方退回逐段请求，不猜、不错位。 */
+class OpenAiBatchShapeError extends Error {}
+
+/** OpenAI 路径的 HTTP 失败：带上状态码，用来判断是否值得退回逐段重试。 */
+class OpenAiHttpError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
+/** 这些失败重发逐段请求没有意义（额度/鉴权/限流），直接把整批标为失败。 */
+function isDefinitiveHttpError(error: unknown): boolean {
+  return (
+    error instanceof OpenAiHttpError &&
+    (error.status === 429 || error.status === 401 || error.status === 403)
+  )
+}
+
+/**
+ * OpenAI 兼容（大模型）翻译。
+ *
+ * 与本地/传统云翻译不同，这里**不做「每段一次请求」**：整篇原文打包进一次
+ * completion，用 `[[n]]` 标记保序（见 `prompts.ts`），返回后切回各段落。
+ * 一篇 40 段的文章因此从 40 次往返降到 1 次，译文还带上了全文上下文。
+ *
+ * 保底与旧行为一致：
+ * - 同一实例已成功的段落直接复用（长文失败后点「重试」只补失败段）；
+ * - 同一次调用内重复文本只翻一次；
+ * - 编号/段数不符、或整批请求失败（429/401/403 除外）时**退回逐段请求**，
+ *   一段坏了不会拖垮整篇；逐段也失败的段照旧逐条上报，其余段落照常落地。
+ * - Hunyuan-MT 这类专用翻译模型不吃标记协议，仍逐段发送。
+ */
 export class OpenAiProvider extends CloudProvider {
   readonly id = 'openai' as const
   /**
@@ -899,22 +901,16 @@ export class OpenAiProvider extends CloudProvider {
       throw new Error('AI 翻译：textKinds 与 texts 长度不一致')
     }
 
-    // 同一次调用内「语向 + 场景 + 文本」相同的段落只发一次请求，重复段共享在途结果
-    const inflightByKey = new Map<string, Promise<string>>()
+    // Hunyuan-MT 是专用翻译模型：官方模板要求纯文本，加标记会污染输出，仍逐段发。
+    const canBatch = !isHunyuanTranslationModel(model)
     const cacheKey = (text: string, kind: TranslationTextKind) =>
       `${request.sourceLanguage}\u0000${request.targetLanguage}\u0000${kind}\u0000${text}`
-    const translateSingle = async (text: string, kind: TranslationTextKind): Promise<string> => {
-      const system = openAiTranslationSystemPrompt(
-        request.sourceLanguage,
-        request.targetLanguage,
-        kind,
-        model,
-      )
-      const userPrompt = openAiTranslationUserPrompt(text, request.targetLanguage, kind, model)
-      const messages: { role: 'system' | 'user'; content: string }[] = []
-      if (system) messages.push({ role: 'system', content: system })
-      messages.push({ role: 'user', content: userPrompt })
+    const kindAt = (index: number): TranslationTextKind => request.textKinds?.[index] ?? 'paragraph'
 
+    /** 一次 completion（含重试）。批量与逐段两条路径共用同一套失败语义。 */
+    const requestCompletion = async (
+      messages: { role: 'system' | 'user'; content: string }[],
+    ): Promise<string> => {
       let lastError: unknown
       for (let attempt = 1; attempt <= OPENAI_MAX_ATTEMPTS; attempt += 1) {
         let response: JsonResponse
@@ -942,7 +938,10 @@ export class OpenAiProvider extends CloudProvider {
         }
 
         if (response.status < 200 || response.status >= 300) {
-          const error = errorMessage('AI 翻译', response)
+          const error = new OpenAiHttpError(
+            errorMessage('AI 翻译', response).message,
+            response.status,
+          )
           const retryable = response.status === 429 || response.status >= 500
           if (retryable && attempt < OPENAI_MAX_ATTEMPTS) {
             lastError = error
@@ -962,36 +961,173 @@ export class OpenAiProvider extends CloudProvider {
           }
           throw error
         }
-        return cleanOpenAiTranslation(content)
+        return content
       }
 
       if (lastError instanceof Error) throw lastError
       throw new Error('AI 翻译请求失败')
     }
 
-    return mapConcurrentBestEffort(
-      request.texts,
-      concurrency,
-      (text, index) => {
-        const kind = request.textKinds?.[index] ?? 'paragraph'
-        const key = cacheKey(text, kind)
-        const done = this.completed.get(key)
-        if (done !== undefined) return Promise.resolve(done)
-        let pending = inflightByKey.get(key)
-        if (!pending) {
-          pending = translateSingle(text, kind).then((translated) => {
-            this.remember(key, translated)
-            return translated
-          })
-          inflightByKey.set(key, pending)
+    const translateSingle = async (text: string, kind: TranslationTextKind): Promise<string> => {
+      const system = openAiTranslationSystemPrompt(
+        request.sourceLanguage,
+        request.targetLanguage,
+        kind,
+        model,
+      )
+      const userPrompt = openAiTranslationUserPrompt(text, request.targetLanguage, kind, model)
+      const messages: { role: 'system' | 'user'; content: string }[] = []
+      if (system) messages.push({ role: 'system', content: system })
+      messages.push({ role: 'user', content: userPrompt })
+      return cleanOpenAiTranslation(await requestCompletion(messages))
+    }
+
+    const translateBatch = async (texts: readonly string[]): Promise<string[]> => {
+      const system = openAiTranslationBatchSystemPrompt(
+        request.sourceLanguage,
+        request.targetLanguage,
+        model,
+      )
+      const messages: { role: 'system' | 'user'; content: string }[] = []
+      if (system) messages.push({ role: 'system', content: system })
+      messages.push({ role: 'user', content: openAiTranslationBatchUserPrompt(texts) })
+      const content = await requestCompletion(messages)
+      const parsed = parseOpenAiSegmentTranslations(content, texts.length)
+      if (!parsed) throw new OpenAiBatchShapeError('AI 翻译：批量返回的段落标记与请求不符')
+      return parsed
+    }
+
+    const results: string[] = new Array<string>(request.texts.length).fill('')
+    const failures: { index: number; error: unknown }[] = []
+
+    // 1) 已成功的段落直接复用：既省请求，也让「重试」只补失败段。
+    const pending: number[] = []
+    request.texts.forEach((text, index) => {
+      const cached = this.completed.get(cacheKey(text, kindAt(index)))
+      if (cached !== undefined) {
+        results[index] = cached
+        request.onBatch?.([cached], index)
+        return
+      }
+      pending.push(index)
+    })
+
+    // 2) 同一次调用内「语向 + 场景 + 文本」相同的段落只发一次，重复段复用首个结果。
+    const leaders: number[] = []
+    const duplicatesByLeader = new Map<number, number[]>()
+    const leaderByKey = new Map<string, number>()
+    for (const index of pending) {
+      const key = cacheKey(request.texts[index], kindAt(index))
+      const leader = leaderByKey.get(key)
+      if (leader === undefined) {
+        leaderByKey.set(key, index)
+        leaders.push(index)
+        duplicatesByLeader.set(index, [])
+        continue
+      }
+      duplicatesByLeader.get(leader)?.push(index)
+    }
+
+    // 3) 分批：默认整篇一批发完，超过 OPENAI_BATCH_CHARS 才在段落分组边界切批。
+    const ranges =
+      leaders.length === 0
+        ? []
+        : canBatch
+          ? planBatches(
+              leaders.map((index) => request.texts[index].length),
+              Number.MAX_SAFE_INTEGER,
+              OPENAI_BATCH_CHARS,
+              request.groupIds ? leaders.map((index) => request.groupIds![index] ?? index) : undefined,
+            )
+          : leaders.map((_leader, position) => ({ start: position, end: position + 1 }))
+
+    const applyLeader = (leader: number, translated: string): void => {
+      this.remember(cacheKey(request.texts[leader], kindAt(leader)), translated)
+      results[leader] = translated
+      request.onBatch?.([translated], leader)
+      for (const duplicate of duplicatesByLeader.get(leader) ?? []) {
+        this.remember(cacheKey(request.texts[duplicate], kindAt(duplicate)), translated)
+        results[duplicate] = translated
+        request.onBatch?.([translated], duplicate)
+      }
+    }
+
+    const failLeaders = (leaderIndexes: readonly number[], error: unknown): void => {
+      for (const leader of leaderIndexes) {
+        failures.push({ index: leader, error })
+        for (const duplicate of duplicatesByLeader.get(leader) ?? []) {
+          failures.push({ index: duplicate, error })
         }
-        return pending
-      },
-      request.signal,
-      (singleTranslated, index) => {
-        request.onBatch?.([singleTranslated], index)
+      }
+    }
+
+    const runRange = async (range: { start: number; end: number }): Promise<void> => {
+      const slice = leaders.slice(range.start, range.end)
+      if (slice.length === 1) {
+        const leader = slice[0]
+        try {
+          applyLeader(leader, await translateSingle(request.texts[leader], kindAt(leader)))
+        } catch (error) {
+          if (isAbortError(error) || request.signal?.aborted) throw abortError()
+          failLeaders([leader], error)
+        }
+        return
+      }
+
+      try {
+        const translations = await translateBatch(slice.map((index) => request.texts[index]))
+        slice.forEach((leader, position) => applyLeader(leader, translations[position]))
+        return
+      } catch (error) {
+        if (isAbortError(error) || request.signal?.aborted) throw abortError()
+        if (isDefinitiveHttpError(error)) {
+          failLeaders(slice, error)
+          return
+        }
+      }
+
+      // 整批失败或标记不符：退回逐段，一段坏了不拖垮整篇（与旧的逐段行为一致）。
+      for (const leader of slice) {
+        try {
+          applyLeader(leader, await translateSingle(request.texts[leader], kindAt(leader)))
+        } catch (error) {
+          if (isAbortError(error) || request.signal?.aborted) throw abortError()
+          failLeaders([leader], error)
+        }
+      }
+    }
+
+    let nextRange = 0
+    const workers = Array.from(
+      { length: Math.min(concurrency, Math.max(1, ranges.length)) },
+      async () => {
+        while (nextRange < ranges.length) {
+          if (request.signal?.aborted) return
+          const range = ranges[nextRange]
+          nextRange += 1
+          try {
+            await runRange(range)
+          } catch (error) {
+            if (isAbortError(error) || request.signal?.aborted) return
+            throw error
+          }
+        }
       },
     )
+    await Promise.all(workers)
+    if (request.signal?.aborted) throw abortError()
+
+    if (failures.length > 0) {
+      failures.sort((a, b) => a.index - b.index)
+      const first = failures[0].error
+      const detail = first instanceof Error ? first.message : 'AI 翻译请求失败'
+      const completed = request.texts.length - failures.length
+      throw new Error(
+        `${detail}（已完成 ${completed}/${request.texts.length} 段，${failures.length} 段失败；已完成内容已保留。）`,
+      )
+    }
+
+    return results
   }
 }
 
