@@ -185,6 +185,15 @@ assert.match(batchSystem, /senior professional translation expert/)
 assert.match(batchSystem, /Batch mode/)
 assert.match(batchSystem, /into Simplified Chinese/)
 assert.match(batchSystem, /Never merge, split, reorder, renumber, or skip segments/)
+// 内联标签会把一句话切成多个标记：要求「片仍一一对应，但按整句语序译」
+assert.match(batchSystem, /fragments of a single sentence/)
+assert.match(batchSystem, /inline markup \(links, bold, italics\)/)
+assert.match(
+  batchSystem,
+  /reading the marked translations in sequence yields a fluent, natural Simplified Chinese sentence/,
+)
+assert.match(batchSystem, /Do not add subjects, pronouns, or words that are absent from the source/)
+assert.match(batchSystem, /keep each fragment's own leading or trailing punctuation/)
 
 const batchUser = openAiTranslationBatchUserPrompt(['Hello', 'World'])
 assert.equal(batchUser, '原文：\n\n[[1]]\nHello\n\n[[2]]\nWorld')
