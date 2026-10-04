@@ -1,3 +1,5 @@
+**中文** | [English](README.en.md)
+
 # NewsNook（有所闻）
 
 <p align="center">
