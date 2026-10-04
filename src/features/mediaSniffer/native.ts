@@ -9,6 +9,22 @@ import { originOf } from './originHeaders'
 import { shouldBridgeNativePlayback } from './playback'
 import type { MediaObservation } from './types'
 
+let sessionSequence = 0
+
+/**
+ * 会话 id 只用于把原生回调配到本次请求上。randomUUID 缺失时仍走 CSPRNG，
+ * 不用 Math.random 这种可预测的兜底，避免观察结果被别的会话冒充。
+ */
+function newSessionId(prefix: string): string {
+  const crypto = globalThis.crypto
+  if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID()
+  const bytes = new Uint8Array(16)
+  if (typeof crypto?.getRandomValues === 'function') crypto.getRandomValues(bytes)
+  sessionSequence += 1
+  const suffix = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return `${prefix}-${Date.now()}-${sessionSequence}-${suffix}`
+}
+
 interface NativeMediaSnifferPlugin {
   sniff(options: { url: string; timeoutMs: number; referrer?: string; sessionId: string }): Promise<{
     observations: MediaObservation[]
@@ -190,9 +206,7 @@ export async function observeMediaInNativePage(
   onObservation?: (observation: MediaObservation) => void,
 ): Promise<MediaObservation[]> {
   if (!Capacitor.isNativePlatform()) return []
-  const sessionId = typeof globalThis.crypto?.randomUUID === 'function'
-    ? globalThis.crypto.randomUUID()
-    : `media-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const sessionId = newSessionId('media')
   const streamed: MediaObservation[] = []
   let listener: PluginListenerHandle | undefined
   try {
@@ -242,9 +256,7 @@ export async function startNativeLiveSniffSession(options: {
   if (!LIVE_SNIFF_PLATFORMS.includes(Capacitor.getPlatform())) {
     throw new Error('Live sniff session requires a native shell')
   }
-  const sessionId = typeof globalThis.crypto?.randomUUID === 'function'
-    ? globalThis.crypto.randomUUID()
-    : `live-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const sessionId = newSessionId('live')
   let listener: PluginListenerHandle | undefined
   try {
     listener = await NativeMediaSniffer.addListener('mediaObservation', (event) => {

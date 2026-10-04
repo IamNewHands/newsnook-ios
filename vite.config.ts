@@ -687,7 +687,7 @@ function unlayerCssPlugin(): Plugin {
           css.replace(
             /\.(gap-[^\s{]+)\s*\{\s*(column-gap|row-gap|gap):\s*([^;}]+);?\s*\}/g,
             (_full, cls: string, prop: string, val: string) => {
-              const sel = `.${cls}`.replace(/\\\./g, '\\.')
+              const sel = `.${cls}`
               if (prop === 'column-gap') {
                 gapFallbacks.push(
                   `html[data-no-flex-gap="1"] ${sel} > * + * { margin-left: ${val.trim()}; }`,

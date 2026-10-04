@@ -52,7 +52,9 @@ const publisherSpacing = `
 <p><img src="cover.jpg" alt="封面"></p>
 `
 const compact = stripEmptyArticleBlocks(publisherSpacing)
-assert.doesNotMatch(compact, /<p[^>]*>(?:\s|&nbsp;|<br\s*\/?\s*>)*<\/p>/i)
+// 先把占位符还原成空白再断言，避免 `(?:\s|<br…>)*` 这类嵌套量词在正则里退化。
+const compactWithoutPlaceholders = compact.replace(/&nbsp;/gi, ' ').replace(/<br\b[^>]*>/gi, ' ')
+assert.doesNotMatch(compactWithoutPlaceholders, /<p\b[^>]*>\s*<\/p>/i)
 assert.doesNotMatch(compact, /<ul>\s*<\/ul>/i)
 assert.match(compact, /第一段正文/)
 assert.match(compact, /第二段正文/)

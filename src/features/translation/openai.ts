@@ -46,8 +46,22 @@ export function assertOpenAiConfig(config: CloudTranslationConfig): string {
 
 const WRAP_TAG = 'source_text|translation|translated_text|target_text|target|result'
 const TRAILING_HTML_TAG = /(?:\s*<\/?[a-zA-Z][a-zA-Z0-9:-]*(?:\s[^>]*)?>)+\s*$/
-/** Hunyuan EOS uses fullwidth ｜ and ▁; gateways may also emit ASCII | and underscores. */
-const TRAILING_SPECIAL_TOKEN = /(?:\s*<\s*[|｜]\s*[^>]*?[|｜]\s*>)+\s*$/u
+/** Hunyuan EOS uses fullwidth ｜ and ▁; gateways may also emit ASCII | and underscores.
+ * 只匹配单个 token（连续多个由下面的 stripTrailingSpecialTokens 循环处理），
+ * 避免 `(?:…)+` 嵌套量词在畸形输入上退化。 */
+const TRAILING_SPECIAL_TOKEN = /\s*<\s*[|｜]\s*[^>]*?[|｜]\s*>\s*$/u
+
+/** 逐个剥离结尾的网关特殊 token；上限 32 次兜底，行为等价于旧的 `(?:…)+$` */
+function stripTrailingSpecialTokens(text: string): string {
+  let current = text
+  for (let i = 0; i < 32; i += 1) {
+    const next = current.replace(TRAILING_SPECIAL_TOKEN, '').trim()
+    if (next === current) break
+    current = next
+  }
+  return current
+}
+
 const LEADING_WRAP = new RegExp(`^<(?:${WRAP_TAG})>\\s*`, 'i')
 const TRAILING_WRAP = new RegExp(`\\s*</(?:${WRAP_TAG})>\\s*$`, 'i')
 
@@ -84,7 +98,7 @@ export function cleanOpenAiTranslation(content: string): string {
 
     text = text.replace(LEADING_WRAP, '').trim()
     text = text.replace(TRAILING_WRAP, '').trim()
-    text = text.replace(TRAILING_SPECIAL_TOKEN, '').trim()
+    text = stripTrailingSpecialTokens(text)
     text = text.replace(TRAILING_HTML_TAG, '').trim()
 
     if (text === before) break
