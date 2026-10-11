@@ -611,34 +611,35 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
         />
       </div>
 
-      <div className="relative z-10 flex flex-col items-center gap-2 px-3 pt-2">
-        {adjustOpen && (
-          <div role="toolbar" aria-label="图片调整" className="flex max-w-full items-center gap-1 rounded-2xl border border-haze bg-ink-raised/95 p-1.5 text-paper shadow-xl backdrop-blur-md">
-            {([
-              ['left', RotateCcw, '左转90°'],
-              ['right', RotateCw, '右转90°'],
-              ['horizontal', FlipHorizontal2, '水平镜像'],
-              ['vertical', FlipVertical2, '垂直镜像'],
-              ['reset', RefreshCcw, '还原'],
-            ] as const).map(([action, Icon, label]) => (
-              <button key={action} type="button" aria-label={label} title={label} disabled={imageState !== 'loaded'} onClick={() => adjustImage(action)} className="flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 rounded-xl px-1 text-paper-muted transition-colors hover:bg-haze/50 active:bg-haze disabled:opacity-30">
-                <Icon size={19} strokeWidth={1.7} />
-                <span className="whitespace-nowrap text-[9px]">{label.replace('90°', '')}</span>
-              </button>
-            ))}
+      <div className="relative z-10 mx-auto flex w-full max-w-[440px] flex-col items-center px-3 pt-2 safe-pb-12">
+        {adjustOpen ? (
+          <div className="w-full rounded-[22px] border border-haze bg-ink-raised/95 p-2 shadow-xl backdrop-blur-xl">
+            <div className="flex items-center justify-between px-2 pb-1.5">
+              <span className="text-[12px] font-medium text-paper">调整图片</span>
+              <button type="button" aria-label="收起图片调整" onClick={() => setAdjustOpen(false)} className="grid h-9 w-9 place-items-center rounded-full text-paper-muted active:bg-haze/40"><X size={17} /></button>
+            </div>
+            <div role="toolbar" aria-label="图片调整" className="grid grid-cols-5 gap-1">
+              {([
+                ['left', RotateCcw, '左转90°', '左转'],
+                ['right', RotateCw, '右转90°', '右转'],
+                ['horizontal', FlipHorizontal2, '水平镜像', '水平'],
+                ['vertical', FlipVertical2, '垂直镜像', '垂直'],
+                ['reset', RefreshCcw, '还原', '还原'],
+              ] as const).map(([action, Icon, label, shortLabel]) => (
+                <button key={action} type="button" aria-label={label} title={label} disabled={imageState !== 'loaded'} onClick={() => adjustImage(action)} className="flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-xl text-paper transition-colors active:bg-haze/50 disabled:opacity-30">
+                  <Icon size={20} strokeWidth={1.6} />
+                  <span className="whitespace-nowrap text-[11px]">{shortLabel}</span>
+                </button>
+              ))}
+            </div>
+            <p className="pt-2 text-center text-[10px] text-paper-faint">仅更改显示方向 · 保存与分享仍是原图</p>
           </div>
+        ) : (
+          <button type="button" aria-label="调整图片" aria-expanded={false} onClick={() => setAdjustOpen(true)} className="flex min-h-11 items-center gap-2 rounded-full border border-haze bg-ink-raised/85 px-4 text-[12px] text-paper backdrop-blur-lg active:bg-haze/30">
+            <SlidersHorizontal size={16} strokeWidth={1.7} />调整图片
+          </button>
         )}
-        <button type="button" aria-label={adjustOpen ? '收起图片调整' : '调整图片'} aria-expanded={adjustOpen} onClick={() => { setAdjustOpen((open) => !open); setMenuOpen(false) }} className={`flex min-h-11 items-center gap-2 rounded-full border border-haze px-4 text-xs backdrop-blur-md ${adjustOpen ? 'bg-paper text-ink' : 'bg-ink-raised/85 text-paper'}`}>
-          <SlidersHorizontal size={16} strokeWidth={1.7} />
-          {adjustOpen ? '收起调整' : '调整图片'}
-        </button>
-        {adjustOpen && <p className="text-center text-[10px] text-paper-faint">仅调整预览，保存和分享仍为原图</p>}
       </div>
-      <p
-        className="pointer-events-none text-center font-mono text-[10px] tracking-[0.14em] text-paper-faint safe-pb-12"
-      >
-        {total > 1 ? '左右滑动切换 · ' : ''}双指缩放 · 下滑关闭 · 长按更多操作
-      </p>
 
       {menuOpen && (
         <div className="absolute inset-0 z-20 flex flex-col justify-end bg-ink/55">
