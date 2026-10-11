@@ -1,6 +1,7 @@
 import { memo, useRef } from 'react'
 import { Bookmark, Newspaper } from 'lucide-react'
 
+import { haptics } from '../lib/haptics'
 import { PresetSwitcher, type PresetSwitcherProps } from './PresetSwitcher'
 
 const TODAY_DOUBLE_TAP_MS = 360
@@ -46,16 +47,20 @@ export const TabBar = memo(function TabBar({
               const now = performance.now()
               if (now - lastTodayTapAt.current < TODAY_DOUBLE_TAP_MS) {
                 lastTodayTapAt.current = 0
+                void haptics.snap()
                 onTodayDoubleTap()
                 return
               }
               lastTodayTapAt.current = now
             }
+            if (!isActive) {
+              void haptics.selection()
+            }
             onChange(key)
           }}
           aria-current={isActive ? 'page' : undefined}
           aria-label={key === 'today' && isActive ? '速闻，双击刷新' : undefined}
-          className="group relative flex h-full w-full flex-col items-center justify-center gap-0.5 transition-colors duration-200"
+          className="group relative flex h-full w-full flex-col items-center justify-center gap-0.5 transition-transform duration-100 active:scale-[0.93]"
         >
           <span className="relative flex items-center justify-center">
             <Icon
