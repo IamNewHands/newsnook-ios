@@ -1,3 +1,5 @@
+import { haptics } from '../lib/haptics'
+
 interface Props {
   checked: boolean
   label: string
@@ -13,14 +15,23 @@ export function ToggleSwitch({ checked, label, disabled, onChange }: Props) {
       aria-checked={checked}
       aria-label={label}
       disabled={disabled}
-      onClick={onChange}
-      className={`relative h-[22px] w-[38px] shrink-0 rounded-full border transition-colors duration-300 disabled:opacity-35 ${
-        checked ? 'border-cinnabar/60 bg-cinnabar/25' : 'border-haze bg-paper/5'
+      onClick={() => {
+        if (!disabled) {
+          void haptics.toggle()
+          onChange()
+        }
+      }}
+      className={`relative h-[22px] w-[38px] shrink-0 rounded-full border p-[2px] transition-all duration-300 active:scale-[0.94] disabled:opacity-35 ${
+        checked
+          ? 'border-cinnabar/60 bg-cinnabar/25 shadow-[inset_0_1px_2px_rgba(0,0,0,0.2)]'
+          : 'border-haze bg-paper/5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.15)]'
       }`}
     >
       <span
-        className={`absolute top-[3px] h-[14px] w-[14px] rounded-full transition-all duration-300 ${
-          checked ? 'left-[20px] bg-cinnabar' : 'left-[3px] bg-paper/40'
+        className={`block h-[16px] w-[16px] rounded-full shadow-xs transition-transform duration-300 ease-[var(--ease-ink,cubic-bezier(0.22,1,0.36,1))] ${
+          checked
+            ? 'translate-x-[16px] bg-cinnabar'
+            : 'translate-x-0 bg-paper/45'
         }`}
       />
     </button>

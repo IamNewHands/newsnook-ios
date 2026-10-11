@@ -30,6 +30,7 @@ import {
 import { sortArticles } from './lib/feedPagination'
 import { recoverAppScrollAfterNavigation } from './lib/gestureStyles'
 import { dismissTopHardwareBackLayer } from './lib/hardwareBackStack'
+import { haptics } from './lib/haptics'
 import { log } from './lib/logger'
 import {
   buildReadingProfile,
@@ -1008,6 +1009,7 @@ export default function App() {
       laterRef.current = next
       setLater(next)
       setBodyPinned(article.id, false)
+      void haptics.tick()
       notifyCacheChange()
       return
     }
@@ -1015,6 +1017,7 @@ export default function App() {
     const next = [article, ...laterRef.current]
     laterRef.current = next
     setLater(next)
+    void haptics.success()
   }, [notifyCacheChange])
 
   const removeLater = useCallback((id: string) => {
@@ -1022,6 +1025,7 @@ export default function App() {
     laterRef.current = next
     setLater(next)
     setBodyPinned(id, false)
+    void haptics.tick()
     notifyCacheChange()
   }, [notifyCacheChange])
 

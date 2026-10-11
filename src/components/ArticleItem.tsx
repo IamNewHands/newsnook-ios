@@ -62,10 +62,10 @@ export const ArticleRow = memo(function ArticleRow({
           setShowOriginal((prev) => !prev)
         }}
         title={isTranslated ? '点击查看原文' : '点击查看译文'}
-        className={`inline-flex items-center px-1.5 py-0.2 rounded text-[9.5px] font-sans font-normal transition-all cursor-pointer select-none ${
+        className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-mono font-medium transition-all cursor-pointer select-none active:scale-90 ${
           isTranslated
-            ? 'text-cinnabar/90 border border-cinnabar/25 bg-cinnabar/5 hover:bg-cinnabar/15 active:scale-95'
-            : 'text-paper-muted border border-haze bg-paper/5 hover:bg-paper/10 hover:text-paper active:scale-95'
+            ? 'text-cinnabar border border-cinnabar/30 bg-cinnabar/10 shadow-xs'
+            : 'text-paper-muted border border-haze bg-paper/5 hover:bg-paper/10 hover:text-paper'
         }`}
       >
         {isTranslated ? '译' : '原'}
@@ -91,12 +91,12 @@ export const ArticleRow = memo(function ArticleRow({
         <button
           type="button"
           onClick={() => onOpen(article)}
-          className={`group relative flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-all duration-200 sm:px-5 sm:py-4 ${
+          className={`group pressable-card relative flex w-full items-center gap-3.5 px-4 py-3.5 text-left sm:px-5 sm:py-4 ${
             variant === 'auto' ? 'md:hidden' : ''
           } ${
             read
-              ? 'bg-transparent hover:bg-ink/50 group-active:bg-ink-deep/40'
-              : 'bg-gradient-to-b from-ink-raised/40 to-transparent hover:bg-ink-raised group-active:bg-ink-deep/20'
+              ? 'bg-transparent hover:bg-ink/50'
+              : 'bg-gradient-to-b from-ink-raised/40 to-transparent hover:bg-ink-raised'
           }`}
         >
           <span className="min-w-0 flex-1">
@@ -200,7 +200,7 @@ export const ArticleRow = memo(function ArticleRow({
         <button
           type="button"
           onClick={() => onOpen(article)}
-          className={`group relative flex w-full flex-col overflow-hidden rounded-[13px] border text-left transition-[transform,background-color,border-color,box-shadow] duration-150 active:scale-[0.985] ${
+          className={`group pressable-card chamfer-surface relative flex w-full flex-col overflow-hidden rounded-[13px] border text-left transition-[transform,background-color,border-color,box-shadow] duration-150 ${
             read
               ? 'border-haze/65 bg-ink-raised/30 active:bg-ink-raised/55'
               : 'border-haze/85 bg-ink-raised/65 active:border-cinnabar/25 active:bg-ink-raised/90'
@@ -295,7 +295,7 @@ export const ArticleRow = memo(function ArticleRow({
         <button
           type="button"
           onClick={() => onOpen(article)}
-          className={`group relative h-full w-full flex-col justify-between rounded-xl border p-5 text-left transition-all duration-300 ${
+          className={`group pressable-card chamfer-surface relative h-full w-full flex-col justify-between rounded-xl border p-5 text-left transition-all duration-300 ${
             variant === 'auto' ? 'hidden md:flex' : 'flex'
           } ${
             read
