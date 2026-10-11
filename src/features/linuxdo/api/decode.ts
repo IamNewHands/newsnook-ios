@@ -183,6 +183,7 @@ export function decodeTopic(input: unknown): LinuxDoTopic {
   const stream = root?.post_stream ?? {}
   return {
     id: Number(root.id),
+    archetype: typeof root.archetype === 'string' ? root.archetype : undefined,
     slug: String(root.slug ?? ''),
     title: String(root.title ?? ''),
     fancyTitle: typeof root.fancy_title === 'string' ? root.fancy_title : undefined,

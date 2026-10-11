@@ -269,7 +269,7 @@ export function FeedStoreScreen({ prefs, currentCategoryId, currentPresetId, cur
       .map((item) => ({ item, result: probes[item.routePath!] }))
       .filter((item) => item.result?.state === 'available' && item.result.feedUrl && item.result.feed)
     const drafts: SubscriptionDraft[] = ready.map(({ item, result }) => ({
-      name: result.feed!.title || item.title, label: item.title.slice(0, 12), url: result.feedUrl!,
+      name: result.feed!.title || item.title, label: (result.feed!.title || item.title).slice(0, 12), url: result.feedUrl!,
       kind: 'feed', siteUrl: item.siteUrl,
       discovery: { providerId: 'rsshub', entryId: item.entryId, generator: 'rsshub',
         instanceId: result.instanceId, routeKey: item.routePath,
@@ -301,7 +301,7 @@ export function FeedStoreScreen({ prefs, currentCategoryId, currentPresetId, cur
       ? onAddBuiltinToCategory(duplicate.source.id, destination ?? FOLLOWS_ENABLED_SOURCES, presetId, addToMix)
       : onSubscribe({
           name: preview?.ok ? preview.title || entry.title : entry.title,
-          label: entry.title.slice(0, 12), kind: 'feed',
+          label: (preview?.ok ? preview.title || entry.title : entry.title).slice(0, 12), kind: 'feed',
           url: effectiveFeedUrl, siteUrl: entry.siteUrl, discovery,
         }, destination, target === '__save_only__' ? false : target === '__mix_only__' || addToMix, presetId)
     if (!outcome.ok) { setError(outcome.message ?? '订阅保存失败'); return }
@@ -788,6 +788,9 @@ export function FeedStoreScreen({ prefs, currentCategoryId, currentPresetId, cur
                       <span className="font-mono text-paper-faint">{preview.itemCount} 条</span>
                       <span className="font-mono text-paper-faint">{formatPreviewTime(preview.checkedAt)}</span>
                     </div>
+                    <p className="mb-3 break-words text-[13px] text-paper-muted">
+                      订阅名称：{preview.title || entry.title}
+                    </p>
                     {preview.itemCount === 0 ? (
                       <p className="rounded-xl bg-ink/35 px-3 py-5 text-center text-[12.5px] text-paper-faint">当前暂无条目</p>
                     ) : (

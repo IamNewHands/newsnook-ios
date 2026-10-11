@@ -5,6 +5,7 @@ import { ArrowLeft, BookmarkCheck, BookmarkPlus, Globe, Languages, LoaderCircle,
 
 import { AiSpeedReadPanel } from '../components/AiSpeedReadPanel'
 import { ImageLightbox } from '../components/ImageLightbox'
+import { collectImageGallery, type ImageGallery } from '../lib/imageGallery'
 import { EinkReaderMenu } from '../components/EinkReaderMenu'
 import { ReaderMoreMenu } from '../components/ReaderMoreMenu'
 import { ReaderScrollIndicator } from '../components/ReaderScrollIndicator'
@@ -152,7 +153,7 @@ export function ReaderScreen({
   const mediaPlayablesRef = useRef(mediaPlayables)
   mediaPlayablesRef.current = mediaPlayables
   const [deferredPhases, setDeferredPhases] = useState<Record<string, DeferredHostPhase>>({})
-  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
+  const [lightbox, setLightbox] = useState<ImageGallery | null>(null)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentCount, setCommentCount] = useState<number | undefined>()
   const [translated, setTranslated] = useState<TranslatedArticleContent | null>(null)
@@ -494,7 +495,7 @@ export function ReaderScreen({
       const src = target.currentSrc || target.src
       if (!src) return
       event.preventDefault()
-      setLightbox({ src, alt: target.alt || '' })
+      setLightbox(collectImageGallery(root, { src, alt: target.alt || '' }))
     }
 
     root.addEventListener('click', onClick)
@@ -1574,7 +1575,7 @@ export function ReaderScreen({
                   collapseOnError
                   className="h-[220px] w-full sm:h-[300px] md:h-[380px] lg:h-[420px] rounded-xl overflow-hidden"
                   onOpen={
-                    einkMode ? undefined : (src) => setLightbox({ src, alt: article.title })
+                    einkMode ? undefined : (src) => setLightbox(collectImageGallery(proseRef.current, { src, alt: article.title }))
                   }
                 />
               </div>
@@ -1908,8 +1909,13 @@ export function ReaderScreen({
 
       {lightbox && (
         <ImageLightbox
-          src={lightbox.src}
-          alt={lightbox.alt}
+          {...lightbox.items[lightbox.index]}
+          items={lightbox.items}
+          index={lightbox.index}
+          total={lightbox.items.length}
+          onSelect={(index) => setLightbox((state) => state ? { ...state, index } : state)}
+          onPrevious={lightbox.index > 0 ? () => setLightbox((state) => state ? { ...state, index: state.index - 1 } : state) : undefined}
+          onNext={lightbox.index < lightbox.items.length - 1 ? () => setLightbox((state) => state ? { ...state, index: state.index + 1 } : state) : undefined}
           onClose={() => setLightbox(null)}
           overlayCloserRef={overlayCloserRef}
         />

@@ -7,6 +7,8 @@
 - 名称/关键词：请求 `https://cloud.feedly.com/v3/search/feeds?query=...&count=40`，远端执行检索，客户端最多展示 40 个命中地址。
 - 网站网址：直连发现 RSS / Atom / JSON Feed，必要时使用 [Feedsearch](https://feedsearch.dev/)；输入的网址也可以作为待检测候选。
 - 点击结果后实际预览；成功或明确选择临时失败后仍添加，才保存为普通自建订阅。发现索引中的记录不代表当下可读取。
+- 预览从已获取的 Feed 中通用提取频道名称：RSS/RDF 的 `channel/title`、Atom 的 Feed 级 `title`、JSON Feed 的 `title`；支持 XML 实体、CDATA 和命名空间前缀，不使用文章标题、不按站点特判，也不新增网络请求。单条和批量订阅优先使用检测到的名称，空标题回退发现候选名称，短标签同步派生。预览显示将保存的名称；重复订阅及后续刷新不覆盖已有名称。
+- 首页信源标签长按可重命名。自建源复用原有 `customSources` 名称/标签字段，沿用备份与同步；内置信源的显示覆盖保存在 `newsnook:preferences` 的可选 `sourceNames` 映射中，仅作用于本地信源展示，随本地备份保存，暂不云同步。旧数据缺字段按空映射处理；信源 id、协议和 URL 不变。
 - 请求 30 秒超时；编辑查询和关闭页面取消请求，迟到结果不覆盖当前查询。
 
 [Feedly 官方 API 说明](https://feedly.com/new-features/posts/introducing-the-feedly-teams-api)介绍了 Feed 搜索端点。本次直接请求关键词 OpenAI 返回 HTTP 200，无需账号。第三方服务可能限流、变更或要求鉴权，界面应显示错误并允许输入网站或 Feed 地址；不靠全量离线目录兜底，不使用用户 Feedly Cookie。

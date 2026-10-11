@@ -156,6 +156,7 @@ import {
   toggleCategoryVisible,
   updateCustomCategory,
   updateCustomSource,
+  renameSource,
   updateTypography,
   visibleCategories,
   withFavoriteCategory,
@@ -528,9 +529,9 @@ export default function App() {
   const availableCategorySources = useMemo(
     () =>
       categorySourceIds
-        .map((id) => findSource(id, prefs.customSources))
+        .map((id) => allRegisteredSources(prefs).find((source) => source.id === id))
         .filter((s): s is NonNullable<ReturnType<typeof findSource>> => Boolean(s)),
-    [categorySourceIds, prefs.customSources],
+    [categorySourceIds, prefs],
   )
 
   // 若切换分类导致已选信源不在新分类中，自动重置回全部
@@ -858,6 +859,11 @@ export default function App() {
     (id: CategoryId, name: string) => {
       update((prev) => renameCategory(prev, id, name))
     },
+    [update],
+  )
+
+  const handleRenameSource = useCallback(
+    (id: string, name: string) => update((prev) => renameSource(prev, id, name)),
     [update],
   )
 
@@ -1808,6 +1814,7 @@ export default function App() {
         onSelectSource={setCategoryFilterSourceId}
         favoriteSourceIds={prefs.favoriteSourceIds}
         onToggleFavoriteSource={handleToggleFavoriteSource}
+        onRenameSource={handleRenameSource}
         onRemoveSource={
           categoryId === FAVORITES_CATEGORY_ID || categoryId === RECOMMEND_CATEGORY_ID
             ? undefined

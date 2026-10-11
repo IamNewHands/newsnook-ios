@@ -409,7 +409,7 @@ export function LinuxDoComposer({
   if (!open) return null
 
   const mode = editPost ? 'edit' : topic ? 'reply' : 'create'
-  const validation = validateComposer({ mode, title, raw })
+  const validation = validateComposer({ mode, title, raw, topicArchetype: topic?.archetype })
   const selectedCategory = categories.find((category) => category.id === categoryId)
   const hasContent = Boolean(title.trim() || raw.trim() || categoryId || selectedTags.length)
   const requestClose = () => {
@@ -1680,7 +1680,7 @@ export function LinuxDoTopicView({
       {lightbox ? (() => {
         const current = lightbox.items[lightbox.index]
         if (!current) return null
-        return <ImageLightbox src={current.src} actionSrc={current.actionSrc} alt={current.alt} index={lightbox.index} total={lightbox.items.length} onPrevious={lightbox.index > 0 ? () => setLightbox((state) => state ? { ...state, index: state.index - 1 } : state) : undefined} onNext={lightbox.index < lightbox.items.length - 1 ? () => setLightbox((state) => state ? { ...state, index: state.index + 1 } : state) : undefined} onClose={() => setLightbox(null)} overlayCloserRef={overlayBackHandlerRef} />
+        return <ImageLightbox src={current.src} actionSrc={current.actionSrc} alt={current.alt} items={lightbox.items} onSelect={(index) => setLightbox((state) => state ? { ...state, index } : state)} index={lightbox.index} total={lightbox.items.length} onPrevious={lightbox.index > 0 ? () => setLightbox((state) => state ? { ...state, index: state.index - 1 } : state) : undefined} onNext={lightbox.index < lightbox.items.length - 1 ? () => setLightbox((state) => state ? { ...state, index: state.index + 1 } : state) : undefined} onClose={() => setLightbox(null)} overlayCloserRef={overlayBackHandlerRef} />
       })() : null}
     </div>
   )

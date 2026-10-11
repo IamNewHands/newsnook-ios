@@ -245,6 +245,9 @@ export function normalizePreferences(raw: unknown): Preferences {
     favoriteSourceIds: uniqueValidSourceIds(input.favoriteSourceIds, knownSourceIds),
     customCategories,
     customSources,
+    sourceNames: Object.fromEntries(Object.entries(input.sourceNames ?? {}).filter(([id, name]) =>
+      SOURCES.some((source) => source.id === id && !source.workspaceOnly) && typeof name === 'string' && name.trim(),
+    ).map(([id, name]) => [id, name.trim()])),
     theme: isThemeMode(input.theme) ? input.theme : DEFAULT_THEME_MODE,
     scheme,
     customScheme,

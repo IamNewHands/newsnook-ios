@@ -1,18 +1,20 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type MutableRefObject,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from 'react'
-import { ChevronLeft, ChevronRight, Download, FlipHorizontal2, FlipVertical2, Loader2, RotateCcw, RotateCw, RefreshCcw, Share2, SlidersHorizontal, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, FlipHorizontal2, FlipVertical2, Loader2, MoreHorizontal, RotateCcw, RotateCw, RefreshCcw, Share2, SlidersHorizontal, X } from 'lucide-react'
 
 import { saveImageToGallery, shareImage } from '../lib/imageActions'
 import { lockBodyScroll } from '../lib/bodyScrollLock'
 import { recoverAppScrollSurfaces } from '../lib/gestureStyles'
 import { shouldResetReaderPinchSequence } from '../lib/readerFontPinch'
+import type { GalleryImage } from '../lib/imageGallery'
 
 interface Props {
   src: string
@@ -24,6 +26,8 @@ interface Props {
   onNext?: () => void
   index?: number
   total?: number
+  items?: readonly GalleryImage[]
+  onSelect?: (index: number) => void
   /** 系统返回：先关菜单，再关灯箱 */
   overlayCloserRef?: MutableRefObject<(() => boolean) | null>
 }
@@ -33,16 +37,76 @@ const MAX_SCALE = 4
 const DOUBLE_TAP_MS = 280
 const DOUBLE_TAP_ZOOM = 2.5
 const LONG_PRESS_MS = 460
+const SLIDE_DURATION_MS = 240
 
 type Point = { x: number; y: number }
 type BusyAction = 'save' | 'share' | null
 
+function GallerySlide({ src, alt = '', current, imgRef, stageRef, onLoad, onError }: {
+  src: string
+  alt?: string
+  current: boolean
+  imgRef: MutableRefObject<HTMLImageElement | null>
+  stageRef: MutableRefObject<HTMLDivElement | null>
+  onLoad: () => void
+  onError: () => void
+}) {
+  const [phase, setPhase] = useState<'loading' | 'loaded' | 'error'>('loading')
+  const localRef = useRef<HTMLImageElement>(null)
+  const fitPreview = useCallback(() => {
+    const img = localRef.current
+    const stage = stageRef.current
+    if (!img?.naturalWidth || !img.naturalHeight || !stage) return
+    const { width, height } = stage.getBoundingClientRect()
+    const fit = Math.min(width / img.naturalWidth, height / img.naturalHeight)
+    img.style.width = `${img.naturalWidth * fit}px`
+    img.style.height = `${img.naturalHeight * fit}px`
+  }, [stageRef])
+  useLayoutEffect(() => {
+    const img = localRef.current
+    if (!current && img) {
+      fitPreview()
+      img.style.transform = 'translate3d(0px, 0px, 0) scale(1, 1) rotate(0deg)'
+      img.style.transition = 'none'
+    }
+  }, [current, fitPreview])
+  useEffect(() => {
+    if (current) return
+    const stage = stageRef.current
+    if (!stage) return
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', fitPreview)
+      return () => window.removeEventListener('resize', fitPreview)
+    }
+    const observer = new ResizeObserver(fitPreview)
+    observer.observe(stage)
+    return () => observer.disconnect()
+  }, [current, fitPreview, stageRef])
+  return <>
+    {!current && phase === 'loading' ? <Loader2 size={24} className="absolute animate-spin text-paper-faint" /> : null}
+    {!current && phase === 'error' ? <span className="absolute text-[12px] text-paper-faint">图片暂时无法加载</span> : null}
+    <img ref={(img) => { localRef.current = img; if (current) imgRef.current = img }}
+      src={src} alt={current ? alt : ''} draggable={false} referrerPolicy="no-referrer"
+      onLoad={() => { if (!current) fitPreview(); setPhase('loaded'); if (current) onLoad() }}
+      onError={() => { setPhase('error'); if (current) onError() }}
+      className="pointer-events-auto shrink-0 select-none object-contain"
+      style={{ transformOrigin: 'center center', willChange: 'transform', opacity: phase === 'loaded' ? 1 : 0 }} />
+  </>
+}
+
 /**
  * 全屏看图：双指捏合、单指平移、双击缩放、下滑关闭；长按保存/分享。
  */
-export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, onNext, index = 0, total = 1, overlayCloserRef }: Props) {
+export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, onNext, index = 0, total = 1, items, onSelect, overlayCloserRef }: Props) {
   const stageRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
+  const trackRef = useRef<HTMLDivElement>(null)
+  const trackIndexRef = useRef(index)
+  const slideTimerRef = useRef<number | null>(null)
+  const pendingSlideRef = useRef<(() => void) | null>(null)
+  const thumbnailsRef = useRef<HTMLDivElement>(null)
+  const thumbnailDragRef = useRef<{ startX: number; left: number } | null>(null)
+  const suppressThumbnailClickRef = useRef(false)
   const transformRef = useRef({ scale: 1, x: 0, y: 0, rotation: 0, flipX: false, flipY: false })
   const pointersRef = useRef(new Map<number, Point>())
   const pinchStartRef = useRef<{
@@ -55,7 +119,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
   const panStartRef = useRef<{ point: Point; x: number; y: number } | null>(null)
   const lastTapRef = useRef<{ time: number; point: Point } | null>(null)
   const movedRef = useRef(false)
-  const closingSwipeRef = useRef({ active: false, startX: 0, startY: 0, dx: 0, dy: 0 })
+  const closingSwipeRef = useRef({ active: false, startX: 0, startY: 0, dx: 0, dy: 0, axis: null as 'x' | 'y' | null })
   const longPressTimerRef = useRef<number | null>(null)
   const longPressPointRef = useRef<Point | null>(null)
 
@@ -64,7 +128,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
   const [busy, setBusy] = useState<BusyAction>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [imageState, setImageState] = useState<'loading' | 'loaded' | 'error'>('loading')
-  const [reloadKey, setReloadKey] = useState(0)
+  const [reload, setReload] = useState<{ src: string; index: number; attempt: number } | null>(null)
 
   const clearLongPress = useCallback(() => {
     if (longPressTimerRef.current != null) {
@@ -73,6 +137,39 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
     }
     longPressPointRef.current = null
   }, [])
+
+  const resetTrack = useCallback(() => {
+    if (slideTimerRef.current !== null) window.clearTimeout(slideTimerRef.current)
+    slideTimerRef.current = null
+    pendingSlideRef.current = null
+    const track = trackRef.current
+    if (track) {
+      track.style.transition = 'none'
+      track.style.transform = `translate3d(${-trackIndexRef.current * 100}%, 0, 0)`
+    }
+  }, [])
+
+  const finishSlide = useCallback(() => {
+    const commit = pendingSlideRef.current
+    if (!commit) return
+    pendingSlideRef.current = null
+    if (slideTimerRef.current !== null) window.clearTimeout(slideTimerRef.current)
+    slideTimerRef.current = null
+    commit()
+  }, [])
+
+  const settleTrack = useCallback((offset: number, commit?: () => void) => {
+    const track = trackRef.current
+    if (!track) { commit?.(); return }
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    track.style.transition = reduced ? 'none' : `transform ${SLIDE_DURATION_MS}ms var(--ease-ink)`
+    const targetIndex = trackIndexRef.current + (commit ? (offset < 0 ? 1 : -1) : 0)
+    track.style.transform = `translate3d(${-targetIndex * 100}%, 0, 0)`
+    if (!commit) return
+    pendingSlideRef.current = commit
+    if (reduced) finishSlide()
+    else slideTimerRef.current = window.setTimeout(finishSlide, SLIDE_DURATION_MS + 80)
+  }, [finishSlide])
 
   const applyTransform = useCallback((animate = false) => {
     const img = imgRef.current
@@ -170,13 +267,14 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
   const cancelGesture = useCallback(() => {
     clearLongPress()
     releaseStageCaptures()
+    resetTrack()
     movedRef.current = true
     lastTapRef.current = null
     const stage = stageRef.current
     if (stage) stage.style.backgroundColor = ''
     clampTranslation()
     applyTransform(false)
-  }, [applyTransform, clampTranslation, clearLongPress, releaseStageCaptures])
+  }, [applyTransform, clampTranslation, clearLongPress, releaseStageCaptures, resetTrack])
 
   const adjustImage = useCallback((action: 'left' | 'right' | 'horizontal' | 'vertical' | 'reset') => {
     cancelGesture()
@@ -215,13 +313,20 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
       document.removeEventListener('visibilitychange', onVisibilityChange)
       clearLongPress()
       releaseStageCaptures(stage)
+      resetTrack()
       unlock()
       recoverAppScrollSurfaces()
     }
-  }, [cancelGesture, clearLongPress, releaseStageCaptures])
+  }, [cancelGesture, clearLongPress, releaseStageCaptures, resetTrack])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (!menuOpen && !adjustOpen && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+        event.preventDefault()
+        if (event.key === 'ArrowLeft') onPrevious?.()
+        else onNext?.()
+        return
+      }
       if (event.key !== 'Escape') return
       if (menuOpen) {
         setMenuOpen(false)
@@ -236,7 +341,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [adjustOpen, menuOpen, onClose])
+  }, [adjustOpen, menuOpen, onClose, onPrevious, onNext])
 
   useEffect(() => {
     if (!overlayCloserRef) return
@@ -260,15 +365,31 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
 
   useEffect(() => () => clearLongPress(), [clearLongPress])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    trackIndexRef.current = index
+    cancelGesture()
     setImageState('loading')
-    setReloadKey(0)
     setAdjustOpen(false)
+    setMenuOpen(false)
+    setStatus(null)
     transformRef.current = { scale: 1, x: 0, y: 0, rotation: 0, flipX: false, flipY: false }
     const img = imgRef.current
-    if (img) { img.style.width = ''; img.style.height = '' }
     applyTransform(false)
-  }, [src, index, applyTransform])
+    if (img?.complete) {
+      if (img.naturalWidth > 0) {
+        fitImage()
+        setImageState('loaded')
+      } else setImageState('error')
+    }
+  }, [src, index, applyTransform, cancelGesture, fitImage])
+
+  useEffect(() => {
+    const rail = thumbnailsRef.current
+    const selected = rail?.querySelector<HTMLButtonElement>('[aria-current="true"]')
+    if (!rail || !selected) return
+    const left = selected.offsetLeft - (rail.clientWidth - selected.offsetWidth) / 2
+    rail.scrollTo({ left: Math.max(0, left), behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
+  }, [index])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -294,11 +415,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
   })
 
   const openMenu = () => {
-    clearLongPress()
-    movedRef.current = true
-    panStartRef.current = null
-    closingSwipeRef.current.active = false
-    lastTapRef.current = null
+    cancelGesture()
     setStatus(null)
     setAdjustOpen(false)
     setMenuOpen(true)
@@ -306,7 +423,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
   }
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (menuOpen || busy) return
+    if (menuOpen || busy || pendingSlideRef.current) return
     const stage = stageRef.current
     if (!stage) return
     if (shouldResetReaderPinchSequence(pointersRef.current.size, event)) cancelGesture()
@@ -327,6 +444,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
       }
       panStartRef.current = null
       closingSwipeRef.current.active = false
+      resetTrack()
       return
     }
 
@@ -344,7 +462,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
         closingSwipeRef.current.active = false
       } else {
         panStartRef.current = null
-        closingSwipeRef.current = { active: true, startX: point.x, startY: point.y, dx: 0, dy: 0 }
+        closingSwipeRef.current = { active: true, startX: point.x, startY: point.y, dx: 0, dy: 0, axis: null }
       }
     }
   }
@@ -408,12 +526,20 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
         }
         const img = imgRef.current
         const backdrop = stageRef.current
+        if (!closingSwipeRef.current.axis && Math.hypot(dx, dy) > 8) {
+          if (Math.abs(dx) > Math.abs(dy) * 1.2) closingSwipeRef.current.axis = 'x'
+          else if (Math.abs(dy) > Math.abs(dx) * 1.2) closingSwipeRef.current.axis = 'y'
+        }
         if (img && backdrop) {
           img.style.transition = 'none'
-          if (Math.abs(dx) > Math.abs(dy) && (onPrevious || onNext)) {
-            const t = transformRef.current
-            img.style.transform = `translate3d(${dx}px, 0, 0) scale(${t.flipX ? -1 : 1}, ${t.flipY ? -1 : 1}) rotate(${t.rotation}deg)`
-          } else {
+          if (closingSwipeRef.current.axis === 'x' && (onPrevious || onNext)) {
+            const canMove = dx < 0 ? Boolean(onNext) : Boolean(onPrevious)
+            const offset = canMove ? Math.max(-backdrop.getBoundingClientRect().width, Math.min(backdrop.getBoundingClientRect().width, dx)) : dx * 0.22
+            if (trackRef.current) {
+              trackRef.current.style.transition = 'none'
+              trackRef.current.style.transform = `translate3d(calc(${-trackIndexRef.current * 100}% + ${offset}px), 0, 0)`
+            }
+          } else if (closingSwipeRef.current.axis === 'y') {
             const pull = Math.max(0, dy)
             const t = transformRef.current
             img.style.transform = `translate3d(0, ${pull}px, 0) scale(${t.flipX ? -1 : 1}, ${t.flipY ? -1 : 1}) rotate(${t.rotation}deg)`
@@ -436,15 +562,17 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
       panStartRef.current = null
 
       if (closingSwipeRef.current.active) {
-        const { dx, dy } = closingSwipeRef.current
+        const { dx, dy, axis } = closingSwipeRef.current
         closingSwipeRef.current.active = false
-        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 72 && !menuOpen) {
-          if (dx < 0 && onNext) onNext()
-          else if (dx > 0 && onPrevious) onPrevious()
-          resetTransform(false)
+        if (axis === 'x' && !menuOpen) {
+          const width = stageRef.current?.getBoundingClientRect().width ?? 0
+          const commit = dx < 0 ? onNext : onPrevious
+          if (width > 0 && Math.abs(dx) > Math.min(72, width * 0.2) && commit) {
+            settleTrack(dx < 0 ? -width : width, commit)
+          } else settleTrack(0)
           return
         }
-        if (dy > 96 && !menuOpen) {
+        if (axis === 'y' && dy > 96 && !menuOpen) {
           onClose()
           return
         }
@@ -482,7 +610,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
   }
 
   const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
-    if (menuOpen) return
+    if (menuOpen || pendingSlideRef.current) return
     event.preventDefault()
     const factor = event.deltaY > 0 ? 0.9 : 1.1
     zoomTo(transformRef.current.scale * factor, { x: event.clientX, y: event.clientY }, false)
@@ -522,8 +650,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
       aria-label="查看图片"
       // 看图始终用深底衬托画面，不跟随浅色主题
       data-theme="dark"
-      className="fixed inset-0 z-[80] flex flex-col bg-ink/95"
-      style={{ touchAction: 'none' }}
+      className="fixed inset-0 z-[80] flex select-none flex-col bg-ink/98"
     >
       <div
         className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between"
@@ -538,12 +665,14 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
           <X size={18} strokeWidth={1.7} />
         </button>
         {total > 1 ? <div className="pointer-events-auto rounded-full border border-haze bg-ink-raised/75 px-3 py-1.5 font-mono text-[11px] text-paper-muted backdrop-blur-md">{index + 1} / {total}</div> : <span />}
-        <div className="m-3 w-[42px]" />
+        <button type="button" aria-label="图片操作" onClick={openMenu} className="pointer-events-auto m-3 grid h-11 w-11 place-items-center rounded-full border border-haze bg-ink-raised/80 text-paper backdrop-blur-md"><MoreHorizontal size={20} strokeWidth={1.7} /></button>
       </div>
 
       <div
         ref={stageRef}
+        data-image-stage
         className="relative flex min-h-0 flex-1 touch-none items-center justify-center overflow-hidden"
+        style={{ marginTop: 'calc(var(--sat, 0px) + 64px)' }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -557,7 +686,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
           openMenu()
         }}
         onClick={(event) => {
-          if (menuOpen || adjustOpen) return
+          if (menuOpen || adjustOpen || movedRef.current) return
           if (event.target === event.currentTarget && transformRef.current.scale <= MIN_SCALE + 0.02) {
             onClose()
           }
@@ -575,10 +704,12 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
           <div className="absolute inset-0 grid place-items-center px-6">
             <button
               type="button"
+              onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => {
                 event.stopPropagation()
+                cancelGesture()
                 setImageState('loading')
-                setReloadKey((value) => value + 1)
+                setReload((value) => ({ src, index, attempt: value?.src === src && value.index === index ? value.attempt + 1 : 1 }))
               }}
               className="flex items-center gap-2 rounded-full border border-haze bg-ink-raised/85 px-4 py-2.5 text-[12px] text-paper-muted backdrop-blur-md"
             >
@@ -588,32 +719,33 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
         ) : null}
         {total > 1 ? (
           <>
-            <button type="button" disabled={!onPrevious} onClick={(event) => { event.stopPropagation(); onPrevious?.() }} aria-label="上一张" className="absolute left-3 z-10 grid h-11 w-11 place-items-center rounded-full border border-haze bg-ink-raised/65 text-paper backdrop-blur-md disabled:opacity-25"><ChevronLeft size={22} /></button>
-            <button type="button" disabled={!onNext} onClick={(event) => { event.stopPropagation(); onNext?.() }} aria-label="下一张" className="absolute right-3 z-10 grid h-11 w-11 place-items-center rounded-full border border-haze bg-ink-raised/65 text-paper backdrop-blur-md disabled:opacity-25"><ChevronRight size={22} /></button>
+            <button type="button" disabled={!onPrevious} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onPrevious?.() }} aria-label="上一张" className="absolute left-4 z-10 hidden h-11 w-11 place-items-center rounded-full border border-haze bg-ink-raised/65 text-paper backdrop-blur-md transition-colors hover:bg-ink-raised disabled:opacity-20 sm:grid"><ChevronLeft size={22} /></button>
+            <button type="button" disabled={!onNext} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onNext?.() }} aria-label="下一张" className="absolute right-4 z-10 hidden h-11 w-11 place-items-center rounded-full border border-haze bg-ink-raised/65 text-paper backdrop-blur-md transition-colors hover:bg-ink-raised disabled:opacity-20 sm:grid"><ChevronRight size={22} /></button>
           </>
         ) : null}
-        <img
-          key={`${src}:${reloadKey}`}
-          ref={imgRef}
-          src={src}
-          alt={alt}
-          draggable={false}
-          referrerPolicy="no-referrer"
-          onLoad={() => { fitImage(); applyTransform(false); setImageState('loaded') }}
-          onError={() => setImageState('error')}
-          className="shrink-0 select-none object-contain"
-          style={{
-            transformOrigin: 'center center',
-            willChange: 'transform',
-            opacity: imageState === 'loaded' ? 1 : 0,
-            transition: 'opacity 220ms var(--ease-ink)',
-          }}
-        />
+        <div ref={trackRef} data-image-track
+          className="pointer-events-none absolute inset-0"
+          style={{ transform: `translate3d(${-index * 100}%, 0, 0)`, willChange: 'transform' }}
+          onTransitionEnd={(event) => {
+            if (event.target === event.currentTarget && event.propertyName === 'transform') finishSlide()
+          }}>
+          {[index - 1, index, index + 1].map((position) => {
+            const current = position === index
+            const item = current ? { src, alt } : items?.[position]
+            return <div key={`${position}:${item?.src ?? ''}`} aria-hidden={current ? undefined : true}
+              className="absolute top-0 flex h-full w-full items-center justify-center overflow-hidden"
+              style={{ left: `${position * 100}%` }}>
+              {item ? <GallerySlide key={reload?.src === item.src && reload.index === position ? reload.attempt : 0} {...item} current={current} imgRef={imgRef} stageRef={stageRef}
+                onLoad={() => { fitImage(); applyTransform(false); setImageState('loaded') }}
+                onError={() => setImageState('error')} /> : null}
+            </div>
+          })}
+        </div>
       </div>
 
-      <div className="relative z-10 mx-auto flex w-full max-w-[440px] flex-col items-center px-3 pt-2 safe-pb-12">
+      <div className="relative z-10 mx-auto flex w-full max-w-[960px] shrink-0 flex-col items-center gap-3 px-4 pt-3 safe-pb-12">
         {adjustOpen ? (
-          <div className="w-full rounded-[22px] border border-haze bg-ink-raised/95 p-2 shadow-xl backdrop-blur-xl">
+          <div className="w-full max-w-[440px] rounded-[22px] border border-haze bg-ink-raised/95 p-2 shadow-xl backdrop-blur-xl">
             <div className="flex items-center justify-between px-2 pb-1.5">
               <span className="text-[12px] font-medium text-paper">调整图片</span>
               <button type="button" aria-label="收起图片调整" onClick={() => setAdjustOpen(false)} className="grid h-9 w-9 place-items-center rounded-full text-paper-muted active:bg-haze/40"><X size={17} /></button>
@@ -635,10 +767,52 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
             <p className="pt-2 text-center text-[10px] text-paper-faint">仅更改显示方向 · 保存与分享仍是原图</p>
           </div>
         ) : (
-          <button type="button" aria-label="调整图片" aria-expanded={false} onClick={() => setAdjustOpen(true)} className="flex min-h-11 items-center gap-2 rounded-full border border-haze bg-ink-raised/85 px-4 text-[12px] text-paper backdrop-blur-lg active:bg-haze/30">
-            <SlidersHorizontal size={16} strokeWidth={1.7} />调整图片
-          </button>
+          <div className="flex w-full items-center justify-between gap-3">
+            <button type="button" aria-label="调整图片" aria-expanded={false} onClick={() => setAdjustOpen(true)} className="flex min-h-11 shrink-0 items-center gap-2 rounded-full border border-haze bg-ink-raised/85 px-4 text-[12px] text-paper backdrop-blur-lg active:bg-haze/30">
+              <SlidersHorizontal size={16} strokeWidth={1.7} />调整图片
+            </button>
+            <p className="text-right text-[10px] leading-relaxed text-paper-faint">{total > 1 ? '左右滑动切换' : '双指缩放查看'}<span className="hidden sm:inline"> · 长按保存或分享</span></p>
+          </div>
         )}
+        {items && items.length > 1 && onSelect ? (
+          <div className="w-full overflow-hidden rounded-2xl border border-paper/8 bg-ink-raised/50 p-1.5">
+            <div ref={thumbnailsRef} aria-label="图片缩略图"
+              className="relative flex touch-pan-x items-center gap-1.5 overflow-x-auto overscroll-x-contain scroll-hidden py-1"
+              onPointerDown={(event) => {
+                suppressThumbnailClickRef.current = false
+                if (event.pointerType !== 'mouse' || event.button !== 0) return
+                thumbnailDragRef.current = { startX: event.clientX, left: event.currentTarget.scrollLeft }
+              }}
+              onPointerMove={(event) => {
+                const drag = thumbnailDragRef.current
+                if (!drag) return
+                const dx = event.clientX - drag.startX
+                if (Math.abs(dx) > 5) {
+                  suppressThumbnailClickRef.current = true
+                  event.currentTarget.setPointerCapture(event.pointerId)
+                  event.currentTarget.scrollLeft = drag.left - dx
+                }
+              }}
+              onPointerUp={(event) => {
+                thumbnailDragRef.current = null
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+              }}
+              onPointerCancel={() => { thumbnailDragRef.current = null }}
+              onLostPointerCapture={() => { thumbnailDragRef.current = null }}
+              onClickCapture={(event) => {
+                if (suppressThumbnailClickRef.current) { event.preventDefault(); event.stopPropagation(); suppressThumbnailClickRef.current = false }
+              }}>
+              {items.map((item, position) => (
+                <button key={`${item.src}:${position}`} type="button" aria-label={`查看第 ${position + 1} 张图片`}
+                  aria-current={position === index ? 'true' : undefined} onClick={() => onSelect(position)}
+                  className={`relative grid h-[60px] w-[60px] shrink-0 place-items-center overflow-hidden rounded-lg border-2 transition-[border-color,opacity] [@media(max-height:500px)]:h-10 [@media(max-height:500px)]:w-12 motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper ${position === index ? 'border-cinnabar-soft opacity-100' : 'border-transparent opacity-50 hover:opacity-90'}`}>
+                  <img src={item.src} alt="" loading="lazy" draggable={false} referrerPolicy="no-referrer" className="h-full w-full object-cover" />
+                  <span className="absolute bottom-0.5 right-0.5 rounded bg-black/60 px-1 font-mono text-[8px] leading-3 text-white">{position + 1}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {menuOpen && (

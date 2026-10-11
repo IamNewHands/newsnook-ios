@@ -25,7 +25,7 @@ export const THEME_MODES: { id: ThemeMode; label: string; caption: string }[] = 
 /** 改动这里时，index.html 里防闪脚本的兜底值也要一起改 */
 export const DEFAULT_THEME_MODE: ThemeMode = 'system'
 
-export type ThemeScheme = 'ink' | 'celadon' | 'pearl' | 'custom'
+export type ThemeScheme = 'ink' | 'celadon' | 'pearl' | 'amber' | 'forest' | 'dusk' | 'custom'
 
 /** 外观设置页预览卡取色：必须与 index.css 中对应方案的 --tone-* 保持一致 */
 export interface ThemeSchemeSwatch {
@@ -75,6 +75,33 @@ export const THEME_SCHEMES: ThemeSchemeMeta[] = [
     },
   },
   {
+    id: 'amber',
+    label: '琥珀',
+    caption: '羊皮纸 · 焦糖金',
+    swatch: {
+      light: { ink: '#F5EFEB', raised: '#FAF6F2', paper: '#221C18', accent: '#9E601C' },
+      dark: { ink: '#141210', raised: '#1C1916', paper: '#ECE4DB', accent: '#D99446' },
+    },
+  },
+  {
+    id: 'forest',
+    label: '松烟',
+    caption: '苍松 · 深林冷翠',
+    swatch: {
+      light: { ink: '#EDF1EE', raised: '#F6FAF7', paper: '#17211C', accent: '#246648' },
+      dark: { ink: '#0F1512', raised: '#16201C', paper: '#DBE6E0', accent: '#64B08A' },
+    },
+  },
+  {
+    id: 'dusk',
+    label: '暮山',
+    caption: '烟霭 · 暮山紫',
+    swatch: {
+      light: { ink: '#F4F0F5', raised: '#FAF7FA', paper: '#201925', accent: '#78448E' },
+      dark: { ink: '#131118', raised: '#1C1824', paper: '#E6DFEC', accent: '#B682D4' },
+    },
+  },
+  {
     id: 'custom',
     label: '自定义',
     caption: '自选底色与强调色',
@@ -89,7 +116,15 @@ export const THEME_SCHEMES: ThemeSchemeMeta[] = [
 export const DEFAULT_THEME_SCHEME: ThemeScheme = 'ink'
 
 export function isThemeScheme(value: unknown): value is ThemeScheme {
-  return value === 'ink' || value === 'celadon' || value === 'pearl' || value === 'custom'
+  return (
+    value === 'ink' ||
+    value === 'celadon' ||
+    value === 'pearl' ||
+    value === 'amber' ||
+    value === 'forest' ||
+    value === 'dusk' ||
+    value === 'custom'
+  )
 }
 
 /**
@@ -101,6 +136,9 @@ export const THEME_SURFACE: Record<Exclude<ThemeScheme, 'custom'>, Record<Resolv
   ink: { dark: '#0E0F12', light: '#F6F2E9' },
   celadon: { dark: '#121817', light: '#E6EBE8' },
   pearl: { dark: '#000000', light: '#FAFAFA' },
+  amber: { dark: '#141210', light: '#F5EFEB' },
+  forest: { dark: '#0F1512', light: '#EDF1EE' },
+  dusk: { dark: '#131118', light: '#F4F0F5' },
 }
 
 /** 运行时自定义配色：由 applyThemeScheme 注入，供 theme-color 等取色 */

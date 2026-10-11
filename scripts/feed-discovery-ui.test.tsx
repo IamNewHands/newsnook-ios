@@ -71,6 +71,8 @@ try {
   assert.ok(document.body.textContent?.includes('当前暂无条目'))
   await click(button('订阅'))
   assert.ok(subscription)
+  assert.equal((subscription[0] as { name: string }).name, 'Empty', 'saved name must use the detected feed title')
+  assert.equal((subscription[0] as { label: string }).label, 'Empty', 'short label must use the detected feed title')
   assert.equal(subscription[1], undefined)
   assert.equal(subscription[2], false)
   assert.equal(subscription[3], 'test')

@@ -183,7 +183,7 @@ export function SchemeOnboardingPrompt({
                 选择阅读风格
               </p>
               <p id={descriptionId} className="mt-1.5 text-[11.5px] leading-relaxed text-paper-faint">
-                这版新增「现代优雅」：冷白纸面与系统蓝，和墨问的宣纸朱砂不是一路。先挑一套用着，之后可在「我的 → 外观」随时更换。
+                提供多种经过精心调校的阅读美学风格，字色、底色与点缀色皆有不同意境。先挑一套用着，之后可在「我的 → 外观」随时更换。
               </p>
             </div>
             <button
@@ -199,7 +199,7 @@ export function SchemeOnboardingPrompt({
           <ul aria-label="选择外观风格" className="mt-3 grid grid-cols-3 gap-2">
             {options.map((item) => {
               const checked = item.id === selected
-              const isNew = item.id === 'pearl'
+              const isNew = item.id === 'amber' || item.id === 'forest' || item.id === 'dusk'
               return (
                 <li key={item.id}>
                   <button
