@@ -7,7 +7,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from 'react'
-import { ChevronLeft, ChevronRight, Download, Loader2, RefreshCcw, Share2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, FlipHorizontal2, FlipVertical2, Loader2, RotateCcw, RotateCw, RefreshCcw, Share2, SlidersHorizontal, X } from 'lucide-react'
 
 import { saveImageToGallery, shareImage } from '../lib/imageActions'
 import { lockBodyScroll } from '../lib/bodyScrollLock'
@@ -43,7 +43,7 @@ type BusyAction = 'save' | 'share' | null
 export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, onNext, index = 0, total = 1, overlayCloserRef }: Props) {
   const stageRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
-  const transformRef = useRef({ scale: 1, x: 0, y: 0 })
+  const transformRef = useRef({ scale: 1, x: 0, y: 0, rotation: 0, flipX: false, flipY: false })
   const pointersRef = useRef(new Map<number, Point>())
   const pinchStartRef = useRef<{
     distance: number
@@ -60,6 +60,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
   const longPressPointRef = useRef<Point | null>(null)
 
   const [menuOpen, setMenuOpen] = useState(false)
+  const [adjustOpen, setAdjustOpen] = useState(false)
   const [busy, setBusy] = useState<BusyAction>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [imageState, setImageState] = useState<'loading' | 'loaded' | 'error'>('loading')
@@ -76,9 +77,23 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
   const applyTransform = useCallback((animate = false) => {
     const img = imgRef.current
     if (!img) return
-    const { scale, x, y } = transformRef.current
+    const { scale, x, y, rotation, flipX, flipY } = transformRef.current
     img.style.transition = animate ? 'transform 220ms var(--ease-ink)' : 'none'
-    img.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`
+    img.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${flipX ? -scale : scale}, ${flipY ? -scale : scale}) rotate(${rotation}deg)`
+  }, [])
+
+  const fitImage = useCallback(() => {
+    const stage = stageRef.current
+    const img = imgRef.current
+    if (!stage || !img || !img.naturalWidth || !img.naturalHeight) return null
+    const rotated = transformRef.current.rotation % 180 !== 0
+    const width = rotated ? img.naturalHeight : img.naturalWidth
+    const height = rotated ? img.naturalWidth : img.naturalHeight
+    const rect = stage.getBoundingClientRect()
+    const fit = Math.min(rect.width / width, rect.height / height)
+    img.style.width = `${img.naturalWidth * fit}px`
+    img.style.height = `${img.naturalHeight * fit}px`
+    return { width: width * fit, height: height * fit }
   }, [])
 
   const clampTranslation = useCallback(() => {
@@ -92,13 +107,13 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
     }
 
     const rect = stage.getBoundingClientRect()
-    const naturalW = img.naturalWidth || img.clientWidth
-    const naturalH = img.naturalHeight || img.clientHeight
-    if (!naturalW || !naturalH) return
-
-    const fit = Math.min(rect.width / naturalW, rect.height / naturalH)
-    const displayW = naturalW * fit * t.scale
-    const displayH = naturalH * fit * t.scale
+    const rotated = t.rotation % 180 !== 0
+    const fit = Math.min(
+      rect.width / (rotated ? img.naturalHeight : img.naturalWidth),
+      rect.height / (rotated ? img.naturalWidth : img.naturalHeight),
+    )
+    const displayW = (rotated ? img.naturalHeight : img.naturalWidth) * fit * t.scale
+    const displayH = (rotated ? img.naturalWidth : img.naturalHeight) * fit * t.scale
     const maxX = Math.max(0, (displayW - rect.width) / 2)
     const maxY = Math.max(0, (displayH - rect.height) / 2)
     t.x = Math.min(maxX, Math.max(-maxX, t.x))
@@ -107,7 +122,10 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
 
   const resetTransform = useCallback(
     (animate = true) => {
-      transformRef.current = { scale: 1, x: 0, y: 0 }
+      const t = transformRef.current
+      t.scale = 1
+      t.x = 0
+      t.y = 0
       applyTransform(animate)
     },
     [applyTransform],
@@ -160,6 +178,27 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
     applyTransform(false)
   }, [applyTransform, clampTranslation, clearLongPress, releaseStageCaptures])
 
+  const adjustImage = useCallback((action: 'left' | 'right' | 'horizontal' | 'vertical' | 'reset') => {
+    cancelGesture()
+    const t = transformRef.current
+    if (action === 'reset') {
+      t.rotation = 0
+      t.flipX = false
+      t.flipY = false
+    } else if (action === 'left' || action === 'right') {
+      t.rotation = (t.rotation + (action === 'right' ? 90 : 270)) % 360
+    } else if (action === 'horizontal') {
+      t.flipX = !t.flipX
+    } else {
+      t.flipY = !t.flipY
+    }
+    t.scale = 1
+    t.x = 0
+    t.y = 0
+    fitImage()
+    applyTransform(true)
+  }, [applyTransform, cancelGesture, fitImage])
+
   useEffect(() => {
     // React clears refs before passive unmount cleanup; retain the capture owner.
     const stage = stageRef.current
@@ -189,11 +228,15 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
         setStatus(null)
         return
       }
+      if (adjustOpen) {
+        setAdjustOpen(false)
+        return
+      }
       onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [menuOpen, onClose])
+  }, [adjustOpen, menuOpen, onClose])
 
   useEffect(() => {
     if (!overlayCloserRef) return
@@ -203,21 +246,46 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
         setStatus(null)
         return true
       }
+      if (adjustOpen) {
+        setAdjustOpen(false)
+        return true
+      }
       onClose()
       return true
     }
     return () => {
       overlayCloserRef.current = null
     }
-  }, [menuOpen, onClose, overlayCloserRef])
+  }, [adjustOpen, menuOpen, onClose, overlayCloserRef])
 
   useEffect(() => () => clearLongPress(), [clearLongPress])
 
   useEffect(() => {
     setImageState('loading')
     setReloadKey(0)
-    resetTransform(false)
-  }, [src, resetTransform])
+    setAdjustOpen(false)
+    transformRef.current = { scale: 1, x: 0, y: 0, rotation: 0, flipX: false, flipY: false }
+    const img = imgRef.current
+    if (img) { img.style.width = ''; img.style.height = '' }
+    applyTransform(false)
+  }, [src, index, applyTransform])
+
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return
+    const refit = () => {
+      fitImage()
+      clampTranslation()
+      applyTransform(false)
+    }
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', refit)
+      return () => window.removeEventListener('resize', refit)
+    }
+    const observer = new ResizeObserver(refit)
+    observer.observe(stage)
+    return () => observer.disconnect()
+  }, [applyTransform, clampTranslation, fitImage])
 
   const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y)
   const midpoint = (a: Point, b: Point): Point => ({
@@ -232,6 +300,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
     closingSwipeRef.current.active = false
     lastTapRef.current = null
     setStatus(null)
+    setAdjustOpen(false)
     setMenuOpen(true)
     if (navigator.vibrate) navigator.vibrate(12)
   }
@@ -342,10 +411,12 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
         if (img && backdrop) {
           img.style.transition = 'none'
           if (Math.abs(dx) > Math.abs(dy) && (onPrevious || onNext)) {
-            img.style.transform = `translate3d(${dx}px, 0, 0) scale(1)`
+            const t = transformRef.current
+            img.style.transform = `translate3d(${dx}px, 0, 0) scale(${t.flipX ? -1 : 1}, ${t.flipY ? -1 : 1}) rotate(${t.rotation}deg)`
           } else {
             const pull = Math.max(0, dy)
-            img.style.transform = `translate3d(0, ${pull}px, 0) scale(1)`
+            const t = transformRef.current
+            img.style.transform = `translate3d(0, ${pull}px, 0) scale(${t.flipX ? -1 : 1}, ${t.flipY ? -1 : 1}) rotate(${t.rotation}deg)`
             backdrop.style.backgroundColor = `rgb(14 15 18 / ${Math.max(0.35, 0.92 - pull / 480)})`
           }
         }
@@ -486,7 +557,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
           openMenu()
         }}
         onClick={(event) => {
-          if (menuOpen) return
+          if (menuOpen || adjustOpen) return
           if (event.target === event.currentTarget && transformRef.current.scale <= MIN_SCALE + 0.02) {
             onClose()
           }
@@ -528,9 +599,9 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
           alt={alt}
           draggable={false}
           referrerPolicy="no-referrer"
-          onLoad={() => setImageState('loaded')}
+          onLoad={() => { fitImage(); applyTransform(false); setImageState('loaded') }}
           onError={() => setImageState('error')}
-          className="max-h-full max-w-full select-none object-contain"
+          className="shrink-0 select-none object-contain"
           style={{
             transformOrigin: 'center center',
             willChange: 'transform',
@@ -540,10 +611,33 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
         />
       </div>
 
+      <div className="relative z-10 flex flex-col items-center gap-2 px-3 pt-2">
+        {adjustOpen && (
+          <div role="toolbar" aria-label="图片调整" className="flex max-w-full items-center gap-1 rounded-2xl border border-haze bg-ink-raised/95 p-1.5 text-paper shadow-xl backdrop-blur-md">
+            {([
+              ['left', RotateCcw, '左转90°'],
+              ['right', RotateCw, '右转90°'],
+              ['horizontal', FlipHorizontal2, '水平镜像'],
+              ['vertical', FlipVertical2, '垂直镜像'],
+              ['reset', RefreshCcw, '还原'],
+            ] as const).map(([action, Icon, label]) => (
+              <button key={action} type="button" aria-label={label} title={label} disabled={imageState !== 'loaded'} onClick={() => adjustImage(action)} className="flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 rounded-xl px-1 text-paper-muted transition-colors hover:bg-haze/50 active:bg-haze disabled:opacity-30">
+                <Icon size={19} strokeWidth={1.7} />
+                <span className="whitespace-nowrap text-[9px]">{label.replace('90°', '')}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        <button type="button" aria-label={adjustOpen ? '收起图片调整' : '调整图片'} aria-expanded={adjustOpen} onClick={() => { setAdjustOpen((open) => !open); setMenuOpen(false) }} className={`flex min-h-11 items-center gap-2 rounded-full border border-haze px-4 text-xs backdrop-blur-md ${adjustOpen ? 'bg-paper text-ink' : 'bg-ink-raised/85 text-paper'}`}>
+          <SlidersHorizontal size={16} strokeWidth={1.7} />
+          {adjustOpen ? '收起调整' : '调整图片'}
+        </button>
+        {adjustOpen && <p className="text-center text-[10px] text-paper-faint">仅调整预览，保存和分享仍为原图</p>}
+      </div>
       <p
         className="pointer-events-none text-center font-mono text-[10px] tracking-[0.14em] text-paper-faint safe-pb-12"
       >
-        {total > 1 ? '左右滑动切换 · ' : ''}长按保存或分享 · 双指缩放 · 下滑关闭
+        {total > 1 ? '左右滑动切换 · ' : ''}双指缩放 · 下滑关闭 · 长按更多操作
       </p>
 
       {menuOpen && (
