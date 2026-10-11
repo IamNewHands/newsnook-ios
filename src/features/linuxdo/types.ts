@@ -133,6 +133,7 @@ export interface LinuxDoPost {
 
 export interface LinuxDoTopic {
   id: number
+  archetype?: string
   slug: string
   title: string
   fancyTitle?: string

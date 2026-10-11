@@ -56,6 +56,7 @@ const { createRoot } = await import('react-dom/client')
 const { InkVideoPlayer } = await import('../src/components/InkVideoPlayer')
 const { OriginPlayerSurface } = await import('../src/components/OriginPlayerSurface')
 const { InlineArticleVideos } = await import('../src/components/InlineArticleVideos')
+const { InlineVideoPages } = await import('../src/components/InlineVideoPages')
 const src = 'https://example.com/video.mp4'
 const extra = ['https://example.com/segment.mp4']
 const resource = (url: string, id = url): MediaResourceDescriptor => ({
@@ -91,6 +92,18 @@ function InlineFixture({ title, html }: { title: string; html: string }) {
   const body = useRef<HTMLElement>(null)
   const markup = useMemo(() => ({ __html: html }), [html])
   return <><article ref={body} dangerouslySetInnerHTML={markup} /><InlineArticleVideos rootRef={body} html={html} enabled fallbackTitle={title} /></>
+}
+
+const zhihuVideoHtml = '<div data-reader-role="zhihu-video-page" data-media-format="video-page" data-source-page="https://www.bilibili.com/video/BVtest" data-related-title="知乎嵌入视频"></div>'
+const resolveFixtureVideo = async () => resource(src)
+function ZhihuVideoFixture() {
+  const body = useRef<HTMLElement>(null)
+  const markup = useMemo(() => ({ __html: zhihuVideoHtml }), [])
+  return <>
+    <article ref={body} dangerouslySetInnerHTML={markup} />
+    <InlineArticleVideos rootRef={body} html={zhihuVideoHtml} enabled fallbackTitle="知乎正文" />
+    <InlineVideoPages rootRef={body} html={zhihuVideoHtml} enabled fallbackTitle="知乎正文" resolveDirect={resolveFixtureVideo} />
+  </>
 }
 
 type Render = (element: React.ReactNode) => Promise<void>
@@ -319,6 +332,31 @@ const cases: Array<[string, (render: Render) => Promise<void>]> = [
     await act(async () => release())
     assert.equal(loads, count)
     assert.ok(!oldVideo.getAttribute('src'))
+  }],
+  ['Zhihu video-page and article enhancers coexist with exactly one player and one control layer', async render => {
+    await render(<ZhihuVideoFixture />)
+    await act(async () => { await Promise.resolve() })
+    assert.equal(document.querySelectorAll('[data-reader-inline-video-page]').length, 1)
+    const media = document.querySelector<HTMLVideoElement>('[data-video-stage] video')
+    assert.ok(media, 'a custom player must render for the Zhihu video-page')
+    await act(async () => { media.dispatchEvent(new window.Event('loadeddata')) })
+    assert.equal(document.querySelectorAll('[data-video-stage] video').length, 1, 'the Zhihu video has only one managed media element')
+    assert.equal(document.querySelectorAll('.ink-video-top-chrome').length, 1, 'only one top control layer')
+    assert.equal(document.querySelectorAll('.ink-video-bottom-chrome').length, 1, 'only one bottom control layer')
+    assert.equal(document.querySelectorAll('[data-reader-inline-video]').length, 0, 'no nested raw-video enhancer')
+  }],
+  ['video-page managed media must never be captured by the raw article-video observer', async render => {
+    const html = '<div data-reader-inline-video-page="1"></div><p>Body</p>'
+    await render(<InlineFixture title="Zhihu" html={html} />)
+    const pageHost = document.querySelector<HTMLElement>('[data-reader-inline-video-page="1"]')
+    assert.ok(pageHost)
+    // InlineVideoPages mounts the InkVideoPlayer <video> asynchronously through a portal.
+    // The raw-video observer must not convert that player into a second nested player.
+    const managedVideo = document.createElement('video')
+    managedVideo.setAttribute('src', src)
+    await act(async () => { pageHost.append(managedVideo) })
+    assert.equal(pageHost.querySelector('video'), managedVideo)
+    assert.equal(document.querySelectorAll('[data-reader-inline-video]').length, 0, 'a mounted video-page may only have one player')
   }],
   ['inline HTML metadata enrichment keeps the existing portal host', async render => {
     const html = `<video src="${src}"></video><p>Body</p>`

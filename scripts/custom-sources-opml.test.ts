@@ -24,10 +24,25 @@ import {
   normalizePreferences,
   sourceIdsForCategoryWithPrefs,
   updateCustomSource,
+  renameSource,
 } from '../src/sources/preferences'
 import { SOURCES, findSource } from '../src/sources/registry'
 
 console.log('Testing Custom Sources & OPML Import/Export Lifecycle...')
+
+const builtin = SOURCES.find((source) => !source.workspaceOnly)!
+const originalBuiltinName = builtin.name
+const renamedBuiltin = normalizePreferences(renameSource(DEFAULT_PREFERENCES, builtin.id, '  自定义显示名称  '))
+const displayedBuiltin = allRegisteredSources(renamedBuiltin).find((source) => source.id === builtin.id)!
+assert.equal(displayedBuiltin.name, '自定义显示名称')
+assert.equal(displayedBuiltin.url, builtin.url)
+assert.equal(builtin.name, originalBuiltinName)
+assert.equal(renameSource(renamedBuiltin, builtin.id, '  '), renamedBuiltin)
+const customDraft = addCustomSource(DEFAULT_PREFERENCES, { name: '原始名称', url: 'https://example.com/rename-feed' })
+const renamedCustom = normalizePreferences(renameSource(customDraft.nextPrefs, customDraft.newSourceId, '新名称'))
+assert.equal(renamedCustom.customSources?.[0].name, '新名称')
+assert.equal(renamedCustom.customSources?.[0].label, '新名称')
+assert.equal(renamedCustom.customSources?.[0].url, 'https://example.com/rename-feed')
 
 // 1. Initial State
 assert.equal(DEFAULT_PREFERENCES.customSources?.length ?? 0, 0)

@@ -45,6 +45,9 @@ assert.equal(normalizePreferences({}).scheme, 'ink')
 assert.equal(normalizePreferences(null).scheme, 'ink')
 assert.equal(normalizePreferences({ scheme: 'celadon' }).scheme, 'celadon')
 assert.equal(normalizePreferences({ scheme: 'pearl' }).scheme, 'pearl')
+assert.equal(normalizePreferences({ scheme: 'amber' }).scheme, 'amber')
+assert.equal(normalizePreferences({ scheme: 'forest' }).scheme, 'forest')
+assert.equal(normalizePreferences({ scheme: 'dusk' }).scheme, 'dusk')
 assert.equal(normalizePreferences({ scheme: 'custom' }).scheme, 'custom')
 assert.equal(normalizePreferences({ scheme: 'neon' }).scheme, 'ink', '未知方案应清洗回墨问')
 assert.equal(normalizePreferences({ scheme: 'pine' }).scheme, 'ink', '已下线方案应清洗回墨问')
@@ -89,10 +92,10 @@ console.log('theme-scheme prefs: ok')
 
 // —— 注册表：id 唯一、swatch 完备、表面色齐全（custom 无静态表面色，走运行时取色） ——
 
-assert.equal(THEME_SCHEMES.length, 4)
+assert.equal(THEME_SCHEMES.length, 7)
 assert.deepEqual(
   THEME_SCHEMES.map((item) => item.id),
-  ['ink', 'celadon', 'pearl', 'custom'],
+  ['ink', 'celadon', 'pearl', 'amber', 'forest', 'dusk', 'custom'],
 )
 assert.equal(new Set(THEME_SCHEMES.map((item) => item.id)).size, THEME_SCHEMES.length)
 assert.ok(THEME_SCHEMES.every((item) => isThemeScheme(item.id)))

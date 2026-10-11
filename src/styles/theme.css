@@ -297,3 +297,249 @@
   --color-haze: var(--tone-haze);
 }
 
+/* 琥珀 · 夜：纯黑巧焦墨底，暖杏字，温润琥珀暖金 */
+[data-scheme='amber'][data-theme='dark'],
+[data-scheme='amber'] [data-theme='dark'] {
+  color-scheme: dark;
+
+  --tone-paper-rgb: 236 228 219;
+  --tone-ink-rgb: 20 18 16;
+  --tone-ink-raised-rgb: 28 25 22;
+  --tone-ink-deep-rgb: 13 11 10;
+  --tone-paper-muted-rgb: 158 147 135;
+  --tone-paper-faint-rgb: 111 102 92;
+  --tone-cinnabar-rgb: 217 148 70;
+  --tone-cinnabar-soft-rgb: 230 168 98;
+
+  --tone-ink: #141210;
+  --tone-ink-raised: #1c1916;
+  --tone-ink-deep: #0d0b0a;
+  --tone-paper: #ece4db;
+  --tone-paper-muted: #9e9387;
+  --tone-paper-faint: #6f665c;
+  --tone-cinnabar: #d99446;
+  --tone-cinnabar-soft: #e6a862;
+  --tone-haze: rgb(var(--tone-paper-rgb) / 0.08);
+
+  --tone-body-text: rgb(var(--tone-paper-rgb) / 0.86);
+  --tone-quote-text: rgb(var(--tone-paper-rgb) / 0.72);
+  --lead-veil: rgb(var(--tone-ink-rgb) / 0.55);
+  --shadow-lift: 0 12px 40px -16px rgb(0 0 0 / 0.85);
+  --dim-hidden: brightness(0.72);
+
+  --color-ink: var(--tone-ink);
+  --color-ink-raised: var(--tone-ink-raised);
+  --color-ink-deep: var(--tone-ink-deep);
+  --color-paper: var(--tone-paper);
+  --color-paper-muted: var(--tone-paper-muted);
+  --color-paper-faint: var(--tone-paper-faint);
+  --color-cinnabar: var(--tone-cinnabar);
+  --color-cinnabar-soft: var(--tone-cinnabar-soft);
+  --color-haze: var(--tone-haze);
+}
+
+/* 琥珀 · 昼：浅燕麦羊皮纸，焦茶深黑字，焦糖暖金 */
+[data-scheme='amber'][data-theme='light'],
+[data-scheme='amber'] [data-theme='light'] {
+  color-scheme: light;
+
+  --tone-paper-rgb: 34 28 24;
+  --tone-ink-rgb: 245 239 235;
+  --tone-ink-raised-rgb: 250 246 242;
+  --tone-ink-deep-rgb: 236 227 219;
+  --tone-paper-muted-rgb: 99 86 76;
+  --tone-paper-faint-rgb: 136 121 109;
+  --tone-cinnabar-rgb: 158 96 28;
+  --tone-cinnabar-soft-rgb: 184 116 40;
+
+  --tone-ink: #f5efeb;
+  --tone-ink-raised: #faf6f2;
+  --tone-ink-deep: #ece3db;
+  --tone-paper: #221c18;
+  --tone-paper-muted: #63564c;
+  --tone-paper-faint: #88796d;
+  --tone-cinnabar: #9e601c;
+  --tone-cinnabar-soft: #b87428;
+  --tone-haze: rgb(var(--tone-paper-rgb) / 0.1);
+
+  --tone-body-text: #221c18;
+  --tone-quote-text: #63564c;
+  --lead-veil: rgb(var(--tone-ink-rgb) / 0.86);
+  --shadow-lift: 0 14px 34px -18px rgb(65 48 30 / 0.32);
+  --dim-hidden: contrast(0.78) saturate(0.5);
+
+  --color-ink: var(--tone-ink);
+  --color-ink-raised: var(--tone-ink-raised);
+  --color-ink-deep: var(--tone-ink-deep);
+  --color-paper: var(--tone-paper);
+  --color-paper-muted: var(--tone-paper-muted);
+  --color-paper-faint: var(--tone-paper-faint);
+  --color-cinnabar: var(--tone-cinnabar);
+  --color-cinnabar-soft: var(--tone-cinnabar-soft);
+  --color-haze: var(--tone-haze);
+}
+
+/* 松烟 · 夜：幽林墨玉暗夜底，淡月冷杉青白字，清冽新翠 */
+[data-scheme='forest'][data-theme='dark'],
+[data-scheme='forest'] [data-theme='dark'] {
+  color-scheme: dark;
+
+  --tone-paper-rgb: 219 230 224;
+  --tone-ink-rgb: 15 21 18;
+  --tone-ink-raised-rgb: 22 32 28;
+  --tone-ink-deep-rgb: 9 14 12;
+  --tone-paper-muted-rgb: 139 158 148;
+  --tone-paper-faint-rgb: 95 112 103;
+  --tone-cinnabar-rgb: 100 176 138;
+  --tone-cinnabar-soft-rgb: 126 194 160;
+
+  --tone-ink: #0f1512;
+  --tone-ink-raised: #16201c;
+  --tone-ink-deep: #090e0c;
+  --tone-paper: #dbe6e0;
+  --tone-paper-muted: #8b9e94;
+  --tone-paper-faint: #5f7067;
+  --tone-cinnabar: #64b08a;
+  --tone-cinnabar-soft: #7ec2a0;
+  --tone-haze: rgb(var(--tone-paper-rgb) / 0.08);
+
+  --tone-body-text: rgb(var(--tone-paper-rgb) / 0.86);
+  --tone-quote-text: rgb(var(--tone-paper-rgb) / 0.72);
+  --lead-veil: rgb(var(--tone-ink-rgb) / 0.55);
+  --shadow-lift: 0 12px 40px -16px rgb(0 0 0 / 0.85);
+  --dim-hidden: brightness(0.72);
+
+  --color-ink: var(--tone-ink);
+  --color-ink-raised: var(--tone-ink-raised);
+  --color-ink-deep: var(--tone-ink-deep);
+  --color-paper: var(--tone-paper);
+  --color-paper-muted: var(--tone-paper-muted);
+  --color-paper-faint: var(--tone-paper-faint);
+  --color-cinnabar: var(--tone-cinnabar);
+  --color-cinnabar-soft: var(--tone-cinnabar-soft);
+  --color-haze: var(--tone-haze);
+}
+
+/* 松烟 · 昼：微含晨露浅冷灰翠底，苍翠墨黑字，苍松冷翠 */
+[data-scheme='forest'][data-theme='light'],
+[data-scheme='forest'] [data-theme='light'] {
+  color-scheme: light;
+
+  --tone-paper-rgb: 23 33 28;
+  --tone-ink-rgb: 237 241 238;
+  --tone-ink-raised-rgb: 246 250 247;
+  --tone-ink-deep-rgb: 219 227 221;
+  --tone-paper-muted-rgb: 82 99 90;
+  --tone-paper-faint-rgb: 118 135 126;
+  --tone-cinnabar-rgb: 36 102 72;
+  --tone-cinnabar-soft-rgb: 50 126 91;
+
+  --tone-ink: #edf1ee;
+  --tone-ink-raised: #f6faf7;
+  --tone-ink-deep: #dbe3dd;
+  --tone-paper: #17211c;
+  --tone-paper-muted: #52635a;
+  --tone-paper-faint: #76877e;
+  --tone-cinnabar: #246648;
+  --tone-cinnabar-soft: #327e5b;
+  --tone-haze: rgb(var(--tone-paper-rgb) / 0.1);
+
+  --tone-body-text: #17211c;
+  --tone-quote-text: #52635a;
+  --lead-veil: rgb(var(--tone-ink-rgb) / 0.86);
+  --shadow-lift: 0 14px 34px -18px rgb(32 60 48 / 0.28);
+  --dim-hidden: contrast(0.78) saturate(0.5);
+
+  --color-ink: var(--tone-ink);
+  --color-ink-raised: var(--tone-ink-raised);
+  --color-ink-deep: var(--tone-ink-deep);
+  --color-paper: var(--tone-paper);
+  --color-paper-muted: var(--tone-paper-muted);
+  --color-paper-faint: var(--tone-paper-faint);
+  --color-cinnabar: var(--tone-cinnabar);
+  --color-cinnabar-soft: var(--tone-cinnabar-soft);
+  --color-haze: var(--tone-haze);
+}
+
+/* 暮山 · 夜：玄紫星穹暗夜底，月影丁香白字，清透暮紫 */
+[data-scheme='dusk'][data-theme='dark'],
+[data-scheme='dusk'] [data-theme='dark'] {
+  color-scheme: dark;
+
+  --tone-paper-rgb: 230 223 236;
+  --tone-ink-rgb: 19 17 24;
+  --tone-ink-raised-rgb: 28 24 36;
+  --tone-ink-deep-rgb: 12 10 16;
+  --tone-paper-muted-rgb: 154 142 164;
+  --tone-paper-faint-rgb: 107 96 116;
+  --tone-cinnabar-rgb: 182 130 212;
+  --tone-cinnabar-soft-rgb: 199 154 224;
+
+  --tone-ink: #131118;
+  --tone-ink-raised: #1c1824;
+  --tone-ink-deep: #0c0a10;
+  --tone-paper: #e6dfec;
+  --tone-paper-muted: #9a8ea4;
+  --tone-paper-faint: #6b6074;
+  --tone-cinnabar: #b682d4;
+  --tone-cinnabar-soft: #c79ae0;
+  --tone-haze: rgb(var(--tone-paper-rgb) / 0.08);
+
+  --tone-body-text: rgb(var(--tone-paper-rgb) / 0.86);
+  --tone-quote-text: rgb(var(--tone-paper-rgb) / 0.72);
+  --lead-veil: rgb(var(--tone-ink-rgb) / 0.55);
+  --shadow-lift: 0 12px 40px -16px rgb(0 0 0 / 0.85);
+  --dim-hidden: brightness(0.72);
+
+  --color-ink: var(--tone-ink);
+  --color-ink-raised: var(--tone-ink-raised);
+  --color-ink-deep: var(--tone-ink-deep);
+  --color-paper: var(--tone-paper);
+  --color-paper-muted: var(--tone-paper-muted);
+  --color-paper-faint: var(--tone-paper-faint);
+  --color-cinnabar: var(--tone-cinnabar);
+  --color-cinnabar-soft: var(--tone-cinnabar-soft);
+  --color-haze: var(--tone-haze);
+}
+
+/* 暮山 · 昼：暮云薄霭浅灰底，深李紫墨字，雅致暮山紫 */
+[data-scheme='dusk'][data-theme='light'],
+[data-scheme='dusk'] [data-theme='light'] {
+  color-scheme: light;
+
+  --tone-paper-rgb: 32 25 37;
+  --tone-ink-rgb: 244 240 245;
+  --tone-ink-raised-rgb: 250 247 250;
+  --tone-ink-deep-rgb: 231 224 232;
+  --tone-paper-muted-rgb: 95 83 102;
+  --tone-paper-faint-rgb: 132 119 140;
+  --tone-cinnabar-rgb: 120 68 142;
+  --tone-cinnabar-soft-rgb: 142 88 164;
+
+  --tone-ink: #f4f0f5;
+  --tone-ink-raised: #faf7fa;
+  --tone-ink-deep: #e7e0e8;
+  --tone-paper: #201925;
+  --tone-paper-muted: #5f5366;
+  --tone-paper-faint: #84778c;
+  --tone-cinnabar: #78448e;
+  --tone-cinnabar-soft: #8e58a4;
+  --tone-haze: rgb(var(--tone-paper-rgb) / 0.1);
+
+  --tone-body-text: #201925;
+  --tone-quote-text: #5f5366;
+  --lead-veil: rgb(var(--tone-ink-rgb) / 0.86);
+  --shadow-lift: 0 14px 34px -18px rgb(56 32 68 / 0.26);
+  --dim-hidden: contrast(0.78) saturate(0.5);
+
+  --color-ink: var(--tone-ink);
+  --color-ink-raised: var(--tone-ink-raised);
+  --color-ink-deep: var(--tone-ink-deep);
+  --color-paper: var(--tone-paper);
+  --color-paper-muted: var(--tone-paper-muted);
+  --color-paper-faint: var(--tone-paper-faint);
+  --color-cinnabar: var(--tone-cinnabar);
+  --color-cinnabar-soft: var(--tone-cinnabar-soft);
+  --color-haze: var(--tone-haze);
+}
+

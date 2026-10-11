@@ -131,7 +131,7 @@ await check('cancelling a downward image gesture does not close the image', asyn
   await pointer('pointermove', 1, 160, 340)
   await pointer('pointercancel', 1, 160, 340)
   assert.equal(closed, 0)
-  assert.equal(host.querySelector('img')!.style.transform, 'translate3d(0px, 0px, 0) scale(1)')
+  assert.equal(host.querySelector('img')!.style.transform, 'translate3d(0px, 0px, 0) scale(1, 1) rotate(0deg)' )
 })
 
 await check('cancelling a horizontal image gesture does not switch images', async () => {
@@ -172,15 +172,40 @@ await check('a real two-finger pinch and a subsequent pan still work', async () 
   await pointer('pointerdown', 1, 100, 320)
   await pointer('pointerdown', 2, 200, 320, false)
   await pointer('pointermove', 2, 300, 320, false)
-  assert.equal(img.style.transform, 'translate3d(-40px, 0px, 0) scale(2)')
+  assert.equal(img.style.transform, 'translate3d(-40px, 0px, 0) scale(2, 2) rotate(0deg)' )
   await pointer('pointerup', 1, 100, 320)
   await pointer('lostpointercapture', 1, 100, 320)
   await pointer('pointerup', 2, 300, 320, false)
   await pointer('pointerdown', 3, 160, 320)
   await pointer('pointermove', 3, 160, 370)
   await pointer('pointerup', 3, 160, 370)
-  assert.equal(img.style.transform, 'translate3d(-40px, 50px, 0) scale(2)')
+  assert.equal(img.style.transform, 'translate3d(-40px, 50px, 0) scale(2, 2) rotate(0deg)' )
   assert.equal(closed, 0)
+})
+
+await check('image adjustments rotate, mirror and reset without changing the source', async () => {
+  await render(<Lightbox />)
+  const img = host.querySelector<HTMLImageElement>('img')!
+  Object.defineProperties(img, { naturalWidth: { value: 400 }, naturalHeight: { value: 600 } })
+  await act(async () => { img.dispatchEvent(new window.Event('load')) })
+  const click = async (label: string) => {
+    const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find((element) => element.getAttribute('aria-label') === label)
+    assert.ok(button, `${label} control exists`)
+    await act(async () => { button.click() })
+  }
+  await click('调整图片')
+  await click('右转90°')
+  assert.match(img.style.transform, /rotate\(90deg\)/)
+  assert.ok(Math.abs(parseFloat(img.style.width) - 320 * 400 / 600) < 0.01)
+  await click('水平镜像')
+  assert.match(img.style.transform, /scale\(-1, 1\)/)
+  await click('左转90°')
+  assert.match(img.style.transform, /rotate\(0deg\)/)
+  await click('垂直镜像')
+  assert.match(img.style.transform, /scale\(-1, -1\)/)
+  await click('还原')
+  assert.equal(img.style.transform, 'translate3d(0px, 0px, 0) scale(1, 1) rotate(0deg)')
+  assert.equal(img.getAttribute('src'), 'test-image.png')
 })
 
 await check('an interrupted reader swipe cannot prevent scrolling on another surface', async () => {

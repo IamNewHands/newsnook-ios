@@ -27,7 +27,10 @@ import {
 
 /** 获取全部可用信源（内置 + 用户自建） */
 export function allRegisteredSources(prefs?: Preferences): NewsSource[] {
-  return [...SOURCES.filter((source) => !source.workspaceOnly), ...(prefs?.customSources ?? [])]
+  return [...SOURCES.filter((source) => !source.workspaceOnly).map((source) => {
+    const name = prefs?.sourceNames?.[source.id]
+    return name ? { ...source, name, label: name.slice(0, 12) } : source
+  }), ...(prefs?.customSources ?? [])]
 }
 
 /** 自动抓取路径是否应跳过该源。暂停只适用于自建源，内置源始终返回 false。 */

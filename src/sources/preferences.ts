@@ -73,6 +73,7 @@ export {
   deleteCustomSource,
   deleteCustomSources,
   updateCustomSource,
+  renameSource,
 } from './preferences/customSources'
 
 export {

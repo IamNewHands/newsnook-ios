@@ -22,6 +22,7 @@ import type { ZhihuQuestionAnswerOrder } from '../api/endpoints'
 import { SegmentedControl } from '../../../components/SegmentedControl'
 import { AiSpeedReadPanel } from '../../../components/AiSpeedReadPanel'
 import { ImageLightbox } from '../../../components/ImageLightbox'
+import { collectImageGallery, type ImageGallery } from '../../../lib/imageGallery'
 import { InlineArticleVideos } from '../../../components/InlineArticleVideos'
 import { InlineYoutubeEmbeds } from '../../../components/InlineYoutubeEmbeds'
 import { InlineVideoPages } from '../../../components/InlineVideoPages'
@@ -345,7 +346,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
   )
   const proseRef = useRef<HTMLDivElement | null>(null)
   const questionDetailRef = useRef<HTMLDivElement | null>(null)
-  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
+  const [lightbox, setLightbox] = useState<ImageGallery | null>(null)
   const [commentsOpen, setCommentsOpen] = useState(Boolean(restoreAnchor))
   const [questionDetailExpanded, setQuestionDetailExpanded] = useState(false)
   const [questionDetailCanCollapse, setQuestionDetailCanCollapse] = useState(false)
@@ -795,7 +796,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
       if (src) {
         event.preventDefault()
         event.stopPropagation()
-        setLightbox({ src, alt: image.alt || detail?.title || '' })
+        setLightbox(collectImageGallery(proseRef.current, { src, alt: image.alt || detail?.title || '' }))
         return
       }
     }
@@ -1191,7 +1192,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
           authenticated={authenticated}
           accountId={accountId}
           draftStore={commentDraftStore}
-          onOpenImage={(src, alt) => setLightbox({ src, alt })}
+          onOpenImage={(src, alt) => setLightbox({ items: [{ src, alt }], index: 0 })}
         />
       )}
 
@@ -1207,7 +1208,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
           authenticated={authenticated}
           accountId={accountId}
           draftStore={commentDraftStore}
-          onOpenImage={(src, alt) => setLightbox({ src, alt })}
+          onOpenImage={(src, alt) => setLightbox({ items: [{ src, alt }], index: 0 })}
           variant="dialog"
         />
       </ZhihuAnswerCommentsDialog>
@@ -1302,7 +1303,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
                 authenticated={authenticated}
                 accountId={accountId}
                 draftStore={commentDraftStore}
-                onOpenImage={(src, alt) => setLightbox({ src, alt })}
+                onOpenImage={(src, alt) => setLightbox({ items: [{ src, alt }], index: 0 })}
               />
             </div>
           </div>
@@ -1311,8 +1312,13 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
 
       {lightbox && (
         <ImageLightbox
-          src={lightbox.src}
-          alt={lightbox.alt}
+          {...lightbox.items[lightbox.index]}
+          items={lightbox.items}
+          index={lightbox.index}
+          total={lightbox.items.length}
+          onSelect={(index) => setLightbox((state) => state ? { ...state, index } : state)}
+          onPrevious={lightbox.index > 0 ? () => setLightbox((state) => state ? { ...state, index: state.index - 1 } : state) : undefined}
+          onNext={lightbox.index < lightbox.items.length - 1 ? () => setLightbox((state) => state ? { ...state, index: state.index + 1 } : state) : undefined}
           onClose={() => setLightbox(null)}
         />
       )}

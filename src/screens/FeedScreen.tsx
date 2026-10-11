@@ -57,6 +57,7 @@ interface Props {
   onSelectSource?: (sourceId: string | null) => void
   favoriteSourceIds?: readonly string[]
   onToggleFavoriteSource?: (sourceId: string) => void
+  onRenameSource?: (sourceId: string, name: string) => void
   onRemoveSource?: (sourceId: string) => void
   onRemoveCategory?: (categoryId: CategoryId) => void
   onRenameCategory?: (categoryId: CategoryId, name: string) => void
@@ -206,6 +207,7 @@ export const FeedScreen = memo(function FeedScreen({
   onSelectSource,
   favoriteSourceIds,
   onToggleFavoriteSource,
+  onRenameSource,
   onRemoveSource,
   onRemoveCategory,
   onRenameCategory,
@@ -881,6 +883,7 @@ export const FeedScreen = memo(function FeedScreen({
               counts={sourceCounts}
               favoriteSourceIds={favoriteSourceIds}
               onToggleFavorite={onToggleFavoriteSource}
+              onRenameSource={onRenameSource}
               onRemoveSource={onRemoveSource}
             />
           </div>

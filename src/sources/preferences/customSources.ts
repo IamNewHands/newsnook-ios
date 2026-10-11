@@ -6,6 +6,7 @@ import { normalizeCatalogProfile } from '../../features/siteCatalog/profile'
 import { CATEGORIES, type CategoryId, type NewsCategory } from '../categories'
 import {
   isWechatAlbumUrl,
+  findSource,
   makeCustomSourceId,
   normalizeSourceKind,
   normalizeWechatAlbumUrl,
@@ -16,6 +17,18 @@ import {
 import type { Preferences } from './model'
 import { categorySourceIds, describeSources, isCustomCategory } from './categoryPrefs'
 import { normalizePreferences } from './normalize'
+
+/** 重命名自建源或覆盖内置信源的本地显示名称。 */
+export function renameSource(prefs: Preferences, sourceId: string, value: string): Preferences {
+  const name = value.trim()
+  if (!name) return prefs
+  if (prefs.customSources?.some((source) => source.id === sourceId)) {
+    return updateCustomSource(prefs, sourceId, { name, label: name.slice(0, 12) })
+  }
+  const source = findSource(sourceId)
+  if (!source || source.workspaceOnly) return prefs
+  return { ...prefs, sourceNames: { ...prefs.sourceNames, [sourceId]: name } }
+}
 
 /** 添加单个自定义 RSS / 网页目录信源 */
 export function addCustomSource(

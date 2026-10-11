@@ -92,6 +92,8 @@ export interface Preferences {
   customCategories?: NewsCategory[]
   /** 用户自建或导入的自定义订阅源 */
   customSources?: NewsSource[]
+  /** 内置信源的本地显示名称覆盖；不改变注册表、URL 或信源 id。 */
+  sourceNames?: Record<string, string>
   typography: TypographyPrefs
   theme: ThemeMode
   /** 风格方案：与明暗正交的配色主题，见 lib/theme.ts */
