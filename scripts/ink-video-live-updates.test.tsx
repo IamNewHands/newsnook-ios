@@ -95,6 +95,90 @@ function InlineFixture({ title, html }: { title: string; html: string }) {
 
 type Render = (element: React.ReactNode) => Promise<void>
 const cases: Array<[string, (render: Render) => Promise<void>]> = [
+  ['manual origin handoff starts playback once when the stream is ready', async render => {
+    nativeMode = true
+    await render(<OriginPlayerSurface pageUrl="https://example.com/watch/1" title="One" />)
+    await emit({ url: src })
+    await click('button[aria-label="关闭原站并切换播放器"]')
+    const v = player()
+    const before = plays
+    await act(async () => v.dispatchEvent(new window.Event('canplay')))
+    assert.equal(v.paused, false, 'switching players must carry the explicit play intent')
+    assert.equal(plays, before + 1)
+    await act(async () => v.pause())
+    await act(async () => v.dispatchEvent(new window.Event('canplay')))
+    assert.equal(plays, before + 1, 'later readiness cannot undo a manual pause')
+  }],
+  ['stalled startup stops the spinner and cannot attach after timing out', async render => {
+    nativeMode = true
+    let release!: () => void
+    prepareGate = new Promise(resolve => { release = resolve })
+    const originalTimeout = window.setTimeout
+    let expire: (() => void) | undefined
+    window.setTimeout = ((fn: () => void, delay?: number, ...args: unknown[]) => {
+      if (delay === 30000) expire = fn
+      return originalTimeout(fn, delay, ...args)
+    }) as typeof window.setTimeout
+    try {
+      await render(<InkVideoPlayer src={src} />)
+      assert.ok(expire, 'startup must have a finite deadline')
+      await act(async () => expire!())
+      assert.ok(document.body.textContent?.includes('视频加载超时'))
+      assert.ok(!document.body.textContent?.includes('视频加载中'))
+      const count = loads
+      prepareGate = undefined
+      await act(async () => release())
+      assert.equal(loads, count, 'a timed-out preparation cannot attach later')
+    } finally {
+      window.setTimeout = originalTimeout
+      prepareGate = undefined
+      await act(async () => release())
+    }
+  }],
+  ['startup timeout wins over a late progressive recovery', async render => {
+    nativeMode = true
+    const originalTimeout = window.setTimeout
+    const originalClear = window.clearTimeout
+    let expire: (() => void) | undefined
+    let deadline: ReturnType<typeof window.setTimeout> | undefined
+    window.setTimeout = ((fn: () => void, delay?: number, ...args: unknown[]) => {
+      const id = originalTimeout(fn, delay, ...args)
+      if (delay === 30000) { expire = fn; deadline = id }
+      return id
+    }) as typeof window.setTimeout
+    window.clearTimeout = ((id: ReturnType<typeof window.setTimeout>) => {
+      if (id === deadline) expire = undefined
+      originalClear(id)
+    }) as typeof window.clearTimeout
+    let release!: () => void
+    try {
+      await render(<InkVideoPlayer src={src} autoPlay />)
+      const v = player()
+      // A requested play can await media bytes without emitting playing yet.
+      v.play = async () => { Object.assign(v, { paused: false }); v.dispatchEvent(new window.Event('play')) }
+      await act(async () => v.dispatchEvent(new window.Event('loadedmetadata')))
+      assert.ok(expire, 'metadata alone must not cancel the deadline before media data arrives')
+      prepareGate = new Promise(resolve => { release = resolve })
+      await act(async () => v.dispatchEvent(new window.Event('error')))
+      await act(async () => expire!())
+      const count = loads
+      prepareGate = undefined
+      await act(async () => release())
+      assert.equal(loads, count, 'recovery that completes after timeout must not reload the video')
+      await act(async () => v.dispatchEvent(new window.Event('canplay')))
+      assert.ok(document.body.textContent?.includes('视频加载超时'), 'late readiness cannot erase timeout')
+      await render(<span>Closed</span>)
+      await render(<InkVideoPlayer src={src} />)
+      await act(async () => player().dispatchEvent(new window.Event('loadedmetadata')))
+      assert.equal(expire, undefined, 'a normal metadata preload waiting for a user click must not time out')
+      assert.equal(player().paused, true)
+    } finally {
+      window.setTimeout = originalTimeout
+      window.clearTimeout = originalClear
+      prepareGate = undefined
+      if (release) await act(async () => release())
+    }
+  }],
   ['additional sniff URLs must not restart playback', async render => {
     await render(<InkVideoPlayer src={src} extraUrls={extra} />)
     const v = await playAt(); const count = loads

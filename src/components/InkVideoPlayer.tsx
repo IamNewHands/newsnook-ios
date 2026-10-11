@@ -99,6 +99,7 @@ import {
   MediaResourceScreen,
 } from './inkVideoPlayer/MediaResourceOverlay'
 import { PlayerBatteryIcon } from './inkVideoPlayer/PlayerBatteryIcon'
+import { PlayerTitle } from './inkVideoPlayer/PlayerTitle'
 import { useCastControls } from './inkVideoPlayer/useCastControls'
 
 export interface InkVideoPlayerProps {
@@ -111,6 +112,8 @@ export interface InkVideoPlayerProps {
   extraUrls?: string[]
   resources?: MediaResourceDescriptor[]
   deferLoad?: boolean
+  /** Explicit player handoff carries play intent; ordinary article videos remain paused. */
+  autoPlay?: boolean
   onUnlocked?: () => void
   onRefreshSource?: () => void
   onPlaybackError?: () => void
@@ -192,6 +195,7 @@ export function InkVideoPlayerRuntime({
   extraUrls,
   resources,
   deferLoad,
+  autoPlay = false,
   onUnlocked,
   onRefreshSource,
   onPlaybackError,
@@ -305,6 +309,7 @@ export function InkVideoPlayerRuntime({
   const playerKey = playbackIdentity(active?.url || src, activeFormat)
   const player = (
     <InkVideoPlayerReady
+      autoPlay={autoPlay}
       key={playerKey}
       src={active?.url || src}
       poster={poster}
@@ -379,6 +384,7 @@ export function InkVideoPlayerRuntime({
 
 function InkVideoPlayerReady({
   src,
+  autoPlay = false,
   poster,
   title,
   format,
@@ -664,7 +670,7 @@ function InkVideoPlayerReady({
       })
       return request
     }
-    let pendingResume = reloadCheckpointRef.current
+    let pendingResume = reloadCheckpointRef.current ?? (autoPlay ? { position: 0, paused: false } : null)
     reloadCheckpointRef.current = null
     let intendedPlaying = pendingResume ? !pendingResume.paused : !video.paused
     let resettingSource = Boolean(pendingResume)
@@ -679,6 +685,12 @@ function InkVideoPlayerReady({
     let progressiveRecoveryTimer: ReturnType<typeof window.setTimeout> | undefined
     let bufferedStallTimer: ReturnType<typeof window.setTimeout> | undefined
     let playbackFailed = false
+    let startupPhase = 'native-prepare'
+    let startupTimer: ReturnType<typeof window.setTimeout> | undefined
+    const clearStartup = () => {
+      if (startupTimer !== undefined) window.clearTimeout(startupTimer)
+      startupTimer = undefined
+    }
     const clearBufferedStall = () => {
       if (bufferedStallTimer !== undefined) window.clearTimeout(bufferedStallTimer)
       bufferedStallTimer = undefined
@@ -782,8 +794,9 @@ function InkVideoPlayerReady({
     const failPlayback = (message: string) => {
       if (cancelled) return
       playbackFailed = true
+      clearStartup()
       clearBufferedStall()
-      log.reader.warn('Video playback failed', { format: isHls ? 'hls' : isDash ? 'dash' : 'progressive', mediaErrorCode: video.error?.code, message })
+      log.reader.warn('Video playback failed', { format: isHls ? 'hls' : isDash ? 'dash' : 'progressive', stage: startupPhase, readyState: video.readyState, networkState: video.networkState, mediaErrorCode: video.error?.code, message })
       hlsRecovery?.destroy()
       hlsRef.current?.stopLoad()
       setFatal(message)
@@ -816,9 +829,21 @@ function InkVideoPlayerReady({
     setWaiting(true)
     setSeeking(false)
     setRateMenuOpen(false)
+    startupTimer = window.setTimeout(() => {
+      if (cancelled || playbackFailed) return
+      failPlayback('视频加载超时，请重试或返回原站播放器')
+      dashRef.current?.reset()
+      video.removeAttribute('src')
+      video.load()
+    }, 30000)
 
     const markReady = () => {
-      if (cancelled) return
+      if (cancelled || playbackFailed) return
+      // Metadata preload may intentionally stop here until the user presses play.
+      if (video.readyState >= 3 || (video.readyState >= 1 && !intendedPlaying)) {
+        clearStartup()
+        startupPhase = 'ready'
+      }
       // canplay can fire again after HLS buffering. Keep a held boost instead of
       // silently restoring the user's normal rate while the boost badge remains.
       video.defaultPlaybackRate = rateRef.current
@@ -840,7 +865,7 @@ function InkVideoPlayerReady({
     }
 
     const onFatalMedia = () => {
-      if (cancelled || recoveryRequestInFlight || progressiveRecoveryInFlight) return
+      if (cancelled || playbackFailed || recoveryRequestInFlight || progressiveRecoveryInFlight) return
       if (
         Capacitor.isNativePlatform()
         && !isHls
@@ -861,14 +886,14 @@ function InkVideoPlayerReady({
           origins: currentPlaybackOrigins(),
           forceBridge: true,
         }).then(async () => {
-          if (cancelled) return
+          if (cancelled || playbackFailed) return
           settleProgressiveRecovery()
           setFatal(null)
           progressiveProxyUrl = await nativeStreamProxyUrl(
             url,
             nativeSessionId,
           )
-          if (cancelled) return
+          if (cancelled || playbackFailed) return
           loadProgressiveSource()
         }).catch(() => {
           if (!cancelled) failPlayback('视频源暂时无法播放')
@@ -894,14 +919,14 @@ function InkVideoPlayerReady({
           origins: currentPlaybackOrigins(),
           forceBridge: true,
         }).then(async () => {
-          if (cancelled) return
+          if (cancelled || playbackFailed) return
           settleProgressiveRecovery()
           setFatal(null)
           progressiveProxyUrl = await nativeStreamProxyUrl(
             url,
             nativeSessionId,
           )
-          if (cancelled) return
+          if (cancelled || playbackFailed) return
           loadProgressiveSource()
         }).catch(() => {
           if (!cancelled) failPlayback('视频源暂时无法播放')
@@ -978,6 +1003,8 @@ function InkVideoPlayerReady({
       watchBufferedStall()
     }
     const onPlaying = () => {
+      clearStartup()
+      startupPhase = 'playing'
       clearBufferedStall()
       resettingSource = false
       settleProgressiveRecovery()
@@ -1016,7 +1043,7 @@ function InkVideoPlayerReady({
         origins,
         forceBridge: !isHls && !isDash && needsMediaHotlinkBypass(url),
       })
-      if (cancelled) return
+      if (cancelled || playbackFailed) return
       nativePrepared = true
       refreshNativeOrigins()
       const requestContext = sourcePage || Object.keys(effectiveHeaders).length > 0
@@ -1030,26 +1057,29 @@ function InkVideoPlayerReady({
       const useNativeHls = !Capacitor.isNativePlatform() && !bypass && Boolean(video.canPlayType('application/vnd.apple.mpegurl'))
       const HlsClass =
         isHls && !useNativeHls ? (await import('hls.js')).default : null
-      if (cancelled) return
+      if (cancelled || playbackFailed) return
       if (!isDash && !isHls && progressiveBridgeAttempted) {
         progressiveProxyUrl = await nativeStreamProxyUrl(
           url,
           nativeSessionId,
         )
-        if (cancelled) return
+        if (cancelled || playbackFailed) return
       }
 
       if (isDash) {
+        startupPhase = 'dash-engine'
         const module = await import('dashjs')
-        if (cancelled) return
+        if (cancelled || playbackFailed) return
         const dash = module.MediaPlayer().create()
         if (Capacitor.isNativePlatform()) dash.addRequestInterceptor(async request => {
           request.headers = { ...request.headers, 'X-NewsNook-Playback-Session': nativeSessionId }
           return request
         })
         dashRef.current = dash
+        startupPhase = 'dash-manifest'
         dash.initialize(video, url, false)
       } else if (isHls) {
+        startupPhase = 'hls-manifest'
         if (useNativeHls) {
           video.src = url
         } else if (HlsClass?.isSupported()) {
@@ -1113,6 +1143,7 @@ function InkVideoPlayerReady({
           failPlayback('当前环境不支持 HLS 播放')
         }
       } else if (bypass) {
+        startupPhase = 'progressive-stream'
         if (Capacitor.isNativePlatform()) {
           // Android progressive 统一改走 localhost 代理，把 Referer/Cookie 留在原生 OkHttp 侧。
           loadProgressiveSource()
@@ -1120,6 +1151,7 @@ function InkVideoPlayerReady({
           video.src = browserMediaProxyUrl(url)
         }
       } else {
+        startupPhase = 'progressive-stream'
         loadProgressiveSource()
       }
     })().catch(() => {
@@ -1129,6 +1161,7 @@ function InkVideoPlayerReady({
     return () => {
       reloadCheckpointRef.current = pendingResume ?? playbackCheckpoint(video, intendedPlaying)
       cancelled = true
+      clearStartup()
       window.clearInterval(renewalTimer)
       document.removeEventListener('visibilitychange', onPlaybackVisibilityChange)
       if (!preparations.size) void releaseNativeMediaPlayback(nativeSessionId)
@@ -1163,7 +1196,7 @@ function InkVideoPlayerReady({
       video.removeAttribute('src')
       video.load()
     }
-  }, [clearHideTimer, format, playbackContext, reloadRevision, sourcePage, src, syncBoostIndicator])
+  }, [autoPlay, clearHideTimer, format, playbackContext, reloadRevision, sourcePage, src, syncBoostIndicator])
 
   useEffect(() => { refreshNativeOriginsRef.current?.() }, [extraOriginsKey])
 
@@ -1970,7 +2003,7 @@ function InkVideoPlayerReady({
             }}
             className={`ink-video-top-chrome pointer-events-none absolute inset-x-0 top-0 z-[6] flex items-center justify-between bg-gradient-to-b from-black/75 via-black/30 to-transparent transition-opacity duration-200 ${showChrome ? 'opacity-100' : 'opacity-0'}`}
           >
-            <div className={`flex items-center gap-1 ${showChrome ? 'pointer-events-auto' : ''}`}>
+            <div className={`flex min-w-0 flex-1 items-center gap-1 overflow-hidden ${showChrome ? 'pointer-events-auto' : ''}`}>
               {immersive && (
                 <button
                   type="button"
@@ -1981,12 +2014,10 @@ function InkVideoPlayerReady({
                   <ChevronLeft size={24} strokeWidth={2} />
                 </button>
               )}
-              <div className="truncate text-[15px] font-medium tracking-wide text-paper/95 drop-shadow-md">
-                {title || '文章视频'}
-              </div>
+              <PlayerTitle title={title || '文章视频'} />
             </div>
 
-            <div className={`flex items-center gap-3 pr-2 text-paper/90 ${showChrome ? 'pointer-events-auto' : ''}`}>
+            <div className={`flex shrink-0 items-center gap-3 pl-2 pr-2 text-paper/90 ${showChrome ? 'pointer-events-auto' : ''}`}>
               {presentation && <button type="button" aria-label="悬浮播放" title="悬浮播放" onClick={() => void floatPlayer()} className="flex h-10 w-10 items-center justify-center rounded-full active:bg-paper/15"><PictureInPicture2 size={18} /></button>}
               <span className="text-[13px] font-medium tracking-wide drop-shadow-md tabular-nums">{clock}</span>
               <button

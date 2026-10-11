@@ -296,6 +296,7 @@ export function OriginPlayerSurface({
           {mode === 'origin' && globalVideoSurface && <div className="reader-video-aspect flex items-center justify-center px-6 text-center text-[12px] text-paper-muted">关闭悬浮后可使用原站播放器</div>}
           {mode === 'custom' && activeCandidate ? (
             <InkVideoPlayer
+              autoPlay={!autoUseReader}
               src={activeCandidate.url}
               poster={poster}
               title={title}

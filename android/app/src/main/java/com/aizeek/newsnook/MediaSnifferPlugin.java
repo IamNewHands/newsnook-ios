@@ -93,6 +93,7 @@ public class MediaSnifferPlugin extends Plugin {
     private String liveSessionId;
     private WebView liveWebView;
     private FrameLayout liveHost;
+    private OriginVideoFullscreen liveFullscreen;
     private ScriptHandler liveScriptHandler;
     private JSONArray liveNetworkEvents;
     private LiveProbeQueue liveProbeQueue;
@@ -612,6 +613,7 @@ public class MediaSnifferPlugin extends Plugin {
             webView.setVisibility(View.VISIBLE);
             return;
         }
+        if (liveFullscreen != null) liveFullscreen.onHideCustomView();
         pauseLiveSessionMedia(webView);
         liveSuspended = true;
         boolean muted = setLiveWebViewAudioMuted(webView, true);
@@ -1162,6 +1164,12 @@ public class MediaSnifferPlugin extends Plugin {
         liveSessionId = sessionId;
         liveWebView = webView;
         liveHost = root;
+        liveFullscreen = new OriginVideoFullscreen(getActivity(), root, active -> {
+            if (getActivity() instanceof MainActivity) {
+                ((MainActivity) getActivity()).setVideoFullscreen(active);
+            }
+        });
+        webView.setWebChromeClient(liveFullscreen);
         liveScriptHandler = scriptHandler;
         liveNetworkEvents = networkEvents;
         liveProbeQueue = liveProbes;
@@ -1248,6 +1256,8 @@ public class MediaSnifferPlugin extends Plugin {
             && !sessionId.equals(liveSessionId)) {
             return;
         }
+        if (liveFullscreen != null) liveFullscreen.onHideCustomView();
+        liveFullscreen = null;
         liveActive.set(false);
         WebView webView = liveWebView;
         FrameLayout host = liveHost;
