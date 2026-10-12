@@ -2,6 +2,7 @@ import { Directory, Encoding, Filesystem } from '@capacitor/filesystem'
 
 import { sha1Hex } from '../../lib/hash'
 import { log } from '../../lib/logger'
+import { withCachedBodyPreview } from '../../lib/bodyCache'
 import type { BodySource } from '../../lib/resolveBody'
 import type { Article } from '../../lib/types'
 import type { CategoryId } from '../../sources/categories'
@@ -247,7 +248,7 @@ export async function loadPrestoreSnapshot(): Promise<PrestoreSnapshot> {
   return {
     manifest,
     articleIds,
-    articles: Object.values(manifest.articles).map((entry) => entry.article),
+    articles: Object.values(manifest.articles).map((entry) => withCachedBodyPreview(entry.article)),
     stats: {
       articleCount: articleIds.size,
       sourceCount: Object.values(manifest.sources).filter((entry) => entry.articleIds.length > 0).length,

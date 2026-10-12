@@ -21,6 +21,8 @@ import { fetchAbsoluteText, fetchSourceText } from '../lib/http'
 import { detectNextPageUrl } from '../features/catalogEngine/pagination'
 import { describeNonFeedPayload } from '../lib/feedPayload'
 import { normalizeLegacyVideoArticle } from '../lib/videoArticle'
+import { withCachedBodyPreview } from '../lib/bodyCache'
+import { previewImageUrl } from '../lib/articlePreview'
 import {
   enrichJazzyearDates,
   enrichLatepostDates,
@@ -74,6 +76,7 @@ interface FeedsResult {
   /** 不传则刷新 hook 当前跟踪的全部源；传入则只刷新这些源 */
   refresh: (sourceIds?: string[]) => Promise<void>
   loadMore: (sourceIds: string[]) => Promise<void>
+  updateArticlePreview: (article: Article) => void
 }
 
 /** Keep one slow source from holding the whole refresh UI indefinitely. */
@@ -183,7 +186,10 @@ function loadCachedSource(
   const matches = cachedListMatchesSourceVersion(loadedCache, expectedVersion)
   const legacyCatalog = source?.kind === 'web-catalog' && loadedCache && !matches
   const cached = matches || legacyCatalog ? loadedCache : null
-  let items = (cached?.items ?? []).map(normalizeLegacyVideoArticle)
+  let items = (cached?.items ?? []).map(normalizeLegacyVideoArticle).map(withCachedBodyPreview)
+  if (cached && items.some((item, index) => item.image !== cached.items[index]?.image)) {
+    saveCachedArticles(sourceId, items, cached.paging, cached.cachedAt)
+  }
   if (legacyCatalog && source && cached) {
     items = migrateCatalogCache(source, items)
     saveCachedArticles(sourceId, items, { ...cached.paging, sourceVersion: expectedVersion }, cached.cachedAt)
@@ -422,16 +428,33 @@ export function useFeeds(
     setPagingTick((tick) => tick + 1)
   }, [])
 
-  const commitBucket = useCallback((id: string, items: Article[]) => {
-    const next = new Map(bucketsRef.current).set(id, items)
+  const commitBucket = useCallback((id: string, items: Article[], cachedAt?: number) => {
+    const previous = new Map((bucketsRef.current.get(id) ?? []).map((article) => [article.id, article]))
+    const enriched = items.map((article) => {
+      const local = withCachedBodyPreview(article)
+      const image = previous.get(article.id)?.image
+      return !local.image && image ? { ...local, image } : local
+    })
+    const next = new Map(bucketsRef.current).set(id, enriched)
     bucketsRef.current = next
     setBuckets(next)
     saveCachedArticles(
       id,
-      items,
-      cacheMetaForItems(id, pagingRef.current[id], items, extraSourcesRef.current),
+      enriched,
+      cacheMetaForItems(id, pagingRef.current[id], enriched, extraSourcesRef.current),
+      cachedAt,
     )
   }, [])
+
+  const updateArticlePreview = useCallback((article: Article) => {
+    const image = previewImageUrl(article.image, article.originUrl)
+    if (!image) return
+    const items = bucketsRef.current.get(article.sourceId)
+    if (!items?.some((item) => item.id === article.id && !item.image)) return
+    commitBucket(article.sourceId, items.map((item) =>
+      item.id === article.id && !item.image ? { ...item, image } : item,
+    ), updatedAtRef.current[article.sourceId])
+  }, [commitBucket])
 
   const applyHeadPage = useCallback(
     (id: string, source: NewsSource, payload: string, incoming: Article[], catalogPage?: CatalogPage): number => {
@@ -1010,5 +1033,6 @@ export function useFeeds(
     paginationState,
     refresh,
     loadMore,
+    updateArticlePreview,
   }
 }

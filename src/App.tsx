@@ -40,6 +40,7 @@ import {
   scopeSignalsToSources,
 } from './lib/recommend'
 import { resolveArticleBody } from './lib/resolveBody'
+import { withArticlePreviewImage } from './lib/articlePreview'
 import {
   isAndroidBrowser,
   preferredOpenInAppUrl,
@@ -234,7 +235,7 @@ interface BodyPrefetchTask {
   article: Article
   signal: AbortSignal
   shouldPin: () => boolean
-  onCacheChange: () => void
+  onCacheChange: (article?: Article) => void
   extraSources?: import('./sources/registry').NewsSource[]
 }
 
@@ -255,15 +256,16 @@ function drainBodyPrefetchQueue(): void {
         const resolved = await resolveArticleBody(task.article, task.signal, task.extraSources)
         if (task.signal.aborted) return
         if (resolved.bodySource === 'video') return
+        const previewArticle = withArticlePreviewImage(task.article, resolved.contentHtml, resolved.image)
         const cached = saveCachedBody(
-          task.article,
+          previewArticle,
           {
             html: resolved.contentHtml,
             bodySource: resolved.bodySource,
           },
           { pinned: task.shouldPin() },
         )
-        if (cached) task.onCacheChange()
+        if (cached) task.onCacheChange(previewArticle)
       } catch {
         // 离线或抽取失败时静默跳过；下次启动、重新收藏或实际阅读时会再试。
       } finally {
@@ -709,6 +711,7 @@ export default function App() {
     paginationState,
     refresh,
     loadMore,
+    updateArticlePreview,
   } = useFeeds(fetchIds, notifyCacheChange, prefs.customSources, activePresetId, automaticFetchIds)
 
   const prestore = usePrestore({
@@ -718,12 +721,23 @@ export default function App() {
     // 首页刷新、加载历史和主动阅读优先，自动预存不与前台关键路径争抢网络/CPU。
     suspend: refreshing || loadingMore || Boolean(reading),
   })
+  const updatePrestorePreview = prestore.updateArticlePreview
+  const handleBodyCacheChange = useCallback((article?: Article) => {
+    if (article) {
+      updateArticlePreview(article)
+      updatePrestorePreview(article)
+    }
+    notifyCacheChange()
+  }, [notifyCacheChange, updateArticlePreview, updatePrestorePreview])
 
   // 预存清单自身携带文章元数据，离线时无需依赖 localStorage 列表缓存。
   // 当前在线/列表缓存版本覆盖同 ID 的旧元数据，随后统一按发布时间排序。
   const availableArticles = useMemo(() => {
     const byId = new Map(prestore.snapshot.articles.map((article) => [article.id, article]))
-    fetchedArticles.forEach((article) => byId.set(article.id, article))
+    fetchedArticles.forEach((article) => {
+      const image = article.image || byId.get(article.id)?.image
+      byId.set(article.id, image && !article.image ? { ...article, image } : article)
+    })
     return sortArticles([...byId.values()])
   }, [fetchedArticles, prestore.snapshot.articles])
 
@@ -889,13 +903,13 @@ export default function App() {
         article,
         signal: controller.signal,
         shouldPin: () => laterRef.current.some((item) => item.id === article.id),
-        onCacheChange: notifyCacheChange,
+        onCacheChange: handleBodyCacheChange,
         extraSources: prefs.customSources,
       })
     })
     notifyCacheChange()
     return () => controller.abort()
-  }, [later, notifyCacheChange, prefs.customSources])
+  }, [later, notifyCacheChange, handleBodyCacheChange, prefs.customSources])
 
   const openArticle = useCallback((article: Article) => {
     setReaderReturnArticle(null)
@@ -1984,7 +1998,7 @@ export default function App() {
             saved={laterIds.has(reading.id)}
             onClose={closeReader}
             onToggleLater={toggleLater}
-            onCacheChange={notifyCacheChange}
+            onCacheChange={handleBodyCacheChange}
             overlayCloserRef={readerOverlayCloserRef}
             translationPrefs={prefs.translation}
             readAloudPrefs={prefs.readAloud}
