@@ -589,7 +589,9 @@ export default function App() {
   const closeReader = useCallback(() => {
     setReading(null)
     clearShareLocation()
-    recoverAppScrollAfterNavigation()
+    window.requestAnimationFrame(() => {
+      recoverAppScrollAfterNavigation()
+    })
   }, [])
 
   const dismissDeepLinkError = useCallback(() => {
