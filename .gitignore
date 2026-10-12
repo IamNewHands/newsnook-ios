@@ -52,3 +52,8 @@ cloud/.env.*
 evidence
 
 .chappie/
+
+# 宣传片 Remotion 工程（本地素材与渲染产物）
+promo-video/
+
+promo-video/

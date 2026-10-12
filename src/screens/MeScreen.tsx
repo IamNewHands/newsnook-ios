@@ -215,6 +215,7 @@ export function MeScreen({
             title="RSS 订阅商店"
             caption="在线搜索网站与订阅地址、管理已订阅"
             onClick={onOpenFeedStore}
+            dataTour="me-feed-store"
           />
           <SettingsRow
             icon={Rss}

@@ -17,16 +17,23 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const androidRoot = join(projectRoot, 'android')
 const format = process.argv[2]
 const flavorArgument = process.argv[3] ?? 'all'
+const buildType = process.argv[4] ?? 'release'
 const supportedFlavors = ['cloud', 'local']
 const localAbis = ['arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64']
 
 if (format !== 'apk' && format !== 'aab') {
-  throw new Error('Usage: node scripts/android-build.mjs <apk|aab> [cloud|local|all]')
+  throw new Error('Usage: node scripts/android-build.mjs <apk|aab> [cloud|local|all] [release|debug]')
 }
 if (flavorArgument !== 'all' && !supportedFlavors.includes(flavorArgument)) {
   throw new Error('Flavor must be cloud, local, or all.')
 }
 const flavors = flavorArgument === 'all' ? supportedFlavors : [flavorArgument]
+if (buildType !== 'release' && buildType !== 'debug') {
+  throw new Error('Build type must be release or debug.')
+}
+if (buildType === 'debug' && format !== 'apk') {
+  throw new Error('Debug builds only support APK output.')
+}
 
 const env = loadAndroidEnv(projectRoot)
 const requiredSigningVariables = [
@@ -36,12 +43,12 @@ const requiredSigningVariables = [
   'NEWSNOOK_KEY_PASSWORD',
 ]
 const missingSigningVariables = requiredSigningVariables.filter((key) => !env[key])
-if (missingSigningVariables.length) {
+if (buildType === 'release' && missingSigningVariables.length) {
   throw new Error(
     `Release signing is missing (${missingSigningVariables.join(', ')}). Run npm run android:keystore:init first.`,
   )
 }
-if (!existsSync(env.NEWSNOOK_KEYSTORE_FILE)) {
+if (buildType === 'release' && !existsSync(env.NEWSNOOK_KEYSTORE_FILE)) {
   throw new Error(`Release keystore not found: ${env.NEWSNOOK_KEYSTORE_FILE}`)
 }
 
@@ -70,7 +77,9 @@ if (flavors.includes('local')) {
 }
 
 const gradleWrapperJar = join(androidRoot, 'gradle', 'wrapper', 'gradle-wrapper.jar')
-if (format === 'apk') {
+if (buildType === 'debug') {
+  runGradle(flavors.map((flavor) => `assemble${flavor[0].toUpperCase()}${flavor.slice(1)}Debug`))
+} else if (format === 'apk') {
   // ABI split 是 APK 自托管分发能力。cloud 仍是单包；local 单独构建并显式开启 split，
   // 避免全局 Gradle splits 误伤 cloud、debug 或 Play AAB。
   if (flavors.includes('cloud')) {
@@ -110,23 +119,27 @@ for (const flavor of flavors) {
     continue
   }
 
-  const apkDir = join(androidRoot, 'app', 'build', 'outputs', 'apk', flavor, 'release')
+  const apkDir = join(androidRoot, 'app', 'build', 'outputs', 'apk', flavor, buildType)
   const metadataPath = join(apkDir, 'output-metadata.json')
   if (!existsSync(metadataPath)) {
     throw new Error(`Gradle completed but output metadata is missing: ${metadataPath}`)
   }
   const metadata = JSON.parse(readFileSync(metadataPath, 'utf8'))
+  const expectedApplicationId = `com.aizeek.newsnook${buildType === 'debug' ? '.debug' : ''}`
+  if (metadata.applicationId !== expectedApplicationId) {
+    throw new Error(`Unexpected APK application ID: ${metadata.applicationId}; expected ${expectedApplicationId}`)
+  }
   const elements = Array.isArray(metadata.elements) ? metadata.elements : []
 
-  if (flavor === 'cloud') {
+  if (flavor === 'cloud' || buildType === 'debug') {
     const element = elements.find((item) => !Array.isArray(item.filters) || item.filters.length === 0)
     if (!element?.outputFile) {
-      throw new Error('Cloud APK output metadata does not contain a universal APK.')
+      throw new Error(`${flavor} ${buildType} APK output metadata does not contain a universal APK.`)
     }
     copyAndVerifyApk(
       join(apkDir, element.outputFile),
-      join(outputDirectory, `newsnook-${packageJson.version}-cloud-release.apk`),
-      'cloud',
+      join(outputDirectory, `newsnook-${packageJson.version}-${flavor}-${buildType}.apk`),
+      `${flavor}/${buildType}`,
     )
     continue
   }

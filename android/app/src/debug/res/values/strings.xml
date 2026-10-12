@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">News Nook (Debug)</string>
+    <string name="title_activity_main">News Nook (Debug)</string>
+</resources>

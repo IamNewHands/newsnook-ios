@@ -232,10 +232,10 @@ function SealMotif({ config }: { config: EditorialCoverConfig }) {
         strokeWidth="1.2"
       />
 
-      {/* 衬线宋体核心印字 */}
+      {/* 衬线宋体核心印字（严格对齐几何中心 120, 90） */}
       <text
         x="120"
-        y="99"
+        y="90"
         textAnchor="middle"
         dominantBaseline="central"
         fill="var(--ec-text)"
@@ -475,10 +475,10 @@ function FlutedMotif({ config }: { config: EditorialCoverConfig }) {
       {/* 中心透光圆形镂空 */}
       <circle cx="120" cy="90" r="32" fill="var(--ec-bg-grad)" stroke="var(--ec-accent)" strokeWidth="1.2" />
 
-      {/* 镂空内部的精致字母 */}
+      {/* 镂空内部的精致字母（严格对齐圆心 120, 90） */}
       <text
         x="120"
-        y="98"
+        y="90"
         textAnchor="middle"
         dominantBaseline="central"
         fill="var(--ec-text)"
@@ -583,10 +583,10 @@ function BookplateMotif({ config }: { config: EditorialCoverConfig }) {
         strokeWidth="1.1"
       />
 
-      {/* 核心字标 */}
+      {/* 核心字标（严格对齐菱形勋标中心 120, 90） */}
       <text
         x="120"
-        y="97"
+        y="90"
         textAnchor="middle"
         dominantBaseline="central"
         fill="var(--ec-text)"
