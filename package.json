@@ -40,6 +40,7 @@
     "test:article-title": "npx tsx scripts/article-title.test.ts",
     "test:feed-status": "npx tsx scripts/feed-status-custom-sources.test.ts",
     "test:feed-preview-images": "npx tsx scripts/feed-preview-images.test.ts",
+    "test:editorial-cover": "npx tsx scripts/editorial-cover.test.ts",
     "test:feed-payload": "npx tsx scripts/feed-payload.test.ts",
     "test:feed-pagination": "npx tsx scripts/feed-pagination.test.ts",
     "test:resolve-body-custom": "npx tsx scripts/resolve-body-custom-source.test.ts",
