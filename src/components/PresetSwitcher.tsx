@@ -394,9 +394,9 @@ export function PresetSwitcher({
                     />
                   )
               ) : mine.length > 0 ? (
-                <ul className="space-y-2">
+                <ul className="grid grid-cols-2 gap-1.5 sm:gap-2">
                   {mine.map((item) => (
-                    <PresetPickRow
+                    <PresetGridCard
                       key={item.id}
                       item={item}
                       onPick={() => {
@@ -637,7 +637,16 @@ const PRESET_ICONS: Record<string, typeof LayoutTemplate> = {
   文体生活: Trophy,
 }
 
-function PresetGlyph({ name, size = 14 }: { name: string; size?: number }) {
+function PresetGlyph({
+  name,
+  builtin = true,
+  size = 14,
+}: {
+  name: string
+  builtin?: boolean
+  size?: number
+}) {
+  if (!builtin) return <UserRound size={size} strokeWidth={1.75} />
   const Icon = PRESET_ICONS[name] ?? LayoutTemplate
   return <Icon size={size} strokeWidth={1.75} />
 }
@@ -774,17 +783,41 @@ const CommunityEntryCard = memo(function CommunityEntryCard({
 const PresetGridCard = memo(function PresetGridCard({
   item,
   onPick,
+  onManage,
 }: {
   item: PresetSwitcherItem
   onPick: () => void
+  onManage?: (anchor: Point) => void
 }) {
+  const longPress = useLongPressAction<string>((_id, anchor) => onManage?.(anchor))
   return (
     <li className="min-w-0">
       <button
         type="button"
-        onClick={onPick}
+        onClick={() => {
+          if (!longPress.consumeClick(item.id)) onPick()
+        }}
+        onPointerDown={onManage ? (event) => longPress.start(item.id, event) : undefined}
+        onPointerMove={longPress.move}
+        onPointerUp={longPress.cancel}
+        onPointerCancel={longPress.cancel}
+        onPointerLeave={longPress.cancel}
+        onContextMenu={onManage ? (event) => {
+          event.preventDefault()
+          longPress.cancel()
+          onManage({ x: event.clientX, y: event.clientY })
+        } : undefined}
+        onKeyDown={onManage ? (event) => {
+          if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+          event.preventDefault()
+          const rect = event.currentTarget.getBoundingClientRect()
+          onManage({ x: rect.left, y: rect.bottom })
+        } : undefined}
+        aria-haspopup={onManage ? 'menu' : undefined}
+        aria-label={onManage ? `${item.name}，长按管理` : undefined}
         aria-pressed={item.active}
-        className={`group relative flex min-h-[78px] w-full flex-col overflow-hidden rounded-xl border px-2.5 py-2.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinnabar/45 ${
+        title={item.name}
+        className={`${onManage ? 'custom-long-press-target ' : ''}group relative flex min-h-[78px] h-full w-full flex-col overflow-hidden rounded-xl border px-2.5 py-2.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinnabar/45 ${
           item.active
             ? 'border-cinnabar/75 bg-cinnabar/12 shadow-[0_4px_12px_rgba(0,0,0,0.08)]'
             : 'border-haze/80 bg-ink/55 hover:-translate-y-px hover:border-cinnabar/40 hover:bg-ink hover:shadow-sm active:translate-y-0'
@@ -798,7 +831,7 @@ const PresetGridCard = memo(function PresetGridCard({
                 : 'border-haze bg-ink-raised text-paper-muted group-hover:border-cinnabar/35 group-hover:text-cinnabar'
             }`}
           >
-            <PresetGlyph name={item.name} size={14} />
+            <PresetGlyph name={item.name} builtin={item.builtin} size={14} />
           </span>
 
           <span
@@ -830,89 +863,6 @@ const PresetGridCard = memo(function PresetGridCard({
 
         {item.active && (
           <span className="pointer-events-none absolute inset-x-2.5 bottom-0 h-px bg-gradient-to-r from-transparent via-cinnabar/45 to-transparent" aria-hidden />
-        )}
-      </button>
-    </li>
-  )
-})
-
-const PresetPickRow = memo(function PresetPickRow({
-  item,
-  onPick,
-  onManage,
-}: {
-  item: PresetSwitcherItem
-  onPick: () => void
-  onManage?: (anchor: Point) => void
-}) {
-  const longPress = useLongPressAction<string>((_id, anchor) => onManage?.(anchor))
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={() => {
-          if (!longPress.consumeClick(item.id)) onPick()
-        }}
-        onPointerDown={onManage ? (event) => longPress.start(item.id, event) : undefined}
-        onPointerMove={longPress.move}
-        onPointerUp={longPress.cancel}
-        onPointerCancel={longPress.cancel}
-        onPointerLeave={longPress.cancel}
-        onContextMenu={onManage ? (event) => {
-          event.preventDefault()
-          longPress.cancel()
-          onManage({ x: event.clientX, y: event.clientY })
-        } : undefined}
-        onKeyDown={onManage ? (event) => {
-          if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
-          event.preventDefault()
-          const rect = event.currentTarget.getBoundingClientRect()
-          onManage({ x: rect.left, y: rect.bottom })
-        } : undefined}
-        aria-haspopup={onManage ? 'menu' : undefined}
-        aria-label={onManage ? `${item.name}，长按管理` : undefined}
-        className={`${onManage ? 'custom-long-press-target ' : ''}group relative flex w-full items-center gap-3.5 rounded-xl border p-3 text-left transition-colors ${
-          item.active
-            ? 'border-cinnabar/60 bg-cinnabar/12'
-            : 'border-haze/80 bg-ink/50 hover:border-cinnabar/40 hover:bg-ink-raised'
-        }`}
-      >
-        <div
-          className={`flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors ${
-            item.active
-              ? 'bg-cinnabar text-white'
-              : 'bg-ink-raised border border-haze text-paper-muted group-hover:border-cinnabar/40 group-hover:text-cinnabar'
-          }`}
-        >
-          <UserRound size={15} strokeWidth={1.7} />
-        </div>
-
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            <span
-              className={`truncate font-display text-[15px] font-semibold ${
-                item.active ? 'text-cinnabar' : 'text-paper group-hover:text-paper'
-              }`}
-            >
-              {item.name}
-            </span>
-            {item.active && (
-              <span className="inline-flex items-center rounded-full bg-cinnabar/15 px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wider text-cinnabar">
-                当前生效
-              </span>
-            )}
-          </span>
-          {item.description && (
-            <span className="mt-0.5 block truncate text-[12px] text-paper-faint group-hover:text-paper-muted transition-colors">
-              {item.description}
-            </span>
-          )}
-        </span>
-
-        {!item.active && (
-          <span className="shrink-0 rounded-full border border-haze/80 bg-ink px-2.5 py-1 font-mono text-[10.5px] font-medium text-paper-faint group-hover:border-cinnabar/40 group-hover:text-cinnabar transition-colors">
-            选用
-          </span>
         )}
       </button>
     </li>
