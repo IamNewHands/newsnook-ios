@@ -163,18 +163,23 @@ function CategoryPeek({
             <ul className={homeFeedLayout === 'cards'
               ? 'grid grid-cols-1 items-start gap-2.5 px-3.5 py-1.5 min-[360px]:grid-cols-2 min-[430px]:gap-3 min-[430px]:px-4'
               : 'divide-y divide-haze'}>
-              {items.map((article) => (
-                <ArticleRow
-                  key={article.id}
-                  article={article}
-                  read={readIds.has(article.id)}
-                  saved={laterIds.has(article.id)}
-                  prestored={prestoredIds.has(article.id)}
-                  onOpen={onOpen}
-                  revealed
-                  variant={homeFeedLayout === 'cards' ? 'compact-card' : 'row'}
-                />
-              ))}
+              {items.map((article, index) => {
+                const isCards = homeFeedLayout === 'cards'
+                const isFeatured = isCards && (items.length === 1 || (items.length % 2 === 1 && index === 0))
+                return (
+                  <ArticleRow
+                    key={article.id}
+                    article={article}
+                    read={readIds.has(article.id)}
+                    saved={laterIds.has(article.id)}
+                    prestored={prestoredIds.has(article.id)}
+                    onOpen={onOpen}
+                    revealed
+                    variant={isCards ? 'compact-card' : 'row'}
+                    featured={isFeatured}
+                  />
+                )
+              })}
             </ul>
           </div>
         ))}
@@ -664,20 +669,24 @@ export const FeedScreen = memo(function FeedScreen({
                 <ul className={useCompactCards
                   ? 'grid grid-cols-1 items-start gap-2.5 px-3.5 py-1.5 min-[360px]:grid-cols-2 min-[430px]:gap-3 min-[430px]:px-4'
                   : 'divide-y divide-haze'}>
-                  {items.map((article) => (
-                    <ArticleRow
-                      key={article.id}
-                      article={article}
-                      read={readIds.has(article.id)}
-                      saved={laterIds.has(article.id)}
-                      prestored={prestoredIds.has(article.id)}
-                      translated={translations.get(article.id)}
-                      displayMode={activeTranslationPrefs.displayMode}
-                      onOpen={onOpen}
-                      onSourceClick={onSelectSource}
-                      variant={useCompactCards ? 'compact-card' : 'row'}
-                    />
-                  ))}
+                  {items.map((article, index) => {
+                    const isFeatured = useCompactCards && (items.length === 1 || (items.length % 2 === 1 && index === 0))
+                    return (
+                      <ArticleRow
+                        key={article.id}
+                        article={article}
+                        read={readIds.has(article.id)}
+                        saved={laterIds.has(article.id)}
+                        prestored={prestoredIds.has(article.id)}
+                        translated={translations.get(article.id)}
+                        displayMode={activeTranslationPrefs.displayMode}
+                        onOpen={onOpen}
+                        onSourceClick={onSelectSource}
+                        variant={useCompactCards ? 'compact-card' : 'row'}
+                        featured={isFeatured}
+                      />
+                    )
+                  })}
                 </ul>
               ) : (
                 <ul className="grid grid-cols-2 gap-4 px-6 py-2 xl:grid-cols-3 2xl:grid-cols-4 min-[2100px]:grid-cols-5 xl:px-8 2xl:px-10 min-[2100px]:gap-5">

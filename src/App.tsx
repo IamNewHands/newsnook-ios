@@ -143,6 +143,7 @@ import {
   setAutoRefreshOnCategorySwitch,
   setCategoryOrder,
   moveCategory,
+  moveCmsSource,
   setEinkMode,
   setHomeFeedLayout,
   setPrestoreEnabled,
@@ -1109,6 +1110,10 @@ export default function App() {
         : null)
       ?? presets.activePreset?.name ?? '场景预设',
     items: presetSwitcherItems,
+    onRenamePreset: presets.rename,
+    onMovePreset: presets.move,
+    onRenameCms: handleRenameSource,
+    onMoveCms: (id: string, direction: -1 | 1) => update((prev) => moveCmsSource(prev, id, direction)),
     onSelect: (id: string) => {
       if (activeSiteId) leaveActiveSite()
       if (id !== presets.state.activePresetId) presets.applyPreset(id)
@@ -1167,7 +1172,7 @@ export default function App() {
       setTab('me')
       setSettingsRoute({ name: 'custom-sources' })
     },
-  }), [activeSiteId, cmsSources, frameworkSiteCount, leaveActiveSite, presetSwitcherItems, presets, selectedCmsId, siteSwitcherItems, tab])
+  }), [activeSiteId, cmsSources, frameworkSiteCount, handleRenameSource, leaveActiveSite, presetSwitcherItems, presets, selectedCmsId, siteSwitcherItems, tab, update])
 
   const cachedHistory = useMemo(
     () =>

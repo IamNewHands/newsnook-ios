@@ -24,7 +24,7 @@ import {
   redactForPersistence,
 } from '../src/features/sync/state'
 import { entityKey, type LocalSyncState, type OutboxEntry } from '../src/features/sync/types'
-import { DEFAULT_PREFERENCES, normalizePreferences } from '../src/sources/preferences'
+import { addCustomSource, DEFAULT_PREFERENCES, moveCmsSource, normalizePreferences, renameSource } from '../src/sources/preferences'
 import { buildFreshInstallPresetsState } from '../src/sources/presets'
 import { SOURCES } from '../src/sources/registry'
 
@@ -135,6 +135,71 @@ function recordsFromProjection(state: LocalRuntimeState): SyncRecord[] {
 }
 
 // ------------------------------------------------------------- Secret 分离
+
+{
+  // CMS 卡片顺序是本机展示偏好；普通 pull 不得用资讯源启用顺序覆盖它。
+  const local = baseState()
+  for (const [name, kind] of [['A', 'web-catalog'], ['RSS', 'feed'], ['B', 'web-catalog']] as const) {
+    local.prefs = addCustomSource(local.prefs, {
+      name, kind, url: `https://${name.toLowerCase()}.example.test`,
+    }).nextPrefs
+  }
+  const sources = local.prefs.customSources!
+  local.enabledIds = sources.map((source) => source.id)
+  const original = projectLocalState(local)
+  const moved = { ...local, prefs: moveCmsSource(local.prefs, sources[2].id, -1) }
+  const projected = projectLocalState(moved)
+  assert.deepEqual(projected, original, 'CMS 展示排序不改变资讯订阅的同步 rank')
+  assert.equal(projected[entityKey('subscription', sources[1].id)].fingerprint,
+    original[entityKey('subscription', sources[1].id)].fingerprint, 'RSS 排序与配置不应改变')
+  assert.equal(moved.presets, local.presets, 'CMS 排序不修改资讯预设')
+  assert.deepEqual(moved.enabledIds, local.enabledIds, '本地 CMS 排序不修改资讯启用源顺序')
+  const unrelatedRecords: SyncRecord[] = [{
+    entityType: 'setting', entityId: SETTING_KEYS.theme, revision: 100,
+    deleted: false, updatedAt: 0, payload: { value: 'dark' },
+  }]
+  const pulled = applyRemoteRecords(moved, unrelatedRecords)
+  assert.deepEqual(pulled.prefs.customSources?.map((source) => source.name), ['B', 'RSS', 'A'],
+    '不相关云设置的拉取不能撤销本地 CMS 排序')
+  assert.deepEqual(applyRemoteRecords(pulled, unrelatedRecords).prefs.customSources?.map((source) => source.name),
+    ['B', 'RSS', 'A'], '连续 pull 必须保持排序稳定')
+  for (const [enabledIds, expected] of [
+    [[sources[0].id, sources[1].id], ['B', 'RSS', 'A']],
+    [[sources[1].id, sources[2].id], ['RSS', 'B', 'A']],
+    [[sources[1].id], ['RSS', 'B', 'A']],
+  ]) {
+    const mixed = applyRemoteRecords({ ...local, enabledIds: [...enabledIds, BUILTIN_ENABLED[0]] }, unrelatedRecords)
+    const before = projectLocalState(mixed)
+    const mixedMoved = { ...mixed, prefs: moveCmsSource(mixed.prefs, sources[2].id, -1) }
+    const after = projectLocalState(mixedMoved)
+    assert.equal(after[entityKey('subscription', sources[1].id)].fingerprint,
+      before[entityKey('subscription', sources[1].id)].fingerprint)
+    assert.equal(after[entityKey('subscription', BUILTIN_ENABLED[0])].fingerprint,
+      before[entityKey('subscription', BUILTIN_ENABLED[0])].fingerprint)
+    let restored = mixedMoved
+    for (let i = 0; i < 3; i += 1) {
+      restored = applyRemoteRecords(restored, unrelatedRecords)
+      assert.deepEqual(restored.prefs.customSources?.map((source) => source.name), expected,
+        '启用与停用 CMS 混合时，连续 pull 也应保持 CMS 顺序与 RSS 槽位')
+      assert.deepEqual(restored.enabledIds, mixed.enabledIds, '调整排序不能改变资讯源的启用顺序')
+      assert.deepEqual(projectLocalState(restored), after, '连续投影/物化必须稳定，不产生无关 Outbox')
+    }
+  }
+  const withNewCms = addCustomSource(local.prefs, {
+    name: 'C', kind: 'web-catalog', url: 'https://c.example.test',
+  }).nextPrefs
+  const remote = { ...local, prefs: renameSource(withNewCms, sources[2].id, 'B 已改名') }
+  const updated = applyRemoteRecords(moved, recordsFromProjection(remote))
+  assert.deepEqual(updated.prefs.customSources?.map((source) => source.name), ['B 已改名', 'RSS', 'A', 'C'],
+    '保留本机顺序时仍需应用最新名称，并把新增 CMS 接在已有 CMS 后')
+  assert.equal(updated.prefs.customSources?.[0].url, 'https://b.example.test')
+  const deleted = applyRemoteRecords(updated, [{
+    entityType: 'subscription', entityId: sources[0].id, revision: 101,
+    deleted: true, updatedAt: 0, payload: null,
+  }])
+  assert.deepEqual(deleted.prefs.customSources?.map((source) => source.name), ['RSS', 'B 已改名', 'C'],
+    '保留本机 CMS 顺序不得复活远端删除的站点')
+}
 
 {
   const state = baseState()

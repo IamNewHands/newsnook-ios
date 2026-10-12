@@ -232,7 +232,9 @@ const InkImageFrame = memo(function InkImageFrame({
       className={`relative block shrink-0 overflow-hidden ${open ? 'cursor-zoom-in' : ''} ${className}`}
     >
       {state === 'loading' && (
-        <span aria-hidden className="ink-shimmer absolute inset-0 block" />
+        <span aria-hidden className="absolute inset-0 block">
+          <span className="ink-shimmer block h-full w-full" />
+        </span>
       )}
       {state !== 'error' && (
         <img

@@ -21,6 +21,8 @@ interface RowProps {
   onSourceClick?: (sourceId: string) => void
   /** 邻页预览等场景跳过入场透明，避免横滑露白 */
   revealed?: boolean
+  /** 双栏卡片自适应全宽特写模式：在单篇或奇数首篇时横跨双列展示，消除大空白 */
+  featured?: boolean
   /** 布局变体：单列横排 (row) / 移动端双栏卡片 (compact-card) / 桌面网格卡片 (card) / 自适应 (auto) */
   variant?: 'row' | 'compact-card' | 'card' | 'auto'
 }
@@ -36,6 +38,7 @@ export const ArticleRow = memo(function ArticleRow({
   onSourceClick,
   revealed = false,
   variant = 'auto',
+  featured = false,
 }: RowProps) {
   const [showOriginal, setShowOriginal] = useState(false)
   const showRow = variant === 'row' || variant === 'auto'
@@ -78,6 +81,8 @@ export const ArticleRow = memo(function ArticleRow({
     <li
       data-reveal={revealed ? undefined : true}
       className={`article-row-item relative transition-colors duration-300 ${
+        featured ? 'col-span-full' : ''
+      } ${
         variant === 'card'
           ? 'h-full bg-transparent'
           : variant === 'compact-card'
@@ -201,44 +206,139 @@ export const ArticleRow = memo(function ArticleRow({
         <button
           type="button"
           onClick={() => onOpen(article)}
-          className={`group pressable-card chamfer-surface relative flex w-full flex-col overflow-hidden rounded-[13px] border text-left transition-[transform,background-color,border-color,box-shadow] duration-150 ${
+          className={`group pressable-card chamfer-surface relative flex w-full overflow-hidden rounded-[13px] border text-left transition-[transform,background-color,border-color,box-shadow] duration-150 ${
+            featured ? 'flex-row items-stretch' : 'flex-col'
+          } ${
             read
               ? 'border-haze/65 bg-ink-raised/30 active:bg-ink-raised/55'
               : 'border-haze/85 bg-ink-raised/65 active:border-cinnabar/25 active:bg-ink-raised/90'
           }`}
         >
-          {cover ? (
-            <span className={`relative block w-full overflow-hidden border-b border-haze/55 bg-ink-deep/30 ${article.contentType === 'video' ? 'aspect-video' : 'aspect-[4/3]'}`}>
-              <InkImage
-                src={cover}
-                collapseOnError
-                className={`h-full w-full object-cover transition-[transform,filter,opacity] duration-300 ${
-                  read
-                    ? 'opacity-[0.76] saturate-[0.72] contrast-[0.96]'
-                    : 'opacity-[0.98] group-active:opacity-90'
-                }`}
-              />
-              {!read && (
-                <span
-                  className="absolute left-2 top-2 h-1.5 w-1.5 rounded-full bg-cinnabar shadow-[0_0_0_2px_rgb(var(--tone-ink-rgb)/0.66)]"
-                  aria-label="未读"
+          {featured ? (
+            /* 全宽横向特写卡片：左侧封面，右侧图文 */
+            <>
+              <span className="relative block w-[34%] max-w-[136px] min-w-[102px] shrink-0 overflow-hidden border-r border-haze/55 bg-ink-deep/30">
+                {cover ? (
+                  <InkImage
+                    src={cover}
+                    collapseOnError
+                    className={`h-full w-full object-cover transition-[transform,filter,opacity] duration-300 ${
+                      read
+                        ? 'opacity-[0.76] saturate-[0.72] contrast-[0.96]'
+                        : 'opacity-[0.98] group-active:opacity-90'
+                    }`}
+                  />
+                ) : (
+                  <EditorialCoverPlaceholder
+                    article={article}
+                    read={read}
+                    className="h-full w-full"
+                    showUnreadDot={false}
+                  />
+                )}
+                {article.contentType === 'video' && (
+                  <span className="absolute bottom-1.5 right-1.5 rounded-full border border-white/12 bg-black/55 px-1.5 py-0.5 font-mono text-[8.5px] tracking-[0.06em] text-white/85 backdrop-blur-sm">
+                    视频
+                  </span>
+                )}
+              </span>
+
+              <span className="flex min-w-0 flex-1 flex-col justify-between p-3 sm:p-3.5">
+                <div>
+                  <span className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.06em] text-paper-faint">
+                    {!read && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-cinnabar shrink-0" aria-label="未读" />
+                    )}
+                    <span
+                      role={onSourceClick ? 'button' : undefined}
+                      tabIndex={onSourceClick ? 0 : undefined}
+                      onClick={
+                        onSourceClick
+                          ? (e) => {
+                              e.stopPropagation()
+                              onSourceClick(article.sourceId)
+                            }
+                          : undefined
+                      }
+                      className={`truncate ${
+                        read ? 'text-paper-faint' : 'text-paper-muted font-medium'
+                      } ${onSourceClick ? 'hover:text-cinnabar transition-colors cursor-pointer' : ''}`}
+                    >
+                      {article.sourceLabel}
+                    </span>
+                    <span aria-hidden className="shrink-0 text-paper-faint/45">·</span>
+                    <span className="shrink-0">{articleRelativeTime(article)}</span>
+                  </span>
+
+                  <span
+                    className={`row-title mt-1.5 line-clamp-2 text-[15px] leading-[1.38] tracking-[0.005em] transition-colors min-[430px]:text-[15.5px] ${
+                      read ? 'font-normal text-paper-muted/78' : 'font-medium text-paper'
+                    }`}
+                  >
+                    {activeTitle}
+                  </span>
+
+                  {isTranslated && displayMode === 'compare' && (
+                    <span className="mt-0.5 line-clamp-1 font-sans text-[10.5px] leading-snug text-paper-faint/80 italic">
+                      {originalDisplayTitle}
+                    </span>
+                  )}
+
+                  {displaySummary && (
+                    <span
+                      className={`mt-1 line-clamp-1 text-[11.5px] leading-relaxed min-[430px]:text-[12px] ${
+                        read ? 'text-paper-faint/75' : 'text-paper-muted/92'
+                      }`}
+                    >
+                      {displaySummary}
+                    </span>
+                  )}
+                </div>
+
+                <span className="mt-2.5 flex min-w-0 items-center justify-between border-t border-haze/45 pt-1.5 font-mono text-[9.5px] leading-none tracking-[0.04em] text-paper-faint min-[430px]:text-[10px]">
+                  <span className="text-[9px] text-paper-faint/70 font-display">特写 · {read ? '已读' : '推荐'}</span>
+                  <span className="flex shrink-0 items-center gap-1 text-paper-faint/75">
+                    {saved && <BookmarkCheck size={11} strokeWidth={1.65} className="text-cinnabar/85" aria-label="已收藏" />}
+                    {prestored && <Cloud size={10.5} strokeWidth={1.35} aria-label="已预存，可离线阅读" />}
+                    {renderTranslateBadge()}
+                  </span>
+                </span>
+              </span>
+            </>
+          ) : (
+            <>
+              {cover ? (
+                <span className={`relative block w-full overflow-hidden border-b border-haze/55 bg-ink-deep/30 ${article.contentType === 'video' ? 'aspect-video' : 'aspect-[4/3]'}`}>
+                  <InkImage
+                    src={cover}
+                    collapseOnError
+                    className={`h-full w-full object-cover transition-[transform,filter,opacity] duration-300 ${
+                      read
+                        ? 'opacity-[0.76] saturate-[0.72] contrast-[0.96]'
+                        : 'opacity-[0.98] group-active:opacity-90'
+                    }`}
+                  />
+                  {!read && (
+                    <span
+                      className="absolute left-2 top-2 h-1.5 w-1.5 rounded-full bg-cinnabar shadow-[0_0_0_2px_rgb(var(--tone-ink-rgb)/0.66)]"
+                      aria-label="未读"
+                    />
+                  )}
+                  {article.contentType === 'video' && (
+                    <span className="absolute bottom-2 right-2 rounded-full border border-white/12 bg-black/55 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.08em] text-white/85 backdrop-blur-sm">
+                      视频
+                    </span>
+                  )}
+                </span>
+              ) : (
+                <EditorialCoverPlaceholder
+                  article={article}
+                  read={read}
+                  className={`relative block w-full overflow-hidden border-b border-haze/55 ${article.contentType === 'video' ? 'aspect-video' : 'aspect-[4/3]'}`}
                 />
               )}
-              {article.contentType === 'video' && (
-                <span className="absolute bottom-2 right-2 rounded-full border border-white/12 bg-black/55 px-1.5 py-0.5 font-mono text-[9px] tracking-[0.08em] text-white/85 backdrop-blur-sm">
-                  视频
-                </span>
-              )}
-            </span>
-          ) : (
-            <EditorialCoverPlaceholder
-              article={article}
-              read={read}
-              className={`relative block w-full overflow-hidden border-b border-haze/55 ${article.contentType === 'video' ? 'aspect-video' : 'aspect-[4/3]'}`}
-            />
-          )}
 
-          <span className="flex min-w-0 flex-1 flex-col p-2.5 sm:p-3">
+              <span className="flex min-w-0 flex-1 flex-col p-2.5 sm:p-3">
 
             <span
               className={`row-title line-clamp-3 text-[15px] leading-[1.42] tracking-[0.005em] transition-colors min-[430px]:text-[15.5px] ${
@@ -291,6 +391,8 @@ export const ArticleRow = memo(function ArticleRow({
               </span>
             </span>
           </span>
+        </>
+      )}
         </button>
       )}
 

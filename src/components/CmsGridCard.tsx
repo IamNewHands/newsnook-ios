@@ -1,5 +1,7 @@
 import { memo } from 'react'
 import { BookOpen, Check, Film, Layers3, UsersRound } from 'lucide-react'
+import { useLongPressAction } from '../hooks/useLongPressAction'
+import type { Point } from '../lib/contextActions'
 import {
   formatSiteDisplayName,
   getSiteCleanDomain,
@@ -18,6 +20,7 @@ export interface CmsGridCardProps {
   site: CmsGridCardItem
   active: boolean
   onPick: () => void
+  onManage?: (anchor: Point) => void
 }
 
 /**
@@ -29,7 +32,9 @@ export const CmsGridCard = memo(function CmsGridCard({
   site,
   active,
   onPick,
+  onManage,
 }: CmsGridCardProps) {
+  const longPress = useLongPressAction<string>((_id, anchor) => onManage?.(anchor))
   const fw = getSiteFrameworkInfo(site.framework)
   const domain = site.description || getSiteCleanDomain(site.url)
   const name = formatSiteDisplayName({ name: site.name, url: site.url || site.description })
@@ -42,12 +47,31 @@ export const CmsGridCard = memo(function CmsGridCard({
     <li className="min-w-0">
       <button
         type="button"
-        onClick={onPick}
+        onClick={() => {
+          if (!longPress.consumeClick(site.id)) onPick()
+        }}
+        onPointerDown={onManage ? (event) => longPress.start(site.id, event) : undefined}
+        onPointerMove={longPress.move}
+        onPointerUp={longPress.cancel}
+        onPointerCancel={longPress.cancel}
+        onPointerLeave={longPress.cancel}
+        onContextMenu={onManage ? (event) => {
+          event.preventDefault()
+          longPress.cancel()
+          onManage({ x: event.clientX, y: event.clientY })
+        } : undefined}
+        onKeyDown={onManage ? (event) => {
+          if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+          event.preventDefault()
+          const rect = event.currentTarget.getBoundingClientRect()
+          onManage({ x: rect.left, y: rect.bottom })
+        } : undefined}
+        aria-haspopup={onManage ? 'menu' : undefined}
         aria-current={active ? 'page' : undefined}
         aria-pressed={active}
-        aria-label={`${active ? '当前站点' : '切换至'}：${name}`}
+        aria-label={`${active ? '当前站点' : '切换至'}：${name}${onManage ? '，长按管理' : ''}`}
         title={name}
-        className={`group relative flex min-h-[78px] h-full w-full flex-col overflow-hidden rounded-xl border px-2.5 py-2.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinnabar/45 ${
+        className={`${onManage ? 'custom-long-press-target ' : ''}group relative flex min-h-[78px] h-full w-full flex-col overflow-hidden rounded-xl border px-2.5 py-2.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinnabar/45 ${
           active
             ? 'border-cinnabar/75 bg-cinnabar/12 shadow-[0_4px_12px_rgba(0,0,0,0.08)]'
             : 'border-haze/80 bg-ink/55 hover:-translate-y-px hover:border-cinnabar/40 hover:bg-ink hover:shadow-sm active:translate-y-0'

@@ -279,7 +279,24 @@ function applySubscriptions(
     if (entity.payload.enabled !== false) enabledIds.push(entity.entityId)
   }
 
-  return { prefs: { ...prefs, customSources }, enabledIds }
+  // CMS 卡片顺序是本机展示偏好，不能被资讯源的启用顺序覆盖。
+  // 对象仍取物化后的最新元数据；远端新增站点接在已有 CMS 后，删除自动过滤。
+  const remainingCms = new Map(customSources.filter((source) => source.kind === 'web-catalog')
+    .map((source) => [source.id, source]))
+  const orderedCms: NewsSource[] = []
+  for (const source of prefs.customSources ?? []) {
+    const updated = remainingCms.get(source.id)
+    if (!updated) continue
+    orderedCms.push(updated)
+    remainingCms.delete(source.id)
+  }
+  orderedCms.push(...remainingCms.values())
+  let cmsIndex = 0
+  const orderedSources = customSources.map((source) =>
+    source.kind === 'web-catalog' ? orderedCms[cmsIndex++] : source,
+  )
+
+  return { prefs: { ...prefs, customSources: orderedSources }, enabledIds }
 }
 
 function applyCategories(prefs: Preferences, merged: Map<string, MergedEntity>): Preferences {

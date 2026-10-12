@@ -1,6 +1,8 @@
 import { memo, useEffect, useId, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  ArrowDown,
+  ArrowUp,
   BarChart3,
   BookOpen,
   Bot,
@@ -14,6 +16,7 @@ import {
   Grid2X2,
   LayoutTemplate,
   Newspaper,
+  PencilLine,
   Plus,
   Settings,
   Settings2,
@@ -23,6 +26,10 @@ import {
 } from 'lucide-react'
 
 import { useHardwareBackLayer } from '../hooks/useHardwareBackLayer'
+import { useLongPressAction } from '../hooks/useLongPressAction'
+import type { Point } from '../lib/contextActions'
+import { PromptDialog } from './ConfirmDialog'
+import { ContextActionMenu, type ContextActionItem } from './ContextActionMenu'
 import { CmsHelpDialog } from './CmsHelpDialog'
 import { CmsGridCard } from './CmsGridCard'
 
@@ -47,6 +54,8 @@ export interface PresetSwitcherProps {
   items: PresetSwitcherItem[]
   onSelect: (id: string) => void
   onManage: () => void
+  onRenamePreset?: (id: string, name: string) => void
+  onMovePreset?: (id: string, direction: -1 | 1) => void
   onOpenSettings?: () => void
   /** 独立站点工作区；与 preset 完全分离，选择时不得调用 onSelect。 */
   siteItems?: SiteSwitcherItem[]
@@ -63,11 +72,15 @@ export interface PresetSwitcherProps {
     url?: string
   }[]
   onSelectCms?: (id: string) => void
+  onRenameCms?: (id: string, name: string) => void
+  onMoveCms?: (id: string, direction: -1 | 1) => void
   /** CMS 站点页为独立阅读空间，打开切换器时优先定位到该类型。 */
   cmsActive?: boolean
   activeCmsId?: string | null
   variant?: 'pill' | 'card' | 'tabbar' | 'sidebar'
 }
+
+type ManagedItem = { kind: 'preset' | 'cms'; id: string }
 
 /**
  * 场景预设快捷切换：
@@ -82,6 +95,8 @@ export function PresetSwitcher({
   items,
   onSelect,
   onManage,
+  onRenamePreset,
+  onMovePreset,
   onOpenSettings,
   siteItems = [],
   onSelectSite,
@@ -89,6 +104,8 @@ export function PresetSwitcher({
   onAddCms,
   cmsSites = [],
   onSelectCms,
+  onRenameCms,
+  onMoveCms,
   cmsActive = false,
   activeCmsId = null,
   variant = 'pill',
@@ -96,9 +113,41 @@ export function PresetSwitcher({
   const [open, setOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [presetTab, setPresetTab] = useState<'builtin' | 'custom' | 'cms'>('builtin')
+  const [actionMenu, setActionMenu] = useState<(ManagedItem & { anchor: Point }) | null>(null)
+  const [renameTarget, setRenameTarget] = useState<ManagedItem | null>(null)
   const titleId = useId()
 
-  useHardwareBackLayer(open, () => {
+  const builtins = useMemo(() => items.filter((item) => item.builtin), [items])
+  const mine = useMemo(() => items.filter((item) => !item.builtin), [items])
+  const showSiteSection = siteItems.length > 0
+  const actionList = actionMenu?.kind === 'cms' ? cmsSites : mine
+  const actionIndex = actionList.findIndex((item) => item.id === actionMenu?.id)
+  const actionItem = actionList[actionIndex]
+  const renameItem = (renameTarget?.kind === 'cms' ? cmsSites : mine)
+    .find((item) => item.id === renameTarget?.id)
+  const onRename = renameTarget?.kind === 'cms' ? onRenameCms : onRenamePreset
+  const onMove = actionMenu?.kind === 'cms' ? onMoveCms : onMovePreset
+  const canRename = actionMenu?.kind === 'cms' ? Boolean(onRenameCms) : Boolean(onRenamePreset)
+  const actionItems: ContextActionItem[] = actionItem && actionMenu ? [
+    ...(canRename ? [{
+      id: 'rename',
+      label: actionMenu.kind === 'cms' ? '重命名站点' : '重命名预设',
+      icon: PencilLine,
+      onSelect: () => setRenameTarget({ kind: actionMenu.kind, id: actionItem.id }),
+    }] : []),
+    ...(onMove && actionIndex > 0 ? [{
+      id: 'move-before', label: '向前移动', icon: ArrowUp,
+      onSelect: () => onMove(actionItem.id, -1),
+    }] : []),
+    ...(onMove && actionIndex < actionList.length - 1 ? [{
+      id: 'move-after', label: '向后移动', icon: ArrowDown,
+      onSelect: () => onMove(actionItem.id, 1),
+    }] : []),
+  ] : []
+  const menuOpen = Boolean(open && actionMenu && actionItem && actionItems.length)
+  const renameOpen = Boolean(open && renameItem && onRename)
+
+  useHardwareBackLayer(open && !menuOpen && !renameOpen, () => {
     setOpen(false)
     return true
   })
@@ -106,19 +155,22 @@ export function PresetSwitcher({
   useEffect(() => {
     if (!open) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
+      if (event.key !== 'Escape') return
+      if (renameOpen) setRenameTarget(null)
+      else if (!menuOpen) setOpen(false)
     }
     window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, menuOpen, renameOpen])
 
-  const builtins = useMemo(() => items.filter((item) => item.builtin), [items])
-  const mine = useMemo(() => items.filter((item) => !item.builtin), [items])
-  const showSiteSection = siteItems.length > 0
+  useEffect(() => {
+    if (actionMenu && !actionItem) setActionMenu(null)
+    if (renameTarget && !renameItem) setRenameTarget(null)
+  }, [actionMenu, actionItem, renameTarget, renameItem])
 
   const openSwitcher = () => {
+    setActionMenu(null)
+    setRenameTarget(null)
     setPresetTab(cmsActive ? 'cms' : mine.some((item) => item.active) ? 'custom' : 'builtin')
     setOpen(true)
   }
@@ -288,6 +340,9 @@ export function PresetSwitcher({
                             setOpen(false)
                             onSelectCms(site.id)
                           }}
+                          onManage={onRenameCms || onMoveCms ? (anchor) => {
+                            setActionMenu({ kind: 'cms', id: site.id, anchor })
+                          } : undefined}
                         />
                       ))}
                     </ul>
@@ -348,6 +403,9 @@ export function PresetSwitcher({
                         if (!item.active) onSelect(item.id)
                         setOpen(false)
                       }}
+                      onManage={onRenamePreset || onMovePreset ? (anchor) => {
+                        setActionMenu({ kind: 'preset', id: item.id, anchor })
+                      } : undefined}
                     />
                   ))}
                 </ul>
@@ -395,19 +453,42 @@ export function PresetSwitcher({
       document.body,
     )
 
-  const helpModal = (
-    <CmsHelpDialog
-      open={helpOpen}
-      onClose={() => setHelpOpen(false)}
-      onAddCms={
-        onAddCms
-          ? () => {
-              setOpen(false)
-              onAddCms()
-            }
-          : undefined
-      }
-    />
+  const overlays = (
+    <>
+      <ContextActionMenu
+        open={menuOpen}
+        anchor={actionMenu?.anchor ?? { x: 0, y: 0 }}
+        title={actionItem?.name ?? ''}
+        caption={actionMenu?.kind === 'cms' ? 'CMS 站点管理' : '自定义预设管理'}
+        actions={actionItems}
+        onClose={() => setActionMenu(null)}
+      />
+      <PromptDialog
+        open={renameOpen}
+        title={renameTarget?.kind === 'cms' ? '重命名站点' : '重命名预设'}
+        label={renameTarget?.kind === 'cms' ? '站点名称' : '预设名称'}
+        defaultValue={renameItem?.name ?? ''}
+        zIndex={90}
+        onCancel={() => setRenameTarget(null)}
+        onConfirm={(name) => {
+          if (!renameItem || !onRename) return
+          onRename(renameItem.id, name)
+          setRenameTarget(null)
+        }}
+      />
+      <CmsHelpDialog
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        onAddCms={
+          onAddCms
+            ? () => {
+                setOpen(false)
+                onAddCms()
+              }
+            : undefined
+        }
+      />
+    </>
   )
 
   if (variant === 'tabbar') {
@@ -436,7 +517,7 @@ export function PresetSwitcher({
           </span>
         </button>
         {sheet}
-        {helpModal}
+        {overlays}
       </>
     )
   }
@@ -466,7 +547,7 @@ export function PresetSwitcher({
           </span>
         </button>
         {sheet}
-        {helpModal}
+        {overlays}
       </>
     )
   }
@@ -509,7 +590,7 @@ export function PresetSwitcher({
           </div>
         </button>
         {sheet}
-        {helpModal}
+        {overlays}
       </>
     )
   }
@@ -540,7 +621,7 @@ export function PresetSwitcher({
         />
       </button>
       {sheet}
-      {helpModal}
+      {overlays}
     </>
   )
 }
@@ -758,16 +839,39 @@ const PresetGridCard = memo(function PresetGridCard({
 const PresetPickRow = memo(function PresetPickRow({
   item,
   onPick,
+  onManage,
 }: {
   item: PresetSwitcherItem
   onPick: () => void
+  onManage?: (anchor: Point) => void
 }) {
+  const longPress = useLongPressAction<string>((_id, anchor) => onManage?.(anchor))
   return (
     <li>
       <button
         type="button"
-        onClick={onPick}
-        className={`group relative flex w-full items-center gap-3.5 rounded-xl border p-3 text-left transition-colors ${
+        onClick={() => {
+          if (!longPress.consumeClick(item.id)) onPick()
+        }}
+        onPointerDown={onManage ? (event) => longPress.start(item.id, event) : undefined}
+        onPointerMove={longPress.move}
+        onPointerUp={longPress.cancel}
+        onPointerCancel={longPress.cancel}
+        onPointerLeave={longPress.cancel}
+        onContextMenu={onManage ? (event) => {
+          event.preventDefault()
+          longPress.cancel()
+          onManage({ x: event.clientX, y: event.clientY })
+        } : undefined}
+        onKeyDown={onManage ? (event) => {
+          if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+          event.preventDefault()
+          const rect = event.currentTarget.getBoundingClientRect()
+          onManage({ x: rect.left, y: rect.bottom })
+        } : undefined}
+        aria-haspopup={onManage ? 'menu' : undefined}
+        aria-label={onManage ? `${item.name}，长按管理` : undefined}
+        className={`${onManage ? 'custom-long-press-target ' : ''}group relative flex w-full items-center gap-3.5 rounded-xl border p-3 text-left transition-colors ${
           item.active
             ? 'border-cinnabar/60 bg-cinnabar/12'
             : 'border-haze/80 bg-ink/50 hover:border-cinnabar/40 hover:bg-ink-raised'
