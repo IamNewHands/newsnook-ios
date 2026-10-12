@@ -1258,7 +1258,7 @@ export function ReaderScreen({
 
   return (
     <div
-      className="absolute inset-0 z-30 flex flex-col bg-ink"
+      className="absolute inset-0 z-30 flex flex-col"
       style={{
         paddingTop: 'var(--sat)',
         paddingBottom: 'var(--sab)',
