@@ -207,7 +207,6 @@ export function MeScreen({
         </div>
 
         <ul
-          data-tour="me-settings"
           className="divide-y divide-haze border-y border-haze md:grid md:grid-cols-2 md:gap-px md:divide-y-0 md:bg-haze"
         >
           <SettingsRow
@@ -297,6 +296,7 @@ export function MeScreen({
           <SettingsRow
             icon={Info}
             title="关于有所闻"
+            dataTour="me-about"
             caption={
               hasUpdate && availableVersion
                 ? `发现新版本 v${availableVersion} · 开源仓库与专栏文章`

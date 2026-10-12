@@ -532,6 +532,7 @@ export function PresetSwitcher({
           aria-expanded={open}
           aria-label={`布局，当前：${activeName}，点击切换`}
           title={`当前布局：${activeName}`}
+          data-tour="desktop-preset-switcher"
           className="group flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-paper-muted transition-all duration-200 hover:bg-ink-raised/50 hover:text-paper"
         >
           <span className="flex min-w-0 items-center gap-2.5">

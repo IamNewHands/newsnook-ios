@@ -50,11 +50,20 @@ export function startProductTour(options: StartProductTourOptions): boolean {
   if (typeof document === 'undefined') return false
   if (activeTour?.isActive()) return false
 
-  const steps = resolveAvailableSteps(PRODUCT_TOUR_STEPS, isStepTargetVisible)
+  // 与应用 lg 断点保持一致：桌面引导指向侧栏，手机指向底栏。
+  const layout = window.matchMedia('(min-width: 1024px)').matches ? 'desktop' : 'mobile'
+  const steps = resolveAvailableSteps(PRODUCT_TOUR_STEPS, isStepTargetVisible, layout)
   if (!steps.length) return false
 
   const driveSteps: DriveStep[] = steps.map((step) => ({
     element: step.selector ?? undefined,
+    onHighlightStarted: (element) => {
+      // driver 只判断窗口边界，嵌套滚动列表内的目标可能被容器裁剪。
+      // 先完成滚动再测量高亮位置，避免设置项被固定顶栏/底栏挡住。
+      if (element && step.id !== 'feed-list') {
+        element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' })
+      }
+    },
     popover: {
       title: step.title,
       description: step.description,

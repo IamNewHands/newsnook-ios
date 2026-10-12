@@ -118,7 +118,7 @@ export const DesktopSidebar = memo(function DesktopSidebar({
           <div className="px-2 pb-1.5 font-mono text-[9.5px] tracking-[0.2em] text-paper-faint">
             阅读概览
           </div>
-          <ul className="space-y-0.5">
+          <ul data-tour="desktop-navigation" className="space-y-0.5">
             <li>
               <button
                 type="button"
@@ -247,6 +247,7 @@ export const DesktopSidebar = memo(function DesktopSidebar({
                 <button
                   key={category.id}
                   type="button"
+                  data-tour={isCategoryActive ? 'desktop-category-rail' : undefined}
                   onClick={() => onCategoryChange(category.id)}
                   className={`group relative flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition-all duration-200 ${
                     isCategoryActive
