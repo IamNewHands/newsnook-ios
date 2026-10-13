@@ -114,13 +114,21 @@ export function trustedEmbeddedVideoFrameHtml(
 ): string | undefined {
   const src = extractEmbeddedVideoPageUrl(html)
   if (!src) return undefined
+  // Bilibili's mobile player uses device orientation to enter landscape mode.
+  // Grant motion sensors to this strictly allowlisted player only, not to
+  // arbitrary third-party embeds. Fullscreen must also remain explicitly allowed.
+  const host = new URL(src).hostname.toLowerCase()
+  const bilibili = host === 'player.bilibili.com' || host === 'www.bilibili.com' || host === 'bilibili.com'
+  const permissions = bilibili
+    ? 'autoplay; fullscreen; picture-in-picture; accelerometer https://player.bilibili.com https://www.bilibili.com; gyroscope https://player.bilibili.com https://www.bilibili.com'
+    : 'autoplay; fullscreen; picture-in-picture'
   return [
     '<iframe',
     ` src="${escapeHtmlAttribute(src)}"`,
     ` title="${escapeHtmlAttribute(title)}"`,
     ' loading="lazy"',
     ' referrerpolicy="strict-origin-when-cross-origin"',
-    ' allow="autoplay; fullscreen; picture-in-picture"',
+    ` allow="${permissions}"`,
     ' allowfullscreen',
     ' frameborder="0"',
     ' data-reader-role="trusted-video-embed"',

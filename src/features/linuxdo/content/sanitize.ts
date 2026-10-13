@@ -1,6 +1,7 @@
 import { parseHTML } from 'linkedom'
 
 import { sanitizeArticleHtml } from '../../../lib/sanitize'
+import { addLinuxDoVideoFullscreenControls } from './videoFullscreen'
 
 const LINUX_DO_ORIGIN = 'https://linux.do'
 
@@ -612,5 +613,5 @@ function normalizeDiscourseMarkup(html: string): string {
 }
 
 export function sanitizeLinuxDoCooked(html: string): string {
-  return sanitizeArticleHtml(normalizeDiscourseMarkup(html))
+  return addLinuxDoVideoFullscreenControls(sanitizeArticleHtml(normalizeDiscourseMarkup(html)))
 }

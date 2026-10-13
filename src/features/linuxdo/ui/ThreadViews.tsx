@@ -40,6 +40,7 @@ import { LinuxDoReadTracker } from '../topic/readTracker'
 import { verifyLinuxDoBrowserSession, verifyLinuxDoChallenge } from '../session/native'
 import { LinuxDoRequestError, type LinuxDoVerify } from './VerificationAction'
 import { ReadSyncStatus } from './ReadSyncStatus'
+import { installLinuxDoEmbeddedVideoFullscreen } from './embeddedVideoFullscreen'
 import { PostDevice } from './PostDevice'
 import { readSyncDiagnostic, type ReadSyncFailure } from '../topic/readSyncDiagnostic'
 import { applyLinuxDoTopicReadProgress, linuxDoOpeningUnreadFloor } from '../topic/readState'
@@ -88,6 +89,10 @@ function LinuxDoPostBody({ html, onClick }: { html: string; onClick: (event: Rea
   // on every read-state/notification render rewrites innerHTML and restarts embedded
   // iframes (Bilibili, YouTube, etc.) even when the post HTML has not changed.
   const stableHtml = useMemo(() => ({ __html: html }), [html])
+  useEffect(() => {
+    const root = rootRef.current
+    return root ? installLinuxDoEmbeddedVideoFullscreen(root) : undefined
+  }, [html])
   useProgressiveImages(rootRef, html, Boolean(html), {
     autoLoad: true,
     forceNativeFallback: true,
