@@ -53,5 +53,8 @@ evidence
 
 .chappie/
 
-# 宣传片 Remotion 工程（本地素材与渲染产物）
 promo-video/
+video/
+
+# Local screenshot capture probes / thumbs (keep committed docs/screenshots/*.jpg)
+docs/screenshots/_*

@@ -34,7 +34,11 @@ const session = { authenticated: true, authMode: 'browser-session' as const, cur
 const topic = { id: 100, slug: 'test', title: 'Read tracking', posts_count: 2, highest_post_number: 2, last_read_post_number: null,
   post_stream: { stream: [1001, 1002], posts: [1, 2].map(number => ({
     id: 1000 + number, topic_id: 100, post_number: number, username: 'someone', read: false,
-    created_at: '2026-09-23T00:00:00Z', cooked: '<p>Visible comment.</p>', actions_summary: [],
+    created_at: '2026-09-23T00:00:00Z',
+    cooked: number === 1
+      ? '<p>Visible comment.</p><iframe src="https://player.bilibili.com/player.html?bvid=BV1xx411c7mD"></iframe>'
+      : '<p>Visible comment.</p>',
+    actions_summary: [],
   })) } }
 let denied = false
 let deniedCsrf = false
@@ -80,9 +84,17 @@ try {
   await act(async () => { root.render(<LinuxDoTopicView {...props} />); await flush() })
   await advance(0)
   assert.equal(unread(), 2)
+  const embeddedPlayer = host.querySelector<HTMLIFrameElement>('iframe[src^="https://player.bilibili.com/"]')
+  assert.ok(embeddedPlayer, 'the real Linux.do post should retain a trusted Bilibili embed')
   await advance(5000)
   assert.equal(postRequests, 1)
   assert.equal(unread(), 0, 'real TopicView must remove both blue dots only after the HTTP ACK')
+  assert.equal(host.querySelector('iframe'), embeddedPlayer,
+    'read-tracker ACK must not replace a playing iframe while the post HTML is unchanged')
+  await act(async () => { root.render(<LinuxDoTopicView {...props} summary={{ ...props.summary }} />); await flush() })
+  assert.equal(host.querySelector('iframe'), embeddedPlayer,
+    'parent and post-action re-renders must preserve the existing iframe node')
+  console.log('PASS real TopicView: Bilibili iframe survives read ACK and parent re-renders')
   const fadedDots = Array.from(host.querySelectorAll<HTMLElement>('[data-linuxdo-unread-dot]'))
   assert.equal(fadedDots.length, 2, 'acknowledged dots should remain briefly renderable so opacity can animate instead of disappearing abruptly')
   assert.ok(fadedDots.every(dot => dot.className.includes('opacity-0')), 'acknowledged dots should fade to transparent after ACK')
@@ -145,4 +157,4 @@ try {
   await act(async () => { root.unmount(); await flush() })
   mock.timers.reset()
 }
-console.log('linuxdo-readsync-view: 6 passed')
+console.log('linuxdo-readsync-view: 7 passed')
