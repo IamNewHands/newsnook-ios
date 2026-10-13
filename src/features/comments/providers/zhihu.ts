@@ -80,8 +80,6 @@ function cleanCommentContent(raw?: string): string {
 }
 
 export const zhihuCommentProvider: CommentProvider = {
-  label: '评论',
-  defaultTab: 'short',
   canHandle(article) {
     if (article.sourceId === 'zhihu' || article.sourceId === 'zhihu-daily' || article.sourceId?.startsWith('zhihu')) return true
     if (article.originUrl?.includes('daily.zhihu.com') || article.originUrl?.includes('zhihu.com')) return true

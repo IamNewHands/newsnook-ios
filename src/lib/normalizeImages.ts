@@ -112,23 +112,12 @@ function pickImageUrl(img: Element, baseUrl: string): string | null {
   return null
 }
 
-/** 正向白名单：只允许 http(s)/blob 与 data:image，挡掉 javascript:/data:text/html 等伪协议 */
-function isRenderableImageSrc(resolved: string): boolean {
-  if (/^data:image\//i.test(resolved)) return true
-  try {
-    const protocol = new URL(resolved).protocol
-    return protocol === 'http:' || protocol === 'https:' || protocol === 'blob:'
-  } catch {
-    return false
-  }
-}
-
 function resolveUrl(raw: string, baseUrl: string): string | null {
   const value = raw.trim()
-  if (!value || value === '#') return null
+  if (!value || value === '#' || value.startsWith('javascript:')) return null
   try {
-    const resolved = value.startsWith('//') ? `https:${value}` : new URL(value, baseUrl).toString()
-    return isRenderableImageSrc(resolved) ? resolved : null
+    if (value.startsWith('//')) return `https:${value}`
+    return new URL(value, baseUrl).toString()
   } catch {
     return null
   }

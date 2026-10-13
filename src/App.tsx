@@ -16,6 +16,8 @@ import { useCloudSync } from './features/sync/useCloudSync'
 import { SyncToast } from './components/SyncToast'
 import { useFeeds } from './hooks/useFeeds'
 import { usePreferences } from './hooks/usePreferences'
+import { sanitizeForPersistence } from './features/account/secretStore'
+import { saveSubscriptionState } from './lib/storage'
 import { usePresets } from './hooks/usePresets'
 import {
   bodyCacheStats,
@@ -32,7 +34,7 @@ import { log } from './lib/logger'
 import {
   buildReadingProfile,
   collectReadArticles,
-  rankRecommendationsForSource,
+  rankRecommendations,
   recommendationReadiness,
   scopeSignalsToSources,
 } from './lib/recommend'
@@ -87,7 +89,6 @@ import { LocalSearchScreen } from './screens/settings/LocalSearchScreen'
 import { PresetListScreen } from './screens/settings/PresetListScreen'
 import { StorageScreen } from './screens/settings/StorageScreen'
 import { TypographyScreen } from './screens/settings/TypographyScreen'
-import { UiFontScreen } from './screens/settings/UiFontScreen'
 import { TranslationScreen } from './screens/settings/TranslationScreen'
 import { ReadAloudScreen } from './screens/settings/ReadAloudScreen'
 import { AiSettingsScreen } from './screens/settings/AiSettingsScreen'
@@ -116,7 +117,7 @@ import { readAloudEngineLabel } from './features/readAloud/config'
 import { GlobalReadAloudBar } from './features/readAloud/ReadAloudBar'
 import { updateActiveReadAloudPreferences } from './features/readAloud/service'
 import { FAVORITES_CATEGORY_ID, RECOMMEND_CATEGORY_ID, type CategoryId } from './sources/categories'
-import { applySnapshotToPrefs } from './sources/presets'
+import { applySnapshotToPrefs, removeSourcesFromPresets } from './sources/presets'
 import {
   FOLLOWS_ENABLED_SOURCES,
   FONT_FAMILY_OPTIONS,
@@ -124,6 +125,7 @@ import {
   addCustomCategory,
   addCustomSource,
   allRegisteredSources,
+  automaticSourceIds,
   batchImportSourcesAndCategories,
   defaultFeedCategoryId,
   deleteCustomCategory,
@@ -135,7 +137,6 @@ import {
   resetCategoryLayout,
   resetCategorySources,
   resetTypography,
-  resetUiPrefs,
   setAutoRefreshOnCategorySwitch,
   setCategoryOrder,
   setEinkMode,
@@ -154,17 +155,16 @@ import {
   updateCustomCategory,
   updateCustomSource,
   updateTypography,
-  updateUiPrefs,
-  UI_FONT_WEIGHT_OPTIONS,
-  UI_SCALE_OPTIONS,
-  resolveUiFontOption,
   visibleCategories,
   withFavoriteCategory,
   withRecommendCategory,
   type TypographyPrefs,
-  type UiPrefs,
 } from './sources/preferences'
-import { SITES, SOURCES, findSite, findSource } from './sources/registry'
+import { SITES, SOURCES, findSite, findSource, makeCustomSourceId } from './sources/registry'
+import { replaceCustomSourceInstance, setCustomSourcePaused } from './features/feedDiscovery/subscriptionActions'
+import { SettingsShell } from './components/SettingsShell'
+
+const FeedStoreScreen = lazy(() => import('./screens/settings/FeedStoreScreen').then((module) => ({ default: module.FeedStoreScreen })))
 
 const ReaderScreen = lazy(() =>
   import('./screens/ReaderScreen').then((module) => ({
@@ -208,9 +208,9 @@ type SettingsRoute =
   | { name: 'category-sources'; categoryId: CategoryId }
   | { name: 'category-edit'; categoryId?: CategoryId }
   | { name: 'custom-sources' }
+  | { name: 'feed-store'; returnTo?: 'custom-sources' }
   | { name: 'channels' }
   | { name: 'typography' }
-  | { name: 'ui-font' }
   | { name: 'appearance' }
   | { name: 'custom-scheme' }
   | { name: 'storage' }
@@ -228,13 +228,14 @@ type SettingsRoute =
 
 interface BodyPrefetchTask {
   article: Article
+  signal: AbortSignal
   shouldPin: () => boolean
   onCacheChange: () => void
   extraSources?: import('./sources/registry').NewsSource[]
 }
 
 const bodyPrefetchQueue: BodyPrefetchTask[] = []
-const queuedBodyIds = new Set<string>()
+const queuedBodyTasks = new Map<string, BodyPrefetchTask>()
 let activeBodyPrefetches = 0
 const BODY_PREFETCH_CONCURRENCY = 2
 
@@ -246,8 +247,9 @@ function drainBodyPrefetchQueue(): void {
     void (async () => {
       try {
         // 排队期间已被移出稍后读，不再为未浏览内容消耗弱网流量。
-        if (!task.shouldPin()) return
-        const resolved = await resolveArticleBody(task.article, undefined, task.extraSources)
+        if (task.signal.aborted || !task.shouldPin()) return
+        const resolved = await resolveArticleBody(task.article, task.signal, task.extraSources)
+        if (task.signal.aborted) return
         if (resolved.bodySource === 'video') return
         const cached = saveCachedBody(
           task.article,
@@ -261,7 +263,7 @@ function drainBodyPrefetchQueue(): void {
       } catch {
         // 离线或抽取失败时静默跳过；下次启动、重新收藏或实际阅读时会再试。
       } finally {
-        queuedBodyIds.delete(task.article.id)
+        if (queuedBodyTasks.get(task.article.id) === task) queuedBodyTasks.delete(task.article.id)
         activeBodyPrefetches -= 1
         drainBodyPrefetchQueue()
       }
@@ -277,9 +279,10 @@ function prefetchBody(task: BodyPrefetchTask): void {
     task.onCacheChange()
     return
   }
-  if (queuedBodyIds.has(task.article.id)) return
+  const existing = queuedBodyTasks.get(task.article.id)
+  if (existing && !existing.signal.aborted) return
 
-  queuedBodyIds.add(task.article.id)
+  queuedBodyTasks.set(task.article.id, task)
   bodyPrefetchQueue.push(task)
   drainBodyPrefetchQueue()
 }
@@ -546,6 +549,12 @@ export default function App() {
     return [...ids]
   }, [categorySourceIds, focusSourceId])
 
+  /** 自动网络作用域与展示成员关系分离：暂停源仍从缓存展示，但不会后台抓取。 */
+  const automaticFetchIds = useMemo(
+    () => automaticSourceIds(fetchIds, prefs),
+    [fetchIds, prefs],
+  )
+
   /**
    * 下拉刷新 / 加载更多 / 进度提示：与当前列表可见范围一致。
    * 选中单个信源时只更新该源；选「全部」时更新分类下全部开启源；聚焦源页只更新该源。
@@ -576,12 +585,7 @@ export default function App() {
   const closeReader = useCallback(() => {
     setReading(null)
     clearShareLocation()
-    // 右滑返回的收尾动画故意把阅读器停在屏幕外、等 React 卸载它。同一 tick 里
-    // 复位合成层会把正文画回屏幕原位一帧——观感是「返回时跳一下」。等两帧再
-    // 收拾：那时阅读器已经不在了，这里只清列表侧的残留。
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(recoverAppScrollAfterNavigation)
-    })
+    recoverAppScrollAfterNavigation()
   }, [])
 
   const dismissDeepLinkError = useCallback(() => {
@@ -653,6 +657,10 @@ export default function App() {
         setSettingsRoute({ name: 'appearance' })
         return
       }
+      if (settingsRoute?.name === 'feed-store' && settingsRoute.returnTo) {
+        setSettingsRoute({ name: settingsRoute.returnTo })
+        return
+      }
       if (settingsRoute) {
         setSettingsRoute(null)
         return
@@ -695,7 +703,7 @@ export default function App() {
     paginationState,
     refresh,
     loadMore,
-  } = useFeeds(fetchIds, notifyCacheChange, prefs.customSources, activePresetId)
+  } = useFeeds(fetchIds, notifyCacheChange, prefs.customSources, activePresetId, automaticFetchIds)
 
   const prestore = usePrestore({
     prefs,
@@ -727,20 +735,20 @@ export default function App() {
   }, [refresh, listScopeIds, categoryId])
 
   // 进入分类 / 信源集合变化时，预拉该分类已开启的源（受 autoRefreshOnCategorySwitch 开关控制）
-  const bootstrapKey = fetchIds.join('|')
+  const bootstrapKey = automaticFetchIds.join('|')
   const refreshRef = useRef(refresh)
   refreshRef.current = refresh
   const isInitialMountRef = useRef(true)
   const prevCategoryIdRef = useRef(categoryId)
 
   useEffect(() => {
-    if (!fetchIds.length) return
+    if (!automaticFetchIds.length) return
     const isCategoryChange = prevCategoryIdRef.current !== categoryId
     prevCategoryIdRef.current = categoryId
 
     if (isInitialMountRef.current) {
       isInitialMountRef.current = false
-      void refreshRef.current(fetchIds)
+      void refreshRef.current(automaticFetchIds)
       return
     }
 
@@ -748,8 +756,8 @@ export default function App() {
       return
     }
 
-    void refreshRef.current(fetchIds)
-  }, [bootstrapKey, categoryId, fetchIds, prefs.autoRefreshOnCategorySwitch])
+    void refreshRef.current(automaticFetchIds)
+  }, [automaticFetchIds, bootstrapKey, categoryId, prefs.autoRefreshOnCategorySwitch])
 
   const categorySourceSet = useMemo(() => new Set(categorySourceIds), [categorySourceIds])
   const articles = useMemo(
@@ -787,36 +795,21 @@ export default function App() {
     )
   }, [categoryId, recommendScope, recommendProfileSeq])
 
-  /**
-   * 单源聚焦：先按源裁剪候选，再做推荐排序与截断（顺序由
-   * lib/recommend.rankRecommendationsForSource 保证）。反过来的话，
-   * 推荐栏的 RECOMMEND_LIMIT 会先吃掉整个候选池——信源一多，低频源
-   * （一天一两条的小众软件这类）挤不进全局前 120 条，点开该源就是空列表，
-   * 而信源入口上的条数徽标仍显示有内容。
-   */
-  const sourceScopedArticles = useMemo(
-    () =>
-      categoryFilterSourceId
-        ? articles.filter((item) => item.sourceId === categoryFilterSourceId)
-        : articles,
-    [articles, categoryFilterSourceId],
-  )
-
   /** 推荐结果：排除已读与稍后读（稍后读有专页），冷启动退化为按时间 */
   const recommendedArticles = useMemo(() => {
     if (!recommendProfile) return null
     const excludeIds = new Set(readIdsRef.current)
     for (const item of laterRef.current) excludeIds.add(item.id)
-    return rankRecommendationsForSource(articles, recommendProfile, categoryFilterSourceId, {
-      excludeIds,
-    })
-  }, [articles, recommendProfile, categoryFilterSourceId])
+    return rankRecommendations(articles, recommendProfile, { excludeIds })
+  }, [articles, recommendProfile])
 
   /** 单源筛选时保持数组引用稳定：每次渲染现算会让列表翻译等依赖 articles 的 effect 反复中止重启 */
-  const displayedArticles = useMemo(
-    () => recommendedArticles ?? sourceScopedArticles,
-    [recommendedArticles, sourceScopedArticles],
-  )
+  const displayedArticles = useMemo(() => {
+    const base = recommendedArticles ?? articles
+    return categoryFilterSourceId
+      ? base.filter((item) => item.sourceId === categoryFilterSourceId)
+      : base
+  }, [articles, recommendedArticles, categoryFilterSourceId])
 
   const articlesForCategory = useCallback(
     (id: CategoryId) => {
@@ -869,19 +862,23 @@ export default function App() {
 
   useEffect(() => {
     laterRef.current = later
+    const controller = new AbortController()
     const pinnedIds = new Set(later.map((item) => item.id))
     syncBodyPins(pinnedIds)
 
     later.forEach((article) => {
       if (article.contentType === 'video' || hasCachedBody(article.id)) return
+      if (findSource(article.sourceId, prefs.customSources)?.paused) return
       prefetchBody({
         article,
+        signal: controller.signal,
         shouldPin: () => laterRef.current.some((item) => item.id === article.id),
         onCacheChange: notifyCacheChange,
         extraSources: prefs.customSources,
       })
     })
     notifyCacheChange()
+    return () => controller.abort()
   }, [later, notifyCacheChange, prefs.customSources])
 
   const openArticle = useCallback((article: Article) => {
@@ -1005,13 +1002,7 @@ export default function App() {
     const next = [article, ...laterRef.current]
     laterRef.current = next
     setLater(next)
-    prefetchBody({
-      article,
-      shouldPin: () => laterRef.current.some((item) => item.id === article.id),
-      onCacheChange: notifyCacheChange,
-      extraSources: prefs.customSources,
-    })
-  }, [notifyCacheChange, prefs.customSources])
+  }, [notifyCacheChange])
 
   const removeLater = useCallback((id: string) => {
     const next = laterRef.current.filter((item) => item.id !== id)
@@ -1064,12 +1055,14 @@ export default function App() {
   )
 
   const siteSwitcherItems = useMemo(
-    () => SITES.map((site) => ({
-      id: site.id,
-      name: site.name,
-      description: site.description,
-      active: site.id === activeSiteId,
-    })),
+    () => Capacitor.isNativePlatform()
+      ? SITES.map((site) => ({
+          id: site.id,
+          name: site.name,
+          description: site.description,
+          active: site.id === activeSiteId,
+        }))
+      : [],
     [activeSiteId],
   )
 
@@ -1083,6 +1076,13 @@ export default function App() {
     onManage: () => {
       if (activeSiteId) leaveActiveSite()
       setSettingsRoute({ name: 'presets' })
+    },
+    onOpenSettings: () => {
+      if (activeSiteId) leaveActiveSite()
+      setFocusSourceId(null)
+      setFocusReturnRoute(null)
+      setSettingsRoute(null)
+      setTab('me')
     },
     siteItems: siteSwitcherItems,
     onSelectSite: (id: string) => {
@@ -1136,15 +1136,6 @@ export default function App() {
     return `${family?.label ?? '黑体'} · 字号${scale?.label ?? '自定义'} · 行高 ${prefs.typography.lineHeight}${indent}`
   }, [prefs.typography])
 
-  const uiFontSummary = useMemo(() => {
-    const font = resolveUiFontOption(prefs.ui.fontFamily)
-    const scale = UI_SCALE_OPTIONS.find((item) => item.value === prefs.ui.scale)
-    const weight = UI_FONT_WEIGHT_OPTIONS.find((item) => item.id === prefs.ui.weight)
-    const parts = [font.label, `字号${scale?.label ?? '自定义'}`]
-    if (weight && weight.id !== 'regular') parts.push(`字重${weight.label}`)
-    return parts.join(' · ')
-  }, [prefs.ui])
-
   const appearanceSummary = useMemo(() => {
     const mode = THEME_MODES.find((item) => item.id === prefs.theme)
     const scheme = THEME_SCHEMES.find((item) => item.id === prefs.scheme)
@@ -1196,17 +1187,6 @@ export default function App() {
             update((prev) => updateTypography(prev, patch))
           }
           onReset={() => update(resetTypography)}
-          onBack={() => setSettingsRoute(null)}
-        />
-      )
-    }
-
-    if (settingsRoute.name === 'ui-font') {
-      return (
-        <UiFontScreen
-          prefs={prefs}
-          onChange={(patch: Partial<UiPrefs>) => update((prev) => updateUiPrefs(prev, patch))}
-          onReset={() => update(resetUiPrefs)}
           onBack={() => setSettingsRoute(null)}
         />
       )
@@ -1351,6 +1331,77 @@ export default function App() {
       )
     }
 
+    if (settingsRoute.name === 'feed-store') {
+      return (
+        <Suspense fallback={<SettingsShell title="RSS 订阅商店" caption="正在打开订阅发现…" onBack={() => setSettingsRoute(settingsRoute.returnTo ? { name: settingsRoute.returnTo } : null)}><p className="page-x text-paper-muted">正在加载…</p></SettingsShell>}>
+        <FeedStoreScreen
+          prefs={prefs}
+          currentCategoryId={categoryId}
+          currentPresetId={presets.state.activePresetId}
+          currentPresetName={presets.activePreset?.name ?? '当前预设'}
+          enabledIds={enabledIds}
+          onSubscribe={(source, targetCatId, addToMix, expectedPresetId) => {
+            if (presets.state.activePresetId !== expectedPresetId) {
+              return { ok: false, message: '场景预设已变化，请重新选择订阅分类。' }
+            }
+            let nextPrefs = addCustomSource(prefs, source, targetCatId).nextPrefs
+            if (targetCatId && nextPrefs.hiddenCategoryIds.includes(targetCatId)) nextPrefs = toggleCategoryVisible(nextPrefs, targetCatId)
+            if (addToMix && nextPrefs.hiddenCategoryIds.includes(FOLLOWS_ENABLED_SOURCES)) nextPrefs = toggleCategoryVisible(nextPrefs, FOLLOWS_ENABLED_SOURCES)
+            const sourceId = makeCustomSourceId(source.url)
+            const nextEnabled = addToMix && !enabledIds.includes(sourceId) ? [...enabledIds, sourceId] : enabledIds
+            try {
+              saveSubscriptionState(sanitizeForPersistence(nextPrefs), nextEnabled)
+            } catch {
+              return { ok: false, message: '订阅保存失败，请检查本机存储空间后重试。' }
+            }
+            replacePreferences(nextPrefs)
+            setEnabledIds(nextEnabled)
+            return { ok: true }
+          }}
+          onAddBuiltinToCategory={(sourceId, targetCatId, expectedPresetId, addToMix = false) => {
+            if (presets.state.activePresetId !== expectedPresetId) {
+              return { ok: false, message: '场景预设已变化，请重新选择分类。' }
+            }
+            const ids = sourceIdsForCategoryWithPrefs(targetCatId, prefs, enabledIds)
+            let nextPrefs = targetCatId === FOLLOWS_ENABLED_SOURCES || ids.includes(sourceId) ? prefs : toggleCategorySource(prefs, targetCatId, sourceId)
+            if (nextPrefs.hiddenCategoryIds.includes(targetCatId)) nextPrefs = toggleCategoryVisible(nextPrefs, targetCatId)
+            if (addToMix && nextPrefs.hiddenCategoryIds.includes(FOLLOWS_ENABLED_SOURCES)) nextPrefs = toggleCategoryVisible(nextPrefs, FOLLOWS_ENABLED_SOURCES)
+            const nextEnabled = (targetCatId === FOLLOWS_ENABLED_SOURCES || addToMix) && !enabledIds.includes(sourceId) ? [...enabledIds, sourceId] : enabledIds
+            try { saveSubscriptionState(sanitizeForPersistence(nextPrefs), nextEnabled) } catch { return { ok: false, message: '订阅保存失败，请检查本机存储空间后重试。' } }
+            replacePreferences(nextPrefs)
+            setEnabledIds(nextEnabled)
+            return { ok: true }
+          }}
+          onPause={(sourceId, paused) => {
+            const nextPrefs = setCustomSourcePaused(prefs, sourceId, paused)
+            try { saveSubscriptionState(sanitizeForPersistence(nextPrefs), enabledIds) } catch { return { ok: false, message: '订阅保存失败，请检查本机存储空间后重试。' } }
+            replacePreferences(nextPrefs)
+            return { ok: true }
+          }}
+          onUpdateSubscription={(sourceId, url, discovery) => {
+            if (!prefs.customSources?.some((source) => source.id === sourceId)) return { ok: false, message: '该订阅已被删除。' }
+            const nextPrefs = replaceCustomSourceInstance(prefs, sourceId, url, discovery)
+            try { saveSubscriptionState(sanitizeForPersistence(nextPrefs), enabledIds) } catch { return { ok: false, message: '订阅保存失败，请检查本机存储空间后重试。' } }
+            replacePreferences(nextPrefs)
+            return { ok: true }
+          }}
+          onDelete={(sourceId) => {
+            const nextPrefs = deleteCustomSource(prefs, sourceId)
+            const nextEnabled = enabledIds.filter((id) => id !== sourceId)
+            const nextPresets = removeSourcesFromPresets(presets.state, [sourceId])
+            try { saveSubscriptionState(sanitizeForPersistence(nextPrefs), nextEnabled, nextPresets) } catch { return { ok: false, message: '删除保存失败，请检查本机存储空间后重试。' } }
+            replacePreferences(nextPrefs)
+            setEnabledIds(nextEnabled)
+            presets.replaceFromSync(nextPresets)
+            return { ok: true }
+          }}
+          onOpenSource={(sourceId) => openSourceFeed(sourceId, settingsRoute)}
+          onBack={() => setSettingsRoute(settingsRoute.returnTo ? { name: settingsRoute.returnTo } : null)}
+        />
+        </Suspense>
+      )
+    }
+
     if (settingsRoute.name === 'custom-sources') {
       return (
         <CustomSourcesScreen
@@ -1361,15 +1412,21 @@ export default function App() {
           onUpdateCustomSource={(sourceId, patch) =>
             update((prev) => updateCustomSource(prev, sourceId, patch))
           }
-          onDeleteCustomSource={(sourceId) =>
+          onDeleteCustomSource={(sourceId) => {
             update((prev) => deleteCustomSource(prev, sourceId))
-          }
-          onDeleteCustomSources={(sourceIds) =>
+            setEnabledIds((prev) => prev.filter((id) => id !== sourceId))
+            presets.removeSourceReferences(sourceId)
+          }}
+          onDeleteCustomSources={(sourceIds) => {
             update((prev) => deleteCustomSources(prev, sourceIds))
-          }
+            const deleted = new Set(sourceIds)
+            setEnabledIds((prev) => prev.filter((id) => !deleted.has(id)))
+            presets.removeSourceReferences(sourceIds)
+          }}
           onBatchImport={(sources, categories) =>
             update((prev) => batchImportSourcesAndCategories(prev, sources, categories))
           }
+          onOpenFeedStore={() => setSettingsRoute({ name: 'feed-store', returnTo: 'custom-sources' })}
           onBack={() => setSettingsRoute(null)}
         />
       )
@@ -1588,7 +1645,6 @@ export default function App() {
           }`}
           presetsSummary={`${presets.activePreset?.name ?? '未选择'} · ${regularCategories.length} 分类 · ${enabledIds.length} 源`}
           typographySummary={typographySummary}
-          uiFontSummary={uiFontSummary}
           appearanceSummary={appearanceSummary}
           translationSummary={translationSummary}
           readAloudSummary={readAloudSummary}
@@ -1605,10 +1661,10 @@ export default function App() {
           onOpenHistory={() => setSettingsRoute({ name: 'history' })}
           onOpenLocalSearch={() => setSettingsRoute({ name: 'local-search' })}
           onOpenCustomSources={() => setSettingsRoute({ name: 'custom-sources' })}
+          onOpenFeedStore={() => setSettingsRoute({ name: 'feed-store' })}
           onOpenCategories={() => setSettingsRoute({ name: 'categories', returnTo: 'me' })}
           onOpenPresets={() => setSettingsRoute({ name: 'presets' })}
           onOpenTypographySettings={() => setSettingsRoute({ name: 'typography' })}
-          onOpenUiFontSettings={() => setSettingsRoute({ name: 'ui-font' })}
           onOpenAppearanceSettings={() => setSettingsRoute({ name: 'appearance' })}
           onOpenTranslationSettings={() => setSettingsRoute({ name: 'translation' })}
           onOpenReadAloudSettings={() => setSettingsRoute({ name: 'read-aloud' })}
@@ -1836,11 +1892,6 @@ export default function App() {
             overlayCloserRef={readerOverlayCloserRef}
             translationPrefs={prefs.translation}
             readAloudPrefs={prefs.readAloud}
-            floatReaderNav={prefs.ui.floatReaderNav}
-            onToggleFloatReaderNav={(enabled) => update((prev) => updateUiPrefs(prev, { floatReaderNav: enabled }))}
-            onTranslationProviderChange={(provider) =>
-              update((prev) => ({ ...prev, translation: { ...prev.translation, provider } }))
-            }
             customSources={prefs.customSources}
             einkMode={Boolean(prefs.einkMode)}
             wifiOnlyAutoLoadMedia={Boolean(prefs.wifiOnlyAutoLoadMedia)}

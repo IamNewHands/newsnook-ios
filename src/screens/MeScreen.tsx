@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
 import {
-  ALargeSmall,
   ArrowLeft,
   Bookmark,
   ChevronRight,
@@ -14,6 +13,7 @@ import {
   LayoutGrid,
   LayoutTemplate,
   Rss,
+  Store,
   ServerCog,
   Search,
   Type,
@@ -32,7 +32,6 @@ interface Props {
   categoriesSummary?: string
   presetsSummary: string
   typographySummary: string
-  uiFontSummary: string
   appearanceSummary: string
   translationSummary: string
   readAloudSummary: string
@@ -46,10 +45,10 @@ interface Props {
   onOpenHistory: () => void
   onOpenLocalSearch: () => void
   onOpenCustomSources: () => void
+  onOpenFeedStore: () => void
   onOpenCategories: () => void
   onOpenPresets: () => void
   onOpenTypographySettings: () => void
-  onOpenUiFontSettings: () => void
   onOpenAppearanceSettings: () => void
   onOpenTranslationSettings: () => void
   onOpenReadAloudSettings: () => void
@@ -108,7 +107,6 @@ export function MeScreen({
   categoriesSummary,
   presetsSummary,
   typographySummary,
-  uiFontSummary,
   appearanceSummary,
   translationSummary,
   readAloudSummary,
@@ -122,10 +120,10 @@ export function MeScreen({
   onOpenHistory,
   onOpenLocalSearch,
   onOpenCustomSources,
+  onOpenFeedStore,
   onOpenCategories,
   onOpenPresets,
   onOpenTypographySettings,
-  onOpenUiFontSettings,
   onOpenAppearanceSettings,
   onOpenTranslationSettings,
   onOpenReadAloudSettings,
@@ -213,6 +211,12 @@ export function MeScreen({
           className="divide-y divide-haze border-y border-haze md:grid md:grid-cols-2 md:gap-px md:divide-y-0 md:bg-haze"
         >
           <SettingsRow
+            icon={Store}
+            title="RSS 订阅商店"
+            caption="在线搜索网站与订阅地址、管理已订阅"
+            onClick={onOpenFeedStore}
+          />
+          <SettingsRow
             icon={Rss}
             title="自定义订阅与 OPML"
             caption={customSourcesSummary ?? 'RSS / Atom · OPML 导入导出'}
@@ -237,12 +241,6 @@ export function MeScreen({
             title="阅读字体"
             caption={typographySummary}
             onClick={onOpenTypographySettings}
-          />
-          <SettingsRow
-            icon={ALargeSmall}
-            title="界面字体"
-            caption={uiFontSummary}
-            onClick={onOpenUiFontSettings}
           />
           <SettingsRow
             icon={Contrast}
