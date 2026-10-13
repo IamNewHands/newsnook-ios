@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import {
+  ALargeSmall,
   ArrowLeft,
   Bookmark,
   ChevronRight,
@@ -32,6 +33,7 @@ interface Props {
   categoriesSummary?: string
   presetsSummary: string
   typographySummary: string
+  uiFontSummary: string
   appearanceSummary: string
   translationSummary: string
   readAloudSummary: string
@@ -49,6 +51,7 @@ interface Props {
   onOpenCategories: () => void
   onOpenPresets: () => void
   onOpenTypographySettings: () => void
+  onOpenUiFontSettings: () => void
   onOpenAppearanceSettings: () => void
   onOpenTranslationSettings: () => void
   onOpenReadAloudSettings: () => void
@@ -107,6 +110,7 @@ export function MeScreen({
   categoriesSummary,
   presetsSummary,
   typographySummary,
+  uiFontSummary,
   appearanceSummary,
   translationSummary,
   readAloudSummary,
@@ -124,6 +128,7 @@ export function MeScreen({
   onOpenCategories,
   onOpenPresets,
   onOpenTypographySettings,
+  onOpenUiFontSettings,
   onOpenAppearanceSettings,
   onOpenTranslationSettings,
   onOpenReadAloudSettings,
@@ -241,6 +246,12 @@ export function MeScreen({
             title="阅读字体"
             caption={typographySummary}
             onClick={onOpenTypographySettings}
+          />
+          <SettingsRow
+            icon={ALargeSmall}
+            title="界面字体"
+            caption={uiFontSummary}
+            onClick={onOpenUiFontSettings}
           />
           <SettingsRow
             icon={Contrast}

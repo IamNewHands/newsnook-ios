@@ -7,6 +7,7 @@ import {
   withRuntimeSecrets,
 } from '../features/account/secretStore'
 import {
+  isAppleTranslationAvailable,
   isBergamotTranslationAvailable,
   isLocalTranslationAvailable,
 } from '../features/translation/native'
@@ -25,6 +26,7 @@ import {
 import {
   FONT_FAMILY_OPTIONS,
   normalizePreferences,
+  resolveUiFontOption,
   type Preferences,
 } from '../sources/preferences'
 
@@ -41,6 +43,22 @@ function applyTypography(prefs: Preferences): void {
   style.setProperty('--reader-text-indent', firstLineIndent ? '2em' : '0')
 }
 
+/**
+ * 界面（应用外壳）字体偏好落到 CSS 变量。
+ * 字号只写倍率：构建期已经把生成的每个 px 字号包成 `calc(Npx * var(--ui-scale))`，
+ * 所以这里不需要、也不应该再维护第二份字号表。
+ * 字重只写档位到 `data-ui-weight`，具体权重表在 index.css 的覆盖块里。
+ */
+function applyUiPrefs(prefs: Preferences): void {
+  const { style } = document.documentElement
+  const font = resolveUiFontOption(prefs.ui.fontFamily)
+
+  style.setProperty('--ui-font', font.body)
+  style.setProperty('--ui-font-display', font.display)
+  style.setProperty('--ui-scale', String(prefs.ui.scale))
+  document.documentElement.dataset.uiWeight = prefs.ui.weight
+}
+
 export interface PreferencesApi {
   prefs: Preferences
   /** 「跟随系统」解析后的实际明暗，供界面展示当前状态 */
@@ -54,6 +72,12 @@ export interface PreferencesApi {
   replaceFromSync: (next: Preferences) => void
 }
 
+/**
+ * 本地翻译引擎不可用时（例如 iOS 上没有 ML Kit / Bergamot）挑一个能用的云端提供商。
+ * 优先用已经配好 Key 的，最后一个兜底是 `azure`：它的免费通道（Edge 内置翻译令牌）
+ * 不需要任何配置，且在中国大陆网络下可直连。绝不能兜底到没填 endpoint 的 `deeplx`，
+ * 那样用户会看到一个「选了却翻译不了」的空白设置页。
+ */
 function resolveFallbackProvider(prefs: Preferences): Preferences['translation']['provider'] {
   const { cloud } = prefs.translation
   return cloud.deeplx.endpoint
@@ -66,7 +90,7 @@ function resolveFallbackProvider(prefs: Preferences): Preferences['translation']
           ? 'azure'
           : cloud.deepl.apiKey
             ? 'deepl'
-            : 'deeplx'
+            : 'azure'
 }
 
 export function usePreferences(): PreferencesApi {
@@ -79,6 +103,7 @@ export function usePreferences(): PreferencesApi {
     }
     if (provider === 'mlkit' && isLocalTranslationAvailable()) return normalized
     if (provider === 'bergamot' && isBergamotTranslationAvailable()) return normalized
+    if (provider === 'apple' && isAppleTranslationAvailable()) return normalized
 
     return {
       ...normalized,
@@ -98,6 +123,7 @@ export function usePreferences(): PreferencesApi {
     savePreferences(sanitizeForPersistence(prefs))
     void persistRuntimeSecrets(prefs)
     applyTypography(prefs)
+    applyUiPrefs(prefs)
     setRuntimeProxyPrefs(prefs.proxy)
     setRuntimeWifiOnlyAutoLoadMedia(Boolean(prefs.wifiOnlyAutoLoadMedia))
   }, [prefs])

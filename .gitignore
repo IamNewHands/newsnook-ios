@@ -47,6 +47,9 @@ cloud/.env
 cloud/.env.*
 !cloud/.env.example
 
+# 真机验收清单与逐轮实测记录：只留本地，不进仓库
+docs/local/
+
 .coding-tools/
 
 evidence

@@ -1,4 +1,9 @@
 import { DEFAULT_AI_PREFS, normalizeAiPrefs, withLegacyOpenAiMirror } from './aiConfig'
+import {
+  isAppleTranslationAvailable,
+  isBergamotTranslationAvailable,
+  isLocalTranslationAvailable,
+} from './native'
 import type {
   CloudTranslationConfig,
   TranslationDisplayMode,
@@ -32,19 +37,35 @@ export const TRANSLATION_SOURCE_LANGUAGES: {
   ...TRANSLATION_LANGUAGES,
 ]
 
-export const TRANSLATION_PROVIDERS: {
+export interface TranslationProviderOption {
   id: TranslationProviderId
   label: string
   caption: string
-}[] = [
+}
+
+export const TRANSLATION_PROVIDERS: TranslationProviderOption[] = [
   { id: 'mlkit', label: 'Android 本地翻译', caption: '语言包离线，无需密钥' },
   { id: 'bergamot', label: 'Bergamot 离线翻译', caption: '按语对下载，完全离线' },
-  { id: 'google', label: 'Google Translate', caption: 'Cloud Translation' },
-  { id: 'azure', label: 'Microsoft Translator', caption: 'Azure Translator' },
+  { id: 'apple', label: 'iOS 内置离线翻译', caption: '系统语言包 · 完全离线' },
+  { id: 'google', label: 'Google Translate', caption: 'Chrome 内置翻译通道 · 免密钥' },
+  { id: 'azure', label: 'Microsoft Translator', caption: 'Edge 内置翻译通道 · 免密钥' },
   { id: 'deepl', label: 'DeepL', caption: 'Free / Pro API' },
   { id: 'deeplx', label: 'DeepLX', caption: '自建服务' },
   { id: 'openai', label: 'AI 翻译', caption: '从 AI 提供商中选择模型' },
 ]
+
+/**
+ * 当前平台与安装包真正可用的翻译方式：本地引擎只存在于对应构建里，
+ * 设置页和阅读器的通道切换都从这里取，避免两处判断漂移。
+ */
+export function availableTranslationProviders(): TranslationProviderOption[] {
+  return TRANSLATION_PROVIDERS.filter(
+    (provider) =>
+      (provider.id !== 'mlkit' || isLocalTranslationAvailable()) &&
+      (provider.id !== 'bergamot' || isBergamotTranslationAvailable()) &&
+      (provider.id !== 'apple' || isAppleTranslationAvailable()),
+  )
+}
 
 const DEFAULT_CLOUD: TranslationPrefs['cloud'] = {
   google: {

@@ -1,11 +1,12 @@
 /**
- * 账户适配器：一份实现覆盖 Web 与 Android，差异只有凭证的存放方式。
+ * 账户适配器：一份实现覆盖 Web 与原生壳（Android / iOS），差异只有凭证的存放方式。
  *
  * - Web：Better Auth 的 HttpOnly Cookie Session，请求带 `credentials: 'include'`，
  *   客户端不保管任何长期凭证。
- * - Android：WebView 的 Cookie 不可靠，改用 Better Auth 的 bearer 能力——
- *   登录响应头 `set-auth-token` 里的长期 token 只写进 Keystore-backed SecureStore，
- *   社交登录走系统浏览器 + 一次性 token 深链回流（长期 token 不出现在 URL 里）。
+ * - 原生壳：WebView 的 Cookie 不可靠，改用 Better Auth 的 bearer 能力——
+ *   登录响应头 `set-auth-token` 里的长期 token 只写进 SecureStore
+ *   （Android 是 Keystore，iOS 是 Keychain），社交登录走系统浏览器 + 一次性
+ *   token 深链回流（长期 token 不出现在 URL 里）。
  *
  * 这里不引入 better-auth 客户端 SDK：只需要几条固定路由，直接 fetch 更轻，
  * 也不会把服务端类型拖进 App 包体。
@@ -79,7 +80,10 @@ async function toAccountError(response: Response): Promise<AccountError> {
 export function createAccountAdapter(options: AccountAdapterOptions): AccountAdapter {
   const baseUrl = (options.baseUrl ?? resolveCloudBaseUrl()).replace(/\/+$/, '')
   const platform = options.platform
-  const native = platform === 'android'
+  // 「原生壳」而不是「Android」：iOS 的 WKWebView 与 Android WebView 一样不能
+  // 可靠持有云域名 Cookie（ITP / 第三方 Cookie 策略），bearer + SecureStore
+  // 才是原生壳的会话载体（iOS 侧 SecureStore 由 Keychain 实现）。
+  const native = platform !== 'web'
   const store = options.secureStore ?? getSecureStore()
   const doFetch: typeof fetch = options.fetchImpl ?? ((input, init) => fetch(input, init))
 
@@ -339,15 +343,21 @@ export function createAccountAdapter(options: AccountAdapterOptions): AccountAda
 }
 
 /**
- * 运行环境对应的适配器：Android 用系统浏览器（Custom Tab）跑 OAuth，
+ * 运行环境对应的适配器：原生壳（Android / iOS）用系统浏览器跑 OAuth，
  * Web 直接在当前标签页跳转，回来落在原页面。
+ *
+ * 平台判定必须覆盖 iOS：判成 `'web'` 会让 iOS 既不写 SecureStore 也不带
+ * Bearer，登录在杀进程后丢失，OAuth 还会被开在 App 自己的 WebView 里。
  */
 export function createPlatformAccountAdapter(): AccountAdapter {
-  const android = Capacitor.getPlatform() === 'android'
+  const runtime = Capacitor.getPlatform()
+  const platform: AccountPlatform =
+    runtime === 'android' ? 'android' : runtime === 'ios' ? 'ios' : 'web'
+  const nativePlatform = platform !== 'web'
   return createAccountAdapter({
-    platform: android ? 'android' : 'web',
+    platform,
     openExternal: async (url) => {
-      if (android) {
+      if (nativePlatform) {
         await Browser.open({ url })
         return
       }

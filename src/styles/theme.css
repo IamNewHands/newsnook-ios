@@ -1,11 +1,11 @@
 /*
- * 语义色只在这里声明一层间接引用：ink 系是承托面，paper 系是落在其上的字。
- * 真正的色值放在下方 --tone-* 里按主题切换，因此 bg-ink / text-paper 等类
- * 无需区分明暗，任何子树也能通过 data-theme 局部改写。
+ * 语义色只在这里声明一层间接引用：ink 系是承托面，paper 系是落在其上的字�?
+ * 真正的色值放在下�?--tone-* 里按主题切换，因�?bg-ink / text-paper 等类
+ * 无需区分明暗，任何子树也能通过 data-theme 局部改写�?
  *
- * 注意：@theme 里的 --color-* 会在 :root 上被算成具体色并向下继承。
- * 子树若只改 --tone-*，text-paper 等仍会拿到祖先已解析的旧色（昼读下播放器控件变墨色）。
- * 因此每个 [data-theme] 必须同步重绑 --color-* → 当前 --tone-*。
+ * 注意：@theme 里的 --color-* 会在 :root 上被算成具体色并向下继承�?
+ * 子树若只�?--tone-*，text-paper 等仍会拿到祖先已解析的旧色（昼读下播放器控件变墨色）�?
+ * 因此每个 [data-theme] 必须同步重绑 --color-* �?当前 --tone-*�?
  */
 @theme {
   --color-ink: var(--tone-ink);
@@ -18,14 +18,56 @@
   --color-cinnabar-soft: var(--tone-cinnabar-soft);
   --color-haze: var(--tone-haze);
 
-  --font-display: 'Instrument Serif', 'Noto Serif SC', 'Songti SC', serif;
-  --font-body: 'Noto Sans SC', 'PingFang SC', system-ui, sans-serif;
+  /*
+   * 界面字体�?-ui-font / --ui-font-display 是「界面字体」设置项的落点，
+   * usePreferences 会以 documentElement 行内样式覆盖同名变量�?
+   * 这里的两条默认值与加入该设置项之前完全一致，默认档零观感变化�?
+   *
+   * --ui-scale 由构建期把生成的所�?px 字号挂上去（scripts/ui-scale-css.ts），
+   * 因此源码里的 text-[11px] 之类的写法不需要逐个改写�?
+   */
+  --ui-font: 'Noto Sans SC', 'PingFang SC', system-ui, sans-serif;
+  --ui-font-display: 'Noto Serif SC', 'Songti SC', serif;
+  --ui-scale: 1;
+
+  /*
+   * 界面字重：Tailwind v4 �?font-normal / font-medium / font-semibold 会生�?
+   * `font-weight: var(--font-weight-*)`，所以覆盖这几个主题变量即可整体抬升界面字重�?
+   * 不必逐个改写 250 多处工具类。这里的默认值与 Tailwind 缺省一致，默认档零观感变化�?
+   * 正文�?reader-prose / .reader-table-scroll 等）用的是独立字重，不受本设置影响�?
+   */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --font-display: 'Instrument Serif', var(--ui-font-display);
+  --font-body: var(--ui-font);
   --font-mono: 'JetBrains Mono', 'SFMono-Regular', ui-monospace, monospace;
 
   --ease-ink: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* 夜读（默认）：冷墨底 + 暖纸字 */
+/*
+ * 界面字重档位：在 Tailwind 缺省值上整体 +100 / +200，上�?800（再高汉字容易糊成一团）�?
+ * 放在 @theme 之外、不�?@layer，因此晚�?@layer theme 生效并能覆盖主题变量�?
+ * �?usePreferences 把档位写�?documentElement �?data-ui-weight 上�?
+ */
+:root[data-ui-weight='medium'] {
+  --font-weight-normal: 500;
+  --font-weight-medium: 600;
+  --font-weight-semibold: 700;
+  --font-weight-bold: 800;
+}
+
+:root[data-ui-weight='bold'] {
+  --font-weight-normal: 600;
+  --font-weight-medium: 700;
+  --font-weight-semibold: 800;
+  --font-weight-bold: 800;
+}
+
+/* 夜读（默认）：冷墨底 + 暖纸�?*/
 :root,
 [data-theme='dark'] {
   color-scheme: dark;
@@ -51,10 +93,10 @@
 
   --tone-body-text: rgb(var(--tone-paper-rgb) / 0.86);
   --tone-quote-text: rgb(var(--tone-paper-rgb) / 0.72);
-  /* 头条图上的压底渐变；浅底需要更厚才压得住图片细节 */
+  /* 头条图上的压底渐变；浅底需要更厚才压得住图片细�?*/
   --lead-veil: rgb(var(--tone-ink-rgb) / 0.55);
   --shadow-lift: 0 12px 40px -16px rgb(0 0 0 / 0.85);
-  /* 已隐藏项的弱化：深底压暗，浅底靠降对比 */
+  /* 已隐藏项的弱化：深底压暗，浅底靠降对�?*/
   --dim-hidden: brightness(0.72);
   --grain-opacity: 0.035;
   --grain-blend: normal;
@@ -71,8 +113,8 @@
 }
 
 /*
- * 昼读：宣纸而非白纸。底色带一点暖黄灰，字用饱满深邃的墨黑，
- * 增强未读字体的骨力与清晰度，拉大已读/未读明度差，建立高/中/低三级清晰对比。
+ * 昼读：宣纸而非白纸。底色带一点暖黄灰，字用饱满深邃的墨黑�?
+ * 增强未读字体的骨力与清晰度，拉大已读/未读明度差，建立�?�?低三级清晰对比�?
  */
 [data-theme='light'] {
   color-scheme: light;
@@ -101,7 +143,7 @@
   --lead-veil: rgb(var(--tone-ink-rgb) / 0.86);
   --shadow-lift: 0 14px 34px -18px rgb(72 58 38 / 0.38);
   --dim-hidden: contrast(0.78) saturate(0.5);
-  /* 纸纹在浅底上直接叠加会发灰，改用正片叠底让噪点沉进纸里 */
+  /* 纸纹在浅底上直接叠加会发灰，改用正片叠底让噪点沉进纸�?*/
   --grain-opacity: 0.04;
   --grain-blend: multiply;
 
@@ -117,17 +159,17 @@
 }
 
 /*
- * 风格方案（data-scheme）
+ * 风格方案（data-scheme�?
  *
- * 与 data-theme 正交：同一套语义 token，不同配色与展示字体。
- * --tone-cinnabar 是「主题强调色」语义 token（名称保留兼容，各方案取色不同）。
- * 未命中任何方案块时（data-scheme 缺省或为 ink），上方 [data-theme] 两块即墨问。
+ * �?data-theme 正交：同一套语�?token，不同配色与展示字体�?
+ * --tone-cinnabar 是「主题强调色」语�?token（名称保留兼容，各方案取色不同）�?
+ * 未命中任何方案块时（data-scheme 缺省或为 ink），上方 [data-theme] 两块即墨问�?
  *
  * 选择器写双联：既命中 <html> 根节点，也命中方案根下局部强制深/浅的子树
- * （图片查看器、视频播放器的 data-theme="dark"）。
+ * （图片查看器、视频播放器�?data-theme="dark"）�?
  */
 
-/* 天青 · 夜：窑黛深釉，月白字，青瓷青一点 */
+/* 天青 · 夜：窑黛深釉，月白字，青瓷青一�?*/
 [data-scheme='celadon'][data-theme='dark'],
 [data-scheme='celadon'] [data-theme='dark'] {
   color-scheme: dark;
@@ -209,7 +251,7 @@
   --color-haze: var(--tone-haze);
 }
 
-/* 现代优雅 · 夜：纯黑底，系统抬升灰，系统蓝。和墨问暖墨不是一路。 */
+/* 现代优雅 · 夜：纯黑底，系统抬升灰，系统蓝。和墨问暖墨不是一路�?*/
 [data-scheme='pearl'][data-theme='dark'],
 [data-scheme='pearl'] [data-theme='dark'] {
   color-scheme: dark;
@@ -240,7 +282,7 @@
   --dim-hidden: brightness(0.72);
   --grain-opacity: 0;
 
-  --font-display: 'Noto Sans SC', 'PingFang SC', system-ui, sans-serif;
+  --font-display: var(--ui-font);
 
   --color-ink: var(--tone-ink);
   --color-ink-raised: var(--tone-ink-raised);
@@ -253,7 +295,7 @@
   --color-haze: var(--tone-haze);
 }
 
-/* 现代优雅 · 昼：冷白纸面（苹果图书 White），正文与页面同一张纸；和墨问宣纸朱砂分开 */
+/* 现代优雅 · 昼：冷白纸面（苹果图�?White），正文与页面同一张纸；和墨问宣纸朱砂分开 */
 [data-scheme='pearl'][data-theme='light'],
 [data-scheme='pearl'] [data-theme='light'] {
   color-scheme: light;
@@ -284,7 +326,7 @@
   --dim-hidden: contrast(0.78) saturate(0.5);
   --grain-opacity: 0;
 
-  --font-display: 'Noto Sans SC', 'PingFang SC', system-ui, sans-serif;
+  --font-display: var(--ui-font);
 
   --color-ink: var(--tone-ink);
   --color-ink-raised: var(--tone-ink-raised);

@@ -23,6 +23,7 @@ import {
 } from '../search/query'
 import type { LinuxDoCategory, LinuxDoPost, LinuxDoTopicSummary } from '../types'
 import { LinuxDoApiError } from '../types'
+import { LinuxDoCookedBody } from './LinuxDoCookedBody'
 import { SearchFilters } from './SearchFilters'
 import { createLinuxDoSearchCache, type LinuxDoSearchCache, type LinuxDoSearchTab } from './searchCache'
 import { ago, avatar, readableError } from './utils'
@@ -795,9 +796,10 @@ function SearchResultRow({
           <span>· {ago(post?.createdAt || topic?.lastPostedAt || '')}</span>
         </span>
         {post?.cooked ? (
-          <span
+          <LinuxDoCookedBody
+            as="span"
+            html={post.cooked}
             className="mt-2 block rounded-xl border border-haze/40 bg-paper/[0.025] px-3 py-2 text-[13px] leading-[1.6] text-paper-muted line-clamp-3 [&_b]:font-semibold [&_b]:text-cinnabar-soft [&_mark]:bg-cinnabar/20 [&_mark]:text-inherit [&_.search-highlight]:font-semibold [&_.search-highlight]:text-cinnabar-soft"
-            dangerouslySetInnerHTML={{ __html: post.cooked }}
           />
         ) : null}
         <span className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[11px] text-paper-faint">

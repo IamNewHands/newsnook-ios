@@ -63,11 +63,16 @@ function commentText(value: string): string {
   return value.trim() || '—'
 }
 
+function hasComments(content: ParsedSpeedRead): boolean {
+  return Boolean(content.satire.trim() || content.structure.trim() || content.situation.trim())
+}
+
 function commentsBand(
   content: ParsedSpeedRead,
   mode: 'v1' | 'b' | 'mark',
   sections: SpeedReadSectionTitles,
 ): string {
+  if (!hasComments(content)) return ''
   const rows: Array<[string, string]> = [
     [sections.satire, content.satire],
     [sections.structure, content.structure],
@@ -158,6 +163,7 @@ function buildEditorial(
   const warnItems = content.warnings
     .map((item, index) => `<li><span class="n">${pad2(index + 1)}</span><p>${formatInline(item, 'b')}</p></li>`)
     .join('')
+  const pointNo = hasComments(content) ? 2 : 1
 
   return `<article class="card v2">
     <div class="v2-mast"><span class="k">AI 速读</span><span class="d">${formatDateDots()}</span></div>
@@ -168,9 +174,9 @@ function buildEditorial(
       <p>${formatInline(content.conclusion || '—', 'b')}</p>
     </div>
     ${commentsBand(content, 'b', sections)}
-    <div class="v2-h"><span class="no">02</span><h3>${sections.keyPoints}</h3><span class="en">Key Thread</span><span class="ln"></span></div>
+    <div class="v2-h"><span class="no">${pad2(pointNo)}</span><h3>${sections.keyPoints}</h3><span class="en">Key Thread</span><span class="ln"></span></div>
     <ol>${keyItems || '<li><span class="n">01</span><p>—</p></li>'}</ol>
-    <div class="v2-h"><span class="no">03</span><h3>${sections.warnings}</h3><span class="en">Notes</span><span class="ln"></span></div>
+    <div class="v2-h"><span class="no">${pad2(pointNo + 1)}</span><h3>${sections.warnings}</h3><span class="en">Notes</span><span class="ln"></span></div>
     <ol class="wrn">${warnItems || '<li><span class="n">01</span><p>—</p></li>'}</ol>
     ${footerBlock(false, dateCn)}
   </article>`
