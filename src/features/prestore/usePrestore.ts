@@ -4,6 +4,8 @@ import { Capacitor } from '@capacitor/core'
 import { Network } from '@capacitor/network'
 
 import { log } from '../../lib/logger'
+import { withArticlePreviewImage } from '../../lib/articlePreview'
+import type { Article } from '../../lib/types'
 import type { Preferences } from '../../sources/preferences'
 import { buildPrestorePlan } from './model'
 import { syncPrestore, type PrestoreProgress } from './service'
@@ -36,6 +38,7 @@ export interface UsePrestoreResult {
   error: string | null
   syncNow: () => void
   clear: () => Promise<void>
+  updateArticlePreview: (article: Article) => void
 }
 
 async function networkAvailable(): Promise<boolean> {
@@ -91,6 +94,17 @@ export function usePrestore({
 
   const syncNow = useCallback(() => {
     setManualTriggerSequence((sequence) => sequence + 1)
+  }, [])
+
+  const updateArticlePreview = useCallback((article: Article) => {
+    setSnapshot((previous) => {
+      const articles = previous.articles.map((item) => item.id === article.id
+        ? withArticlePreviewImage(item, '', article.image)
+        : item)
+      return articles.some((item, index) => item !== previous.articles[index])
+        ? { ...previous, articles }
+        : previous
+    })
   }, [])
 
   useEffect(() => {
@@ -278,5 +292,6 @@ export function usePrestore({
     error,
     syncNow,
     clear,
+    updateArticlePreview,
   }
 }

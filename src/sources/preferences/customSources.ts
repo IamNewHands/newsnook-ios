@@ -30,6 +30,22 @@ export function renameSource(prefs: Preferences, sourceId: string, value: string
   return { ...prefs, sourceNames: { ...prefs.sourceNames, [sourceId]: name } }
 }
 
+/** 只交换 CMS 站点，保留其它自建订阅的位置与配置。 */
+export function moveCmsSource(prefs: Preferences, sourceId: string, direction: -1 | 1): Preferences {
+  const sources = prefs.customSources ?? []
+  const cmsIndices = sources.flatMap((source, index) => source.kind === 'web-catalog' ? [index] : [])
+  const index = cmsIndices.findIndex((sourceIndex) => sources[sourceIndex].id === sourceId)
+  const targetIndex = index + direction
+  if (index < 0 || targetIndex < 0 || targetIndex >= cmsIndices.length) return prefs
+  const customSources = [...sources]
+  const from = cmsIndices[index]
+  const to = cmsIndices[targetIndex]
+  const moving = customSources[from]
+  customSources[from] = customSources[to]
+  customSources[to] = moving
+  return { ...prefs, customSources }
+}
+
 /** 添加单个自定义 RSS / 网页目录信源 */
 export function addCustomSource(
   prefs: Preferences,

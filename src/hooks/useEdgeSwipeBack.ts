@@ -76,6 +76,7 @@ export function useEdgeSwipeBack({
     let completionTimer = 0
     let transitionEnd: ((event: TransitionEvent) => void) | null = null
     let committing = false
+    let committed = false
 
     const width = () => element.clientWidth || window.innerWidth || 320
 
@@ -123,6 +124,7 @@ export function useEdgeSwipeBack({
       cancelCompletion()
       dragX = 0
       pendingX = 0
+      element.style.visibility = ''
       clearGestureCompositorStyles(element)
       setActiveVisual(false)
     }
@@ -185,8 +187,10 @@ export function useEdgeSwipeBack({
     const commit = (releaseVelocity: number) => {
       resetPointer()
       committing = true
+      committed = true
       const panelWidth = width()
-      const remaining = Math.max(0, panelWidth - dragX)
+      const targetWidth = panelWidth + 48
+      const remaining = Math.max(0, targetWidth - dragX)
       const velocity = Math.max(0.9, releaseVelocity)
       const duration = reduced || remaining <= panelWidth * 0.02
         ? 0
@@ -197,8 +201,9 @@ export function useEdgeSwipeBack({
             ),
           )
 
-      animateTo(panelWidth, duration, COMMIT_EASING, () => {
+      animateTo(targetWidth, duration, COMMIT_EASING, () => {
         committing = false
+        element.style.visibility = 'hidden'
         // Keep the committed reader off-screen until React unmounts it. Clearing
         // the transform here briefly paints the article again before onBack's
         // state update is committed, which looks like a full-page flash.
@@ -422,6 +427,7 @@ export function useEdgeSwipeBack({
       // 切后台/系统弹窗时不要等待动画完成：相关定时器可能被冻结，必须立刻
       // 释放 active/committing，避免恢复后继续使用旧触点序列。
       committing = false
+      committed = false
       resetPointer()
       clearVisual()
     }
@@ -458,7 +464,9 @@ export function useEdgeSwipeBack({
       document.removeEventListener('visibilitychange', onVisibilityChange)
       active = null
       committing = false
-      clearVisual()
+      if (!committed) {
+        clearVisual()
+      }
       element.style.touchAction = previousTouchAction
       element.style.overscrollBehaviorX = previousOverscrollX
     }

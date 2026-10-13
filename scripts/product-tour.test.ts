@@ -90,6 +90,39 @@ assert.equal(withoutTabBar.length, PRODUCT_TOUR_STEPS.length - 1, '其余步骤�
 
 console.log('product-tour step filtering: ok')
 
+// 桌面隐藏底栏与顶部分类轨，但对应功能仍须指向侧栏中的真实入口。
+const desktopTargets = new Set([
+  tourSelector('desktop-category-rail'),
+  tourSelector('desktop-preset-switcher'),
+  tourSelector('desktop-navigation'),
+  tourSelector('feed-list'),
+])
+const desktopSteps = resolveAvailableSteps(
+  PRODUCT_TOUR_STEPS,
+  (selector) => desktopTargets.has(selector),
+  'desktop',
+)
+for (const id of ['category-rail', 'preset-switcher', 'tab-bar']) {
+  const step = desktopSteps.find((item) => item.id === id)
+  assert.ok(step, `桌面保留 ${id} 功能引导`)
+  assert.ok(desktopTargets.has(step.selector!), `${id} 指向可见侧栏入口`)
+  assert.equal(step.side, 'right', `${id} 弹层放在侧栏右侧`)
+  assert.doesNotMatch(step.description, /底栏|横滑|双击/, '桌面文案匹配桌面操作')
+}
+assert.equal(
+  PRODUCT_TOUR_STEPS.find((step) => step.id === 'preset-switcher')?.selector,
+  tourSelector('preset-switcher'),
+  '桌面解析不修改原始手机步骤',
+)
+assert.ok(ids.indexOf('me-presets') < ids.indexOf('me-translation'), '设置引导按页面从上到下播放')
+assert.equal(
+  PRODUCT_TOUR_STEPS.at(-1)?.selector,
+  tourSelector('me-about'),
+  '结束时定位重看引导的关于入口，不高亮整块长设置列表',
+)
+
+console.log('product-tour responsive targets: ok')
+
 // ---------- 看过标记（Node 下垫最小 localStorage） ----------
 
 const memory = new Map<string, string>()

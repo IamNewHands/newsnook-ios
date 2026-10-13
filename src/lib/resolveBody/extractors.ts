@@ -7,6 +7,7 @@ import { parseHTML } from 'linkedom'
 
 import { buildPageLeadHtml, isSoftNotFoundHtml } from '../pageLead'
 import { sanitizeArticleHtml } from '../sanitize'
+import { firstImageIn } from '../articlePreview'
 import { cleanWechatArticleHtml } from '../parseFeed'
 import {
   absolutizeHtml,
@@ -310,6 +311,7 @@ export async function extractWithReadability(
     if (custom) {
       return {
         contentHtml: await absolutizeHtml(custom, pageUrl),
+        image: firstImageIn(custom, pageUrl),
         bodySource: 'readability',
       }
     }
@@ -320,6 +322,7 @@ export async function extractWithReadability(
     if (custom) {
       return {
         contentHtml: await absolutizeHtml(custom, pageUrl),
+        image: firstImageIn(custom, pageUrl),
         bodySource: 'readability',
       }
     }
@@ -330,6 +333,7 @@ export async function extractWithReadability(
     if (custom) {
       return {
         contentHtml: await absolutizeHtml(custom, pageUrl),
+        image: firstImageIn(custom, pageUrl),
         title: extractWechatArticleTitle(pageHtml),
         bodySource: 'readability',
       }
@@ -395,6 +399,7 @@ export async function extractWithReadability(
   }
   return {
     contentHtml: absolute,
+    image: firstImageIn(merged, pageUrl),
     title: article.title || undefined,
     bodySource: 'readability',
   }

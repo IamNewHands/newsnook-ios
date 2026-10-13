@@ -183,6 +183,20 @@ npm run android:run
 npm run android:run:local
 ```
 
+两个命令均使用独立的调试包名 `com.aizeek.newsnook.debug`，桌面名称为「有所闻（调试）」；可与正式版 `com.aizeek.newsnook` 同时安装，本地设置与缓存各自独立。`cloudDebug` 与 `localDebug` 使用相同调试包名，切换时会互相覆盖。Release APK / AAB 的包名不变。
+
+调试版与正式版仍共用深链和登录回调 scheme；同时安装时，系统可能提示选择打开的应用。调试版不能通过应用内更新安装正式发布的 APK（包名与签名不匹配），更新调试版请重新运行上述命令。
+
+只打包、不安装 Debug APK：
+
+```bash
+npm run android:apk:debug        # cloud + local
+npm run android:apk:debug:cloud  # 仅轻量版
+npm run android:apk:debug:local  # 仅本地翻译版
+```
+
+这些命令自动构建 Web、同步 Capacitor、构建 Debug APK 并校验包名、签名和 16KB 对齐；不要求正式签名材料，不拆分 ABI，也不连接或安装到设备。local 与生产打包一样会在缺少 Bergamot 源码时自动执行 `bergamot:init`。产物归档为 `artifacts/android/newsnook-<version>-cloud-debug.apk` 和 `artifacts/android/newsnook-<version>-local-debug.apk`。
+
 在 Android Studio 中打开原生工程：
 
 ```bash

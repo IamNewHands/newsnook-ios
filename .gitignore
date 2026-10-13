@@ -52,3 +52,9 @@ cloud/.env.*
 evidence
 
 .chappie/
+
+promo-video/
+video/
+
+# Local screenshot capture probes / thumbs (keep committed docs/screenshots/*.jpg)
+docs/screenshots/_*

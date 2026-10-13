@@ -12,6 +12,7 @@ import {
 } from '../../features/mediaSniffer/core'
 import { fetchAbsoluteFormPost, fetchAbsoluteText } from '../http'
 import { sanitizeArticleHtml } from '../sanitize'
+import { firstImageIn, previewImageUrl } from '../articlePreview'
 import type { Article } from '../types'
 import {
   absolutizeHtml,
@@ -187,6 +188,7 @@ export async function resolveAieraBody(
 
   return {
     contentHtml: await absolutizeHtml(parsed.contentHtml, article.originUrl),
+    image: firstImageIn(parsed.contentHtml, article.originUrl),
     title: parsed.title,
     bodySource: 'feed',
   }
@@ -338,6 +340,7 @@ export async function resolveNetEaseArticleBody(
       const body = expandNeteaseMediaPlaceholders(rawBody, record, article.originUrl || api)
       return {
         contentHtml: await absolutizeHtml(body, article.originUrl || api),
+        image: firstImageIn(body, article.originUrl || api),
         bodySource: 'netease',
         // 分享短链不带标题，靠这里把接口给的标题回填进阅读器
         title: typeof record.title === 'string' ? record.title : undefined,
@@ -370,7 +373,7 @@ export async function resolveZhihuBody(
   const wrapped = `<div class="zhihu-entry">${body}</div>`
   return {
     contentHtml: await absolutizeHtml(wrapped, article.originUrl || 'https://daily.zhihu.com/'),
-    image: typeof data.image === 'string' ? data.image : undefined,
+    image: previewImageUrl(data.image, article.originUrl) ?? firstImageIn(body, article.originUrl || 'https://daily.zhihu.com/'),
     bodySource: 'feed',
     title: typeof data.title === 'string' ? data.title : undefined,
   }
@@ -397,12 +400,8 @@ export async function resolveJiqizhixinBody(
 
   return {
     contentHtml: await absolutizeHtml(body, article.originUrl || 'https://www.jiqizhixin.com/'),
-    image:
-      typeof data.cover_image_url === 'string'
-        ? data.cover_image_url
-        : typeof data.coverImageUrl === 'string'
-          ? data.coverImageUrl
-          : undefined,
+    image: previewImageUrl(data.cover_image_url || data.coverImageUrl, article.originUrl)
+      ?? firstImageIn(body, article.originUrl || 'https://www.jiqizhixin.com/'),
     bodySource: 'feed',
     title: typeof data.title === 'string' ? data.title : undefined,
   }

@@ -20,6 +20,8 @@ export interface ProductTourStepDefinition {
   /** 弹层相对高亮区域的方位，缺省交给 driver 自适应 */
   side?: 'top' | 'bottom' | 'left' | 'right'
   align?: 'start' | 'center' | 'end'
+  /** 桌面端同一功能的侧栏目标与操作说明 */
+  desktop?: Partial<Pick<ProductTourStepDefinition, 'selector' | 'title' | 'description' | 'side' | 'align'>>
 }
 
 export interface StartProductTourOptions {

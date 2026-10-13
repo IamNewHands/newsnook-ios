@@ -23,6 +23,8 @@ import {
 import { shouldUseOriginPlayerSurface } from '../features/mediaSniffer/originPlayerGate'
 import { loadPrestoredBody } from '../features/prestore/store'
 import { loadCachedBody, saveCachedBody } from '../lib/bodyCache'
+import { withArticlePreviewImage } from '../lib/articlePreview'
+import { log } from '../lib/logger'
 import { addVolumePageTurnListener, setVolumePageTurnEnabled } from '../lib/volumePageTurn'
 import { useEdgeSwipeBack } from '../hooks/useEdgeSwipeBack'
 import { useNetworkStatus } from '../hooks/useNetworkStatus'
@@ -85,7 +87,7 @@ interface Props {
   saved: boolean
   onClose: () => void
   onToggleLater: (article: Article) => void
-  onCacheChange: () => void
+  onCacheChange: (article?: Article) => void
   /** 返回 true 表示已消费系统返回（例如关闭大图），供 App 回退栈使用 */
   overlayCloserRef?: MutableRefObject<(() => boolean) | null>
   translationPrefs: TranslationPrefs
@@ -564,7 +566,7 @@ export function ReaderScreen({
             bodySource: cached.bodySource,
           })
         }
-        onCacheChange()
+        onCacheChange(withArticlePreviewImage(article, cached.html, cached.article?.image))
         return () => controller.abort()
       }
     }
@@ -589,11 +591,13 @@ export function ReaderScreen({
           setHtml(resolved.contentHtml)
           setResolvedTitle(resolved.title)
           if (resolved.bodySource !== 'video') {
-            const cached = saveCachedBody(withResolvedShareTitle(article, resolved.title), {
+            const previewArticle = withArticlePreviewImage(withResolvedShareTitle(article, resolved.title), resolved.contentHtml, resolved.image)
+            const cached = saveCachedBody(previewArticle, {
               html: resolved.contentHtml,
               bodySource: resolved.bodySource,
             })
-            if (cached) onCacheChange()
+            onCacheChange(previewArticle)
+            if (!cached) log.storage.warn('Reader body cache write failed', article.id)
           }
         },
       )
@@ -606,11 +610,13 @@ export function ReaderScreen({
           setLoadState('ready')
           // 视频稿正文只是占位文案，缓存没有意义
           if (resolved.bodySource !== 'video') {
-            const cached = saveCachedBody(withResolvedShareTitle(article, resolved.title), {
+            const previewArticle = withArticlePreviewImage(withResolvedShareTitle(article, resolved.title), resolved.contentHtml, resolved.image)
+            const cached = saveCachedBody(previewArticle, {
               html: resolved.contentHtml,
               bodySource: resolved.bodySource,
             })
-            if (cached) onCacheChange()
+            onCacheChange(previewArticle)
+            if (!cached) log.storage.warn('Reader body cache write failed', article.id)
           }
         })
         .catch((err: unknown) => {
@@ -630,6 +636,9 @@ export function ReaderScreen({
           setFromCache(true)
           setLoadState('ready')
           restoreTitle(prestored.article)
+          const previewArticle = withArticlePreviewImage(withResolvedShareTitle(article, prestored.article.title), prestored.html, prestored.article.image)
+          saveCachedBody(previewArticle, { html: prestored.html, bodySource: prestored.bodySource })
+          onCacheChange(previewArticle)
           return
         }
         loadFromNetwork()
@@ -1258,7 +1267,7 @@ export function ReaderScreen({
 
   return (
     <div
-      className="absolute inset-0 z-30 flex flex-col bg-ink"
+      className="absolute inset-0 z-30 flex flex-col"
       style={{
         paddingTop: 'var(--sat)',
         paddingBottom: 'var(--sab)',

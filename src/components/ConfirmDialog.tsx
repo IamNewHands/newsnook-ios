@@ -283,6 +283,8 @@ interface PromptDialogProps {
   cancelLabel?: string
   onConfirm: (value: string) => void
   onCancel: () => void
+  /** 嵌套在抽屉上时，输入弹窗需要更高的层级。 */
+  zIndex?: number
 }
 
 /** 应用内输入弹窗，替代 window.prompt */
@@ -296,6 +298,7 @@ export function PromptDialog({
   cancelLabel = '取消',
   onConfirm,
   onCancel,
+  zIndex = 60,
 }: PromptDialogProps) {
   const inputId = useId()
   useHardwareBackLayer(open, () => {
@@ -319,6 +322,7 @@ export function PromptDialog({
   return createPortal(
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/60 px-4 backdrop-blur-sm"
+      style={{ zIndex }}
       role="presentation"
       onClick={onCancel}
     >

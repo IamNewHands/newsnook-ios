@@ -2,6 +2,7 @@ import { memo, useState } from 'react'
 import { BookmarkCheck, Cloud } from 'lucide-react'
 
 import { InkImage } from './InkImage'
+import { EditorialCoverPlaceholder } from './EditorialCoverPlaceholder'
 import { articleCoverUrl } from '../lib/articleAudio'
 import { feedDisplayTitle } from '../lib/articleTitle'
 import { cleanSummaryText } from '../lib/cleanSummary'
@@ -206,7 +207,7 @@ export const ArticleRow = memo(function ArticleRow({
               : 'border-haze/85 bg-ink-raised/65 active:border-cinnabar/25 active:bg-ink-raised/90'
           }`}
         >
-          {cover && (
+          {cover ? (
             <span className={`relative block w-full overflow-hidden border-b border-haze/55 bg-ink-deep/30 ${article.contentType === 'video' ? 'aspect-video' : 'aspect-[4/3]'}`}>
               <InkImage
                 src={cover}
@@ -229,13 +230,15 @@ export const ArticleRow = memo(function ArticleRow({
                 </span>
               )}
             </span>
+          ) : (
+            <EditorialCoverPlaceholder
+              article={article}
+              read={read}
+              className={`relative block w-full overflow-hidden border-b border-haze/55 ${article.contentType === 'video' ? 'aspect-video' : 'aspect-[4/3]'}`}
+            />
           )}
 
-          <span className={`flex min-w-0 flex-1 flex-col ${cover ? 'p-2.5 sm:p-3' : 'p-3 sm:p-3.5'}`}>
-            {!cover && !read && (
-              <span className="mb-2 h-1.5 w-1.5 rounded-full bg-cinnabar" aria-label="未读" />
-            )}
-
+          <span className="flex min-w-0 flex-1 flex-col p-2.5 sm:p-3">
             <span
               className={`row-title line-clamp-3 text-[15px] leading-[1.42] tracking-[0.005em] transition-colors min-[430px]:text-[15.5px] ${
                 read ? 'font-normal text-paper-muted/78' : 'font-medium text-paper'
@@ -304,8 +307,8 @@ export const ArticleRow = memo(function ArticleRow({
           }`}
         >
           <div className="w-full">
-            {/* 大图展示 (如果有图) */}
-            {cover && (
+            {/* 大图展示 (如果有图)，无图时展示形式化编辑封面以维持网格对齐 */}
+            {cover ? (
               <div className="relative mb-3.5 overflow-hidden rounded-lg bg-ink border border-haze/60">
                 <InkImage
                   src={cover}
@@ -321,6 +324,15 @@ export const ArticleRow = memo(function ArticleRow({
                     视频
                   </span>
                 )}
+              </div>
+            ) : (
+              <div className="relative mb-3.5 overflow-hidden rounded-lg border border-haze/60">
+                <EditorialCoverPlaceholder
+                  article={article}
+                  read={read}
+                  className={`${article.contentType === 'video' ? 'aspect-video h-auto' : 'h-38'} w-full`}
+                  showUnreadDot={false}
+                />
               </div>
             )}
 

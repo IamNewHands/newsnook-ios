@@ -9,6 +9,7 @@
 
 import { shouldUseOriginPlayerSurface } from '../features/mediaSniffer/originPlayerGate'
 import { discoverMediaDescriptor, mediaDescriptorHtml } from '../features/mediaSniffer/service'
+import { firstImageIn } from './articlePreview'
 import { appendRelatedCatalogHtml, extractRelatedCatalog } from '../features/catalogEngine/related'
 import { extractWebCatalogDetailMeta } from '../features/catalogEngine/detailMeta'
 import { normalizeCatalogTitle } from '../features/catalogEngine/normalize'
@@ -231,6 +232,7 @@ export async function resolveArticleBody(
       {
         contentHtml,
         bodySource: 'feed',
+        image: firstImageIn(article.contentHtml!, article.originUrl),
       },
       article,
     )

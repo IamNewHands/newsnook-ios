@@ -1,6 +1,8 @@
 import { memo, useEffect, useId, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  ArrowDown,
+  ArrowUp,
   BarChart3,
   BookOpen,
   Bot,
@@ -14,6 +16,7 @@ import {
   Grid2X2,
   LayoutTemplate,
   Newspaper,
+  PencilLine,
   Plus,
   Settings,
   Settings2,
@@ -23,6 +26,10 @@ import {
 } from 'lucide-react'
 
 import { useHardwareBackLayer } from '../hooks/useHardwareBackLayer'
+import { useLongPressAction } from '../hooks/useLongPressAction'
+import type { Point } from '../lib/contextActions'
+import { PromptDialog } from './ConfirmDialog'
+import { ContextActionMenu, type ContextActionItem } from './ContextActionMenu'
 import { CmsHelpDialog } from './CmsHelpDialog'
 import { CmsGridCard } from './CmsGridCard'
 
@@ -47,6 +54,8 @@ export interface PresetSwitcherProps {
   items: PresetSwitcherItem[]
   onSelect: (id: string) => void
   onManage: () => void
+  onRenamePreset?: (id: string, name: string) => void
+  onMovePreset?: (id: string, direction: -1 | 1) => void
   onOpenSettings?: () => void
   /** 独立站点工作区；与 preset 完全分离，选择时不得调用 onSelect。 */
   siteItems?: SiteSwitcherItem[]
@@ -63,11 +72,15 @@ export interface PresetSwitcherProps {
     url?: string
   }[]
   onSelectCms?: (id: string) => void
+  onRenameCms?: (id: string, name: string) => void
+  onMoveCms?: (id: string, direction: -1 | 1) => void
   /** CMS 站点页为独立阅读空间，打开切换器时优先定位到该类型。 */
   cmsActive?: boolean
   activeCmsId?: string | null
   variant?: 'pill' | 'card' | 'tabbar' | 'sidebar'
 }
+
+type ManagedItem = { kind: 'preset' | 'cms'; id: string }
 
 /**
  * 场景预设快捷切换：
@@ -82,6 +95,8 @@ export function PresetSwitcher({
   items,
   onSelect,
   onManage,
+  onRenamePreset,
+  onMovePreset,
   onOpenSettings,
   siteItems = [],
   onSelectSite,
@@ -89,6 +104,8 @@ export function PresetSwitcher({
   onAddCms,
   cmsSites = [],
   onSelectCms,
+  onRenameCms,
+  onMoveCms,
   cmsActive = false,
   activeCmsId = null,
   variant = 'pill',
@@ -96,9 +113,41 @@ export function PresetSwitcher({
   const [open, setOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [presetTab, setPresetTab] = useState<'builtin' | 'custom' | 'cms'>('builtin')
+  const [actionMenu, setActionMenu] = useState<(ManagedItem & { anchor: Point }) | null>(null)
+  const [renameTarget, setRenameTarget] = useState<ManagedItem | null>(null)
   const titleId = useId()
 
-  useHardwareBackLayer(open, () => {
+  const builtins = useMemo(() => items.filter((item) => item.builtin), [items])
+  const mine = useMemo(() => items.filter((item) => !item.builtin), [items])
+  const showSiteSection = siteItems.length > 0
+  const actionList = actionMenu?.kind === 'cms' ? cmsSites : mine
+  const actionIndex = actionList.findIndex((item) => item.id === actionMenu?.id)
+  const actionItem = actionList[actionIndex]
+  const renameItem = (renameTarget?.kind === 'cms' ? cmsSites : mine)
+    .find((item) => item.id === renameTarget?.id)
+  const onRename = renameTarget?.kind === 'cms' ? onRenameCms : onRenamePreset
+  const onMove = actionMenu?.kind === 'cms' ? onMoveCms : onMovePreset
+  const canRename = actionMenu?.kind === 'cms' ? Boolean(onRenameCms) : Boolean(onRenamePreset)
+  const actionItems: ContextActionItem[] = actionItem && actionMenu ? [
+    ...(canRename ? [{
+      id: 'rename',
+      label: actionMenu.kind === 'cms' ? '重命名站点' : '重命名预设',
+      icon: PencilLine,
+      onSelect: () => setRenameTarget({ kind: actionMenu.kind, id: actionItem.id }),
+    }] : []),
+    ...(onMove && actionIndex > 0 ? [{
+      id: 'move-before', label: '向前移动', icon: ArrowUp,
+      onSelect: () => onMove(actionItem.id, -1),
+    }] : []),
+    ...(onMove && actionIndex < actionList.length - 1 ? [{
+      id: 'move-after', label: '向后移动', icon: ArrowDown,
+      onSelect: () => onMove(actionItem.id, 1),
+    }] : []),
+  ] : []
+  const menuOpen = Boolean(open && actionMenu && actionItem && actionItems.length)
+  const renameOpen = Boolean(open && renameItem && onRename)
+
+  useHardwareBackLayer(open && !menuOpen && !renameOpen, () => {
     setOpen(false)
     return true
   })
@@ -106,19 +155,22 @@ export function PresetSwitcher({
   useEffect(() => {
     if (!open) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
+      if (event.key !== 'Escape') return
+      if (renameOpen) setRenameTarget(null)
+      else if (!menuOpen) setOpen(false)
     }
     window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, menuOpen, renameOpen])
 
-  const builtins = useMemo(() => items.filter((item) => item.builtin), [items])
-  const mine = useMemo(() => items.filter((item) => !item.builtin), [items])
-  const showSiteSection = siteItems.length > 0
+  useEffect(() => {
+    if (actionMenu && !actionItem) setActionMenu(null)
+    if (renameTarget && !renameItem) setRenameTarget(null)
+  }, [actionMenu, actionItem, renameTarget, renameItem])
 
   const openSwitcher = () => {
+    setActionMenu(null)
+    setRenameTarget(null)
     setPresetTab(cmsActive ? 'cms' : mine.some((item) => item.active) ? 'custom' : 'builtin')
     setOpen(true)
   }
@@ -288,6 +340,9 @@ export function PresetSwitcher({
                             setOpen(false)
                             onSelectCms(site.id)
                           }}
+                          onManage={onRenameCms || onMoveCms ? (anchor) => {
+                            setActionMenu({ kind: 'cms', id: site.id, anchor })
+                          } : undefined}
                         />
                       ))}
                     </ul>
@@ -339,15 +394,18 @@ export function PresetSwitcher({
                     />
                   )
               ) : mine.length > 0 ? (
-                <ul className="space-y-2">
+                <ul className="grid grid-cols-2 gap-1.5 sm:gap-2">
                   {mine.map((item) => (
-                    <PresetPickRow
+                    <PresetGridCard
                       key={item.id}
                       item={item}
                       onPick={() => {
                         if (!item.active) onSelect(item.id)
                         setOpen(false)
                       }}
+                      onManage={onRenamePreset || onMovePreset ? (anchor) => {
+                        setActionMenu({ kind: 'preset', id: item.id, anchor })
+                      } : undefined}
                     />
                   ))}
                 </ul>
@@ -395,19 +453,42 @@ export function PresetSwitcher({
       document.body,
     )
 
-  const helpModal = (
-    <CmsHelpDialog
-      open={helpOpen}
-      onClose={() => setHelpOpen(false)}
-      onAddCms={
-        onAddCms
-          ? () => {
-              setOpen(false)
-              onAddCms()
-            }
-          : undefined
-      }
-    />
+  const overlays = (
+    <>
+      <ContextActionMenu
+        open={menuOpen}
+        anchor={actionMenu?.anchor ?? { x: 0, y: 0 }}
+        title={actionItem?.name ?? ''}
+        caption={actionMenu?.kind === 'cms' ? 'CMS 站点管理' : '自定义预设管理'}
+        actions={actionItems}
+        onClose={() => setActionMenu(null)}
+      />
+      <PromptDialog
+        open={renameOpen}
+        title={renameTarget?.kind === 'cms' ? '重命名站点' : '重命名预设'}
+        label={renameTarget?.kind === 'cms' ? '站点名称' : '预设名称'}
+        defaultValue={renameItem?.name ?? ''}
+        zIndex={90}
+        onCancel={() => setRenameTarget(null)}
+        onConfirm={(name) => {
+          if (!renameItem || !onRename) return
+          onRename(renameItem.id, name)
+          setRenameTarget(null)
+        }}
+      />
+      <CmsHelpDialog
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        onAddCms={
+          onAddCms
+            ? () => {
+                setOpen(false)
+                onAddCms()
+              }
+            : undefined
+        }
+      />
+    </>
   )
 
   if (variant === 'tabbar') {
@@ -436,7 +517,7 @@ export function PresetSwitcher({
           </span>
         </button>
         {sheet}
-        {helpModal}
+        {overlays}
       </>
     )
   }
@@ -451,6 +532,7 @@ export function PresetSwitcher({
           aria-expanded={open}
           aria-label={`布局，当前：${activeName}，点击切换`}
           title={`当前布局：${activeName}`}
+          data-tour="desktop-preset-switcher"
           className="group flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-paper-muted transition-all duration-200 hover:bg-ink-raised/50 hover:text-paper"
         >
           <span className="flex min-w-0 items-center gap-2.5">
@@ -466,7 +548,7 @@ export function PresetSwitcher({
           </span>
         </button>
         {sheet}
-        {helpModal}
+        {overlays}
       </>
     )
   }
@@ -509,7 +591,7 @@ export function PresetSwitcher({
           </div>
         </button>
         {sheet}
-        {helpModal}
+        {overlays}
       </>
     )
   }
@@ -540,7 +622,7 @@ export function PresetSwitcher({
         />
       </button>
       {sheet}
-      {helpModal}
+      {overlays}
     </>
   )
 }
@@ -556,7 +638,16 @@ const PRESET_ICONS: Record<string, typeof LayoutTemplate> = {
   文体生活: Trophy,
 }
 
-function PresetGlyph({ name, size = 14 }: { name: string; size?: number }) {
+function PresetGlyph({
+  name,
+  builtin = true,
+  size = 14,
+}: {
+  name: string
+  builtin?: boolean
+  size?: number
+}) {
+  if (!builtin) return <UserRound size={size} strokeWidth={1.75} />
   const Icon = PRESET_ICONS[name] ?? LayoutTemplate
   return <Icon size={size} strokeWidth={1.75} />
 }
@@ -693,17 +784,41 @@ const CommunityEntryCard = memo(function CommunityEntryCard({
 const PresetGridCard = memo(function PresetGridCard({
   item,
   onPick,
+  onManage,
 }: {
   item: PresetSwitcherItem
   onPick: () => void
+  onManage?: (anchor: Point) => void
 }) {
+  const longPress = useLongPressAction<string>((_id, anchor) => onManage?.(anchor))
   return (
     <li className="min-w-0">
       <button
         type="button"
-        onClick={onPick}
+        onClick={() => {
+          if (!longPress.consumeClick(item.id)) onPick()
+        }}
+        onPointerDown={onManage ? (event) => longPress.start(item.id, event) : undefined}
+        onPointerMove={longPress.move}
+        onPointerUp={longPress.cancel}
+        onPointerCancel={longPress.cancel}
+        onPointerLeave={longPress.cancel}
+        onContextMenu={onManage ? (event) => {
+          event.preventDefault()
+          longPress.cancel()
+          onManage({ x: event.clientX, y: event.clientY })
+        } : undefined}
+        onKeyDown={onManage ? (event) => {
+          if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+          event.preventDefault()
+          const rect = event.currentTarget.getBoundingClientRect()
+          onManage({ x: rect.left, y: rect.bottom })
+        } : undefined}
+        aria-haspopup={onManage ? 'menu' : undefined}
+        aria-label={onManage ? `${item.name}，长按管理` : undefined}
         aria-pressed={item.active}
-        className={`group relative flex min-h-[78px] w-full flex-col overflow-hidden rounded-xl border px-2.5 py-2.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinnabar/45 ${
+        title={item.name}
+        className={`${onManage ? 'custom-long-press-target ' : ''}group relative flex min-h-[78px] h-full w-full flex-col overflow-hidden rounded-xl border px-2.5 py-2.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinnabar/45 ${
           item.active
             ? 'border-cinnabar/75 bg-cinnabar/12 shadow-[0_4px_12px_rgba(0,0,0,0.08)]'
             : 'border-haze/80 bg-ink/55 hover:-translate-y-px hover:border-cinnabar/40 hover:bg-ink hover:shadow-sm active:translate-y-0'
@@ -717,7 +832,7 @@ const PresetGridCard = memo(function PresetGridCard({
                 : 'border-haze bg-ink-raised text-paper-muted group-hover:border-cinnabar/35 group-hover:text-cinnabar'
             }`}
           >
-            <PresetGlyph name={item.name} size={14} />
+            <PresetGlyph name={item.name} builtin={item.builtin} size={14} />
           </span>
 
           <span
@@ -749,66 +864,6 @@ const PresetGridCard = memo(function PresetGridCard({
 
         {item.active && (
           <span className="pointer-events-none absolute inset-x-2.5 bottom-0 h-px bg-gradient-to-r from-transparent via-cinnabar/45 to-transparent" aria-hidden />
-        )}
-      </button>
-    </li>
-  )
-})
-
-const PresetPickRow = memo(function PresetPickRow({
-  item,
-  onPick,
-}: {
-  item: PresetSwitcherItem
-  onPick: () => void
-}) {
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={onPick}
-        className={`group relative flex w-full items-center gap-3.5 rounded-xl border p-3 text-left transition-colors ${
-          item.active
-            ? 'border-cinnabar/60 bg-cinnabar/12'
-            : 'border-haze/80 bg-ink/50 hover:border-cinnabar/40 hover:bg-ink-raised'
-        }`}
-      >
-        <div
-          className={`flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors ${
-            item.active
-              ? 'bg-cinnabar text-white'
-              : 'bg-ink-raised border border-haze text-paper-muted group-hover:border-cinnabar/40 group-hover:text-cinnabar'
-          }`}
-        >
-          <UserRound size={15} strokeWidth={1.7} />
-        </div>
-
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            <span
-              className={`truncate font-display text-[15px] font-semibold ${
-                item.active ? 'text-cinnabar' : 'text-paper group-hover:text-paper'
-              }`}
-            >
-              {item.name}
-            </span>
-            {item.active && (
-              <span className="inline-flex items-center rounded-full bg-cinnabar/15 px-1.5 py-0.5 font-mono text-[9px] font-semibold tracking-wider text-cinnabar">
-                当前生效
-              </span>
-            )}
-          </span>
-          {item.description && (
-            <span className="mt-0.5 block truncate text-[12px] text-paper-faint group-hover:text-paper-muted transition-colors">
-              {item.description}
-            </span>
-          )}
-        </span>
-
-        {!item.active && (
-          <span className="shrink-0 rounded-full border border-haze/80 bg-ink px-2.5 py-1 font-mono text-[10.5px] font-medium text-paper-faint group-hover:border-cinnabar/40 group-hover:text-cinnabar transition-colors">
-            选用
-          </span>
         )}
       </button>
     </li>

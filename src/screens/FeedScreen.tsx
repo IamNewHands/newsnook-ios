@@ -150,34 +150,45 @@ function CategoryPeek({
             variant="lead"
           />
         )}
-        {grouped.map(([bucket, items]) => (
-          <div key={bucket}>
-            <div className={homeFeedLayout === 'cards'
-              ? 'flex items-center gap-2.5 px-3.5 pt-4 pb-1.5 min-[430px]:px-4'
-              : 'page-x flex items-center gap-2.5 pt-5 pb-1.5'}>
-              <span className={homeFeedLayout === 'cards'
-                ? 'font-display text-[13px] font-medium tracking-[0.08em] text-paper-muted'
-                : 'font-mono text-[11px] font-medium tracking-[0.16em] text-paper-muted'}>{bucket}</span>
-              <span className="h-px flex-1 bg-haze" aria-hidden />
+        {homeFeedLayout === 'cards' ? (
+          <ul className="grid grid-cols-1 items-start gap-2.5 px-3.5 py-2.5 min-[360px]:grid-cols-2 min-[430px]:gap-3 min-[430px]:px-4">
+            {rest.map((article) => (
+              <ArticleRow
+                key={article.id}
+                article={article}
+                read={readIds.has(article.id)}
+                saved={laterIds.has(article.id)}
+                prestored={prestoredIds.has(article.id)}
+                onOpen={onOpen}
+                revealed
+                variant="compact-card"
+              />
+            ))}
+          </ul>
+        ) : (
+          grouped.map(([bucket, items]) => (
+            <div key={bucket}>
+              <div className="page-x flex items-center gap-2.5 pt-5 pb-1.5">
+                <span className="font-mono text-[11px] font-medium tracking-[0.16em] text-paper-muted">{bucket}</span>
+                <span className="h-px flex-1 bg-haze" aria-hidden />
+              </div>
+              <ul className="divide-y divide-haze">
+                {items.map((article) => (
+                  <ArticleRow
+                    key={article.id}
+                    article={article}
+                    read={readIds.has(article.id)}
+                    saved={laterIds.has(article.id)}
+                    prestored={prestoredIds.has(article.id)}
+                    onOpen={onOpen}
+                    revealed
+                    variant="row"
+                  />
+                ))}
+              </ul>
             </div>
-            <ul className={homeFeedLayout === 'cards'
-              ? 'grid grid-cols-1 items-start gap-2.5 px-3.5 py-1.5 min-[360px]:grid-cols-2 min-[430px]:gap-3 min-[430px]:px-4'
-              : 'divide-y divide-haze'}>
-              {items.map((article) => (
-                <ArticleRow
-                  key={article.id}
-                  article={article}
-                  read={readIds.has(article.id)}
-                  saved={laterIds.has(article.id)}
-                  prestored={prestoredIds.has(article.id)}
-                  onOpen={onOpen}
-                  revealed
-                  variant={homeFeedLayout === 'cards' ? 'compact-card' : 'row'}
-                />
-              ))}
-            </ul>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   )
@@ -648,57 +659,69 @@ export const FeedScreen = memo(function FeedScreen({
             </div>
           )}
 
-          {grouped.map(([bucket, items]) => (
-            <div key={bucket}>
-              <div className={useCompactCards
-                ? 'flex items-center gap-2.5 px-3.5 pt-4 pb-1.5 min-[430px]:px-4'
-                : 'page-x flex items-center gap-2.5 pt-4 pb-1.5 lg:px-6 xl:px-8 2xl:px-10'}>
-                <span className={useCompactCards
-                  ? 'font-display text-[13px] font-medium tracking-[0.08em] text-paper-muted'
-                  : 'font-mono text-[11px] font-medium tracking-[0.16em] text-paper-muted'}>{bucket}</span>
-                <span className="h-px flex-1 bg-haze" aria-hidden />
+          {useCompactCards ? (
+            /* 手机双列卡片：连续优雅杂志流，卡片自然并排排满，左右严整对齐，杜绝被日期硬切碎导致的空洞与横竖混杂 */
+            <ul className="grid grid-cols-1 items-start gap-2.5 px-3.5 py-2.5 min-[360px]:grid-cols-2 min-[430px]:gap-3 min-[430px]:px-4">
+              {rest.map((article) => (
+                <ArticleRow
+                  key={article.id}
+                  article={article}
+                  read={readIds.has(article.id)}
+                  saved={laterIds.has(article.id)}
+                  prestored={prestoredIds.has(article.id)}
+                  translated={translations.get(article.id)}
+                  displayMode={activeTranslationPrefs.displayMode}
+                  onOpen={onOpen}
+                  onSourceClick={onSelectSource}
+                  variant="compact-card"
+                />
+              ))}
+            </ul>
+          ) : !isDesktop ? (
+            /* 移动端经典单列时间线：按今天/昨天/更早分组 */
+            grouped.map(([bucket, items]) => (
+              <div key={bucket}>
+                <div className="page-x flex items-center gap-2.5 pt-4 pb-1.5 lg:px-6 xl:px-8 2xl:px-10">
+                  <span className="font-mono text-[11px] font-medium tracking-[0.16em] text-paper-muted">{bucket}</span>
+                  <span className="h-px flex-1 bg-haze" aria-hidden />
+                </div>
+                <ul className="divide-y divide-haze">
+                  {items.map((article) => (
+                    <ArticleRow
+                      key={article.id}
+                      article={article}
+                      read={readIds.has(article.id)}
+                      saved={laterIds.has(article.id)}
+                      prestored={prestoredIds.has(article.id)}
+                      translated={translations.get(article.id)}
+                      displayMode={activeTranslationPrefs.displayMode}
+                      onOpen={onOpen}
+                      onSourceClick={onSelectSource}
+                      variant="row"
+                    />
+                  ))}
+                </ul>
               </div>
-
-              {/* 新版手机双栏与经典单栏都保留；桌面继续规则网格。 */}
-              {!isDesktop ? (
-                <ul className={useCompactCards
-                  ? 'grid grid-cols-1 items-start gap-2.5 px-3.5 py-1.5 min-[360px]:grid-cols-2 min-[430px]:gap-3 min-[430px]:px-4'
-                  : 'divide-y divide-haze'}>
-                  {items.map((article) => (
-                    <ArticleRow
-                      key={article.id}
-                      article={article}
-                      read={readIds.has(article.id)}
-                      saved={laterIds.has(article.id)}
-                      prestored={prestoredIds.has(article.id)}
-                      translated={translations.get(article.id)}
-                      displayMode={activeTranslationPrefs.displayMode}
-                      onOpen={onOpen}
-                      onSourceClick={onSelectSource}
-                      variant={useCompactCards ? 'compact-card' : 'row'}
-                    />
-                  ))}
-                </ul>
-              ) : (
-                <ul className="grid grid-cols-2 gap-4 px-6 py-2 xl:grid-cols-3 2xl:grid-cols-4 min-[2100px]:grid-cols-5 xl:px-8 2xl:px-10 min-[2100px]:gap-5">
-                  {items.map((article) => (
-                    <ArticleRow
-                      key={article.id}
-                      article={article}
-                      read={readIds.has(article.id)}
-                      saved={laterIds.has(article.id)}
-                      prestored={prestoredIds.has(article.id)}
-                      translated={translations.get(article.id)}
-                      displayMode={activeTranslationPrefs.displayMode}
-                      onOpen={onOpen}
-                      onSourceClick={onSelectSource}
-                      variant="card"
-                    />
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
+            ))
+          ) : (
+            /* 桌面端规则多列网格：同样连续流排布，防止多列网格被日期切碎留下大片空白 */
+            <ul className="grid grid-cols-2 gap-4 px-6 py-4 xl:grid-cols-3 2xl:grid-cols-4 min-[2100px]:grid-cols-5 xl:px-8 2xl:px-10 min-[2100px]:gap-5">
+              {rest.map((article) => (
+                <ArticleRow
+                  key={article.id}
+                  article={article}
+                  read={readIds.has(article.id)}
+                  saved={laterIds.has(article.id)}
+                  prestored={prestoredIds.has(article.id)}
+                  translated={translations.get(article.id)}
+                  displayMode={activeTranslationPrefs.displayMode}
+                  onOpen={onOpen}
+                  onSourceClick={onSelectSource}
+                  variant="card"
+                />
+              ))}
+            </ul>
+          )}
         </>
       )}
 
