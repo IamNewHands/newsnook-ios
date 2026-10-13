@@ -626,7 +626,7 @@ export function LinuxDoComposer({
           onUpload={chooseFile}
           onOpenInsert={() => setInsertMenuOpen(true)}
           onOpenTemplate={openTemplatePicker}
-          footer={<span className={'block truncate whitespace-nowrap font-mono text-[9.5px] ' + (validation.bodyRemaining > 0 ? 'text-cinnabar-soft' : 'text-paper-faint')}>{validation.bodyCount}/20{draftSequence > 0 ? ' · 草稿已保存' : ''}</span>}
+          footer={<span className={'block truncate whitespace-nowrap font-mono text-[9.5px] ' + (validation.bodyRemaining > 0 ? 'text-cinnabar-soft' : 'text-paper-faint')}>{validation.bodyCount}/{validation.bodyMinimum}{draftSequence > 0 ? ' · 草稿已保存' : ''}</span>}
         />
         <input ref={fileRef} type="file" multiple className="hidden" accept="image/*,.pdf,.zip,.txt" onChange={(event) => {
           const files = Array.from(event.target.files ?? [])

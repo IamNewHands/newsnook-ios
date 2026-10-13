@@ -54,6 +54,7 @@ export interface ComposerValidation {
   canSubmit: boolean
   titleCount: number
   bodyCount: number
+  bodyMinimum: number
   titleRemaining: number
   bodyRemaining: number
 }
@@ -70,7 +71,7 @@ export interface ComposerDraftInput {
 
 const TITLE_MIN = 6
 const BODY_MIN = 20
-const REPLY_MIN = 10
+const REPLY_MIN = 6
 const PRIVATE_REPLY_MIN = 3
 
 function clampSelection(raw: string, selection: ComposerSelection): ComposerSelection {
@@ -264,6 +265,7 @@ export function validateComposer(input: ComposerValidationInput): ComposerValida
     canSubmit: titleRemaining === 0 && bodyRemaining === 0,
     titleCount,
     bodyCount,
+    bodyMinimum,
     titleRemaining,
     bodyRemaining,
   }

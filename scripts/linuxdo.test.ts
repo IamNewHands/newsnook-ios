@@ -92,7 +92,7 @@ assert.equal(composerModel.normalizeComposerTag('  #Open AI  '), 'open-ai')
 assert.equal(composerModel.normalizeComposerTag(' #Node.js / API '), 'node.js-api')
 assert.deepEqual(
   composerModel.validateComposer({ mode: 'create', title: '短标题', raw: '不足二十字' }),
-  { canSubmit: false, titleCount: 3, bodyCount: 5, titleRemaining: 3, bodyRemaining: 15 },
+  { canSubmit: false, titleCount: 3, bodyCount: 5, bodyMinimum: 20, titleRemaining: 3, bodyRemaining: 15 },
 )
 assert.equal(composerModel.validateComposer({ mode: 'create', title: '这是合格标题', raw: '这是一段已经达到二十个字符要求并且能够正常发布的正文内容。' }).canSubmit, true)
 assert.equal(composerModel.validateComposer({ mode: 'reply', title: '', raw: '这是一段已经达到二十个字符要求并且能够正常发布的回复内容。' }).canSubmit, true)
