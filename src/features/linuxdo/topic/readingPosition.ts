@@ -9,6 +9,8 @@ export interface LinuxDoTopicPosition {
   postNumber: number
   /** Distance from the post's top to the viewport's top, including header space. */
   offset: number
+  /** Opening-only hint; captured/stored positions retain their existing offsets. */
+  alignBelowToolbar?: boolean
 }
 
 type StoredPosition = LinuxDoTopicPosition & { updatedAt: number }
@@ -51,13 +53,20 @@ export function linuxDoServerResumePosition(topic: LinuxDoTopic): LinuxDoTopicPo
 
 export function captureLinuxDoTopicPosition(root: HTMLElement): LinuxDoTopicPosition | undefined {
   const viewport = root.getBoundingClientRect()
+  const visibleTop = viewport.top + (root.querySelector<HTMLElement>('[data-linuxdo-reading-toolbar]')?.offsetHeight ?? 0)
+  let fallback: LinuxDoTopicPosition | undefined
   for (const element of root.querySelectorAll<HTMLElement>('article[data-linuxdo-post-number]')) {
     const rect = element.getBoundingClientRect()
     const postNumber = Number(element.dataset.linuxdoPostNumber)
-    if (Number.isInteger(postNumber) && postNumber > 0 && rect.bottom > viewport.top && rect.top < viewport.bottom) {
-      return { postNumber, offset: viewport.top - rect.top }
-    }
+    const overlap = Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, visibleTop)
+    if (!Number.isInteger(postNumber) || postNumber <= 0 || overlap <= 0) continue
+    const position = { postNumber, offset: viewport.top - rect.top }
+    fallback ??= position
+    // Keep a readable post as the anchor, rather than a sliver of the previous
+    // card under the sticky controls. Offsets remain relative to the scroller.
+    if (overlap >= Math.min(32, Math.max(1, rect.height * 0.2))) return position
   }
+  return fallback
 }
 
 export function restoreLinuxDoTopicPosition(root: HTMLElement, position: LinuxDoTopicPosition): boolean {
@@ -69,7 +78,8 @@ export function restoreLinuxDoTopicPosition(root: HTMLElement, position: LinuxDo
   if (!element) return false
   const rect = element.getBoundingClientRect()
   const offset = Math.min(position.offset, Math.max(0, rect.height - 1))
-  root.scrollTop = Math.max(0, root.scrollTop + rect.top - root.getBoundingClientRect().top + offset)
+  const inset = position.alignBelowToolbar ? root.querySelector<HTMLElement>('[data-linuxdo-reading-toolbar]')?.offsetHeight ?? 0 : 0
+  root.scrollTop = Math.max(0, root.scrollTop + rect.top - root.getBoundingClientRect().top + offset - inset)
   return true
 }
 

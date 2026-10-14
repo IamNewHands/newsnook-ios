@@ -1,0 +1,181 @@
+/* One inset per discussion, regardless of logical depth. Keep full post content
+ * and its actions in the same keyed article when the reading order changes. */
+.linuxdo-reading-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -8px 0 8px;
+  padding: 1px 0;
+  background: var(--color-ink);
+  border-bottom: 1px solid var(--color-haze);
+  animation: linuxdo-reading-enter 180ms var(--ease-ink) both;
+}
+
+.linuxdo-reading-count {
+  color: var(--color-paper-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.linuxdo-reading-switch { flex: 0 0 auto; padding: 2px; border-radius: 10px; }
+.linuxdo-reading-switch .linuxdo-segment { width: 36px; min-height: 36px; border-radius: 8px; padding: 0; }
+.linuxdo-reading-switch .linuxdo-segment:active { transform: scale(0.97); }
+.linuxdo-reading-switch .linuxdo-segment[aria-pressed='true'] { color: var(--color-cinnabar-soft); }
+
+.linuxdo-reading-switch button:focus-visible,
+.linuxdo-thread-toggle:focus-visible,
+.linuxdo-thread-relation:focus-visible,
+.linuxdo-thread-load:focus-visible {
+  outline: 2px solid var(--color-cinnabar-soft);
+  outline-offset: 3px;
+}
+
+.linuxdo-post-stream { overflow-anchor: none; }
+[data-linuxdo-reading-layout='threaded'] .linuxdo-post-stream > article {
+  position: relative;
+  transition-property: background-color, border-color;
+}
+[data-linuxdo-reading-layout='threaded'] .linuxdo-floor-relation { display: none; }
+[data-linuxdo-reading-layout='threaded'] .linuxdo-post-author { flex-wrap: wrap; row-gap: 2px; }
+[data-linuxdo-reading-layout='threaded'] .linuxdo-post-number { color: var(--color-paper-muted); }
+[data-linuxdo-reading-layout='threaded'] article > header .text-paper-faint { color: var(--color-paper-muted); }
+
+.linuxdo-thread-relation {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 28px;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-paper-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: start;
+  transition: color 140ms var(--ease-ink);
+}
+.linuxdo-thread-relation span { overflow-wrap: anywhere; }
+.linuxdo-thread-relation .linuxdo-thread-parent-number { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.linuxdo-thread-relation svg { flex-shrink: 0; }
+.linuxdo-thread-relation:hover { color: var(--color-cinnabar-soft); }
+
+[data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-root] {
+  margin-bottom: 0;
+  border-bottom-width: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  background: var(--color-ink-raised);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+[data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-root]::after { content: none; }
+
+[data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth]:not([data-linuxdo-thread-depth='0']) {
+  margin-block: 0;
+  --linuxdo-thread-inset: 22px;
+  margin-inline-start: 0;
+  padding: 14px 12px;
+  padding-inline-start: calc(12px + var(--linuxdo-thread-inset));
+  border: 1px solid color-mix(in srgb, var(--color-haze) 45%, transparent);
+  border-block-width: 0;
+  border-radius: 0;
+  background: var(--color-ink-raised);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+[data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth]:not([data-linuxdo-thread-depth='0'])::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(12px + var(--linuxdo-thread-inset) / 2);
+  border-left: 1px solid color-mix(in srgb, var(--color-paper-muted) 24%, transparent);
+  pointer-events: none;
+}
+[data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth][data-linuxdo-thread-first] {
+  margin-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+[data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth][data-linuxdo-thread-first]::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: calc(12px + var(--linuxdo-thread-inset));
+  right: 12px;
+  border-top: 1px solid var(--color-haze);
+  pointer-events: none;
+}
+[data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth][data-linuxdo-thread-last] {
+  margin-bottom: 18px;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+  border-bottom-width: 1px;
+}
+[data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth][data-linuxdo-thread-last]::before { bottom: auto; height: 31px; }
+[data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth][data-linuxdo-thread-first]::before { top: 0; }
+
+[data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth]:not([data-linuxdo-thread-depth='0']) > header > button {
+  height: 28px;
+  width: 28px;
+}
+[data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth]:not([data-linuxdo-thread-depth='0']) .linuxdo-post-prose {
+  margin-top: 10px;
+  font-size: 15px;
+  line-height: 1.75;
+}
+[data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth]:not([data-linuxdo-thread-depth='0']) .linuxdo-post-prose p { margin-block: 0 0.6em; }
+[data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth]:not([data-linuxdo-thread-depth='0']) .linuxdo-post-prose > :last-child { margin-bottom: 0; }
+[data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth]:not([data-linuxdo-thread-depth='0']) > footer { margin-top: 10px; border-top: 0; padding-top: 0; }
+
+.linuxdo-thread-toggle {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--color-paper-muted);
+  font-size: 12px;
+  font-weight: 500;
+  transition: color 140ms var(--ease-ink);
+}
+.linuxdo-thread-toggle:hover { color: var(--color-cinnabar-soft); }
+.linuxdo-thread-toggle > svg:nth-of-type(2) { margin-left: 4px; transition: transform 160ms var(--ease-ink); }
+.linuxdo-thread-toggle[aria-expanded='true'] > svg:nth-of-type(2) { transform: rotate(180deg); }
+.linuxdo-thread-toggle-label { font-weight: 400; }
+.linuxdo-thread-pagination { display: flex; justify-content: center; padding-block: 12px; }
+.linuxdo-thread-load { display: block; min-height: 44px; margin-inline: auto; padding: 10px 16px; color: var(--color-paper-muted); font-size: 13px; }
+.linuxdo-thread-load:hover { color: var(--color-cinnabar-soft); }
+.linuxdo-thread-load:disabled { opacity: 0.5; }
+
+@keyframes linuxdo-reading-enter { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+@media (min-width: 640px) {
+  [data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth]:not([data-linuxdo-thread-depth='0']) { --linuxdo-thread-inset: 32px; padding-inline: 16px; padding-inline-start: calc(16px + var(--linuxdo-thread-inset)); }
+}
+@media (max-width: 359px) {
+  .linuxdo-reading-count { font-size: 11px; }
+  [data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth]:not([data-linuxdo-thread-depth='0']) { --linuxdo-thread-inset: 14px; padding-inline: 10px; padding-inline-start: calc(10px + var(--linuxdo-thread-inset)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .linuxdo-reading-toolbar { animation: none; }
+  .linuxdo-reading-switch .linuxdo-segment,
+  .linuxdo-thread-toggle > svg:nth-of-type(2),
+  .linuxdo-thread-relation,
+  .linuxdo-thread-toggle { transition: none; }
+  .linuxdo-reading-switch .linuxdo-segment:active { transform: none; }
+}
+html[data-eink='1'] .linuxdo-reading-toolbar { animation: none; }
+html[data-eink='1'] .linuxdo-reading-switch .linuxdo-segment,
+html[data-eink='1'] .linuxdo-thread-toggle > svg:nth-of-type(2) { transition: none; box-shadow: none; }
+html[data-eink='1'] .linuxdo-reading-switch .linuxdo-segment:active { transform: none; }
+html[data-eink='1'] .linuxdo-reading-switch .linuxdo-segment[aria-pressed='true'] { color: var(--color-paper); outline: 1px solid currentColor; outline-offset: -1px; }
+html[data-eink='1'] [data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-root],
+html[data-eink='1'] [data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth]:not([data-linuxdo-thread-depth='0']) { background: var(--color-ink); }
+html[data-eink='1'] [data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth]::before,
+html[data-eink='1'] [data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-first]::after { border-color: var(--color-paper); }

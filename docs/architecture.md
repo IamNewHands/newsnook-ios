@@ -469,6 +469,7 @@ GET /a/<token>/og.png[?src=<上游首图>]   ← 卡片首图的同域端点（�
 | `later-items` | 稍后读文章 |
 | `read` | 已读 ID 集合 |
 | `reading-pos` | 阅读位置表 `{ [articleId]: { scrollTop, scrollRange?, pageIndex?, updatedAt } }`（仅 localStorage，上限 240 条） |
+| `linuxdo-reading-mode:v1` | Linux.do 帖子阅读方式 `floors` / `threaded`（仅 localStorage；默认 `floors`，不进入云同步） |
 | `cache:v3:{sourceId}` | 列表元数据（约 7 天过期 / 12 小时标 stale） |
 | `body:v1:{id}` + `body:index` | 正文缓存（约 3MB 预算，稍后读 pin） |
 | `feed-translation:*` | 列表标题译文缓存 |
