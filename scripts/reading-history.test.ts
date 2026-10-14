@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { clearReadingHistory, listReadingHistory, migrateCachedReadingHistory, recordArticleRead, recordLinuxDoRead, recordZhihuRead, removeReadingHistory } from '../src/features/readingHistory/store'
+import { clearReadingHistory, listReadingHistory, migrateCachedReadingHistory, recordArticleRead, recordLinuxDoRead, recordZhihuRead, removeReadingHistory, removeReadingHistories, restoreReadingHistories } from '../src/features/readingHistory/store'
 import type { Article } from '../src/lib/types'
 const map = new Map<string, string>()
 Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
@@ -28,6 +28,11 @@ recordLinuxDoRead({ id: 8, slug: 'private', title: 'private', archetype: 'privat
   tags: [], postStream: { stream: [], posts: [] } }, 70_000)
 assert.equal(listReadingHistory().length, 3)
 removeReadingHistory('linuxdo:7')
+assert.equal(listReadingHistory().length, 2)
+const popped = listReadingHistory()
+removeReadingHistories(['zhihu:answer:27', 'article:rss:rss-id'])
+assert.equal(listReadingHistory().length, 0)
+restoreReadingHistories(popped)
 assert.equal(listReadingHistory().length, 2)
 clearReadingHistory()
 assert.equal(listReadingHistory().length, 0)

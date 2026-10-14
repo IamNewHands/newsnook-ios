@@ -134,6 +134,18 @@ export function recordZhihuRead(detail: ZhihuContentSummary, at = Date.now()): R
 export function removeReadingHistory(key: string): ReadingHistoryEntry[] {
   return save(listReadingHistory().filter((item) => item.key !== key))
 }
+export function removeReadingHistories(keys: Iterable<string>): ReadingHistoryEntry[] {
+  const set = new Set(keys)
+  if (!set.size) return listReadingHistory()
+  return save(listReadingHistory().filter((item) => !set.has(item.key)))
+}
+export function restoreReadingHistories(items: ReadingHistoryEntry[]): ReadingHistoryEntry[] {
+  if (!items.length) return listReadingHistory()
+  const existing = listReadingHistory()
+  const existingKeys = new Set(existing.map((item) => item.key))
+  const toAdd = items.filter((item) => !existingKeys.has(item.key) && valid(item))
+  return save([...toAdd, ...existing])
+}
 export function clearReadingHistory(): ReadingHistoryEntry[] {
   return save([])
 }

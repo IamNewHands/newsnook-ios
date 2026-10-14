@@ -9,12 +9,13 @@ interface Props {
   title: string
   caption?: string
   action?: ReactNode
+  footer?: ReactNode
   onBack: () => void
   children: ReactNode
 }
 
 /** 设置类页面的统一外壳：覆盖在主界面之上，保留返回路径，支持边缘右滑手势返回与平滑退场动效 */
-export function SettingsShell({ title, caption, action, onBack, children }: Props) {
+export function SettingsShell({ title, caption, action, footer, onBack, children }: Props) {
   const reduced = useReducedMotion()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [exiting, setExiting] = useState(false)
@@ -114,6 +115,14 @@ export function SettingsShell({ title, caption, action, onBack, children }: Prop
           {children}
         </div>
       </div>
+
+      {footer && (
+        <footer className="shrink-0 border-t border-haze/30 bg-ink/95 backdrop-blur-md">
+          <div className="page-x lg:px-8 max-w-4xl mx-auto w-full py-2.5">
+            {footer}
+          </div>
+        </footer>
+      )}
     </div>
   )
 }

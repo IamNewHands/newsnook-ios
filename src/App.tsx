@@ -87,7 +87,7 @@ import { CategorySourcesScreen } from './screens/settings/CategorySourcesScreen'
 import { CategoryEditScreen } from './screens/settings/CategoryEditScreen'
 import { CustomSourcesScreen } from './screens/settings/CustomSourcesScreen'
 import { HistoryScreen } from './screens/settings/HistoryScreen'
-import { clearReadingHistory, listReadingHistory, migrateCachedReadingHistory, recordArticleRead, removeReadingHistory, type ReadingHistoryEntry } from './features/readingHistory/store'
+import { clearReadingHistory, listReadingHistory, migrateCachedReadingHistory, recordArticleRead, removeReadingHistory, removeReadingHistories, restoreReadingHistories, type ReadingHistoryEntry } from './features/readingHistory/store'
 import type { LinuxDoTopicSummary } from './features/linuxdo/types'
 import type { ZhihuEntityRef } from './features/zhihu/types'
 import { LaterScreen } from './screens/settings/LaterScreen'
@@ -1628,6 +1628,8 @@ export default function App() {
           history={readingHistory}
           onOpen={openHistoryEntry}
           onRemove={(key) => setReadingHistory(removeReadingHistory(key))}
+          onBatchRemove={(keys) => setReadingHistory(removeReadingHistories(keys))}
+          onRestore={(entries) => setReadingHistory(restoreReadingHistories(entries))}
           onClear={() => setReadingHistory(clearReadingHistory())}
           onBack={() => setSettingsRoute(null)}
         />
