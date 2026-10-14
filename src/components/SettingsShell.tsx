@@ -6,8 +6,10 @@ import { useReducedMotion } from '../hooks/useReducedMotion'
 import { haptics } from '../lib/haptics'
 
 interface Props {
-  title: string
+  title: ReactNode
   caption?: string
+  toolbar?: ReactNode
+  className?: string
   action?: ReactNode
   footer?: ReactNode
   onBack: () => void
@@ -15,7 +17,7 @@ interface Props {
 }
 
 /** 设置类页面的统一外壳：覆盖在主界面之上，保留返回路径，支持边缘右滑手势返回与平滑退场动效 */
-export function SettingsShell({ title, caption, action, footer, onBack, children }: Props) {
+export function SettingsShell({ title, caption, toolbar, className, action, footer, onBack, children }: Props) {
   const reduced = useReducedMotion()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [exiting, setExiting] = useState(false)
@@ -65,7 +67,7 @@ export function SettingsShell({ title, caption, action, footer, onBack, children
     <div
       ref={containerRef}
       onAnimationEnd={onAnimationEnd}
-      className="paper-settings-shell absolute inset-0 z-30 flex flex-col bg-ink"
+      className={`paper-settings-shell absolute inset-0 z-30 flex flex-col bg-ink ${className ?? ""}`}
       style={{
         paddingBottom: 'var(--sab)',
         animation: animationStyle,
@@ -105,6 +107,8 @@ export function SettingsShell({ title, caption, action, footer, onBack, children
           </div>
         </div>
       </header>
+
+      {toolbar && <div className="paper-settings-shell-toolbar shrink-0">{toolbar}</div>}
 
       <div
         data-settings-scroll

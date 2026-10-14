@@ -159,6 +159,8 @@ interface ConfirmDialogProps {
   cancelLabel?: string
   /** 保留语义标记；视觉与主确认钮统一，避免另套 rose 浅字低对比 */
   danger?: boolean
+  /** 手机阅读历史使用与产品原型一致的底部确认面板，其余对话框默认居中 */
+  placement?: 'center' | 'bottom'
   onConfirm: () => void
   onCancel: () => void
 }
@@ -234,6 +236,7 @@ export function ConfirmDialog({
   message,
   confirmLabel = '确定',
   cancelLabel = '取消',
+  placement = 'center',
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -245,7 +248,7 @@ export function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className={placement === 'bottom' ? 'history-archive-sheet-backdrop fixed inset-0 z-[60] flex items-end justify-center bg-black/60' : 'fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm'}
       role="presentation"
       onClick={onCancel}
     >
@@ -253,18 +256,19 @@ export function ConfirmDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="ink-confirm-title"
-        className="w-full max-w-sm rounded-2xl border border-haze bg-ink-raised p-5 shadow-2xl"
+        className={placement === 'bottom' ? 'history-archive-sheet-panel w-full' : 'w-full max-w-sm rounded-2xl border border-haze bg-ink-raised p-5 shadow-2xl'}
         onClick={(event) => event.stopPropagation()}
       >
+        {placement === 'bottom' && <div className="history-archive-sheet-grabber" aria-hidden />}
         <h3 id="ink-confirm-title" className="font-display text-[17px] font-medium text-paper">
           {title}
         </h3>
         <div className="mt-2 text-[12.5px] leading-relaxed text-paper-muted">{message}</div>
-        <div className="mt-5 flex items-center justify-end gap-2.5">
-          <button type="button" onClick={onCancel} className={DIALOG_CANCEL_CLASS}>
+        <div className={placement === 'bottom' ? 'history-archive-sheet-actions' : 'mt-5 flex items-center justify-end gap-2.5'}>
+          <button type="button" onClick={onCancel} className={placement === 'bottom' ? 'history-archive-sheet-cancel' : DIALOG_CANCEL_CLASS}>
             {cancelLabel}
           </button>
-          <button type="button" onClick={onConfirm} className={DIALOG_CONFIRM_CLASS}>
+          <button type="button" onClick={onConfirm} className={placement === 'bottom' ? 'history-archive-sheet-danger' : DIALOG_CONFIRM_CLASS}>
             {confirmLabel}
           </button>
         </div>

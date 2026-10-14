@@ -105,6 +105,7 @@
     "test:wifi-media": "npx tsx scripts/wifi-only-media.test.ts",
     "test:reader-font-pinch": "npx tsx scripts/reader-font-pinch.test.ts",
     "test:reading-history": "npx tsx scripts/reading-history.test.ts",
+    "test:reading-history-ui": "npx tsx scripts/reading-history-ui.test.tsx && npx tsx scripts/reading-history-interactions.test.tsx",
     "test:local-search": "npx tsx scripts/local-search.test.ts",
     "test:recommend": "npx tsx scripts/recommend.test.ts",
     "test:speed-read": "npx tsx scripts/speed-read.test.ts",
