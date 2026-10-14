@@ -29,10 +29,9 @@ export function ToggleSwitch({ checked, label, disabled, onChange }: Props) {
     >
       <span
         className={`block h-[16px] w-[16px] rounded-full shadow-xs transition-transform duration-300 ease-[var(--ease-ink,cubic-bezier(0.22,1,0.36,1))] ${
-          checked
-            ? 'translate-x-[16px] bg-cinnabar'
-            : 'translate-x-0 bg-paper/45'
+          checked ? 'bg-cinnabar' : 'bg-paper/45'
         }`}
+        style={{ transform: checked ? 'translate3d(16px, 0, 0)' : 'translate3d(0, 0, 0)' }}
       />
     </button>
   )
