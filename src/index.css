@@ -1,5 +1,9 @@
 @import 'tailwindcss';
 
+/* 明确指定 Tailwind 扫描边界，跳过根目录 android/、cloud/、scripts/ 等大目录，消除编译卡顿 */
+@source '../index.html';
+@source '.';
+
 /* 按原有顺序加载，保留主题、阅读器与站点样式的层叠关系。 */
 @import './styles/fonts.css';
 @import './styles/theme.css';

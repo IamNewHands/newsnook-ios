@@ -750,6 +750,32 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(appVersion),
     __APP_BUILD__: JSON.stringify(buildStamp()),
   },
+  server: {
+    warmup: {
+      clientFiles: [
+        './src/main.tsx',
+        './src/App.tsx',
+        './src/index.css',
+      ],
+    },
+  },
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      'react-dom/client',
+      'react/jsx-dev-runtime',
+      'lucide-react',
+      'animejs',
+      'dompurify',
+      'marked',
+      'driver.js',
+      'opencc-js',
+      'fast-xml-parser',
+      '@mozilla/readability',
+      'linkedom',
+    ],
+  },
   build: {
     target: ['chrome69', 'es2020'],
     cssTarget: 'chrome69',
