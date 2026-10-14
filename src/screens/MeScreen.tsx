@@ -26,7 +26,7 @@ import type { Article } from '../lib/types'
 
 interface Props {
   later: Article[]
-  history: Article[]
+  historyCount: number
   readCount: number
   customSourcesSummary?: string
   categoriesSummary?: string
@@ -101,7 +101,7 @@ function SettingsRow({ icon: Icon, title, caption, badge, onClick, dataTour }: S
 
 export function MeScreen({
   later,
-  history,
+  historyCount,
   readCount,
   customSourcesSummary,
   categoriesSummary,
@@ -139,7 +139,7 @@ export function MeScreen({
 
   useEffect(() => {
     revealItems(rootRef.current, reduced)
-  }, [history.length, later.length, reduced])
+  }, [historyCount, later.length, reduced])
 
   return (
     <section className="flex min-h-0 flex-1 flex-col">
@@ -183,20 +183,20 @@ export function MeScreen({
           <SettingsRow
             icon={Bookmark}
             title="稍后读"
-            caption={later.length ? `${later.length} 篇待读` : '阅读页顶栏可收藏'}
+            caption={later.length ? `${later.length} 篇` : '暂无内容'}
             badge={later.length > 0 ? later.length : null}
             onClick={onOpenLater}
           />
           <SettingsRow
             icon={History}
             title="最近阅读"
-            caption={history.length ? `${history.length} 篇` : '打开过的文章会出现在这里'}
+            caption={historyCount ? `${historyCount} 篇` : '暂无记录'}
             onClick={onOpenHistory}
           />
           <SettingsRow
             icon={Search}
             title="本地搜索"
-            caption="在已缓存的列表、稍后读与历史里查找 · 不联网"
+            caption="搜索资讯与稍后读"
             onClick={onOpenLocalSearch}
           />
         </ul>

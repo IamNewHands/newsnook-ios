@@ -1766,7 +1766,7 @@ export default function App() {
       return (
         <MeScreen
           later={later}
-          history={cachedHistory}
+          historyCount={readingHistory.length}
           readCount={readIds.size}
           customSourcesSummary={customSourcesSummary}
           categoriesSummary={`${regularCategories.length} 个启用分类 · ${
@@ -1906,7 +1906,7 @@ export default function App() {
           activeTab={tab}
           settingsRouteName={settingsRoute ? settingsRoute.name : null}
           laterCount={later.length}
-          historyCount={cachedHistory.length}
+          historyCount={readingHistory.length}
           theme={prefs.theme}
           resolvedTheme={resolvedTheme}
           hasUpdate={appUpdate.hasUpdate}
