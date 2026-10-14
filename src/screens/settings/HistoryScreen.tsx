@@ -388,75 +388,22 @@ export function HistoryScreen({
       action={headerAction}
       footer={footerAction}
     >
-      <div className="relative min-h-full">
+      <div className="history-editorial relative min-h-full">
         {history.length > 0 && (
-          <div className="page-x pt-4 pb-3">
-            {/* 顶尖设计感：沉浸式阅读足迹仪表微舱 (Editorial Reading Journal Hero) */}
-            <div className="relative overflow-hidden rounded-2xl border border-haze/60 bg-gradient-to-br from-ink-raised/90 via-ink-raised/60 to-ink-raised/30 p-4 sm:p-5 backdrop-blur-md shadow-xs">
-              {/* 背景微水印装饰 */}
-              <div
-                className="pointer-events-none absolute -right-4 -bottom-6 select-none opacity-[0.04] text-paper"
-                aria-hidden
-              >
-                <BookOpen size={160} strokeWidth={1} />
-              </div>
-
-              {/* 顶部标签与副标题 */}
-              <div className="relative flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-2 w-2 relative">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cinnabar opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-cinnabar" />
-                  </span>
-                  <span className="font-mono text-[10.5px] tracking-[0.2em] font-medium text-paper-muted">
-                    READING FOOTPRINT · 阅历足迹
-                  </span>
-                </div>
-                <span className="text-[10px] font-mono tracking-wider text-paper-faint">
-                  本机持久化 · 离线可续
-                </span>
-              </div>
-
-              {/* 核心指标展示 */}
-              <div className="relative mt-3 flex items-baseline gap-2.5">
-                <span className="font-display text-[34px] sm:text-[40px] leading-none tabular-nums font-normal text-paper tracking-tight">
-                  {stats.total}
-                </span>
-                <span className="text-[13px] font-medium text-paper-muted">篇已读</span>
-                {stats.totalVisits > stats.total && (
-                  <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-cinnabar/10 px-2 py-0.5 text-[10.5px] text-cinnabar-soft border border-cinnabar/20">
-                    <Sparkles size={11} />
-                    共翻阅 {stats.totalVisits} 次
-                  </span>
-                )}
-              </div>
-
-              {/* 三大维度微指标网格 (Insight Pills) */}
-              <div className="relative mt-3.5 grid grid-cols-3 gap-2 border-t border-haze/40 pt-3">
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-paper-faint">今日开卷</span>
-                  <span className="mt-0.5 font-display text-[15px] font-medium text-paper">
-                    {stats.today > 0 ? `${stats.today} 篇` : '静候启卷'}
-                  </span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-paper-faint">涉猎信源</span>
-                  <span className="mt-0.5 font-display text-[15px] font-medium text-paper">
-                    {stats.sourcesCount} 个平台
-                  </span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-paper-faint">正文缓存</span>
-                  <span className="mt-0.5 font-display text-[15px] font-medium text-paper">
-                    {stats.offlineCount} 篇就绪
-                  </span>
-                </div>
-              </div>
+          <div className="history-editorial-filters page-x pt-3 pb-2">
+            <div className="history-editorial-summary" aria-label="阅读记录概览">
+              <span>已记录 <strong>{stats.total}</strong> 篇</span>
+              <span className="history-editorial-summary-separator" aria-hidden="true" />
+              <span>今日 {stats.today} 篇</span>
+              <span className="history-editorial-summary-separator" aria-hidden="true" />
+              <span>{stats.sourcesCount} 个来源</span>
+              {stats.offlineCount > 0 && <span className="history-editorial-summary-offline">{stats.offlineCount} 篇离线可读</span>}
+              {stats.totalVisits > stats.total && <span className="history-editorial-summary-visits">共阅读 {stats.totalVisits} 次</span>}
             </div>
 
             {/* 精雕细琢的智能搜索栏 (Intelligent Search Field) */}
             <div className="mt-3.5">
-              <label className="flex h-10.5 items-center gap-2.5 rounded-2xl border border-haze/70 bg-ink-raised/60 px-3.5 transition-all focus-within:border-cinnabar/60 focus-within:bg-ink-raised/90 focus-within:ring-2 focus-within:ring-cinnabar/15">
+              <label className="history-editorial-search flex h-11 items-center gap-2.5 rounded-xl border border-haze/70 bg-ink-raised/50 px-3.5 transition-colors focus-within:border-cinnabar/60">
                 <Search
                   size={15.5}
                   className="shrink-0 text-paper-faint transition-colors duration-200"
@@ -508,7 +455,7 @@ export function HistoryScreen({
                       setFilter(item.id)
                     }}
                     className={
-                      'group flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] transition-all duration-150 ' +
+                      'history-editorial-filter group flex shrink-0 items-center gap-1.5 rounded-xl border px-3 py-2 text-[12px] transition-colors ' +
                       (active
                         ? 'border-cinnabar/50 bg-cinnabar/12 font-medium text-cinnabar-soft shadow-xs'
                         : 'border-haze/60 bg-ink-raised/40 text-paper-muted hover:border-paper-faint/40 hover:bg-ink-raised/80 hover:text-paper')
@@ -617,11 +564,11 @@ export function HistoryScreen({
           </div>
         ) : (
           /* 状态 C：精巧考究的杂志时间轴列表 (Editorial Timeline Stream) */
-          <div className="pb-8">
+          <div className="history-editorial-stream pb-8">
             {groups.map(([day, items]) => (
               <section key={day} className="relative">
                 {/* 时间轴吸顶头部 (Timeline Sticky Header) */}
-                <div className="sticky top-0 z-10 flex items-center justify-between border-y border-haze/30 bg-ink/90 px-4 py-2 backdrop-blur-md sm:px-6">
+                <div className="history-editorial-day sticky top-0 z-10 flex items-center justify-between border-t border-haze/50 bg-ink/95 px-5 py-2.5 backdrop-blur-md sm:px-6">
                   <div className="flex items-center gap-2">
                     <span
                       className={
@@ -642,7 +589,7 @@ export function HistoryScreen({
                 </div>
 
                 {/* 卡片流 */}
-                <div className="p-3 sm:p-4 space-y-2.5">
+                <div className="history-editorial-list">
                   {items.map((entry) => {
                     const offline = entry.kind === 'article' && hasCachedBody(entry.article.id)
                     const isSelected = selectedKeys.has(entry.key)
@@ -655,11 +602,11 @@ export function HistoryScreen({
                           if (isManaging) toggleSelectKey(entry.key)
                         }}
                         className={
-                          'group relative flex items-start gap-3 rounded-2xl border p-3 sm:p-3.5 transition-all duration-150 ' +
+                          'history-editorial-item group relative flex items-start gap-3 border-b border-haze/50 px-5 py-4 transition-colors duration-150 sm:px-6 ' +
                           (isManaging ? 'cursor-pointer ' : '') +
                           (isSelected
-                            ? 'border-cinnabar/60 bg-cinnabar/10 shadow-xs ring-1 ring-cinnabar/25'
-                            : 'border-haze/40 bg-ink-raised/35 hover:border-haze/70 hover:bg-ink-raised/75')
+                            ? 'bg-cinnabar/10'
+                            : 'hover:bg-ink-raised/40')
                         }
                       >
                         {/* 批量管理模式下的复选框 */}
@@ -724,13 +671,13 @@ export function HistoryScreen({
                           </div>
 
                           {/* 标题 */}
-                          <h4 className="mt-1.5 font-display text-[15.5px] sm:text-[16px] font-medium leading-[1.45] text-paper [overflow-wrap:anywhere] transition-colors group-hover:text-cinnabar-soft">
+                          <h4 className="history-editorial-title mt-2 font-display text-[16px] sm:text-[17px] font-semibold leading-[1.45] tracking-tight text-paper [overflow-wrap:anywhere] transition-colors group-hover:text-cinnabar-soft">
                             {entry.title}
                           </h4>
 
                           {/* 摘要 (两行自然截断，生动唤醒记忆) */}
                           {entry.excerpt && (
-                            <p className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-paper-faint/90">
+                            <p className="history-editorial-excerpt mt-1.5 line-clamp-2 text-[12px] leading-relaxed text-paper-faint/90">
                               {entry.excerpt}
                             </p>
                           )}
@@ -745,7 +692,7 @@ export function HistoryScreen({
                                 onOpen(entry)
                               }
                             }}
-                            className="relative h-[62px] w-[78px] sm:h-[68px] sm:w-[86px] shrink-0 cursor-pointer overflow-hidden rounded-xl border border-haze/40 bg-ink-raised"
+                            className="history-editorial-image relative h-[74px] w-[80px] sm:h-[80px] sm:w-[88px] shrink-0 cursor-pointer overflow-hidden rounded-lg border border-haze/40 bg-ink-raised"
                           >
                             <img
                               src={entry.image}
@@ -767,7 +714,7 @@ export function HistoryScreen({
                                 handleRemoveSingle(entry)
                               }}
                               aria-label={`移出足迹：${entry.title}`}
-                              className="rounded-xl p-2 text-paper-faint/60 transition-all hover:bg-ink hover:text-cinnabar active:scale-90"
+                              className="history-editorial-remove rounded-lg p-2 text-paper-faint/65 transition-colors hover:bg-ink hover:text-cinnabar"
                               title="移出足迹"
                             >
                               <X size={15} strokeWidth={1.8} />

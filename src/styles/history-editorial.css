@@ -1,0 +1,21 @@
+/* Editorial reading archive; scoped to history only. */
+.history-editorial { --history-rule: var(--haze, currentColor); }
+.history-editorial-summary { display:flex; align-items:center; flex-wrap:wrap; gap:9px; min-height:24px; margin:0 1px 13px; font-size:11.5px; line-height:1.5; color:var(--tone-paper-muted); }
+.history-editorial-summary strong { font-weight:650; color:var(--tone-paper); font-variant-numeric:tabular-nums; }
+.history-editorial-summary-separator { height:11px; width:1px; background:currentColor; opacity:.27; }
+.history-editorial-summary-offline,.history-editorial-summary-visits { color:var(--tone-paper-faint); }
+.history-editorial-summary-offline { margin-left:auto; }
+.history-editorial-search { min-height:44px; }
+.history-editorial-filter { min-height:40px; white-space:nowrap; }
+.history-editorial-day { min-height:40px; }
+.history-editorial-item { margin:0; border-radius:0; background:transparent; }
+.history-editorial-item:last-child { border-bottom:0; }
+.history-editorial-title { overflow-wrap:anywhere; }
+.history-editorial-remove { min-width:32px; min-height:40px; }
+@media (max-width:359px) {
+  .history-editorial-summary { gap:6px; font-size:11px; }
+  .history-editorial-summary-offline { margin-left:0; }
+  .history-editorial-item { padding-left:16px; padding-right:10px; gap:8px; }
+  .history-editorial-title { font-size:15px; }
+  .history-editorial-image { width:64px; height:64px; }
+}
