@@ -44,7 +44,6 @@
 .paper-settings-section-title{font-size:13px;letter-spacing:0;font-family:var(--font-body)}
 .paper-settings-section > :not(:first-child){border-radius:14px}
 .paper-settings-shell :is(button,input,textarea,select){accent-color:var(--tone-cinnabar)}
-.paper-settings-shell button{min-height:40px}
 @media(min-width:768px){.paper-settings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.paper-settings-header{padding:32px 0 4px}.paper-settings-header h1{font-size:36px}.paper-settings-shell-scroll > div{max-width:850px}.paper-settings-container{padding-inline:28px}}
 @media(prefers-reduced-motion:reduce){.paper-settings-root *, .paper-settings-shell *{transition-duration:0ms!important}}
 
