@@ -117,17 +117,22 @@ NewsNook 没有云端“猜你喜欢”信息流。
       <sub>开箱即用的信息流</sub>
     </td>
     <td align="center" width="33%">
+      <img src="docs/screenshots/home-list.jpg" alt="列表布局信息流" />
+      <br />
+      <sub>经典列表布局</sub>
+    </td>
+    <td align="center" width="33%">
       <img src="docs/screenshots/bilingual.jpg" alt="双语阅读" />
       <br />
       <sub>正文翻译与双语阅读</sub>
     </td>
-    <td align="center" width="33%">
+  </tr>
+  <tr>
+    <td align="center">
       <img src="docs/screenshots/scenes.jpg" alt="场景预设" />
       <br />
       <sub>一键切换阅读场景</sub>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <img src="docs/screenshots/categories.jpg" alt="分类与信源" />
       <br />
@@ -138,10 +143,22 @@ NewsNook 没有云端“猜你喜欢”信息流。
       <br />
       <sub>外观与阅读偏好</sub>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <img src="docs/screenshots/home-dark.jpg" alt="深色模式" />
       <br />
       <sub>夜间阅读</sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/linuxdo.jpg" alt="Linux.do 社区" />
+      <br />
+      <sub>Linux.do 社区工作区</sub>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/cms.jpg" alt="CMS 站点目录" />
+      <br />
+      <sub>Web / CMS 站点目录</sub>
     </td>
   </tr>
 </table>
