@@ -794,6 +794,7 @@ export function LinuxDoTopicView({
   postMutation,
   overlayBackHandlerRef,
   onReadProgress,
+  onArticleRead,
   onSession,
   onVerify,
 }: {
@@ -812,6 +813,7 @@ export function LinuxDoTopicView({
   postMutation?: LinuxDoPost
   overlayBackHandlerRef: MutableRefObject<(() => boolean) | null>
   onReadProgress?: (topicId: number, highestSeen: number) => void
+  onArticleRead?: (topic: LinuxDoTopic) => void
   onSession?: (session: LinuxDoSessionSnapshot) => void
   onVerify?: LinuxDoVerify
 }) {
@@ -825,6 +827,8 @@ export function LinuxDoTopicView({
       setCategoryMap(Object.fromEntries(cats.map((c) => [c.id, c])))
     }).catch(() => undefined)
   }, [categoriesById])
+  const onArticleReadRef = useRef(onArticleRead)
+  onArticleReadRef.current = onArticleRead
   const [topic, setTopic] = useState<LinuxDoTopic | null>(null)
   const [posts, setPosts] = useState<LinuxDoPost[]>([])
   const [loading, setLoading] = useState(true)
@@ -1002,6 +1006,7 @@ export function LinuxDoTopicView({
       if (request !== loadRequestRef.current) return
       setOpeningPosition(position)
       setTopic(next)
+      onArticleReadRef.current?.(next)
       let initialPosts = next.postStream.posts
       // Keep a deep opening window contiguous; earlier replies are loaded on upward scroll.
       if (!position || position.postNumber === 1) {

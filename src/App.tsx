@@ -87,6 +87,9 @@ import { CategorySourcesScreen } from './screens/settings/CategorySourcesScreen'
 import { CategoryEditScreen } from './screens/settings/CategoryEditScreen'
 import { CustomSourcesScreen } from './screens/settings/CustomSourcesScreen'
 import { HistoryScreen } from './screens/settings/HistoryScreen'
+import { clearReadingHistory, listReadingHistory, migrateCachedReadingHistory, recordArticleRead, removeReadingHistory, type ReadingHistoryEntry } from './features/readingHistory/store'
+import type { LinuxDoTopicSummary } from './features/linuxdo/types'
+import type { ZhihuEntityRef } from './features/zhihu/types'
 import { LaterScreen } from './screens/settings/LaterScreen'
 import { LocalSearchScreen } from './screens/settings/LocalSearchScreen'
 import { PresetListScreen } from './screens/settings/PresetListScreen'
@@ -441,11 +444,15 @@ export default function App() {
   /** 推荐排序经 ref 读取已读集合：打开文章返回时不重排，避免列表跳动 */
   const readIdsRef = useRef(readIds)
   readIdsRef.current = readIds
+  const [readingHistory, setReadingHistory] = useState<ReadingHistoryEntry[]>(() => listReadingHistory())
+  const [historyLinuxDoTarget, setHistoryLinuxDoTarget] = useState<LinuxDoTopicSummary | null>(null)
+  const [historyZhihuTarget, setHistoryZhihuTarget] = useState<ZhihuEntityRef | null>(null)
   const [cacheSnapshot, setCacheSnapshot] = useState(emptyCacheSnapshot)
   const cacheSnapshotReadyRef = useRef(false)
   const refreshCacheSnapshot = useCallback(() => {
     cacheSnapshotReadyRef.current = true
     setCacheSnapshot(readCacheSnapshot())
+    setReadingHistory(migrateCachedReadingHistory(listCachedArticles(500), readIdsRef.current))
   }, [])
   const notifyCacheChange = useCallback(() => {
     // 首屏不主动扫正文/列表统计；等「我的 / 存储 / 历史」真正需要时再计算
@@ -912,14 +919,15 @@ export default function App() {
     return () => controller.abort()
   }, [later, notifyCacheChange, handleBodyCacheChange, prefs.customSources])
 
+  const customSourcesRef = useRef(prefs.customSources)
+  customSourcesRef.current = prefs.customSources
+
   const openArticle = useCallback((article: Article) => {
     setReaderReturnArticle(null)
     setReading(article)
     setReadIds((prev) => new Set(prev).add(article.id))
+    setReadingHistory(recordArticleRead(article, findSource(article.sourceId, customSourcesRef.current)?.kind === 'web-catalog' ? 'cms' : 'feed'))
   }, [])
-
-  const customSourcesRef = useRef(prefs.customSources)
-  customSourcesRef.current = prefs.customSources
 
   /**
    * App 唤起深链：Android 的 https App Links 与 `newsnook://` 自定义 scheme
@@ -1175,12 +1183,30 @@ export default function App() {
   }), [activeSiteId, cmsSources, frameworkSiteCount, handleRenameSource, leaveActiveSite, presetSwitcherItems, presets, selectedCmsId, siteSwitcherItems, tab, update])
 
   const cachedHistory = useMemo(
-    () =>
-      cacheSnapshot.history
-        .filter((entry) => !laterIds.has(entry.article.id))
-        .map((entry) => entry.article),
-    [cacheSnapshot.history, laterIds],
+    () => readingHistory.filter((entry): entry is Extract<ReadingHistoryEntry, { kind: 'article' }> => entry.kind === 'article').map((entry) => entry.article),
+    [readingHistory],
   )
+
+  const openHistoryEntry = useCallback((entry: ReadingHistoryEntry) => {
+    if (entry.kind === 'article') {
+      openArticle(entry.article)
+      return
+    }
+    setSettingsRoute(null)
+    setTab('today')
+    if (entry.kind === 'linuxdo') {
+      setHistoryZhihuTarget(null)
+      setHistoryLinuxDoTarget({ id: entry.topicId, slug: entry.slug, title: entry.title, postsCount: 1,
+        replyCount: 0, views: 0, likeCount: 0, createdAt: '', lastPostedAt: '', tags: [], posters: [] })
+      saveActiveSiteId('linuxdo')
+      setActiveSiteId('linuxdo')
+    } else {
+      setHistoryLinuxDoTarget(null)
+      setHistoryZhihuTarget(entry.ref)
+      saveActiveSiteId('zhihu')
+      setActiveSiteId('zhihu')
+    }
+  }, [openArticle])
 
   const customSourcesSummary = useMemo(() => {
     const count = prefs.customSources?.length ?? 0
@@ -1599,8 +1625,10 @@ export default function App() {
     if (settingsRoute.name === 'history') {
       return (
         <HistoryScreen
-          history={cachedHistory}
-          onOpen={openArticle}
+          history={readingHistory}
+          onOpen={openHistoryEntry}
+          onRemove={(key) => setReadingHistory(removeReadingHistory(key))}
+          onClear={() => setReadingHistory(clearReadingHistory())}
           onBack={() => setSettingsRoute(null)}
         />
       )
@@ -1928,6 +1956,9 @@ export default function App() {
                   update((prev) => updateTypography(prev, { fontScale: next }))
                 }
                 speedReadConfig={speedReadConfig}
+                historyTarget={historyZhihuTarget}
+                onHistoryTargetConsumed={() => setHistoryZhihuTarget(null)}
+                onHistoryChange={() => setReadingHistory(listReadingHistory())}
               />
             </Suspense>
           ) : activeSiteId === 'linuxdo' ? (
@@ -1942,6 +1973,9 @@ export default function App() {
                 onExit={leaveActiveSite}
                 backHandlerRef={siteBackHandlerRef}
                 presetSwitcher={presetSwitcherConfig}
+                historyTarget={historyLinuxDoTarget}
+                onHistoryTargetConsumed={() => setHistoryLinuxDoTarget(null)}
+                onHistoryChange={() => setReadingHistory(listReadingHistory())}
               />
             </Suspense>
           ) : (

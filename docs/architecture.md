@@ -706,3 +706,29 @@ npm run android:apk | android:aab
 `features/siteCatalog` 是站点浏览、单源搜索、主列表与预存共用的页面服务。引擎身份独立于页面能力；分类/排序/筛选/分页使用实际链接，搜索使用已观察的 GET/POST 表单。`catalogEngine` 抽取语义卡片与 JSON-LD，并始终使用真实 sourceId 映射 Article。错误保留上次成功页面，请求取消与过期响应不影响新的会话。
 
 可选 `catalogProfile` 配置保存在本机并兼容备份/同步；未来合法配置保留为 `catalogProfileOpaque`，仅运行时退化。列表新增可选 nextUrl 与目录专用版本标识，旧全视频元信息在本机迁移；正文缓存、已读与稍后读身份不变。读取继续直连上游，Cloud 不参与解析。具体模块、规则矩阵、网络预算与限制见 [网页目录与 CMS 适配](./cms-catalog.md)。
+
+## Cross-source reading history (v1)
+
+The Recent Reading screen is a local reading *journal*, not a list of cached HTML.
+The repository in `src/features/readingHistory/store.ts` stores metadata and replay
+routes, bounded to 500 unique items / roughly 310 KB. It never stores article body
+HTML, authentication sessions, Discourse private messages, or Zhihu drafts.
+
+* Feed / custom RSS / CMS: article detail-opening events write an article snapshot.
+  A cache hit is not a prerequisite for being recorded. The existing reader
+  continues to own optional full-text caching and offline replay.
+* Linux.do: successful public regular-topic responses record a stable topic id
+  and slug; replay uses the regular workspace topic route and its existing API.
+  Private-message archetypes are explicitly excluded.
+* Zhihu: successful content detail responses record public question/answer/
+  article/pin refs; replay uses the normal Zhihu entity navigation path.
+* Reopening updates the original item in-place and moves it to the top.
+  A 15-second repeat-open interval does not inflate the visit count.
+* The first recent-reading visit imports legacy body-cache items **only when
+  their article IDs were actually marked read**. The migration is idempotent;
+  clearing the journal does not re-import old caches.
+* The journal is local-only and separate from the 3 MB body-cache budget.
+  Clearing offline caches does not remove reading metadata, but replay of
+  noncached content may require network access. No cloud sync is implied.
+
+Regression: `npm run test:reading-history`, followed by `npm run build`.

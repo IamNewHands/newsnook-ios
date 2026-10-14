@@ -51,6 +51,7 @@ import { formatZhihuCount, zhihuEntityLabel } from './ZhihuUiUtils'
 
 interface Props {
   refValue: ZhihuEntityRef
+  onArticleRead?: (detail: ZhihuContentSummary) => void
   preview?: ZhihuContentSummary
   contentService: ZhihuContentService
   feedService: ZhihuFeedService
@@ -306,8 +307,10 @@ export function ZhihuAnswerCommentsDialog({ open, onClose, children }: ZhihuAnsw
   )
 }
 
-export function ZhihuContentScreen({ refValue, preview, contentService, feedService, commentsService, onNavigate, onReplaceNavigate, overlayCloserRef, restoreAnchor, authenticated, accountId, commentDraftStore, interaction, onRecommendationSignal, onWriteAnswer, scrollContainerRef, answerPreviewHostRef, fontScale, onFontScale, speedReadConfig, onSpeedReadHeaderActionChange }: Props) {
+export function ZhihuContentScreen({ refValue, preview, onArticleRead, contentService, feedService, commentsService, onNavigate, onReplaceNavigate, overlayCloserRef, restoreAnchor, authenticated, accountId, commentDraftStore, interaction, onRecommendationSignal, onWriteAnswer, scrollContainerRef, answerPreviewHostRef, fontScale, onFontScale, speedReadConfig, onSpeedReadHeaderActionChange }: Props) {
   const [detail, setDetail] = useState<ZhihuContentDetail | null>(null)
+  const onArticleReadRef = useRef(onArticleRead)
+  onArticleReadRef.current = onArticleRead
   const [answers, setAnswers] = useState<ZhihuContentSummary[]>([])
   const [answerOrder, setAnswerOrder] = useState<ZhihuQuestionAnswerOrder>('default')
   const [answersCursor, setAnswersCursor] = useState<string | undefined>()
@@ -510,6 +513,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
       async (value) => {
         if (controller.signal.aborted) return
         setDetail(value)
+        onArticleReadRef.current?.(value)
         setGuestLimited(false)
         setVoteState(value.voteState)
         setVoteCount(value.voteupCount)

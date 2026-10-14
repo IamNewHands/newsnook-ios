@@ -1,3 +1,4 @@
+import { recordLinuxDoRead } from '../../readingHistory/store'
 import type { LinuxDoNotificationFilter } from '../notification/model'
 import { PrivateMessagesView } from './PrivateMessagesView'
 import { createLinuxDoPrivateMessagesCache, applyPrivateMessageReadProgress } from './privateMessagesCache'
@@ -53,6 +54,9 @@ interface Props {
   onExit: () => void
   backHandlerRef: MutableRefObject<(() => boolean) | null>
   presetSwitcher: PresetSwitcherProps
+  historyTarget?: LinuxDoTopicSummary | null
+  onHistoryTargetConsumed?: () => void
+  onHistoryChange?: () => void
 }
 
 interface LinuxDoFeedCacheEntry {
@@ -544,9 +548,15 @@ function FeedView({
   )
 }
 
-export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Props) {
+export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher, historyTarget, onHistoryTargetConsumed, onHistoryChange }: Props) {
   const [route, setRoute] = useState<Route>({ kind: 'feed', mode: 'latest' })
   const [history, setHistory] = useState<Route[]>([])
+  useEffect(() => {
+    if (!historyTarget) return
+    setHistory([])
+    setRoute({ kind: 'topic', topic: historyTarget })
+    onHistoryTargetConsumed?.()
+  }, [historyTarget, onHistoryTargetConsumed])
   const feedCacheRef = useRef<LinuxDoFeedCache>(createFeedCache())
   const feedHomeRefreshRef = useRef<(() => void) | null>(null)
   const lastFeedModeRef = useRef<LinuxDoFeedMode>('latest')
@@ -862,7 +872,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
             onUpdatesAcknowledged={acknowledgeFeedUpdates}
           />
         ) : route.kind === 'topic' ? (
-          <LinuxDoTopicView key={`${route.topic.id}:${session.authenticated ? session.currentUser?.id ?? 'guest' : 'guest'}:${route.targetPostNumber ?? ''}`} summary={route.topic} session={session} targetPostNumber={route.targetPostNumber} postMutation={topicPostMutation} overlayBackHandlerRef={topicOverlayBackHandlerRef} onReadProgress={applyTopicReadProgress} onSession={applyWorkspaceSession} onVerify={verify} onBack={() => { if (!goBack()) setRoute({ kind: 'feed', mode: 'latest' }) }} onCompose={(topic, options) => { setComposerTopic(topic); setComposerEditPost(undefined); setComposerInitialRaw(options?.initialRaw || ''); setComposerReplyTo(options?.replyToPostNumber); setComposerOpen(true) }} onBoost={setBoostPost} onOpenUser={(username) => navigate({ kind: 'user', username })} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenTag={(name) => navigate({ kind: 'discover', scope: { kind: 'tag', name } })} onOpenCategory={(category) => navigate({ kind: 'discover', scope: { kind: 'category', category } })} categoriesById={workspaceCategories} onEdit={(topic, post) => {
+          <LinuxDoTopicView key={`${route.topic.id}:${session.authenticated ? session.currentUser?.id ?? 'guest' : 'guest'}:${route.targetPostNumber ?? ''}`} summary={route.topic} session={session} targetPostNumber={route.targetPostNumber} postMutation={topicPostMutation} overlayBackHandlerRef={topicOverlayBackHandlerRef} onReadProgress={applyTopicReadProgress} onArticleRead={(topic) => { recordLinuxDoRead(topic); onHistoryChange?.() }} onSession={applyWorkspaceSession} onVerify={verify} onBack={() => { if (!goBack()) setRoute({ kind: 'feed', mode: 'latest' }) }} onCompose={(topic, options) => { setComposerTopic(topic); setComposerEditPost(undefined); setComposerInitialRaw(options?.initialRaw || ''); setComposerReplyTo(options?.replyToPostNumber); setComposerOpen(true) }} onBoost={setBoostPost} onOpenUser={(username) => navigate({ kind: 'user', username })} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenTag={(name) => navigate({ kind: 'discover', scope: { kind: 'tag', name } })} onOpenCategory={(category) => navigate({ kind: 'discover', scope: { kind: 'category', category } })} categoriesById={workspaceCategories} onEdit={(topic, post) => {
             setComposerTopic(topic)
             setComposerReplyTo(undefined)
             const openEditor = (raw: string) => { setComposerEditPost({ ...post, raw }); setComposerInitialRaw(raw); setComposerOpen(true) }
