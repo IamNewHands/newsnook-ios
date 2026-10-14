@@ -2,6 +2,15 @@
  * Encyclopedia sources share a minimal DTO. The reader never knows which API was used.
  * Only real Wikimedia endpoints are registered; other sources can be added as providers.
  */
+export interface WikiFact {
+  label: string
+  value: string
+}
+export interface WikiSection {
+  id: string
+  title: string
+  paragraphs: string[]
+}
 export interface WikiEntry {
   query: string
   title: string
@@ -12,6 +21,10 @@ export interface WikiEntry {
   providerId: string
   language: string
   related: string[]
+  pageId?: number | string
+  latencyMs?: number
+  isLiveApi?: boolean
+  structuredFacts?: WikiFact[]
 }
 export interface EncyclopediaProvider {
   id: string
@@ -82,6 +95,7 @@ function wikiProvider(language: 'zh' | 'en'): EncyclopediaProvider {
   return {
     id, name: language === 'zh' ? '中文维基百科' : 'Wikipedia (English)', language,
     async lookup(term, signal) {
+      const start = Date.now()
       const original = term.trim()
       if (!original) throw new WikiNotFoundError(term)
       const resolved = language === 'en' ? await resolveEnglishTitle(original, signal) : original
@@ -89,12 +103,22 @@ function wikiProvider(language: 'zh' | 'en'): EncyclopediaProvider {
       const readSummary = async (title: string) => {
         const data = await getJson(summaryUrl(title), signal)
         if (!data.extract || data.type === 'disambiguation') return null
+        const latencyMs = Math.max(1, Date.now() - start)
+        const pageId = data.pageid
+        const summaryHtml = formatScientificAndLatex(data.extract_html || data.extract)
         return {
           query: original, title: data.title || title, description: data.description || '',
-          summary: data.extract, thumbnail: data.thumbnail?.source,
+          summary: summaryHtml, thumbnail: data.thumbnail?.source,
           url: data.content_urls?.mobile?.page || pageUrl(data.title || title),
           providerId: id, language,
           related: [] as string[],
+          pageId,
+          latencyMs,
+          isLiveApi: true,
+          structuredFacts: [
+            ...(pageId ? [{ label: '词条 PAGEID', value: `#${pageId}` }] : []),
+            { label: '实时接口', value: `${host} REST v1` },
+          ],
         }
       }
       try {
@@ -112,14 +136,380 @@ function wikiProvider(language: 'zh' | 'en'): EncyclopediaProvider {
       return { ...found, related: hits.filter(hit => hit.title !== matched.title).map(hit => hit.title) }
     },
     async fullText(entry, signal) {
-      // Plain extracts from a real MediaWiki API. Never synthesize full articles.
-      const url = `${root}/w/api.php?action=query&prop=extracts&explaintext=1&redirects=1&titles=${encodeURIComponent(entry.title)}&format=json&origin=*${language === 'zh' ? '&variant=zh-cn' : ''}`
+      // Fetch full MediaWiki article extracts in HTML format (identical to wikilens_oil_ui.html)
+      const url = `${root}/w/api.php?action=query&prop=extracts&redirects=1&titles=${encodeURIComponent(entry.title)}&format=json&origin=*${language === 'zh' ? '&variant=zh-cn' : ''}`
       const data = await getJson(url, signal)
       const page = Object.values(data?.query?.pages || {})[0] as { extract?: string } | undefined
       if (!page?.extract?.trim()) throw new WikiNotFoundError(entry.title)
       return page.extract
     },
   }
+}
+
+/**
+ * Converts LaTeX sub/superscripts, chemical formulas, and scientific notations
+ * e.g. {}_{6}^{12}{\mbox{C}} -> <sub>6</sub><sup>12</sup>C, 1023 -> 10<sup>23</sup>
+ */
+export function formatScientificAndLatex(str: string): string {
+  if (!str) return ''
+  let s = str
+  // 1. Math/Chemical sub and superscripts from LaTeX residuals like {}_{6}^{12}{\mbox{C}} or {}_6^{12}C
+  s = s.replace(/_\{([^{}]+)\}/g, '<sub>$1</sub>')
+  s = s.replace(/\^\{([^{}]+)\}/g, '<sup>$1</sup>')
+  s = s.replace(/\\(?:mbox|text|mathrm)\{([^{}]+)\}/g, '$1')
+  s = s.replace(/\{\}/g, '')
+  s = s.replace(/\{([a-zA-Z0-9+-=])\}/g, '$1')
+
+  // 2. Scientific notation numbers like 1023 -> 10^23 when not already inside tags
+  s = s.replace(/([×x·]\s*10)(2[0-9]|1[0-9]|[3-9][0-9]|-?\d{2,3})\b/g, '$1<sup>$2</sup>')
+
+  return s
+}
+
+/**
+ * Converts common LaTeX math expressions into natural readable Unicode math representations.
+ */
+export function formatTexMath(tex: string): string {
+  let s = tex.trim()
+
+  const map: Array<[RegExp, string]> = [
+    [/\\mapsto/g, ' ↦ '],
+    [/\\to|\\rightarrow/g, ' → '],
+    [/\\leftarrow/g, ' ← '],
+    [/\\Rightarrow/g, ' ⇒ '],
+    [/\\Leftarrow/g, ' ⇐ '],
+    [/\\leftrightarrow/g, ' ↔ '],
+    [/\\iff/g, ' ⇔ '],
+    [/\\cdot/g, ' · '],
+    [/\\times/g, ' × '],
+    [/\\div/g, ' ÷ '],
+    [/\\pm/g, ' ± '],
+    [/\\mp/g, ' ∓ '],
+    [/\\leq|\\le/g, ' ≤ '],
+    [/\\geq|\\ge/g, ' ≥ '],
+    [/\\neq|\\ne/g, ' ≠ '],
+    [/\\approx/g, ' ≈ '],
+    [/\\equiv/g, ' ≡ '],
+    [/\\in/g, ' ∈ '],
+    [/\\notin/g, ' ∉ '],
+    [/\\subset/g, ' ⊂ '],
+    [/\\subseteq/g, ' ⊆ '],
+    [/\\cap/g, ' ∩ '],
+    [/\\cup/g, ' ∪ '],
+    [/\\forall/g, ' ∀ '],
+    [/\\exists/g, ' ∃ '],
+    [/\\infty/g, ' ∞ '],
+    [/\\emptyset/g, ' ∅ '],
+    [/\\sum/g, ' ∑ '],
+    [/\\prod/g, ' ∏ '],
+    [/\\int/g, ' ∫ '],
+    [/\\mathbb\{R\}/g, 'ℝ'],
+    [/\\mathbb\{N\}/g, 'ℕ'],
+    [/\\mathbb\{Z\}/g, 'ℤ'],
+    [/\\mathbb\{Q\}/g, 'ℚ'],
+    [/\\mathbb\{C\}/g, 'ℂ'],
+    [/\\mathbf\{([^}]+)\}/g, '$1'],
+    [/\\mathit\{([^}]+)\}/g, '$1'],
+    [/\\mathrm\{([^}]+)\}/g, '$1'],
+    [/\\text\{([^}]+)\}/g, '$1'],
+    [/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '($1 / $2)'],
+    [/\\sqrt\{([^{}]+)\}/g, '√($1)'],
+    [/\\{/g, '{'],
+    [/\\}/g, '}'],
+    [/\\,/g, ' '],
+    [/\\;/g, ' '],
+    [/\\!/g, ''],
+    [/\\ /g, ' '],
+  ]
+
+  for (const [pattern, repl] of map) {
+    s = s.replace(pattern, repl)
+  }
+
+  s = s.replace(/,(?!\s)/g, ', ')
+  s = s.replace(/\s*=\s*/g, ' = ')
+  s = s.replace(/\s+/g, ' ').trim()
+  return s
+}
+
+/**
+ * Cleans vertical MathML residual artifacts caused by MediaWiki plaintext extraction
+ * and resolves {\displaystyle ...} into natural readable math expressions.
+ */
+export function cleanWikiMathAndLayout(text: string): string {
+  const markerRegex = /\{\\(?:displaystyle|textstyle|scriptstyle)\b/g
+  let match: RegExpExecArray | null
+  let result = ''
+  let lastIndex = 0
+
+  while ((match = markerRegex.exec(text)) !== null) {
+    const markerStart = match.index
+    let depth = 1
+    let markerEnd = -1
+    for (let i = markerStart + match[0].length; i < text.length; i++) {
+      if (text[i] === '\\' && i + 1 < text.length) {
+        i++
+        continue
+      }
+      if (text[i] === '{') depth++
+      else if (text[i] === '}') {
+        depth--
+        if (depth === 0) {
+          markerEnd = i + 1
+          break
+        }
+      }
+    }
+
+    if (markerEnd === -1) continue
+
+    const prefix = text.slice(lastIndex, markerStart)
+    const lines = prefix.split('\n')
+    let residueLineCount = 0
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim()
+      if (!line) {
+        residueLineCount++
+        continue
+      }
+      if (line.length <= 6 || /^[a-zA-Z0-9+\-=/*,.;:()[\]{}|↦→←≤≥≠≈]+$/.test(line)) {
+        residueLineCount++
+      } else {
+        break
+      }
+    }
+
+    let cleanPrefix = prefix
+    if (residueLineCount >= 1) {
+      const keptLines = lines.slice(0, lines.length - residueLineCount)
+      cleanPrefix = keptLines.join('\n').replace(/\n\s*$/, '')
+    }
+
+    // Swallow trailing blank lines/whitespace following closing formula brace
+    let forwardIndex = markerEnd
+    const forwardMatch = text.slice(markerEnd).match(/^(\s*\n)+/)
+    if (forwardMatch) {
+      forwardIndex = markerEnd + forwardMatch[0].length
+    }
+
+    result += cleanPrefix
+
+    const fullFormula = text.slice(markerStart, markerEnd)
+    const innerTex = fullFormula.replace(/^\{\\(?:displaystyle|textstyle|scriptstyle)\s*/, '').replace(/\}$/, '')
+    const readable = formatTexMath(innerTex)
+
+    const trimmedCleanPrefix = cleanPrefix.trimEnd()
+    const hasPunctuation = /[。！？.!?；;]$/u.test(trimmedCleanPrefix)
+
+    if (!hasPunctuation && trimmedCleanPrefix.length > 0) {
+      result += ` ${readable} `
+    } else {
+      result += `\n${readable}\n`
+    }
+
+    lastIndex = forwardIndex
+    markerRegex.lastIndex = forwardIndex
+  }
+
+  result += text.slice(lastIndex)
+  return result
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+([，。、；：,.;:）\]}])/g, '$1')
+}
+
+function splitCleanParagraphs(content: string): string[] {
+  const rawLines = content.split('\n').map(b => b.trim()).filter(Boolean)
+  const merged: string[] = []
+  for (const line of rawLines) {
+    if (merged.length > 0 && /^[，。、；：,.;:）\]}]/u.test(line)) {
+      merged[merged.length - 1] += line
+    } else {
+      merged.push(line)
+    }
+  }
+  return merged
+}
+
+/**
+ * Sanitizes rich HTML content for wiki cards and full articles,
+ * preserving safe typographical tags (sup, sub, math, etc.) while stripping scripts and TeX annotation leaks.
+ */
+export function sanitizeWikiHtml(dirty: string): string {
+  if (!dirty) return ''
+  return dirty
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+    .replace(/\son[a-z]+=["'][^"']*["']/gi, '')
+    .replace(/\son[a-z]+=[^\s>]+/gi, '')
+    .replace(/<annotation\b[^<]*(?:(?!<\/annotation>)<[^<]*)*<\/annotation>/gi, '')
+}
+
+/**
+ * Robust section parser supporting HTML extracts, Wiki Markup (== Chapter ==), and plain text.
+ */
+export function parseWikiSections(rawText: string, summaryFallback = ''): WikiSection[] {
+  const raw = (rawText || '').trim()
+  if (!raw && summaryFallback) {
+    return [{
+      id: 'sec-0',
+      title: '词条导言与核心定义',
+      paragraphs: [summaryFallback.trim()],
+    }]
+  }
+  if (!raw) return []
+
+  const isHtml = /<(?:h[2-3]|p|ul|ol|blockquote|math|div)\b/i.test(raw)
+
+  if (isHtml) {
+    if (typeof DOMParser !== 'undefined') {
+      try {
+        const parser = new DOMParser()
+        const doc = parser.parseFromString(`<div>${raw}</div>`, 'text/html')
+        const root = doc.body.firstElementChild || doc.body
+        root.querySelectorAll('script, style, .mw-empty-elt, .mw-editsection, annotation').forEach(el => el.remove())
+
+        const parsedSections: WikiSection[] = []
+        let currentSection: WikiSection = {
+          id: 'sec-0',
+          title: '词条导言与核心定义',
+          paragraphs: [],
+        }
+
+        Array.from(root.children).forEach(node => {
+          const tag = node.tagName ? node.tagName.toUpperCase() : ''
+          const nodeText = (node.textContent || '').trim()
+          if (!nodeText) return
+
+          if (tag === 'H2' || tag === 'H3') {
+            if (currentSection.paragraphs.length > 0) {
+              parsedSections.push(currentSection)
+            }
+            currentSection = {
+              id: `sec-${parsedSections.length}`,
+              title: nodeText.replace(/\[编辑\]|\[edit\]/gi, '').trim(),
+              paragraphs: [],
+            }
+          } else if (tag === 'P' || tag === 'UL' || tag === 'OL' || tag === 'BLOCKQUOTE' || tag === 'DIV') {
+            const rawHtml = (node as Element).outerHTML || nodeText
+            currentSection.paragraphs.push(formatScientificAndLatex(rawHtml))
+          }
+        })
+
+        if (currentSection.paragraphs.length > 0) {
+          parsedSections.push(currentSection)
+        }
+
+        if (parsedSections.length > 0) {
+          return parsedSections
+        }
+      } catch {
+        // Fallback to regex below
+      }
+    }
+
+    // RegEx fallback for HTML when DOMParser is unavailable
+    const sections: WikiSection[] = []
+    const cleanedHtml = raw.replace(/<annotation\b[^<]*(?:(?!<\/annotation>)<[^<]*)*<\/annotation>/gi, '')
+    const rawParts = cleanedHtml.split(/(<h[2-3][^>]*>[\s\S]*?<\/h[2-3]>)/i)
+    let currentTitle = '词条导言与核心定义'
+    let currentParagraphs: string[] = []
+
+    for (let i = 0; i < rawParts.length; i++) {
+      const part = rawParts[i].trim()
+      if (!part) continue
+      const headerMatch = part.match(/<h[2-3][^>]*>([\s\S]*?)<\/h[2-3]>/i)
+      if (headerMatch) {
+        if (currentParagraphs.length > 0) {
+          sections.push({
+            id: `sec-${sections.length}`,
+            title: currentTitle,
+            paragraphs: currentParagraphs,
+          })
+          currentParagraphs = []
+        }
+        currentTitle = headerMatch[1].replace(/<[^>]+>/g, '').replace(/\[编辑\]|\[edit\]/gi, '').trim()
+      } else {
+        const textOnly = part.replace(/<[^>]+>/g, '').trim()
+        if (!textOnly) continue
+        const pMatches = part.match(/<(?:p|ul|ol|blockquote)[^>]*>[\s\S]*?<\/(?:p|ul|ol|blockquote)>/gi)
+        if (pMatches) {
+          currentParagraphs.push(...pMatches.map(p => formatScientificAndLatex(p.trim())).filter(Boolean))
+        } else {
+          const clean = formatScientificAndLatex(part.trim())
+          if (clean) currentParagraphs.push(clean)
+        }
+      }
+    }
+    if (currentParagraphs.length > 0) {
+      sections.push({
+        id: `sec-${sections.length}`,
+        title: currentTitle,
+        paragraphs: currentParagraphs,
+      })
+    }
+    if (sections.length > 0) return sections
+  }
+
+  // Plaintext or Wiki Markup fallback: Clean stacked math artifacts first
+  const sections: WikiSection[] = []
+  const text = cleanWikiMathAndLayout(raw).trim()
+
+  if (/(?:^|\n)\s*==+\s*[^=\n]+?\s*==+/.test(text)) {
+    const lines = text.split('\n')
+    let currentTitle = '词条导言与核心定义'
+    let currentLines: string[] = []
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim()
+      const headerMatch = line.match(/^==+\s*([^=\n]+?)\s*==+$/)
+      if (headerMatch) {
+        if (currentLines.length > 0) {
+          const paras = splitCleanParagraphs(currentLines.join('\n\n'))
+          if (paras.length > 0) {
+            sections.push({
+              id: `sec-${sections.length}`,
+              title: currentTitle,
+              paragraphs: paras,
+            })
+          }
+          currentLines = []
+        }
+        currentTitle = headerMatch[1].trim()
+      } else if (line) {
+        currentLines.push(line)
+      }
+    }
+    if (currentLines.length > 0) {
+      const paras = splitCleanParagraphs(currentLines.join('\n\n'))
+      if (paras.length > 0) {
+        sections.push({
+          id: `sec-${sections.length}`,
+          title: currentTitle,
+          paragraphs: paras,
+        })
+      }
+    }
+  } else if (text) {
+    const paragraphs = splitCleanParagraphs(text)
+    sections.push({
+      id: 'sec-0',
+      title: '词条导言与核心定义',
+      paragraphs: paragraphs.length > 0 ? paragraphs : [text],
+    })
+  }
+
+  if (sections.length === 0 && summaryFallback) {
+    sections.push({
+      id: 'sec-0',
+      title: '词条导言与核心定义',
+      paragraphs: [summaryFallback.trim()],
+    })
+  } else if (sections.length > 0 && sections[0].paragraphs.length === 0 && summaryFallback) {
+    sections[0].paragraphs = [summaryFallback.trim()]
+  }
+
+  return sections.filter(sec => sec.paragraphs.length > 0)
 }
 const registry = new Map<string, EncyclopediaProvider>()
 export function registerEncyclopediaProvider(provider: EncyclopediaProvider) {

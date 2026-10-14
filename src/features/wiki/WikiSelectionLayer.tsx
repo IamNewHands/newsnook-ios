@@ -5,7 +5,7 @@ import { BookOpen, Bookmark, Check, ChevronDown, ChevronLeft, Copy, Maximize2, M
 import { readWikiLibrary, rememberWikiEntry, removeWikiBookmark, wikiEntryIdentity } from './library'
 import {
   encyclopediaProviders, getEncyclopediaProvider, loadWikiSettings,
-  lookupEncyclopedia, saveWikiSettings,
+  lookupEncyclopedia, parseWikiSections, sanitizeWikiHtml, saveWikiSettings,
   type WikiEntry, type WikiSettings,
 } from './encyclopedia'
 import './wiki.css'
@@ -23,6 +23,7 @@ export function WikiSelectionLayer() {
   const [error, setError] = useState('')
   const [fullText, setFullText] = useState<string | null>(null)
   const [fullLoading, setFullLoading] = useState(false)
+  const [isFullArticleMode, setIsFullArticleMode] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [trail, setTrail] = useState<WikiEntry[]>([])
   const [history, setHistory] = useState(() => readWikiLibrary('history'))
@@ -58,6 +59,7 @@ export function WikiSelectionLayer() {
     setError('')
     setLoading(false)
     setFullLoading(false)
+    setIsFullArticleMode(false)
     setExpanded(false)
     setSettingsDropdownOpen(false)
     setFooterDropdownOpen(false)
@@ -78,6 +80,7 @@ export function WikiSelectionLayer() {
     setLoading(true)
     setFullText(null)
     setFullLoading(false)
+    setIsFullArticleMode(false)
     try {
       const result = await lookupEncyclopedia(term, settingsRef.current, controller.signal, override)
       if (!controller.signal.aborted) {
@@ -90,9 +93,11 @@ export function WikiSelectionLayer() {
       if (!controller.signal.aborted) setLoading(false)
     }
   }, [entry])
-  const loadFull = useCallback(async () => {
+  const switchToFullArticle = useCallback(async () => {
+    setIsFullArticleMode(true)
+    setExpanded(true)
     if (!entry) return
-    if (fullText !== null) { setFullText(null); return }
+    if (fullText !== null) return
     fullRef.current?.abort()
     const controller = new AbortController()
     fullRef.current = controller
@@ -106,6 +111,13 @@ export function WikiSelectionLayer() {
       if (!controller.signal.aborted) setFullLoading(false)
     }
   }, [entry, fullText])
+  const toggleFullMode = useCallback(async () => {
+    if (isFullArticleMode) {
+      setIsFullArticleMode(false)
+    } else {
+      await switchToFullArticle()
+    }
+  }, [isFullArticleMode, switchToFullArticle])
 
   const openSettingsView = () => {
     setSettingsReturn(view)
@@ -281,7 +293,7 @@ export function WikiSelectionLayer() {
     }
   }, [settingsDropdownOpen, footerDropdownOpen])
   if (!selected) return null
-  const activeProvider = getEncyclopediaProvider(queryProviderId)
+  const activeProvider = getEncyclopediaProvider(entry?.providerId || queryProviderId)
   return (
     <div className="wiki-lookup-ui" onPointerDown={event => { if (view === 'peek') event.preventDefault(); event.stopPropagation() }} onTouchStart={event => event.stopPropagation()}>
       {view === 'peek' && (
@@ -384,67 +396,243 @@ export function WikiSelectionLayer() {
                 </div>}
                 <button className="wiki-primary" type="button" onClick={() => { if (settingsReturn === 'article' && (entry || loading)) setView('article'); else dismiss() }}>完成</button>
               </div>
-            ) : (
-              <>
-                <div className="wiki-sheet-body" key={entry?.url || 'loading'}>
-                  <p className="wiki-provider-name">{entry ? getEncyclopediaProvider(entry.providerId).name : activeProvider.name}</p>
-                  {loading && <p className="wiki-status">正在查询百科…</p>}
-                  {error && <div className="wiki-error" role="alert">{error}<button type="button" onClick={() => void lookup(activeTerm || selected.text)}>重试</button></div>}
-                  {entry && <>
-                    <div className="wiki-entry-heading">
-                      <div><h3>{entry.title}</h3>{entry.description && <p>{entry.description}</p>}</div>
-                      {entry.thumbnail && <img alt="" loading="lazy" src={entry.thumbnail} />}
-                    </div>
-                    <p className="wiki-entry-summary">{entry.summary}</p>
-                    <button className="wiki-save" type="button" onClick={() => toggleBookmark(entry)}><Bookmark size={16} fill={bookmarks.some(item => wikiEntryIdentity(item) === wikiEntryIdentity(entry)) ? 'currentColor' : 'none'}/>{bookmarks.some(item => wikiEntryIdentity(item) === wikiEntryIdentity(entry)) ? '已收藏' : '收藏词条'}</button>
-                    {fullText && <div className="wiki-fulltext">{fullText}</div>}
-                    {entry.related.length > 0 && <div className="wiki-related"><h4>相关词条</h4><div>{entry.related.map(term => <button type="button" key={term} onClick={() => void lookup(term, entry.providerId, true)}>{term}</button>)}</div></div>}
-                  </>}
-                </div>
-                <footer className="wiki-sheet-footer">
-                  <div className="wiki-footer-dropdown-container relative min-w-0 flex-1">
-                    <button
-                      type="button"
-                      className="wiki-footer-picker-trigger"
-                      onClick={() => setFooterDropdownOpen(open => !open)}
-                      aria-haspopup="listbox"
-                      aria-expanded={footerDropdownOpen}
-                      aria-label={`切换查询百科源，当前为${getEncyclopediaProvider(entry?.providerId || queryProviderId).name}`}
-                    >
-                      <span className="truncate">{getEncyclopediaProvider(entry?.providerId || queryProviderId).name}</span>
-                      <ChevronDown size={13} className={`opacity-60 shrink-0 transition-transform duration-150 ${footerDropdownOpen ? 'rotate-180' : ''}`} />
-                    </button>
-                    {footerDropdownOpen && (
-                      <div className="wiki-dropdown-menu wiki-dropdown-menu-up" role="listbox">
-                        {encyclopediaProviders().map(provider => {
-                          const active = provider.id === (entry?.providerId || queryProviderId)
-                          return (
-                            <button
-                              key={provider.id}
-                              type="button"
-                              role="option"
-                              aria-selected={active}
-                              className={`wiki-dropdown-item ${active ? 'is-active' : ''}`}
-                              onClick={() => {
-                                setFooterDropdownOpen(false)
-                                void lookup(activeTerm || selected.text, provider.id)
-                              }}
-                            >
-                              <span>{provider.name}</span>
-                              {active && <Check size={14} className="text-cinnabar shrink-0" />}
-                            </button>
-                          )
-                        })}
-                      </div>
+            ) : (() => {
+              const sections = entry ? parseWikiSections(fullText || '', entry.summary) : []
+              const isBookmarked = entry ? bookmarks.some(item => wikiEntryIdentity(item) === wikiEntryIdentity(entry)) : false
+              const scrollToSection = (id: string) => {
+                const target = document.getElementById(id)
+                if (target) {
+                  target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+              }
+
+              return (
+                <>
+                  <div className="wiki-sheet-body" key={entry?.url || 'loading'}>
+                    {loading && <p className="wiki-status">正在查询 {activeProvider.name}…</p>}
+                    {error && <div className="wiki-error" role="alert">{error}<button type="button" onClick={() => void lookup(activeTerm || selected.text)}>重试</button></div>}
+                    {entry && (
+                      <>
+                        <div className="wiki-badges-row">
+                          <span className="wiki-provider-badge">
+                            {getEncyclopediaProvider(entry.providerId).name}{isFullArticleMode ? ' · 全文模式' : ''}
+                          </span>
+                          <span className="wiki-mode-badge">
+                            {isFullArticleMode ? 'IN-APP READER' : (entry.isLiveApi ? 'REALTIME REST' : 'ADAPTER DTO')}
+                          </span>
+                        </div>
+
+                        <div className="wiki-entry-heading">
+                          <div>
+                            <h3>{entry.title}</h3>
+                            {entry.description && <p>{entry.description}</p>}
+                          </div>
+                          {entry.thumbnail && <img alt={entry.title} loading="lazy" src={entry.thumbnail} />}
+                        </div>
+
+                        {!isFullArticleMode ? (
+                          <>
+                            <div className="wiki-summary-card">
+                              <div
+                                className="wiki-entry-summary"
+                                dangerouslySetInnerHTML={{ __html: sanitizeWikiHtml(entry.summary) }}
+                              />
+                              <div className="wiki-summary-card-footer">
+                                <span className="wiki-summary-footer-hint">
+                                  📑 章节目录与百科全文
+                                </span>
+                                <button
+                                  type="button"
+                                  className="wiki-expand-full-btn"
+                                  onClick={() => void switchToFullArticle()}
+                                >
+                                  展开全文 &rarr;
+                                </button>
+                              </div>
+                            </div>
+
+                            {entry.structuredFacts && entry.structuredFacts.length > 0 && (
+                              <div className="wiki-facts-card">
+                                <div className="wiki-facts-grid">
+                                  {entry.structuredFacts.map((fact, idx) => (
+                                    <div key={idx} className="wiki-fact-item">
+                                      <span className="wiki-fact-label">{fact.label}</span>
+                                      <span className="wiki-fact-value">{fact.value}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {entry.related.length > 0 && (
+                              <div className="wiki-related">
+                                <h4><span>🔗</span> 关联词条</h4>
+                                <div>
+                                  {entry.related.map(term => (
+                                    <button
+                                      type="button"
+                                      key={term}
+                                      onClick={() => void lookup(term, entry.providerId, true)}
+                                    >
+                                      {term} &rarr;
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            {sections.length > 1 && (
+                              <div className="wiki-toc-card">
+                                <div className="wiki-toc-header">
+                                  <span className="wiki-toc-title">📑 词条章节目录 (点击直达)</span>
+                                  <span className="wiki-toc-count">{sections.length} 节</span>
+                                </div>
+                                <div className="wiki-toc-grid">
+                                  {sections.map((sec, idx) => (
+                                    <button
+                                      key={sec.id}
+                                      type="button"
+                                      className="wiki-toc-btn"
+                                      onClick={() => scrollToSection(sec.id)}
+                                    >
+                                      <span className="wiki-toc-num">{String(idx + 1).padStart(2, '0')}.</span>
+                                      <span>{sec.title}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {entry.structuredFacts && entry.structuredFacts.length > 0 && (
+                              <div className="wiki-facts-card">
+                                <div className="wiki-facts-header">📊 词条结构化档案 (Infobox)</div>
+                                <div className="wiki-facts-grid">
+                                  {entry.structuredFacts.map((fact, idx) => (
+                                    <div key={idx} className="wiki-fact-item">
+                                      <span className="wiki-fact-label">{fact.label}</span>
+                                      <span className="wiki-fact-value">{fact.value}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="wiki-sections-body">
+                              {fullLoading && (
+                                <p className="wiki-status">正在加载完整词条章节…</p>
+                              )}
+                              {sections.map((sec, idx) => (
+                                <section key={sec.id} id={sec.id} className="wiki-chapter">
+                                  <div className="wiki-chapter-header">
+                                    <span className="wiki-chapter-badge">{String(idx + 1).padStart(2, '0')}</span>
+                                    <h4 className="wiki-chapter-title">{sec.title}</h4>
+                                  </div>
+                                  <div className="wiki-chapter-paragraphs">
+                                    {sec.paragraphs.map((p, pIdx) => (
+                                      <div
+                                        key={pIdx}
+                                        className={`wiki-chapter-p ${idx === 0 && pIdx === 0 ? 'wiki-entry-summary' : ''}`}
+                                        dangerouslySetInnerHTML={{ __html: sanitizeWikiHtml(p) }}
+                                      />
+                                    ))}
+                                  </div>
+                                </section>
+                              ))}
+                            </div>
+
+                            {entry.related.length > 0 && (
+                              <div className="wiki-related">
+                                <h4><span>🔗</span> 关联词条</h4>
+                                <div>
+                                  {entry.related.map(term => (
+                                    <button
+                                      type="button"
+                                      key={term}
+                                      onClick={() => void lookup(term, entry.providerId, true)}
+                                    >
+                                      {term} &rarr;
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </>
                     )}
                   </div>
-                  {entry && <>
-                    <a href={entry.url} target="_blank" rel="noopener noreferrer">原文</a>
-                    <button type="button" onClick={() => void loadFull()} disabled={fullLoading}>{fullLoading ? '加载中' : fullText === null ? '全文' : '摘要'}</button>
-                  </>}
-                </footer>
-              </>
-            )}
+                  <footer className="wiki-sheet-footer">
+                    <div className="wiki-footer-left">
+                      <div className="wiki-footer-telemetry">
+                        <span className="wiki-telemetry-dot" />
+                        <span>{entry?.isLiveApi ? 'Live API' : 'Adapter'} · {entry?.latencyMs ? `${entry.latencyMs}ms` : '就绪'}</span>
+                      </div>
+                      <div className="wiki-footer-dropdown-container relative min-w-0">
+                        <button
+                          type="button"
+                          className="wiki-footer-picker-trigger"
+                          onClick={() => setFooterDropdownOpen(open => !open)}
+                          aria-haspopup="listbox"
+                          aria-expanded={footerDropdownOpen}
+                          aria-label={`切换查询百科源，当前为${getEncyclopediaProvider(entry?.providerId || queryProviderId).name}`}
+                        >
+                          <span className="truncate">{getEncyclopediaProvider(entry?.providerId || queryProviderId).name}</span>
+                          <ChevronDown size={13} className={`opacity-60 shrink-0 transition-transform duration-150 ${footerDropdownOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        {footerDropdownOpen && (
+                          <div className="wiki-dropdown-menu wiki-dropdown-menu-up" role="listbox">
+                            {encyclopediaProviders().map(provider => {
+                              const active = provider.id === (entry?.providerId || queryProviderId)
+                              return (
+                                <button
+                                  key={provider.id}
+                                  type="button"
+                                  role="option"
+                                  aria-selected={active}
+                                  className={`wiki-dropdown-item ${active ? 'is-active' : ''}`}
+                                  onClick={() => {
+                                    setFooterDropdownOpen(false)
+                                    void lookup(activeTerm || selected.text, provider.id)
+                                  }}
+                                >
+                                  <span>{provider.name}</span>
+                                  {active && <Check size={14} className="text-cinnabar shrink-0" />}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {entry && (
+                      <div className="wiki-footer-actions">
+                        <a href={entry.url} target="_blank" rel="noopener noreferrer">原文</a>
+                        <button
+                          type="button"
+                          className={`wiki-btn-icon ${isBookmarked ? 'is-active' : ''}`}
+                          onClick={() => toggleBookmark(entry)}
+                          aria-label={isBookmarked ? '取消收藏' : '收藏词条'}
+                          title={isBookmarked ? '已收藏' : '加入生词本'}
+                        >
+                          <Bookmark size={15} fill={isBookmarked ? 'currentColor' : 'none'} />
+                        </button>
+                        <button
+                          type="button"
+                          className="wiki-footer-btn-full"
+                          onClick={() => void toggleFullMode()}
+                          disabled={fullLoading}
+                        >
+                          <BookOpen size={13} className="shrink-0" />
+                          <span>{fullLoading ? '加载中' : isFullArticleMode ? '摘要' : '全文'}</span>
+                        </button>
+                      </div>
+                    )}
+                  </footer>
+                </>
+              )
+            })()}
           </section>
         </>
       )}
