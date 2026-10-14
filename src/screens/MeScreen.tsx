@@ -18,6 +18,7 @@ import {
   Search,
   Type,
   Volume2,
+  BookOpen,
 } from 'lucide-react'
 
 import { useReducedMotion } from '../hooks/useReducedMotion'
@@ -51,6 +52,7 @@ interface Props {
   onOpenTypographySettings: () => void
   onOpenAppearanceSettings: () => void
   onOpenTranslationSettings: () => void
+  onOpenWikiSettings: () => void
   onOpenReadAloudSettings: () => void
   onOpenAiSettings: () => void
   onOpenProxySettings: () => void
@@ -114,6 +116,7 @@ export function MeScreen({
   onOpenTypographySettings,
   onOpenAppearanceSettings,
   onOpenTranslationSettings,
+  onOpenWikiSettings,
   onOpenReadAloudSettings,
   onOpenAiSettings,
   onOpenProxySettings,
@@ -152,6 +155,7 @@ export function MeScreen({
           <Entry icon={Type} title="阅读字体" subtitle={typographySummary} onClick={onOpenTypographySettings}/>
           <Entry icon={Contrast} title="外观" subtitle={appearanceSummary} onClick={onOpenAppearanceSettings}/>
           <Entry icon={Languages} title="翻译" subtitle={translationSummary} onClick={onOpenTranslationSettings} dataTour="me-translation"/>
+          <Entry icon={BookOpen} title="划词百科" subtitle="维基百科 · 划词查询与百科源" onClick={onOpenWikiSettings}/>
           <Entry icon={Volume2} title="朗读" subtitle={readAloudSummary} onClick={onOpenReadAloudSettings}/>
         </Group>
         <Group title="应用与数据">
