@@ -11,6 +11,10 @@ try {
     const input = String(url)
     requests.push(input)
     if (input.includes('page/summary/')) {
+      if (input.includes('CacheFallback')) {
+        if (input.includes('zh.wikipedia.org')) return new Response('{}', { status: 404 })
+        return Response.json({ title: 'CacheFallback', extract: 'English-only entry', description: 'Test article' })
+      }
       if (input.includes('Missing') || input.includes(encodeURIComponent('已严肃升'))) return new Response('{}', { status: 404 })
       return Response.json({
         title: '量子纠缠', extract: '真实百科摘要', description: '物理学术语',
@@ -44,6 +48,13 @@ try {
     lookupEncyclopedia('已严肃升', settings, controller.signal),
     error => error instanceof WikiNotFoundError,
   )
+  // Switching the fallback policy must invalidate previously cached English substitutions.
+  const withFallback = { ...settings, fallbackEnglish: true }
+  const fallbackResult = await lookupEncyclopedia('CacheFallback', withFallback, controller.signal)
+  assert.equal(fallbackResult.providerId, 'wikipedia-en')
+  const zhFetchCountBefore = requests.filter(url => url.includes('zh.wikipedia.org')).length
+  await assert.rejects(lookupEncyclopedia('CacheFallback', settings, controller.signal), WikiNotFoundError)
+  assert.ok(requests.filter(url => url.includes('zh.wikipedia.org')).length > zhFetchCountBefore)
   assert.throws(() => registerEncyclopediaProvider(getEncyclopediaProvider('wikipedia-zh')), /重复/)
   console.log('wiki encyclopedia tests passed')
 } finally {

@@ -134,14 +134,17 @@ export async function lookupEncyclopedia(term: string, settings: WikiSettings, s
   const normalized = term.trim().slice(0, 160)
   if (!normalized) throw new WikiNotFoundError(term)
   const source = getEncyclopediaProvider(override || settings.providerId)
-  const key = `${source.id}:${normalized.toLocaleLowerCase()}`
+  // Fallback policy belongs to the lookup identity: disabling English fallback must
+  // never reuse an English result cached by an earlier Chinese lookup.
+  const allowEnglishFallback = settings.fallbackEnglish && source.id === 'wikipedia-zh'
+  const key = `${source.id}:${allowEnglishFallback ? 'fallback-en' : 'strict'}:${normalized.toLocaleLowerCase()}`
   const existing = cache.get(key)
   if (existing && existing.until > Date.now()) return existing.value
   let entry: WikiEntry
   try {
     entry = await source.lookup(normalized, signal)
   } catch (error) {
-    if (signal.aborted || !(error instanceof WikiNotFoundError) || !settings.fallbackEnglish || source.id !== 'wikipedia-zh') throw error
+    if (signal.aborted || !(error instanceof WikiNotFoundError) || !allowEnglishFallback) throw error
     entry = await getEncyclopediaProvider('wikipedia-en').lookup(normalized, signal)
   }
   cache.delete(key)

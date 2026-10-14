@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
+import { ToggleSwitch } from '../../components/ToggleSwitch'
 import { registerHardwareBackLayer } from '../../lib/hardwareBackStack'
 import { BookOpen, Bookmark, ChevronLeft, Copy, Maximize2, Minimize2, Settings2, X } from 'lucide-react'
 import { readWikiLibrary, rememberWikiEntry, removeWikiBookmark, wikiEntryIdentity } from './library'
@@ -26,13 +27,16 @@ export function WikiSelectionLayer() {
   const [expanded, setExpanded] = useState(false)
   const [trail, setTrail] = useState<WikiEntry[]>([])
   const [peekText, setPeekText] = useState('')
+  const [peekEntry, setPeekEntry] = useState<WikiEntry | null>(null)
   const [history, setHistory] = useState(() => readWikiLibrary('history'))
   const [bookmarks, setBookmarks] = useState(() => readWikiLibrary('bookmarks'))
   const [settingsReturn, setSettingsReturn] = useState<View>('peek')
   const requestRef = useRef<AbortController | null>(null)
   const fullRef = useRef<AbortController | null>(null)
   const settingsRef = useRef(settings)
+  const selectedRef = useRef(selected)
   settingsRef.current = settings
+  selectedRef.current = selected
 
   const updateSettings = (patch: Partial<WikiSettings>) => {
     setSettings(old => {
@@ -55,6 +59,7 @@ export function WikiSelectionLayer() {
     setFullLoading(false)
     setExpanded(false)
     setPeekText('')
+    setPeekEntry(null)
   }, [])
   const lookup = useCallback(async (term: string, override?: string, nest = false) => {
     requestRef.current?.abort()
@@ -105,8 +110,22 @@ export function WikiSelectionLayer() {
     setView('settings')
   }
   const toggleBookmark = (value: WikiEntry) => {
-    const exists = bookmarks.some(item => wikiEntryIdentity(item) === wikiEntryIdentity(value))
+    const exists = readWikiLibrary('bookmarks').some(item => wikiEntryIdentity(item) === wikiEntryIdentity(value))
     setBookmarks(exists ? removeWikiBookmark(value) : rememberWikiEntry(value, 'bookmarks'))
+  }
+  const saveSelectedWord = async () => {
+    if (!selected?.text) return
+    const term = selected.text
+    try {
+      const resolved = peekEntry || await lookupEncyclopedia(term, settingsRef.current, new AbortController().signal)
+      if (selectedRef.current?.text !== term) return
+      const existed = readWikiLibrary('bookmarks').some(item => wikiEntryIdentity(item) === wikiEntryIdentity(resolved))
+      toggleBookmark(resolved)
+      setPeekEntry(resolved)
+      setPeekText(existed ? '已取消收藏' : `已收藏 · ${resolved.title}`)
+    } catch {
+      if (selectedRef.current?.text === term) setPeekText('收藏失败，请重试')
+    }
   }
   useEffect(() => {
     function openSettings() {
@@ -148,6 +167,7 @@ export function WikiSelectionLayer() {
       setSelected({ text: term, x, y })
       setEntry(null)
       setPeekText('')
+      setPeekEntry(null)
       setView('peek')
     }
     function onPointerUp(event: PointerEvent) {
@@ -179,7 +199,7 @@ export function WikiSelectionLayer() {
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       void lookupEncyclopedia(selected.text, settings, controller.signal)
-        .then(result => { if (!controller.signal.aborted) setPeekText(result.summary) })
+        .then(result => { if (!controller.signal.aborted) { setPeekEntry(result); setPeekText(result.summary) } })
         .catch(() => { if (!controller.signal.aborted) setPeekText('点击查看百科释义') })
     }, 200)
     return () => { clearTimeout(timer); controller.abort() }
@@ -234,7 +254,8 @@ export function WikiSelectionLayer() {
             <BookOpen size={17} /> <span title={selected.text}>{selected.text}</span> <strong>百科</strong>
           </button>
           <button type="button" aria-label="复制" title="复制" onClick={() => { void navigator.clipboard.writeText(selected.text); dismiss() }}><Copy size={16} /></button>
-          <button type="button" title="百科设置" aria-label="设置" onClick={openSettingsView}><Settings2 size={16} /></button>
+          <button type="button" title="直接查询英文维基" aria-label="英文维基" className="wiki-english-action" onClick={() => void lookup(selected.text, 'wikipedia-en')}>EN</button>
+          <button type="button" title="收藏词条" aria-label="收藏词条" onClick={() => void saveSelectedWord()}><Bookmark size={16} fill={peekEntry && bookmarks.some(item => wikiEntryIdentity(item) === wikiEntryIdentity(peekEntry)) ? 'currentColor' : 'none'}/></button>
           <button type="button" aria-label="关闭" onClick={dismiss}><X size={16} /></button>
           <button className="wiki-peek-definition" type="button" title={peekText} onClick={() => void lookup(selected.text)}>{peekText || '正在获取词条摘要…'}</button>
         </div>
@@ -255,12 +276,12 @@ export function WikiSelectionLayer() {
             </header>
             {view === 'settings' ? (
               <div className="wiki-sheet-body wiki-settings">
-                <label><span>启用划词百科</span><input type="checkbox" checked={settings.enabled} onChange={event => updateSettings({ enabled: event.target.checked })}/></label>
+                <div className="wiki-settings-row"><span>启用划词百科</span><ToggleSwitch checked={settings.enabled} label="启用划词百科" onChange={() => updateSettings({ enabled: !settings.enabled })}/></div>
                 <label><span>默认百科源</span><select value={settings.providerId} onChange={event => updateSettings({ providerId: event.target.value })}>
                   {encyclopediaProviders().map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
                 </select></label>
-                {Capacitor.getPlatform() !== 'android' && <label><span>选中文字后直接打开词条</span><input type="checkbox" checked={settings.directLookup} onChange={event => updateSettings({ directLookup: event.target.checked })}/></label>}
-                <label><span>中文维基未收录时尝试英文维基</span><input type="checkbox" checked={settings.fallbackEnglish} onChange={event => updateSettings({ fallbackEnglish: event.target.checked })}/></label>
+                {Capacitor.getPlatform() !== 'android' && <div className="wiki-settings-row"><span>选中文字后直接打开词条</span><ToggleSwitch checked={settings.directLookup} label="选中文字后直接打开词条" onChange={() => updateSettings({ directLookup: !settings.directLookup })}/></div>}
+                <div className="wiki-settings-row"><span>中文维基未收录时尝试英文维基</span><ToggleSwitch checked={settings.fallbackEnglish} label="中文维基未收录时尝试英文维基" onChange={() => updateSettings({ fallbackEnglish: !settings.fallbackEnglish })}/></div>
                 {(bookmarks.length > 0 || history.length > 0) && <div className="wiki-library">
                   {bookmarks.length > 0 && <><h3>收藏词条</h3><div>{bookmarks.map(item => <button type="button" key={wikiEntryIdentity(item)} onClick={() => void lookup(item.query, item.providerId)}>{item.title}</button>)}</div></>}
                   {history.length > 0 && <><h3>最近查询</h3><div>{history.slice(0, 12).map(item => <button type="button" key={wikiEntryIdentity(item)} onClick={() => void lookup(item.query, item.providerId)}>{item.title}</button>)}</div></>}
