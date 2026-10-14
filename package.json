@@ -100,6 +100,7 @@
     "test:native-fullscreen": "npx tsx scripts/native-fullscreen.test.ts",
     "test:battery-status": "npx tsx scripts/battery-status.test.ts",
     "test:theme": "npx tsx scripts/theme-schemes.test.ts",
+    "test:settings-paper": "tsx scripts/settings-paper-ui.test.tsx && tsx scripts/settings-paper-toggle.test.ts",
     "test:logger": "npx tsx scripts/logger.test.ts",
     "test:wifi-media": "npx tsx scripts/wifi-only-media.test.ts",
     "test:reader-font-pinch": "npx tsx scripts/reader-font-pinch.test.ts",

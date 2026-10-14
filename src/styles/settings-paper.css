@@ -1,53 +1,200 @@
-/* 02 宣纸 · 原生分组：仅应用于个人中心及设置页面。 */
-.paper-settings-root, .paper-settings-shell {
+/* 02 宣纸：复用 NewsNook 主题语义色，局部完成与交互原型相同的排版与层次。 */
+.paper-settings-root,
+.paper-settings-shell {
+  --paper-bg: var(--tone-ink);
   --paper-surface: var(--tone-ink-raised);
-  --paper-outline: var(--tone-haze);
-  --paper-soft: var(--tone-ink-deep);
-  background:var(--tone-ink);color:var(--tone-paper);
+  --paper-surface-warm: var(--tone-ink-deep);
+  --paper-stroke: var(--tone-haze);
+  --paper-outline: var(--paper-stroke);
+  --paper-text: var(--tone-paper);
+  --paper-muted: var(--tone-paper-muted);
+  --paper-faint: var(--tone-paper-faint);
+  --paper-icon-bg: var(--tone-ink-deep);
+  --paper-icon-fg: var(--tone-paper-muted);
+  --paper-accent-soft: var(--tone-ink-deep);
+  --paper-shadow: 0 5px 22px rgb(0 0 0 / .035);
+  --color-ink: var(--paper-bg);
+  --color-ink-raised: var(--paper-surface);
+  --color-ink-deep: var(--paper-surface-warm);
+  --color-paper: var(--paper-text);
+  --color-paper-muted: var(--paper-muted);
+  --color-paper-faint: var(--paper-faint);
+  --color-haze: var(--paper-stroke);
+  background: var(--paper-bg);
+  color: var(--paper-text);
+  font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', 'Source Han Sans SC', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
-.paper-settings-header{padding:20px 0 8px;flex:none}
-.paper-settings-container{width:100%;max-width:940px;margin-inline:auto;padding-inline:20px}
-.paper-settings-brand{display:flex;align-items:center;gap:7px;color:var(--tone-paper-muted);font-size:12px;font-weight:600}
-.paper-settings-brand-dot{width:8px;height:8px;border-radius:50%;background:var(--tone-cinnabar)}
-.paper-settings-back{display:grid;place-items:center;width:44px;height:44px;margin-right:2px}
-.paper-settings-header h1{font-size:30px;letter-spacing:-.04em;line-height:1.25;font-weight:700;margin:11px 0 0}
-.paper-settings-scroller{min-height:0;flex:1;overflow-y:auto;padding-bottom:32px}
-.paper-settings-grid{display:grid;grid-template-columns:minmax(0,1fr);column-gap:24px;align-content:start}
-.paper-settings-group{min-width:0;margin-top:21px}
-.paper-settings-group-title{font-size:13px;font-weight:600;color:var(--tone-paper-muted);margin:0 0 10px 13px}
-.paper-settings-panel{list-style:none;padding:0;margin:0;background:var(--paper-surface);border:1px solid var(--paper-outline);border-radius:17px;overflow:hidden}
-.paper-settings-item + .paper-settings-item{border-top:1px solid var(--paper-outline)}
-.paper-settings-row{width:100%;min-height:59px;display:flex;align-items:center;gap:11px;padding:10px 13px;text-align:left;transition:background-color 160ms ease}
-.paper-settings-row:hover,.paper-settings-shortcut:hover{background:rgb(var(--tone-paper-rgb) / .05)}
-.paper-settings-row:active,.paper-settings-shortcut:active{background:rgb(var(--tone-paper-rgb) / .09)}
-.paper-settings-icon{width:32px;height:32px;border-radius:10px;flex:none;display:grid;place-items:center;background:var(--tone-ink-deep);color:var(--tone-paper-muted)}
-.paper-settings-copy{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
-.paper-settings-name{font-size:14px;font-weight:550;line-height:1.4;color:var(--tone-paper)}
-.paper-settings-subtitle{font-size:12.5px;line-height:1.45;color:var(--tone-paper-muted);overflow-wrap:anywhere}
-.paper-settings-chevron{flex:none;color:var(--tone-paper-faint)}
-.paper-settings-badge{font-size:11px;font-weight:650;color:var(--tone-cinnabar);white-space:nowrap}
-.paper-settings-shortcuts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
-.paper-settings-shortcut{display:flex;min-width:0;min-height:90px;align-items:flex-start;gap:12px;text-align:left;padding:15px 12px;border-radius:16px;border:1px solid var(--paper-outline);background:var(--paper-surface);transition:background-color 160ms ease}
-.paper-settings-shortcut-icon{color:var(--tone-cinnabar);background:rgb(var(--tone-cinnabar-rgb) / .12)}
-.paper-settings-shortcut strong,.paper-settings-shortcut small{display:block;line-height:1.4}
-.paper-settings-shortcut strong{font-size:14px;font-weight:600}
-.paper-settings-shortcut small{font-size:12.5px;color:var(--tone-paper-muted);margin-top:5px}
-.paper-settings-search-panel .paper-settings-row{min-height:49px}
-.paper-settings-footer{grid-column:1/-1;margin:30px 0 12px;text-align:center;font-size:12px;color:var(--tone-paper-faint)}
-.paper-settings-shell-header{padding:13px 0 15px;border-bottom:1px solid var(--paper-outline)}
-.paper-settings-shell-header h1{font-family:var(--font-body);font-size:23px;line-height:1.25;font-weight:700;letter-spacing:-.025em}
-.paper-settings-shell-header p{font-family:var(--font-body);font-size:12.5px;letter-spacing:0;line-height:1.5}
-.paper-settings-shell-header button[aria-label="返回"]{min-width:44px;min-height:44px;display:grid;place-items:center}
-.paper-settings-shell-scroll{background:var(--tone-ink)}
-.paper-settings-section{margin:0 16px 12px;border-radius:16px}
-.paper-settings-section > div:first-child{padding:20px 0 9px;}
-.paper-settings-section-title{font-size:13px;letter-spacing:0;font-family:var(--font-body)}
-.paper-settings-section > :not(:first-child){border-radius:14px}
-.paper-settings-shell :is(button,input,textarea,select){accent-color:var(--tone-cinnabar)}
-@media(min-width:768px){.paper-settings-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.paper-settings-header{padding:32px 0 4px}.paper-settings-header h1{font-size:36px}.paper-settings-shell-scroll > div{max-width:850px}.paper-settings-container{padding-inline:28px}}
-@media(prefers-reduced-motion:reduce){.paper-settings-root *, .paper-settings-shell *{transition-duration:0ms!important}}
 
-.paper-settings-reading-count{margin:5px 0 0;font-size:12.5px;color:var(--tone-paper-muted)}
+/* 原型 02 的宣纸白天 / 深墨夜间，仅限设置工作区；其余模块主题色不变。 */
+html[data-theme='light'][data-scheme='ink'] .paper-settings-root,
+html[data-theme='light'][data-scheme='ink'] .paper-settings-shell {
+  --paper-bg: #f2f1ed;
+  --paper-surface: #fffcf6;
+  --paper-surface-warm: #f7f4ed;
+  --paper-stroke: #e7e3db;
+  --paper-text: #282923;
+  --paper-muted: #666e64;
+  --paper-faint: #70766c;
+  --paper-icon-bg: #f0eee8;
+  --paper-icon-fg: #677067;
+  --paper-accent-soft: #f5e9e3;
+  --paper-shadow: 0 5px 22px rgb(56 51 37 / .025);
+}
+html[data-theme='dark'][data-scheme='ink'] .paper-settings-root,
+html[data-theme='dark'][data-scheme='ink'] .paper-settings-shell {
+  --paper-bg: #131619;
+  --paper-surface: #1f2427;
+  --paper-surface-warm: #252a2c;
+  --paper-stroke: #353b3c;
+  --paper-text: #ede9df;
+  --paper-muted: #b0b2a9;
+  --paper-faint: #a1aaa1;
+  --paper-icon-bg: #30383a;
+  --paper-icon-fg: #c9d0c7;
+  --paper-accent-soft: #3c302d;
+  --paper-shadow: none;
+}
+
+.paper-settings-container {
+  width: 100%;
+  max-width: 940px;
+  margin-inline: auto;
+  padding-inline: 16px;
+}
+.paper-settings-header { flex: none; padding: 20px 0 11px; }
+.paper-settings-header .paper-settings-container { padding-inline: 23px; }
+.paper-settings-brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--tone-cinnabar);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .16em;
+}
+.paper-settings-brand-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tone-cinnabar); }
+.paper-settings-back { display: grid; place-items: center; min-width: 44px; min-height: 44px; margin-inline: -8px 2px; }
+.paper-settings-header h1 {
+  margin: 10px 0 0;
+  font-size: 35px;
+  line-height: 1.25;
+  font-weight: 720;
+  letter-spacing: -.055em;
+}
+.paper-settings-reading-count { margin: 3px 0 0; font-size: 12px; line-height: 1.5; color: var(--paper-faint); }
+.paper-settings-scroller { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 32px; }
+.paper-settings-grid { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 23px; align-content: start; }
+.paper-settings-group { min-width: 0; margin-top: 22px; }
+.paper-settings-group:first-child { margin-top: 5px; }
+.paper-settings-group-title {
+  margin: 0 8px 9px;
+  min-height: 19px;
+  color: var(--paper-muted);
+  font-size: 12.7px;
+  font-weight: 650;
+  letter-spacing: .005em;
+  line-height: 1.5;
+}
+.paper-settings-panel {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--paper-stroke);
+  border-radius: 17px;
+  background: var(--paper-surface);
+  box-shadow: var(--paper-shadow);
+}
+.paper-settings-item { position: relative; }
+.paper-settings-item + .paper-settings-item::before {
+  position: absolute;
+  inset: 0 12px auto 52px;
+  height: 1px;
+  content: '';
+  background: var(--paper-stroke);
+  pointer-events: none;
+}
+.paper-settings-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 60px;
+  gap: 10px;
+  padding: 11px 12px;
+  text-align: left;
+  transition: background-color 150ms ease;
+}
+.paper-settings-row:active, .paper-settings-shortcut:active { background: var(--paper-surface-warm); }
+.paper-settings-row:focus-visible, .paper-settings-shortcut:focus-visible { outline: 2px solid var(--tone-cinnabar); outline-offset: -3px; }
+.paper-settings-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 31px;
+  height: 31px;
+  border-radius: 10px;
+  background: var(--paper-icon-bg);
+  color: var(--paper-icon-fg);
+}
+.paper-settings-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 2px; }
+.paper-settings-name {
+  display: block;
+  color: var(--paper-text);
+  font-size: 14px;
+  font-weight: 540;
+  letter-spacing: -.012em;
+  line-height: 1.45;
+}
+.paper-settings-subtitle {
+  display: block;
+  color: var(--paper-faint);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.paper-settings-chevron { flex: none; width: 15px; height: 15px; color: var(--paper-faint); stroke-width: 1.6; }
+.paper-settings-badge { font-size: 11px; font-weight: 650; color: var(--tone-cinnabar); white-space: nowrap; }
+.paper-settings-shortcuts { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; margin-bottom: 9px; }
+.paper-settings-shortcut {
+  display: flex;
+  min-width: 0;
+  min-height: 111px;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid var(--paper-stroke);
+  border-radius: 15px;
+  background: var(--paper-surface);
+  box-shadow: var(--paper-shadow);
+  text-align: left;
+  transition: background-color 150ms ease, transform 170ms ease;
+}
+.paper-settings-shortcut:active { transform: scale(.975); }
+.paper-settings-shortcut-icon { width: 30px; height: 30px; color: var(--tone-cinnabar); background: var(--paper-accent-soft); }
+.paper-settings-shortcut strong { display: block; color: var(--paper-text); font-size: 14.5px; font-weight: 620; line-height: 1.3; }
+.paper-settings-shortcut small { display: block; margin-top: 2px; color: var(--paper-faint); font-size: 12px; line-height: 1.45; }
+.paper-settings-search-panel { border-radius: 14px; }
+.paper-settings-search-panel .paper-settings-row { min-height: 51px; padding: 0 13px; }
+.paper-settings-search-panel .paper-settings-icon { width: 18px; height: 18px; border-radius: 0; background: transparent; color: var(--paper-icon-fg); }
+.paper-settings-search-panel .paper-settings-name { font-size: 14px; font-weight: 500; }
+.paper-settings-footer { grid-column: 1 / -1; max-width: 390px; margin: 24px auto 10px; color: var(--paper-faint); font-size: 11px; line-height: 1.6; text-align: center; }
+.paper-settings-footer p + p { margin-top: 9px; }
+
+.paper-settings-shell :is(button,input,textarea,select) { accent-color: var(--tone-cinnabar); }
+@media (min-width: 768px) {
+  .paper-settings-grid { grid-template-columns: repeat(2,minmax(0,1fr)); padding-inline: 36px; }
+  .paper-settings-header { padding: 31px 0 11px; }
+  .paper-settings-header .paper-settings-container { padding-inline: 43px; }
+  .paper-settings-header h1 { font-size: 38px; }
+  .paper-settings-group:first-child { margin-top: 22px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .paper-settings-root *, .paper-settings-shell * { transition-duration: 0ms !important; }
+}
 
 /* 二级设置：内容分组，保留内部真实表单/开关/对话框的 DOM 与业务事件。 */
 .paper-settings-shell-header {
@@ -203,14 +350,6 @@
 }
 .paper-settings-shell-scroll .font-display {
   font-family: var(--font-body);
-}
-.paper-settings-footer {
-  max-width: 360px;
-  line-height: 1.6;
-}
-.paper-settings-footer p + p {
-  margin-top: 9px;
-  font-size: 11px;
 }
 @media (min-width: 768px) {
   .paper-settings-shell-scroll > div { padding: 15px 0 40px; }
