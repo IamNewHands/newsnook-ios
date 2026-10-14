@@ -6,10 +6,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
-import android.view.ActionMode;
 import android.view.KeyEvent;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewParent;
@@ -554,44 +551,6 @@ public class MainActivity extends BridgeActivity {
         );
 
         webView.post(() -> webView.evaluateJavascript(js, null));
-    }
-
-    private static final int WIKI_SELECTION_ACTION_ID = 0x4E570001;
-
-    /**
-     * Android 的长按划词已拥有原生复制、分享和调整选区操作。
-     * 只为正文选区追加「百科」，避免再叠加一套 Web 工具栏。
-     */
-    @Override
-    public void onActionModeStarted(ActionMode mode) {
-        super.onActionModeStarted(mode);
-        WebView webView = getCapacitorWebView();
-        if (webView == null) return;
-
-        final String eligibleSelectionJs = "(function(){try{" +
-            "var s=window.getSelection();" +
-            "if(!s||s.isCollapsed||!s.toString().trim()||s.toString().length>160)return false;" +
-            "var e=s.anchorNode&&(s.anchorNode.nodeType===1?s.anchorNode:s.anchorNode.parentElement);" +
-            "if(!e||!e.closest('.reader-prose,.linuxdo-post-prose,.zhihu-prose,.reader-content,.article-body,.post-body,.topic-body,.markdown-body,.cooked'))return false;" +
-            "var p=JSON.parse(localStorage.getItem('newsnook.wiki.settings.v1')||'{}');" +
-            "return p.enabled!==false;" +
-            "}catch(e){return false}})()";
-        webView.evaluateJavascript(eligibleSelectionJs, eligible -> {
-            if (!"true".equals(eligible) || webView != getCapacitorWebView()) return;
-            Menu menu = mode.getMenu();
-            if (menu.findItem(WIKI_SELECTION_ACTION_ID) != null) return;
-            MenuItem item = menu.add(Menu.NONE, WIKI_SELECTION_ACTION_ID, 0, "百科");
-            item.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
-            item.setOnMenuItemClickListener(clicked -> {
-                webView.evaluateJavascript(
-                    "(function(){var s=window.getSelection();var t=s&&s.toString().trim();" +
-                    "if(t)window.dispatchEvent(new CustomEvent('newsnook:wiki-native-lookup',{detail:{text:t}}));})()",
-                    result -> mode.finish()
-                );
-                return true;
-            });
-            mode.invalidate();
-        });
     }
 
     private WebView getCapacitorWebView() {

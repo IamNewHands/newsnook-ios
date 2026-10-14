@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Capacitor } from '@capacitor/core'
 import { ToggleSwitch } from '../../components/ToggleSwitch'
 import { registerHardwareBackLayer } from '../../lib/hardwareBackStack'
-import { BookOpen, Bookmark, ChevronLeft, Copy, Maximize2, Minimize2, Settings2, X } from 'lucide-react'
+import { BookOpen, Bookmark, Check, ChevronDown, ChevronLeft, Copy, Maximize2, Minimize2, Settings2, X } from 'lucide-react'
 import { readWikiLibrary, rememberWikiEntry, removeWikiBookmark, wikiEntryIdentity } from './library'
 import {
   encyclopediaProviders, getEncyclopediaProvider, loadWikiSettings,
@@ -26,17 +25,19 @@ export function WikiSelectionLayer() {
   const [fullLoading, setFullLoading] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [trail, setTrail] = useState<WikiEntry[]>([])
-  const [peekText, setPeekText] = useState('')
-  const [peekEntry, setPeekEntry] = useState<WikiEntry | null>(null)
   const [history, setHistory] = useState(() => readWikiLibrary('history'))
   const [bookmarks, setBookmarks] = useState(() => readWikiLibrary('bookmarks'))
   const [settingsReturn, setSettingsReturn] = useState<View>('peek')
+  const [settingsDropdownOpen, setSettingsDropdownOpen] = useState(false)
+  const [footerDropdownOpen, setFooterDropdownOpen] = useState(false)
   const requestRef = useRef<AbortController | null>(null)
   const fullRef = useRef<AbortController | null>(null)
   const settingsRef = useRef(settings)
   const selectedRef = useRef(selected)
+  const viewRef = useRef(view)
   settingsRef.current = settings
   selectedRef.current = selected
+  viewRef.current = view
 
   const updateSettings = (patch: Partial<WikiSettings>) => {
     setSettings(old => {
@@ -58,10 +59,11 @@ export function WikiSelectionLayer() {
     setLoading(false)
     setFullLoading(false)
     setExpanded(false)
-    setPeekText('')
-    setPeekEntry(null)
+    setSettingsDropdownOpen(false)
+    setFooterDropdownOpen(false)
   }, [])
   const lookup = useCallback(async (term: string, override?: string, nest = false) => {
+    window.getSelection()?.removeAllRanges()
     requestRef.current?.abort()
     fullRef.current?.abort()
     const controller = new AbortController()
@@ -113,20 +115,6 @@ export function WikiSelectionLayer() {
     const exists = readWikiLibrary('bookmarks').some(item => wikiEntryIdentity(item) === wikiEntryIdentity(value))
     setBookmarks(exists ? removeWikiBookmark(value) : rememberWikiEntry(value, 'bookmarks'))
   }
-  const saveSelectedWord = async () => {
-    if (!selected?.text) return
-    const term = selected.text
-    try {
-      const resolved = peekEntry || await lookupEncyclopedia(term, settingsRef.current, new AbortController().signal)
-      if (selectedRef.current?.text !== term) return
-      const existed = readWikiLibrary('bookmarks').some(item => wikiEntryIdentity(item) === wikiEntryIdentity(resolved))
-      toggleBookmark(resolved)
-      setPeekEntry(resolved)
-      setPeekText(existed ? '已取消收藏' : `已收藏 · ${resolved.title}`)
-    } catch {
-      if (selectedRef.current?.text === term) setPeekText('收藏失败，请重试')
-    }
-  }
   useEffect(() => {
     function openSettings() {
       setSelected({ text: '', x: 0, y: 0 })
@@ -138,72 +126,100 @@ export function WikiSelectionLayer() {
     return () => window.removeEventListener('newsnook:open-wiki-settings', openSettings)
   }, [])
   useEffect(() => {
-    const onNativeLookup = (event: Event) => {
-      const term = (event as CustomEvent<{ text?: string }>).detail?.text?.trim().slice(0, 160)
-      if (!settingsRef.current.enabled || !term) return
-      setSelected({ text: term, x: window.innerWidth / 2, y: 0 })
-      setExpanded(false)
-      void lookup(term)
+    const timers = new Set<number>()
+    const clearTimers = () => {
+      timers.forEach(timer => window.clearTimeout(timer))
+      timers.clear()
     }
-    window.addEventListener('newsnook:wiki-native-lookup', onNativeLookup)
-    return () => window.removeEventListener('newsnook:wiki-native-lookup', onNativeLookup)
-  }, [lookup])
-  useEffect(() => {
     function captureSelection() {
-      // Android 使用系统原生选词工具栏「百科」操作，避免双工具栏重叠。
-      if (Capacitor.getPlatform() === 'android' || !settingsRef.current.enabled) return
+      if (!settingsRef.current.enabled || viewRef.current !== 'peek') return false
       const selection = window.getSelection()
-      if (!selection || selection.isCollapsed || !selection.rangeCount) return
+      if (!selection || selection.isCollapsed || !selection.rangeCount) {
+        if (selectedRef.current) dismiss()
+        return false
+      }
       const term = selection.toString().trim().replace(/\s+/g, ' ')
-      if (!term || term.length > 160) return
-      const node = selection.anchorNode?.parentElement
-      if (!node || node.closest('input, textarea, [contenteditable="true"], button, .wiki-lookup-ui, [role="textbox"]')) return
+      if (!term || term.length > 160) return false
+      const elementFor = (node: Node | null) => node?.nodeType === Node.ELEMENT_NODE ? node as Element : node?.parentElement
+      const node = elementFor(selection.anchorNode)
+      const focus = elementFor(selection.focusNode)
+      const excluded = 'input, textarea, [contenteditable]:not([contenteditable="false"]), button, .wiki-lookup-ui, [role="textbox"]'
+      if (!node || !focus || node.closest(excluded) || focus.closest(excluded)) return false
       // Restrict to actual reading surfaces; never intercept editing or configuration controls.
-      if (!node.closest('.reader-prose, .linuxdo-post-prose, .zhihu-prose, .reader-content, .article-body, .post-body, .topic-body, .markdown-body, .cooked')) return
+      const readingSurface = '.reader-prose, .linuxdo-post-prose, .zhihu-prose, .reader-content, .article-body, .post-body, .topic-body, .markdown-body, .cooked'
+      if (!node.closest(readingSurface) || !focus.closest(readingSurface)) return false
       const rect = selection.getRangeAt(0).getBoundingClientRect()
-      if (rect.width === 0 && rect.height === 0) return
+      if (rect.width === 0 && rect.height === 0) return false
       const x = Math.min(window.innerWidth - 12, Math.max(12, rect.left + rect.width / 2))
       const y = Math.max(12, rect.top)
-      setSelected({ text: term, x, y })
+      setSelected(old => old?.text === term && old.x === x && old.y === y ? old : { text: term, x, y })
       setEntry(null)
-      setPeekText('')
-      setPeekEntry(null)
       setView('peek')
+      return true
+    }
+    function scheduleCapture(delay: number) {
+      clearTimers()
+      const timer = window.setTimeout(() => {
+        timers.delete(timer)
+        captureSelection()
+      }, delay)
+      timers.add(timer)
+    }
+    function onPointerDown(event: Event) {
+      if (!selectedRef.current || viewRef.current !== 'peek') return
+      if ((event.target as Element)?.closest?.('.wiki-lookup-ui')) return
+      clearTimers()
+      // Clear the stale selection so pointerup/touchend cannot reopen the toolbar.
+      window.getSelection()?.removeAllRanges()
+      dismiss()
+    }
+    function onNativeSelection(event: Event) {
+      // A cancelled event acknowledges that the Web toolbar owns this selection.
+      if (captureSelection()) event.preventDefault()
+    }
+    function onContextMenu(event: Event) {
+      if ((event.target as Element)?.closest?.('.wiki-lookup-ui')) return
+      if (captureSelection()) event.preventDefault()
+    }
+    function onSelectionChange() {
+      if (!selectedRef.current || viewRef.current !== 'peek') return
+      scheduleCapture(40)
     }
     function onPointerUp(event: PointerEvent) {
       if ((event.target as Element)?.closest?.('.wiki-lookup-ui')) return
-      window.setTimeout(captureSelection, 40)
+      scheduleCapture(40)
     }
     function onTouchEnd(event: TouchEvent) {
       if ((event.target as Element)?.closest?.('.wiki-lookup-ui')) return
-      window.setTimeout(captureSelection, 100)
+      scheduleCapture(100)
     }
     function onKeyUp(event: KeyboardEvent) {
-      if (event.shiftKey || event.key === 'Shift') window.setTimeout(captureSelection, 0)
+      if (event.shiftKey || event.key === 'Shift') scheduleCapture(0)
     }
+    window.addEventListener('newsnook:wiki-selection', onNativeSelection)
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('touchstart', onPointerDown, true)
+    document.addEventListener('contextmenu', onContextMenu)
+    document.addEventListener('selectionchange', onSelectionChange)
     document.addEventListener('pointerup', onPointerUp)
     document.addEventListener('touchend', onTouchEnd)
     document.addEventListener('keyup', onKeyUp)
     return () => {
+      clearTimers()
+      window.removeEventListener('newsnook:wiki-selection', onNativeSelection)
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('touchstart', onPointerDown, true)
+      document.removeEventListener('contextmenu', onContextMenu)
+      document.removeEventListener('selectionchange', onSelectionChange)
       document.removeEventListener('pointerup', onPointerUp)
       document.removeEventListener('touchend', onTouchEnd)
       document.removeEventListener('keyup', onKeyUp)
     }
-  }, [])
+  }, [dismiss])
   useEffect(() => {
     if (!selected || view !== 'peek' || !settings.directLookup) return
     void lookup(selected.text)
   }, [selected, view, settings.directLookup, lookup])
-  useEffect(() => {
-    if (!selected?.text || view !== 'peek' || settings.directLookup) return
-    const controller = new AbortController()
-    const timer = window.setTimeout(() => {
-      void lookupEncyclopedia(selected.text, settings, controller.signal)
-        .then(result => { if (!controller.signal.aborted) { setPeekEntry(result); setPeekText(result.summary) } })
-        .catch(() => { if (!controller.signal.aborted) setPeekText('点击查看百科释义') })
-    }, 200)
-    return () => { clearTimeout(timer); controller.abort() }
-  }, [selected, view, settings])
   const handleBack = useCallback(() => {
     if (view === 'settings' && settingsReturn === 'article' && entry) {
       setView('article')
@@ -243,21 +259,65 @@ export function WikiSelectionLayer() {
       document.removeEventListener('scroll', onScroll, true)
     }
   }, [selected, view, dismiss, handleBack])
+  useEffect(() => {
+    if (!settingsDropdownOpen && !footerDropdownOpen) return
+    function onPointerDown(event: PointerEvent) {
+      const target = event.target as Element | null
+      if (target?.closest('.wiki-settings-dropdown-container, .wiki-footer-dropdown-container')) return
+      setSettingsDropdownOpen(false)
+      setFooterDropdownOpen(false)
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setSettingsDropdownOpen(false)
+        setFooterDropdownOpen(false)
+      }
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [settingsDropdownOpen, footerDropdownOpen])
   if (!selected) return null
   const activeProvider = getEncyclopediaProvider(queryProviderId)
   return (
-    <div className="wiki-lookup-ui" onPointerDown={event => event.stopPropagation()} onTouchStart={event => event.stopPropagation()}>
+    <div className="wiki-lookup-ui" onPointerDown={event => { if (view === 'peek') event.preventDefault(); event.stopPropagation() }} onTouchStart={event => event.stopPropagation()}>
       {view === 'peek' && (
-        <div className="wiki-selection-popover" role="dialog" aria-label="划词操作"
-          style={{ left: Math.max(12, Math.min(window.innerWidth - 290, selected.x - 145)), top: Math.max(12, selected.y - 100) }}>
-          <button type="button" className="wiki-selection-word" onClick={() => void lookup(selected.text)}>
-            <BookOpen size={17} /> <span title={selected.text}>{selected.text}</span> <strong>百科</strong>
+        <div
+          className="wiki-selection-popover"
+          role="dialog"
+          aria-label="划词操作"
+          style={{
+            left: Math.max(12, Math.min(window.innerWidth - 170, selected.x - 85)),
+            top: Math.max(12, selected.y - 48),
+          }}
+        >
+          <button
+            type="button"
+            className="wiki-popover-item"
+            onClick={() => void lookup(selected.text)}
+            title={`在百科中查找“${selected.text}”`}
+          >
+            <BookOpen size={14} className="shrink-0 text-cinnabar-soft" />
+            <span>百科</span>
           </button>
-          <button type="button" aria-label="复制" title="复制" onClick={() => { void navigator.clipboard.writeText(selected.text); dismiss() }}><Copy size={16} /></button>
-          <button type="button" title="直接查询英文维基" aria-label="英文维基" className="wiki-english-action" onClick={() => void lookup(selected.text, 'wikipedia-en')}>EN</button>
-          <button type="button" title="收藏词条" aria-label="收藏词条" onClick={() => void saveSelectedWord()}><Bookmark size={16} fill={peekEntry && bookmarks.some(item => wikiEntryIdentity(item) === wikiEntryIdentity(peekEntry)) ? 'currentColor' : 'none'}/></button>
-          <button type="button" aria-label="关闭" onClick={dismiss}><X size={16} /></button>
-          <button className="wiki-peek-definition" type="button" title={peekText} onClick={() => void lookup(selected.text)}>{peekText || '正在获取词条摘要…'}</button>
+          <div className="wiki-popover-divider" aria-hidden="true" />
+          <button
+            type="button"
+            className="wiki-popover-item"
+            aria-label="复制所选文字"
+            title="复制"
+            onClick={() => {
+              void navigator.clipboard.writeText(selected.text)
+              window.getSelection()?.removeAllRanges()
+              dismiss()
+            }}
+          >
+            <Copy size={14} className="shrink-0" />
+            <span>复制</span>
+          </button>
         </div>
       )}
       {view !== 'peek' && (
@@ -277,10 +337,46 @@ export function WikiSelectionLayer() {
             {view === 'settings' ? (
               <div className="wiki-sheet-body wiki-settings">
                 <div className="wiki-settings-row"><span>启用划词百科</span><ToggleSwitch checked={settings.enabled} label="启用划词百科" onChange={() => updateSettings({ enabled: !settings.enabled })}/></div>
-                <label><span>默认百科源</span><select value={settings.providerId} onChange={event => updateSettings({ providerId: event.target.value })}>
-                  {encyclopediaProviders().map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
-                </select></label>
-                {Capacitor.getPlatform() !== 'android' && <div className="wiki-settings-row"><span>选中文字后直接打开词条</span><ToggleSwitch checked={settings.directLookup} label="选中文字后直接打开词条" onChange={() => updateSettings({ directLookup: !settings.directLookup })}/></div>}
+                <div className="wiki-settings-row">
+                  <span>默认百科源</span>
+                  <div className="wiki-settings-dropdown-container relative">
+                    <button
+                      type="button"
+                      className="wiki-settings-picker-trigger"
+                      onClick={() => setSettingsDropdownOpen(open => !open)}
+                      aria-haspopup="listbox"
+                      aria-expanded={settingsDropdownOpen}
+                      aria-label={`默认百科源：${getEncyclopediaProvider(settings.providerId).name}`}
+                    >
+                      <span>{getEncyclopediaProvider(settings.providerId).name}</span>
+                      <ChevronDown size={14} className={`opacity-60 shrink-0 transition-transform duration-150 ${settingsDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {settingsDropdownOpen && (
+                      <div className="wiki-dropdown-menu" role="listbox">
+                        {encyclopediaProviders().map(provider => {
+                          const active = provider.id === settings.providerId
+                          return (
+                            <button
+                              key={provider.id}
+                              type="button"
+                              role="option"
+                              aria-selected={active}
+                              className={`wiki-dropdown-item ${active ? 'is-active' : ''}`}
+                              onClick={() => {
+                                updateSettings({ providerId: provider.id })
+                                setSettingsDropdownOpen(false)
+                              }}
+                            >
+                              <span>{provider.name}</span>
+                              {active && <Check size={14} className="text-cinnabar shrink-0" />}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="wiki-settings-row"><span>选中文字后直接打开词条</span><ToggleSwitch checked={settings.directLookup} label="选中文字后直接打开词条" onChange={() => updateSettings({ directLookup: !settings.directLookup })}/></div>
                 <div className="wiki-settings-row"><span>中文维基未收录时尝试英文维基</span><ToggleSwitch checked={settings.fallbackEnglish} label="中文维基未收录时尝试英文维基" onChange={() => updateSettings({ fallbackEnglish: !settings.fallbackEnglish })}/></div>
                 {(bookmarks.length > 0 || history.length > 0) && <div className="wiki-library">
                   {bookmarks.length > 0 && <><h3>收藏词条</h3><div>{bookmarks.map(item => <button type="button" key={wikiEntryIdentity(item)} onClick={() => void lookup(item.query, item.providerId)}>{item.title}</button>)}</div></>}
@@ -306,9 +402,42 @@ export function WikiSelectionLayer() {
                   </>}
                 </div>
                 <footer className="wiki-sheet-footer">
-                  <select aria-label="查询百科源" value={entry?.providerId || queryProviderId} onChange={event => void lookup(activeTerm || selected.text, event.target.value)}>
-                    {encyclopediaProviders().map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
-                  </select>
+                  <div className="wiki-footer-dropdown-container relative min-w-0 flex-1">
+                    <button
+                      type="button"
+                      className="wiki-footer-picker-trigger"
+                      onClick={() => setFooterDropdownOpen(open => !open)}
+                      aria-haspopup="listbox"
+                      aria-expanded={footerDropdownOpen}
+                      aria-label={`切换查询百科源，当前为${getEncyclopediaProvider(entry?.providerId || queryProviderId).name}`}
+                    >
+                      <span className="truncate">{getEncyclopediaProvider(entry?.providerId || queryProviderId).name}</span>
+                      <ChevronDown size={13} className={`opacity-60 shrink-0 transition-transform duration-150 ${footerDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {footerDropdownOpen && (
+                      <div className="wiki-dropdown-menu wiki-dropdown-menu-up" role="listbox">
+                        {encyclopediaProviders().map(provider => {
+                          const active = provider.id === (entry?.providerId || queryProviderId)
+                          return (
+                            <button
+                              key={provider.id}
+                              type="button"
+                              role="option"
+                              aria-selected={active}
+                              className={`wiki-dropdown-item ${active ? 'is-active' : ''}`}
+                              onClick={() => {
+                                setFooterDropdownOpen(false)
+                                void lookup(activeTerm || selected.text, provider.id)
+                              }}
+                            >
+                              <span>{provider.name}</span>
+                              {active && <Check size={14} className="text-cinnabar shrink-0" />}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
                   {entry && <>
                     <a href={entry.url} target="_blank" rel="noopener noreferrer">原文</a>
                     <button type="button" onClick={() => void loadFull()} disabled={fullLoading}>{fullLoading ? '加载中' : fullText === null ? '全文' : '摘要'}</button>

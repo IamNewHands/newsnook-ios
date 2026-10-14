@@ -17,7 +17,8 @@ socket.addEventListener('message', evt => {
   const item = pending.get(data.id)
   if (!item) return
   pending.delete(data.id)
-  data.error ? item.reject(new Error(JSON.stringify(data.error))) : item.resolve(data.result)
+  if (data.error) item.reject(new Error(JSON.stringify(data.error)))
+  else item.resolve(data.result)
 })
 function call(method, params) {
   return new Promise((resolve,reject) => {
@@ -33,8 +34,7 @@ async function evaluate(expression) {
 }
 const wait = ms => new Promise(resolve => setTimeout(resolve,ms))
 console.log('WebView:', await evaluate('({title:document.title, width:innerWidth, body:document.body?.className})'))
-const android = await evaluate('/Android/i.test(navigator.userAgent)')
-const selected = await evaluate(`(() => {
+const selectionExpression = `(() => {
   const candidates = [...document.querySelectorAll('.reader-prose, .linuxdo-post-prose, .zhihu-prose')].filter(e=>e.getBoundingClientRect().height>0)
   const root = candidates.find(e=>{const r=e.getBoundingClientRect();return r.top>=0&&r.top<innerHeight}) || candidates[0]
   if (!root) return {ok:false, reason:'no readable article in active view'}
@@ -48,27 +48,30 @@ const selected = await evaluate(`(() => {
   const s=window.getSelection();s.removeAllRanges();s.addRange(r)
   document.dispatchEvent(new PointerEvent('pointerup',{bubbles:true}))
   return {ok:true,text:s.toString(),className:root.className,rect:{top:r.getBoundingClientRect().top, left:r.getBoundingClientRect().left}}
-})()`)
+})()`
+const selected = await evaluate(selectionExpression)
 console.log('Selection:', selected)
 if (!selected.ok) throw new Error('No article to select')
 await wait(500)
-const peek = await evaluate(`({visible:!!document.querySelector('.wiki-selection-popover'),text:document.querySelector('.wiki-selection-word')?.textContent?.trim(),preview:document.querySelector('.wiki-peek-definition')?.textContent?.trim()})`)
+const peek = await evaluate(`({visible:!!document.querySelector('.wiki-selection-popover'),text:document.querySelector('.wiki-popover-item')?.textContent?.trim()})`)
 console.log('Peek:', peek)
-if (android) {
-  if (peek.visible) throw new Error('Android native mode must not draw a competing Web popover')
-  await evaluate(`window.dispatchEvent(new CustomEvent('newsnook:wiki-native-lookup',{detail:{text:window.getSelection().toString()}}))`)
-} else {
-  if (!peek.visible || !peek.text) throw new Error('Wiki selection popover did not appear')
-  await evaluate("document.querySelector('.wiki-selection-word')?.click()")
-}
+if (!peek.visible || peek.text !== '百科') throw new Error('Wiki selection popover did not appear')
+await evaluate(`document.body.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))`)
+await wait(150)
+if (await evaluate(`!!document.querySelector('.wiki-selection-popover')`)) throw new Error('Outside click must dismiss the toolbar')
+await evaluate(selectionExpression)
+await wait(150)
+await evaluate("document.querySelector('.wiki-popover-item')?.click()")
 await wait(7500)
 const detail = await evaluate(`({title:document.querySelector('.wiki-sheet h2')?.textContent?.trim(),hasBody:!!document.querySelector('.wiki-entry-summary'),loading:!!document.querySelector('.wiki-status'),error:document.querySelector('.wiki-error')?.textContent?.trim(),provider:document.querySelector('.wiki-provider-name')?.textContent?.trim()})`)
 console.log('Detail:',detail)
 if (!detail.title || (!detail.hasBody && !detail.error && !detail.loading)) throw new Error('Wiki detail UI invalid')
 await evaluate(`document.querySelector('.wiki-sheet-header button[aria-label="设置"]')?.click()`)
-const settings = await evaluate(`({label:document.querySelector('.wiki-settings')?.textContent?.slice(0,100),options:[...document.querySelectorAll('.wiki-settings select option')].map(e=>e.value),checkboxes:document.querySelectorAll('.wiki-settings input[type=checkbox]').length})`)
+await evaluate(`document.querySelector('.wiki-settings-picker-trigger')?.click()`)
+const settings = await evaluate(`({label:document.querySelector('.wiki-settings')?.textContent?.slice(0,100),options:[...document.querySelectorAll('.wiki-settings [role=option]')].map(e=>e.textContent.trim()),labelFits:(()=>{const s=document.querySelector('.wiki-settings-picker-trigger span');return !!s&&s.scrollWidth<=s.clientWidth})()})`)
 console.log('Settings:',settings)
-if (!settings.options.includes('wikipedia-zh') || !settings.options.includes('wikipedia-en')) throw new Error('Provider options unavailable')
+if (!settings.options.includes('中文维基百科') || !settings.options.includes('Wikipedia (English)')) throw new Error('Provider options unavailable')
+if (!settings.labelFits) throw new Error('Provider picker label must not collapse')
 await evaluate(`document.querySelector('.wiki-sheet-header button[aria-label="关闭百科"]')?.click()`)
-console.log('PASS: text selection, preview, lookup UI, preferences')
+console.log('PASS: text selection, outside dismissal, lookup UI, provider picker')
 socket.close()
