@@ -65,7 +65,7 @@ export function SettingsShell({ title, caption, action, footer, onBack, children
     <div
       ref={containerRef}
       onAnimationEnd={onAnimationEnd}
-      className="absolute inset-0 z-30 flex flex-col bg-ink"
+      className="paper-settings-shell absolute inset-0 z-30 flex flex-col bg-ink"
       style={{
         paddingBottom: 'var(--sab)',
         animation: animationStyle,
@@ -76,7 +76,7 @@ export function SettingsShell({ title, caption, action, footer, onBack, children
         @keyframes settings-out { from { opacity: 1; transform: translate3d(0, 0, 0) } to { opacity: 0; transform: translate3d(24px, 0, 0) } }
       `}</style>
 
-      <header className="shrink-0 pt-2 pb-3 border-b border-haze/30 bg-ink/90 backdrop-blur-md">
+      <header className="paper-settings-shell-header shrink-0 bg-ink/90 backdrop-blur-md">
         <div className="page-x lg:px-8 max-w-4xl mx-auto w-full">
           <div className="flex items-start gap-2">
             <button
@@ -108,7 +108,7 @@ export function SettingsShell({ title, caption, action, footer, onBack, children
 
       <div
         data-settings-scroll
-        className="scroll-hidden min-h-0 flex-1 overflow-y-auto overscroll-contain"
+        className="paper-settings-shell-scroll scroll-hidden min-h-0 flex-1 overflow-y-auto overscroll-contain"
         style={{ paddingBottom: '24px' }}
       >
         <div className="max-w-4xl mx-auto w-full">
@@ -129,10 +129,9 @@ export function SettingsShell({ title, caption, action, footer, onBack, children
 
 export function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section>
+    <section className="paper-settings-section">
       <div className="page-x flex items-center gap-3 pt-7 pb-2">
-        <span className="font-mono text-[10px] tracking-[0.28em] text-paper-faint">{title}</span>
-        <span className="h-px flex-1 bg-haze" aria-hidden />
+        <span className="paper-settings-section-title font-medium text-paper-muted">{title}</span>
       </div>
       {children}
     </section>
