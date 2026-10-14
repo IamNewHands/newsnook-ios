@@ -1396,17 +1396,34 @@ export function LinuxDoTopicView({
               </div>
             </header>
             <div data-linuxdo-reading-toolbar className="linuxdo-reading-toolbar">
-              <span className="linuxdo-reading-count">
-                {posts.length < Math.max(topic.postsCount, topic.postStream.stream.length)
-                  ? `已加载 ${posts.length} / ${Math.max(topic.postsCount, topic.postStream.stream.length)}`
-                  : `${posts.length} 帖`}
-              </span>
+              {(() => {
+                const totalPosts = Math.max(topic.postsCount, topic.postStream.stream.length)
+                const isPartial = posts.length < totalPosts
+                return (
+                  <span className="linuxdo-reading-count">
+                    <span className="linuxdo-reading-dot" data-complete={!isPartial} aria-hidden="true" />
+                    {isPartial ? (
+                      <>
+                        <span className="text-paper-faint tracking-tight">已加载 </span>
+                        <span className="font-mono font-semibold text-paper">{posts.length}</span>
+                        <span className="font-mono text-paper-faint"> / {totalPosts}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-paper-faint tracking-tight">已加载全部 </span>
+                        <span className="font-mono font-semibold text-paper">{posts.length}</span>
+                        <span className="text-paper-faint tracking-tight"> 帖</span>
+                      </>
+                    )}
+                  </span>
+                )
+              })()}
               <div className="linuxdo-segmented linuxdo-reading-switch" role="group" aria-label="帖子阅读方式">
                 {([{ id: 'floors', label: '楼层', Icon: List }, { id: 'threaded', label: '楼中楼', Icon: GitBranch }] as const).map(({ id, label, Icon }) => (
                   <button key={id} type="button" data-linuxdo-reading-mode={id} className="linuxdo-control linuxdo-segment"
                     aria-label={`${label}视图`} aria-pressed={readingMode === id} onClick={() => changeReadingMode(id)}
                     title={id === 'floors' ? '按楼层顺序阅读' : '沿着回复关系阅读'}>
-                    <Icon size={16} aria-hidden="true" />
+                    <Icon size={14} aria-hidden="true" />
                   </button>
                 ))}
               </div>
