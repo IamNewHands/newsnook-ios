@@ -168,7 +168,7 @@ export function CategoryEditScreen({
       </div>
 
       {/* 分类基本信息 */}
-      <SettingsSection title="基本信息">
+      <SettingsSection variant="plain" title="基本信息">
         <div className="page-x space-y-4 pt-1">
           <div>
             <div className="flex items-center justify-between">
@@ -242,7 +242,7 @@ export function CategoryEditScreen({
       </SettingsSection>
 
       {/* 信源选择与管理 */}
-      <SettingsSection title="信源组合">
+      <SettingsSection variant="plain" title="信源组合">
         <SourcePicker
           sources={allSources}
           selectedIds={selectedIds}

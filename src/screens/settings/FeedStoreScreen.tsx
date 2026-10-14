@@ -473,7 +473,7 @@ export function FeedStoreScreen({ prefs, currentCategoryId, currentPresetId, cur
     </div>
 
     {tab === 'discover' && (searching || Boolean(searchedQuery)) ? (
-      <SettingsSection title={searching ? '正在查找' : '发现结果 · ' + results.length}>
+      <SettingsSection variant="plain" title={searching ? '正在查找' : '发现结果 · ' + results.length}>
         <div aria-live="polite" className="page-x pb-2">
           {searching && !results.length ? (
             <div className="flex items-center justify-center gap-2 rounded-2xl border border-haze/70 bg-ink-raised/40 py-10 text-[12.5px] text-paper-faint">
@@ -588,7 +588,7 @@ export function FeedStoreScreen({ prefs, currentCategoryId, currentPresetId, cur
         </div>
       </SettingsSection>
     ) : tab === 'discover' ? null : (
-      <SettingsSection title={'全部自建订阅 · ' + (prefs.customSources?.length ?? 0)}>
+      <SettingsSection variant="plain" title={'全部自建订阅 · ' + (prefs.customSources?.length ?? 0)}>
         <p className="page-x pb-3 text-[11.5px] leading-relaxed text-paper-muted">暂停影响所有预设，已缓存内容保留。</p>
         <div className="page-x pb-2">
           {subscribed.length ? (

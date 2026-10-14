@@ -193,7 +193,7 @@ export function StorageScreen({ laterCount: _laterCount, usage, prestore, onCach
 
       <PrestoreControls prestore={prestore} />
 
-      <SettingsSection title="缓存用量">
+      <SettingsSection variant="plain" title="缓存用量">
         <ul className="divide-y divide-haze border-y border-haze">
           <CacheRow
             icon={Cloud}

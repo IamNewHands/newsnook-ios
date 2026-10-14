@@ -62,7 +62,7 @@ function LicenseRow({ entry }: { entry: OssLicenseEntry }) {
 export function OpenSourceScreen({ onBack }: Props) {
   return (
     <SettingsShell title="开源许可" caption="本软件与第三方组件" onBack={onBack}>
-      <SettingsSection title="本软件">
+      <SettingsSection variant="plain" title="本软件">
         <ul className="divide-y divide-haze border-y border-haze bg-ink">
           <LicenseRow
             entry={{
@@ -75,7 +75,7 @@ export function OpenSourceScreen({ onBack }: Props) {
         </ul>
       </SettingsSection>
 
-      <SettingsSection title="运行时依赖">
+      <SettingsSection variant="plain" title="运行时依赖">
         <ul className="divide-y divide-haze border-y border-haze bg-ink">
           {RUNTIME_OSS_LICENSES.map((entry) => (
             <LicenseRow key={entry.name} entry={entry} />
@@ -83,7 +83,7 @@ export function OpenSourceScreen({ onBack }: Props) {
         </ul>
       </SettingsSection>
 
-      <SettingsSection title="原生组件">
+      <SettingsSection variant="plain" title="原生组件">
         <ul className="divide-y divide-haze border-y border-haze bg-ink">
           {NATIVE_OSS_LICENSES.map((entry) => (
             <LicenseRow key={entry.name} entry={entry} />

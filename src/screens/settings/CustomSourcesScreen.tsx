@@ -644,7 +644,7 @@ export function CustomSourcesScreen({
       )}
 
       {/* 自建源列表 */}
-      <SettingsSection title={`自建订阅列表 (${customSources.length})`}>
+      <SettingsSection variant="plain" title={`自建订阅列表 (${customSources.length})`}>
         {customSources.length === 0 ? (
           <div className="page-x py-10 text-center">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-haze bg-paper/5 text-paper-faint">

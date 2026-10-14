@@ -49,3 +49,172 @@
 @media(prefers-reduced-motion:reduce){.paper-settings-root *, .paper-settings-shell *{transition-duration:0ms!important}}
 
 .paper-settings-reading-count{margin:5px 0 0;font-size:12.5px;color:var(--tone-paper-muted)}
+
+/* 二级设置：内容分组，保留内部真实表单/开关/对话框的 DOM 与业务事件。 */
+.paper-settings-shell-header {
+  padding: 12px 0 13px;
+  background: var(--tone-ink);
+  border-color: var(--paper-outline);
+}
+.paper-settings-shell-header-inner {
+  max-width: 760px;
+}
+.paper-settings-shell-header .paper-settings-shell-title {
+  font-family: var(--font-body);
+  font-size: 20px;
+  line-height: 1.3;
+  font-weight: 650;
+  letter-spacing: -.025em;
+}
+.paper-settings-shell-header .paper-settings-shell-caption {
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  color: var(--tone-paper-muted);
+}
+.paper-settings-shell-header-inner > div > button[aria-label="返回"] {
+  flex: none;
+  margin-left: -8px;
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  transition: background 160ms ease;
+}
+.paper-settings-shell-header-inner > div > button[aria-label="返回"]:active {
+  background: rgb(var(--tone-paper-rgb) / .08);
+}
+.paper-settings-shell-scroll > div {
+  width: 100%;
+  max-width: 760px;
+  margin-inline: auto;
+  padding: 6px 0 32px;
+}
+.paper-settings-shell-scroll > div > .page-x {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+.paper-settings-section {
+  margin: 0 16px 16px;
+  border-radius: 0;
+}
+.paper-settings-section-heading {
+  padding: 20px 12px 10px;
+}
+.paper-settings-section-title {
+  margin: 0;
+  font: 600 13px/1.4 var(--font-body);
+  color: var(--tone-paper-muted);
+  letter-spacing: 0;
+}
+.paper-settings-section-content {
+  background: var(--paper-surface);
+  border: 1px solid var(--paper-outline);
+  border-radius: 17px;
+  box-shadow: 0 4px 18px -15px rgb(0 0 0 / .16);
+}
+.paper-settings-section--plain .paper-settings-section-content {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.paper-settings-section-content > .page-x {
+  padding-left: 14px;
+  padding-right: 14px;
+}
+.paper-settings-section--plain .paper-settings-section-content > .page-x {
+  padding-left: 0;
+  padding-right: 0;
+}
+.paper-settings-section-content > ul {
+  border: 0;
+  border-radius: inherit;
+  margin: 0;
+}
+.paper-settings-section-content > ul > li.bg-ink {
+  background: transparent;
+}
+.paper-settings-section-content > ul > li > button.page-x {
+  padding-left: 14px;
+  padding-right: 14px;
+  min-height: 56px;
+}
+.paper-settings-section-content > ul > li > button.page-x > .min-w-0 .font-mono,
+.paper-settings-section-content > ul > li > button.page-x > .min-w-0 .text-paper-faint {
+  font-family: var(--font-body);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+.paper-settings-section-content > .page-x > .rounded-2xl.border.bg-ink-raised,
+.paper-settings-section-content > .page-x > .rounded-2xl.border.bg-ink-raised\/60,
+.paper-settings-section-content > .page-x > .rounded-2xl.border.bg-ink-raised\/45 {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+.paper-settings-section-content > .border-y.bg-ink {
+  background: transparent;
+  border: 0;
+  border-radius: inherit;
+}
+.paper-settings-section-content > .border-y.bg-ink > button.page-x {
+  min-height: 55px;
+  padding-left: 14px;
+  padding-right: 14px;
+}
+.paper-settings-section-content > div.page-x.flex.items-center {
+  min-height: 57px;
+  padding-top: 13px;
+  padding-bottom: 13px;
+  border: 0;
+}
+.paper-settings-section-content > div.page-x.flex.items-center .font-mono {
+  font-family: var(--font-body);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+.paper-settings-section-content > .page-x > .rounded-2xl .font-display {
+  font-family: var(--font-body);
+}
+.paper-settings-section--plain .paper-settings-section-content .border-haze {
+  border-color: var(--paper-outline);
+}
+.paper-settings-shell-scroll .paper-settings-hint {
+  padding: 8px 23px 14px;
+  max-width: 760px;
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.65;
+  letter-spacing: 0;
+}
+.paper-settings-shell-scroll :is(input:not([type="checkbox"]), textarea, select) {
+  font-size: max(13px, 1em);
+}
+.paper-settings-shell-scroll :is(input:not([type="checkbox"]), textarea, select):focus-visible {
+  outline: 2px solid var(--tone-cinnabar);
+  outline-offset: 2px;
+}
+.paper-settings-shell-scroll .font-mono {
+  letter-spacing: 0;
+}
+.paper-settings-shell-scroll .font-display {
+  font-family: var(--font-body);
+}
+.paper-settings-footer {
+  max-width: 360px;
+  line-height: 1.6;
+}
+.paper-settings-footer p + p {
+  margin-top: 9px;
+  font-size: 11px;
+}
+@media (min-width: 768px) {
+  .paper-settings-shell-scroll > div { padding: 15px 0 40px; }
+  .paper-settings-section { margin-left: 24px; margin-right: 24px; }
+  .paper-settings-shell-scroll .paper-settings-hint { padding-left: 28px; padding-right: 28px; }
+}

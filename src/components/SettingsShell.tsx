@@ -77,7 +77,7 @@ export function SettingsShell({ title, caption, action, footer, onBack, children
       `}</style>
 
       <header className="paper-settings-shell-header shrink-0 bg-ink/90 backdrop-blur-md">
-        <div className="page-x lg:px-8 max-w-4xl mx-auto w-full">
+        <div className="paper-settings-shell-header-inner page-x lg:px-8 max-w-4xl mx-auto w-full">
           <div className="flex items-start gap-2">
             <button
               type="button"
@@ -90,11 +90,11 @@ export function SettingsShell({ title, caption, action, footer, onBack, children
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <h1 className="truncate font-display text-[22px] leading-none text-paper sm:text-[24px] md:text-[28px]">
+                  <h1 className="paper-settings-shell-title truncate font-display text-[22px] leading-none text-paper sm:text-[24px] md:text-[28px]">
                     {title}
                   </h1>
                   {caption && (
-                    <p className="mt-1.5 line-clamp-2 font-mono text-[10px] lg:text-[11px] tracking-[0.14em] text-paper-faint">
+                    <p className="paper-settings-shell-caption mt-1.5 line-clamp-2 font-mono text-[10px] lg:text-[11px] tracking-[0.14em] text-paper-faint">
                       {caption}
                     </p>
                   )}
@@ -127,20 +127,29 @@ export function SettingsShell({ title, caption, action, footer, onBack, children
   )
 }
 
-export function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
+/** 统一设置分组容器：默认收拢为一块可读的分组表面；瓷片、卡片网格使用 plain 布局。 */
+export function SettingsSection({
+  title,
+  children,
+  variant = 'group',
+}: {
+  title: string
+  children: ReactNode
+  variant?: 'group' | 'plain'
+}) {
   return (
-    <section className="paper-settings-section">
-      <div className="page-x flex items-center gap-3 pt-7 pb-2">
-        <span className="paper-settings-section-title font-medium text-paper-muted">{title}</span>
+    <section className={`paper-settings-section paper-settings-section--${variant}`}>
+      <div className="paper-settings-section-heading">
+        <h2 className="paper-settings-section-title">{title}</h2>
       </div>
-      {children}
+      <div className="paper-settings-section-content">{children}</div>
     </section>
   )
 }
 
 export function SettingsHint({ children }: { children: ReactNode }) {
   return (
-    <p className="page-x max-w-2xl pt-4 text-[11.5px] leading-relaxed text-paper-faint">
+    <p className="paper-settings-hint page-x max-w-2xl pt-4 text-[11.5px] leading-relaxed text-paper-faint">
       {children}
     </p>
   )

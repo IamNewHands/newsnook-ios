@@ -161,7 +161,10 @@ export function MeScreen({
           <Entry icon={CloudUpload} title="账户与同步" subtitle={accountSummary} onClick={onOpenAccountSync}/>
           <Entry icon={Info} title="关于有所闻" subtitle={hasUpdate && availableVersion ? `发现新版本 v${availableVersion}` : `v${__APP_VERSION__}`} badge={hasUpdate ? 'NEW' : null} onClick={onOpenAbout} dataTour="me-about"/>
         </Group>
-        <p className="paper-settings-footer">有所闻 · NewsNook</p>
+        <footer className="paper-settings-footer">
+          <p>有所闻 · NewsNook</p>
+          <p>内容版权归原发布方。本应用只做本地阅读，不托管内容库；列表与正文由本机直连来源站点，稍后读与已读仅存本机。</p>
+        </footer>
       </div>
     </div>
   </section>
