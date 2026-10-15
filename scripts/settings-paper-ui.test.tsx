@@ -51,9 +51,19 @@ const { document } = parseHTML(html)
 const root = document.querySelector('.paper-settings-root')
 assert.ok(root, '实际设置页必须使用隔离样式根')
 assert.equal(document.querySelectorAll('.paper-settings-group').length, 4)
-assert.equal(document.querySelectorAll('button').length, 16, '保留全部十六个真实业务入口')
-assert.equal(document.querySelectorAll('.paper-settings-item').length, 14)
-for (const label of ['稍后读', '最近阅读', '本地搜索', 'RSS 订阅商店', '自定义订阅与 OPML', '分类与自动刷新', '场景预设', '阅读字体', '外观', '翻译', '朗读', 'AI', '网络与代理', '离线存储与备份', '账户与同步', '关于有所闻']) {
+/*
+ * 入口清单与数量从 MeScreen 源码派生，不再手抄字面量：上游加「划词百科」、本 fork 加
+ * 「界面字体」时都漏改过这里的常量，测试反而先成了假失败（它并不在 ios-build 的检查
+ * 清单里，所以一直没人发现）。现在源码里每有一个 `<Entry title="…"/>`，就要求它真的
+ * 渲染成一条 .paper-settings-item 与一个按钮——新增入口不必再同步改测试。
+ */
+const entryTitles = [...source.matchAll(/<Entry\b[^>]*?\btitle="([^"]+)"/g)].map((match) => match[1])
+// 顶部两个快捷入口（稍后读 / 最近阅读）不是 <Entry>，单独列出
+const shortcutTitles = ['稍后读', '最近阅读']
+assert.ok(entryTitles.length >= 14, `设置页业务入口不该少于 14 个，实际 ${entryTitles.length}`)
+assert.equal(document.querySelectorAll('.paper-settings-item').length, entryTitles.length, '每个 <Entry> 都要渲染成一条业务入口')
+assert.equal(document.querySelectorAll('button').length, entryTitles.length + shortcutTitles.length, '按钮数 = 业务入口 + 快捷入口')
+for (const label of [...shortcutTitles, ...entryTitles]) {
   assert.ok([...document.querySelectorAll('button')].some((button) => button.textContent?.includes(label)),
     `入口不可丢失：${label}`)
 }
@@ -82,4 +92,4 @@ assert.doesNotMatch(styles, /\.paper-settings-shell\s+button\s*\{[^}]*min-height
 
 assert.doesNotMatch(styles, /color-mix\(/, '避免旧版 WebView 构建错误转换含变量的 color-mix')
 assert.match(styles, /\.paper-settings-shortcut-icon\s*\{[^}]*background:\s*var\(--paper-accent-soft\)/s)
-console.log('settings paper UI: 16 routes, 4 groups, real counts, theme isolation and switch guards OK')
+console.log(`settings paper UI: ${entryTitles.length + shortcutTitles.length} routes (${entryTitles.length} entries + ${shortcutTitles.length} shortcuts), 4 groups, real counts, theme isolation and switch guards OK`)

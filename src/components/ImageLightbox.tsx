@@ -9,9 +9,9 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from 'react'
-import { ChevronLeft, ChevronRight, Download, FlipHorizontal2, FlipVertical2, Loader2, MoreHorizontal, RotateCcw, RotateCw, RefreshCcw, Share2, SlidersHorizontal, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, FlipHorizontal2, FlipVertical2, Loader2, Maximize2, MoreHorizontal, RotateCcw, RotateCw, RefreshCcw, Share2, SlidersHorizontal, X } from 'lucide-react'
 
-import { saveImageToGallery, shareImage } from '../lib/imageActions'
+import { imageActionSources, saveImageToGallery, shareImage } from '../lib/imageActions'
 import { lockBodyScroll } from '../lib/bodyScrollLock'
 import { acquireNativeChromeTheme } from '../lib/nativeChrome'
 import { recoverAppScrollSurfaces } from '../lib/gestureStyles'
@@ -41,6 +41,11 @@ interface Props {
   renderThumbnail?: (item: GalleryImage, index: number) => ReactNode
   /** 系统返回：先关菜单，再关灯箱 */
   overlayCloserRef?: MutableRefObject<(() => boolean) | null>
+  /**
+   * 「查看原图」直连失败时的兜底：交给调用方用自己的会话通道取字节（Linux.do 主站原图会被
+   * Cloudflare 挑战拦下，只能走原生插件）。返回同一个地址表示拿不到更好的源，灯箱保持错误态。
+   */
+  onResolveOriginal?: (url: string) => Promise<string>
 }
 
 const MIN_SCALE = 1
@@ -121,7 +126,7 @@ function GallerySlide({ src, alt = '', current, imgRef, stageRef, onLoad, onErro
 /**
  * 全屏看图：双指捏合、单指平移、双击缩放、下滑关闭；长按保存/分享。
  */
-export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, onNext, index = 0, total = 1, items, onSelect, overlayCloserRef, onAction, onBeforeAction, browserMode = false, contextLabel, onRetry, loadError, renderThumbnail }: Props) {
+export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, onNext, index = 0, total = 1, items, onSelect, overlayCloserRef, onAction, onBeforeAction, browserMode = false, contextLabel, onRetry, loadError, renderThumbnail, onResolveOriginal }: Props) {
   const stageRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
@@ -159,6 +164,16 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
   useLayoutEffect(() => {
     if (browserMode) return acquireNativeChromeTheme('dark')
   }, [browserMode])
+
+  /** 当前显示的地址：默认是正文里那张（已按宽度取到最大变体），点「查看原图」后切到原图。 */
+  const [viewSrc, setViewSrc] = useState(src)
+  const [prevSrc, setPrevSrc] = useState(src)
+  if (prevSrc !== src) {
+    setPrevSrc(src)
+    setViewSrc(src)
+  }
+  /** 原图的会话通道兜底只试一次，避免直连失败时反复请求插件。 */
+  const originalFallbackTriedRef = useRef(false)
 
   const clearLongPress = useCallback(() => {
     if (longPressTimerRef.current != null) {
@@ -229,7 +244,31 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
     setImageState('loaded')
   }, [applyTransform, fitImage])
 
-  const markCurrentImageFailed = useCallback(() => setImageState('error'), [])
+
+
+  /**
+   * 直连失败：如果正在看的是原图，先让调用方用会话通道再取一次字节（Linux.do 主站原图
+   * 走 Cloudflare 挑战，宿主 WebView 直连必 403）；拿到不同的地址就换上去，否则进错误态。
+   */
+  const handleImageError = useCallback(async () => {
+    const isOriginal = Boolean(actionSrc) && viewSrc === actionSrc
+    if (isOriginal && onResolveOriginal && !originalFallbackTriedRef.current) {
+      originalFallbackTriedRef.current = true
+      try {
+        const resolved = await onResolveOriginal(actionSrc!)
+        if (resolved && resolved !== actionSrc) {
+          setImageState('loading')
+          setViewSrc(resolved)
+          return
+        }
+      } catch {
+        /* 落到错误态，由占位按钮提供人工重试 */
+      }
+    }
+    setImageState('error')
+  }, [actionSrc, onResolveOriginal, viewSrc])
+
+  const markCurrentImageFailed = useCallback(() => void handleImageError(), [handleImageError])
 
   const clampTranslation = useCallback(() => {
     const stage = stageRef.current
@@ -407,6 +446,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
     trackIndexRef.current = index
     cancelGesture()
     setImageState('loading')
+    originalFallbackTriedRef.current = false
     setAdjustOpen(false)
     setMenuOpen(false)
     setStatus(null)
@@ -420,6 +460,17 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
       } else setImageState('error')
     }
   }, [src, index, applyTransform, cancelGesture, fitImage])
+
+  /** 切到原图（用于「查看原图」按钮）。 */
+  const showOriginal = useCallback(() => {
+    if (!actionSrc || actionSrc === viewSrc) return
+    originalFallbackTriedRef.current = false
+    cancelGesture()
+    setImageState('loading')
+    setViewSrc(actionSrc)
+  }, [actionSrc, viewSrc, cancelGesture])
+
+
 
   useEffect(() => {
     const rail = thumbnailsRef.current
@@ -661,14 +712,29 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
     try {
       if (onBeforeAction && !await onBeforeAction(action)) return
       setBusy(action)
-      const source = actionSrc || src
       const result = onAction ? await onAction(action) : undefined
       if (result === 'cancelled') { setStatus(null); return }
+      if (!onAction) {
+        let lastError: unknown
+        // 优先用页面里已经拿到的 blob / data URL，失败再退回原始地址（见 imageActionSources）。
+        for (const source of imageActionSources(viewSrc, actionSrc)) {
+          try {
+            if (action === 'save') await saveImageToGallery(source)
+            else await shareImage(source, alt || '分享图片')
+            lastError = undefined
+            break
+          } catch (error) {
+            // 用户取消不再换下一个源，否则会二次弹出系统面板。
+            const message = error instanceof Error ? error.message : ''
+            if (/cancel|abort|dismiss/i.test(message)) throw error
+            lastError = error
+          }
+        }
+        if (lastError) throw lastError
+      }
       if (action === 'save') {
-        if (!onAction) await saveImageToGallery(source)
         setStatus('已保存到相册 有所闻')
       } else {
-        if (!onAction) await shareImage(source, alt || '分享图片')
         setMenuOpen(false)
         setStatus(null)
       }
@@ -758,7 +824,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
                 cancelGesture()
                 onRetry?.()
                 setImageState('loading')
-                setReload((value) => ({ src, index, attempt: value?.src === src && value.index === index ? value.attempt + 1 : 1 }))
+                setReload((value) => ({ src: viewSrc, index, attempt: value?.src === viewSrc && value.index === index ? value.attempt + 1 : 1 }))
               }}
               className={'flex items-center gap-2 rounded-full border border-haze bg-ink-raised/85 px-4 py-2.5 text-paper-muted backdrop-blur-md ' + (browserMode ? 'min-h-11 text-[13px]' : 'text-[12px]')}
             >
@@ -780,7 +846,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
           }}>
           {[index - 1, index, index + 1].map((position) => {
             const current = position === index
-            const item = current ? { src, alt } : items?.[position]
+            const item = current ? { src: viewSrc, alt } : items?.[position]
             return <div key={`${position}:${item?.src ?? ''}`} aria-hidden={current ? undefined : true}
               className="absolute top-0 flex h-full w-full items-center justify-center overflow-hidden"
               style={{ left: `${position * 100}%` }}>
@@ -819,7 +885,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
             <button type="button" aria-label="调整图片" aria-expanded={false} disabled={!canAdjust} onClick={() => setAdjustOpen(true)} className={'flex min-h-11 shrink-0 items-center gap-2 rounded-full border border-haze bg-ink-raised/85 px-4 text-paper backdrop-blur-lg active:bg-haze/30 disabled:opacity-30 ' + (browserMode ? 'text-[13px]' : 'text-[12px]')}>
               <SlidersHorizontal size={16} strokeWidth={1.7} />调整图片
             </button>
-            <p className={'text-right leading-relaxed ' + (browserMode ? 'text-[13px] text-paper-muted' : 'text-[10px] text-paper-faint')}>{total > 1 ? '左右滑动切换' : '双指缩放查看'}<span className="hidden sm:inline"> · 长按保存或分享</span></p>
+            <p className={'text-right leading-relaxed ' + (browserMode ? 'text-[13px] text-paper-muted' : 'text-[10px] text-paper-faint')}>{total > 1 ? '左右滑动切换' : '双指缩放查看'}<span className="hidden sm:inline"> · 长按保存 / 查看原图</span></p>
           </div>
         )}
         {items && items.length > 1 && onSelect ? (
@@ -881,6 +947,21 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
           >
             <p className={'mb-3 ' + (browserMode ? 'text-[13px] text-paper-muted' : 'font-mono text-[10px] tracking-[0.16em] text-paper-faint')}>图片操作</p>
             <div className="grid gap-2">
+              {actionSrc && actionSrc !== viewSrc ? (
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setStatus(null)
+                    showOriginal()
+                  }}
+                  className="flex items-center gap-3 rounded-xl border border-haze bg-ink/50 px-4 py-3.5 text-left text-[14px] text-paper disabled:opacity-50"
+                >
+                  <Maximize2 size={18} strokeWidth={1.6} className="text-cinnabar-soft" />
+                  <span className="flex-1">查看原图</span>
+                </button>
+              ) : null}
               <button
                 type="button"
                 disabled={busy !== null}

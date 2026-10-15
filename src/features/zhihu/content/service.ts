@@ -71,7 +71,9 @@ export class ZhihuContentService {
     const url = zhihuEntityUrl(ref)
     if (!operation || !url) throw new ZhihuApiError('unsupported', `暂不支持读取 ${ref.kind}`)
     const raw = await this.api.getJson(operation, url, signal)
-    return decodeZhihuContentDetail(raw)
+    // 上游偶尔会漏掉 type（付费/纯视频回答尤其明显）；这次请求就是冲着 ref 来的，
+    // 认不出实体身份时用它兜底，别把可读的正文判成脏数据。
+    return decodeZhihuContentDetail(raw, ref)
   }
 
   async readVideo(videoId: string, contentRef: ZhihuEntityRef, signal?: AbortSignal): Promise<ZhihuVideoPlayback | null> {
