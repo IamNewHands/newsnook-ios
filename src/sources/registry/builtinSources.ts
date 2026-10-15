@@ -363,7 +363,6 @@ export const SOURCES: NewsSource[] = [
   { id: 'dw-top', name: 'DW 中文', label: 'DW中文', group: 'intl', kind: 'feed', url: 'https://rss.dw.com/rdf/rss-chi-all', enabled: true },
   { id: 'ftchinese', name: 'FT中文网', label: 'FT中文', group: 'intl', kind: 'feed', url: 'https://www.ftchinese.com/rss/feed', enabled: false },
   { id: 'voa-zh', name: '美国之音中文网', label: 'VOA中文', group: 'intl', kind: 'feed', url: 'https://www.voachinese.com/api/zm_yqebbyi', enabled: false },
-  { id: 'cna-intl-zh', name: '中央社 · 国际', label: '中央社国际', group: 'intl', kind: 'feed', url: 'https://feeds.feedburner.com/rsscna/intworld', enabled: false },
   {
     id: 'zaobao-world',
     name: '联合早报 · 国际',

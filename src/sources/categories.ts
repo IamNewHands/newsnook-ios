@@ -95,7 +95,6 @@ export const CATEGORIES: NewsCategory[] = [
   category('world-zh', '中文公共', '中文公共', ['bbc-zh', 'rfi-zh', 'dw-top', 'voa-zh']),
   category('world-zh-press', '中文报刊', '中文报刊', [
     'nytimes-zh',
-    'cna-intl-zh',
     'zaobao-world',
     'theinitium',
   ]),

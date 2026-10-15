@@ -78,7 +78,6 @@
 | `dw-top` | feed | DW 中文 RDF `rss-chi-all`；旧配置误接 `rss-en-top` 已修正 |
 | `ftchinese` | feed | FT中文网第一方 `/rss/feed`，`zh-CN` |
 | `voa-zh` | feed | 美国之音中文网 RSS 页面当前“新闻”聚合源 |
-| `cna-intl-zh` | feed | 中央社官方「国际」RSS（FeedBurner 托管） |
 | `zaobao-world` | zaobao | 联合早报无可用第一方 RSS；解析公开 `/news/world` 服务端 HTML，不依赖 RSSHub / FeedX |
 | `bbc-world` `bbc-business` `dw-en` | feed | BBC / DW 英文第一方 RSS |
 | `nytimes-world` `wsj-world` `nikkei-asia` `channelnewsasia-world` | feed | NYT World、WSJ World、Nikkei Asia、Channel NewsAsia World 第一方 RSS |

@@ -15,7 +15,6 @@ const chineseIds = [
   'ftchinese',
   'zaobao-world',
   'voa-zh',
-  'cna-intl-zh',
   'theinitium',
 ] as const
 
@@ -154,7 +153,7 @@ assert.equal(dwZh.kind, 'feed')
 assert.equal(dwZh.url, 'https://rss.dw.com/rdf/rss-chi-all')
 assert.notEqual(dwZh.url, findSource('dw-en')!.url)
 
-for (const id of ['nytimes-zh', 'rfi-zh', 'ftchinese', 'voa-zh', 'cna-intl-zh'] as const) {
+for (const id of ['nytimes-zh', 'rfi-zh', 'ftchinese', 'voa-zh'] as const) {
   assert.equal(findSource(id)!.kind, 'feed', `${id} should use the generic first-party feed parser`)
 }
 assert.equal(findSource('zaobao-world')!.kind, 'zaobao', 'Zaobao has no usable first-party RSS and needs its first-party HTML adapter')
@@ -180,7 +179,7 @@ assert.equal(worldOpinion.label, '国际评论')
 for (const id of ['bbc-zh', 'rfi-zh', 'dw-top', 'voa-zh']) {
   assert.ok(worldZh.sourceIds?.includes(id), `${id} must be in 中文公共媒体`)
 }
-for (const id of ['nytimes-zh', 'cna-intl-zh', 'zaobao-world', 'theinitium']) {
+for (const id of ['nytimes-zh', 'zaobao-world', 'theinitium']) {
   assert.ok(worldZhPress.sourceIds?.includes(id), `${id} must be in 中文报刊通讯`)
 }
 assert.ok(bizGlobal.sourceIds?.includes('ftchinese'))
