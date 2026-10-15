@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { parseHTML } from 'linkedom'
 
 import { createMemoryZhihuCommentDraftDatabase, ZhihuCommentDraftStore } from '../src/features/zhihu/comments/draftStore'
 import { ZhihuCommentsService, decodeZhihuComment, zhihuCommentDraftRef } from '../src/features/zhihu/comments/service'
@@ -40,6 +41,27 @@ assert.deepEqual(mediaDecoded?.media.map((item) => item.kind), ['image', 'gif', 
 assert.equal(mediaDecoded?.media[0]?.url, 'https://picx.zhimg.com/example.jpg')
 assert.equal(mediaDecoded?.media[1]?.url, 'https://picx.zhimg.com/example.gif')
 assert.equal(mediaDecoded?.ipLocation, '上海')
+
+const emojiDecoded = decodeZhihuComment({
+  id: 'comment-emoji',
+  content: '<p>早安<img class="CommentItem-emoji" data-actualsrc="//picx.zhimg.com/smile.png" alt="[微笑]">继续<img width="20" height="20" src="https://picx.zhimg.com/wink.png" alt="眨眼">结束</p>',
+  author: { id: 'person-emoji', name: '表情用户' },
+})
+assert.deepEqual(emojiDecoded?.media, [], '内联小表情不应从正文移到媒体区')
+const { document: emojiDocument } = parseHTML('<html><body>' + emojiDecoded?.contentHtml + '</body></html>')
+const emojiImages = [...emojiDocument.querySelectorAll('.zhihu-comment-body img, img[data-reader-role="zhihu-comment-emoji"]')]
+assert.equal(emojiImages.length, 2)
+assert.equal(emojiImages[0]?.getAttribute('src'), 'https://picx.zhimg.com/smile.png')
+assert.equal(emojiImages[1]?.getAttribute('src'), 'https://picx.zhimg.com/wink.png')
+assert.equal(emojiImages[0]?.getAttribute('data-reader-role'), 'zhihu-comment-emoji')
+assert.equal(emojiDocument.querySelector('p')?.textContent, '早安继续结束', '文字与表情的位置顺序必须保留')
+const unsafeEmoji = decodeZhihuComment({
+  id: 'comment-unsafe-emoji',
+  content: '<p>安全<img class="emoji" src="javascript:alert(1)" onerror="alert(1)" alt="[微笑]"></p>',
+  author: { id: 'person-safe', name: '用户' },
+})
+assert.match(unsafeEmoji?.contentHtml ?? '', /安全\[微笑\]/)
+assert.doesNotMatch(unsafeEmoji?.contentHtml ?? '', /javascript:|onerror|<img/)
 
 const inlineImageDecoded = decodeZhihuComment({
   id: 'comment-inline-image',
@@ -165,6 +187,8 @@ await draftStore.save('account-a', segmentDraftRef, undefined, '段评草稿')
 assert.equal(await draftStore.load('account-a', answerRef), '根评论草稿', '段评草稿不得覆盖全文评论草稿')
 assert.equal(await draftStore.load('account-a', segmentDraftRef), '段评草稿')
 
+const zhihuCss = readFileSync(new URL('../src/styles/zhihu.css', import.meta.url), 'utf8')
+assert.match(zhihuCss, /\.zhihu-comment-body img\[data-reader-role='zhihu-comment-emoji'\][\s\S]*?display: inline-block;/)
 const commentsUiSource = readFileSync(new URL('../src/features/zhihu/ui/ZhihuCommentsSection.tsx', import.meta.url), 'utf8')
 assert.doesNotMatch(
   commentsUiSource,
@@ -175,6 +199,8 @@ assert.match(commentsUiSource, /const controller = new AbortController\(\)/, '�
 assert.match(commentsUiSource, /ZhihuAuthorAvatar author=\{comment\.author\}/, '评论必须显示服务端返回的用户头像，不能只显示姓名首字')
 assert.match(commentsUiSource, /查看 \$\{comment\.author\.name\} 的主页/, '评论头像必须保留进入用户主页的点击语义')
 assert.match(commentsUiSource, /CommentMedia/, '评论图片、GIF 与贴纸必须走独立媒体组件')
+assert.match(commentsUiSource, /CommentInlineHtml/, '评论区的小表情必须作为稳定的内联 DOM 渲染')
+assert.match(commentsUiSource, /resolvePlayableImageSrc\(original,/, '内联表情加载失败时必须复用现有图片传输兜底')
 assert.match(commentsUiSource, /onOpenImage/, '评论媒体必须支持点击查看大图')
 assert.match(commentsUiSource, /IP属地/, '评论元信息应以低权重常显 IP 属地')
 assert.match(commentsUiSource, /resolveCommentAnchor/, '评论通知携带 anchor_comment_id 时必须主动解析目标评论，不能只依赖根评论第一页')

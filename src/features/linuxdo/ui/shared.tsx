@@ -1,8 +1,9 @@
 import { Eye, Flame, Heart, MessageCircle } from 'lucide-react'
-import type { CSSProperties, KeyboardEvent } from 'react'
+import { useMemo, type CSSProperties, type KeyboardEvent } from 'react'
 
 import type { LinuxDoCategory, LinuxDoTopicSummary } from '../types'
 import { linuxDoTopicReadState } from '../topic/readState'
+import { linuxDoTitleParts } from '../content/title'
 import { ago, avatar, compact, tagGlyph } from './utils'
 
 function getCategoryColor(category?: LinuxDoCategory): string {
@@ -23,6 +24,8 @@ export function TopicCard({
   onOpenCategory?: (category: LinuxDoCategory) => void
   onOpenTag?: (tag: string) => void
 }) {
+  const titleParts = useMemo(() => linuxDoTitleParts(topic.title, topic.fancyTitle), [topic.title, topic.fancyTitle])
+  const accessibleTitle = titleParts.map((part) => part.kind === 'emoji' ? part.alt : part.text).join('')
   const author = topic.posters[0]
   const last = topic.posters[topic.posters.length - 1]
   const readState = linuxDoTopicReadState(topic)
@@ -48,7 +51,7 @@ export function TopicCard({
     <article
       role="link"
       tabIndex={0}
-      aria-label={'打开主题：' + topic.title}
+      aria-label={'打开主题：' + accessibleTitle}
       onClick={onOpen}
       onKeyDown={openFromKeyboard}
       className={
@@ -90,7 +93,16 @@ export function TopicCard({
               'line-clamp-2 flex-1 text-[15px] sm:text-[16px] font-semibold leading-[1.38] tracking-[-0.015em] transition-colors ' +
               (isRead ? 'text-paper-muted/85 group-hover:text-paper' : 'text-paper group-hover:text-cinnabar-soft')
             }>
-              {topic.title}
+              {titleParts.map((part, index) => part.kind === 'emoji' ? (
+                <img
+                  key={index}
+                  src={part.src}
+                  alt={part.alt}
+                  loading="lazy"
+                  decoding="async"
+                  className="mx-[0.04em] inline-block h-[1.15em] w-[1.15em] align-[-0.18em] object-contain"
+                />
+              ) : <span key={index}>{part.text}</span>)}
             </h3>
             {isUnread ? (
               <span

@@ -31,6 +31,7 @@ function imageCandidate(image: Element | null): string | undefined {
     ?? safeMediaUrl(image.getAttribute('src'))
     ?? safeMediaUrl(image.getAttribute('data-original-src'))
     ?? safeMediaUrl(image.getAttribute('data-original'))
+    ?? safeMediaUrl(image.getAttribute('data-src'))
   )
 }
 
@@ -38,6 +39,16 @@ function meaningfulAlt(value: string | null | undefined): string | undefined {
   const text = value?.trim()
   if (!text || text === '<图片>' || text === '图片' || text === '[图片]') return undefined
   return text
+}
+
+function isInlineCommentEmoji(image: Element): boolean {
+  const marker = (image.getAttribute('class') || '') + ' ' + (image.getAttribute('data-type') || '')
+  if (/emoji|emoticon|emotion|emote/i.test(marker) || image.hasAttribute('data-emoji')) return true
+  const src = imageCandidate(image)
+  if (src && /(?:\/|[-_])(?:emoji|emoticon|emotion)(?:\/|[-_])/i.test(src)) return true
+  const width = Number(image.getAttribute('width'))
+  const height = Number(image.getAttribute('height'))
+  return width > 0 && height > 0 && width <= 48 && height <= 48 && Boolean(meaningfulAlt(image.getAttribute('alt')))
 }
 
 function removeEmptyMediaParent(element: Element): void {
@@ -91,9 +102,24 @@ export function normalizeZhihuCommentContent(rawHtml: string): {
       removeEmptyMediaParent(anchor)
     }
 
-    // 少量评论直接内嵌 <img> 而不经过 comment_img/comment_gif/comment_sticker。
-    // 同样抽离为媒体，避免正文图片在评论区走 Reader 专用占位逻辑。
+    // 小表情必须留在文字原位；普通内嵌图片仍抽离给 React 媒体组件。
     for (const image of [...document.body.querySelectorAll('img')]) {
+      if (isInlineCommentEmoji(image)) {
+        const url = imageCandidate(image)
+        const alt = meaningfulAlt(image.getAttribute('alt')) ?? '表情'
+        if (url) {
+          const emoji = document.createElement('img')
+          emoji.setAttribute('src', url)
+          emoji.setAttribute('alt', alt)
+          emoji.setAttribute('data-reader-role', 'zhihu-comment-emoji')
+          emoji.setAttribute('loading', 'lazy')
+          emoji.setAttribute('referrerpolicy', 'no-referrer')
+          image.replaceWith(emoji)
+        } else {
+          image.replaceWith(document.createTextNode(alt))
+        }
+        continue
+      }
       const url = imageCandidate(image)
       if (url && !seen.has(url)) {
         seen.add(url)
