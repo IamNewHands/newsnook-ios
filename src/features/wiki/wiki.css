@@ -85,7 +85,9 @@
   font-size: 16px;
   line-height: 1.78;
   margin: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: normal;
+  line-break: strict;
 }
 .wiki-entry-summary p {
   margin: 0 0 0.5rem;
@@ -287,7 +289,10 @@
   line-height: 1.84;
   margin: 0;
   opacity: 0.94;
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: normal;
+  line-break: strict;
 }
 .wiki-chapter-p p {
   margin: 0 0 0.65rem;
@@ -305,11 +310,55 @@
   margin-bottom: 0.25rem;
   line-height: 1.65;
 }
-.wiki-chapter-paragraphs math {
-  display: inline-block;
-  vertical-align: -0.12em;
+.wiki-chapter-paragraphs math,
+.wiki-entry-summary math {
   font-size: 1.04em;
-  line-height: 1;
+}
+.wiki-chapter-p .wiki-math-display,
+.wiki-chapter-p .wiki-equation {
+  display: block;
+  max-width: 100%;
+  margin: 0;
+  overflow-x: auto;
+  padding: 0.35rem 0.25rem;
+  text-align: center;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.wiki-chapter-p dl:has(> .wiki-equation) {
+  margin: 0.65rem 0;
+}
+.wiki-chapter-p .wiki-equation .wiki-math-display {
+  display: inline;
+  padding: 0;
+}
+.wiki-chapter-p .wiki-equation math,
+.wiki-chapter-p .wiki-math-display math {
+  display: inline math;
+}
+.wiki-chapter-p img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+}
+.wiki-chapter-p figure {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0.85rem auto;
+}
+.wiki-chapter-p figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.85em;
+  font-weight: 400;
+  line-height: 1.6;
+  text-align: center;
+  opacity: 0.75;
+}
+.wiki-chapter-p table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
 }
 .wiki-chapter-paragraphs math annotation {
   display: none !important;

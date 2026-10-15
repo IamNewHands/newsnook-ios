@@ -3,6 +3,7 @@
  * Providers own their API or HTML extraction; the reader consumes the same entry contract.
  */
 import { baiduBaikeProvider } from './baiduBaike'
+import { parseHTML } from 'linkedom'
 import { saveWikiSettingsValue, WIKI_SETTINGS_STORAGE_KEY } from '../../lib/storage'
 
 export interface WikiFact {
@@ -146,12 +147,13 @@ function wikiProvider(language: 'zh' | 'en'): EncyclopediaProvider {
       return { ...found, related: hits.filter(hit => hit.title !== matched.title).map(hit => hit.title) }
     },
     async fullText(entry, signal) {
-      // Fetch full MediaWiki article extracts in HTML format (identical to wikilens_oil_ui.html)
-      const url = `${root}/w/api.php?action=query&prop=extracts&redirects=1&titles=${encodeURIComponent(entry.title)}&format=json&origin=*${language === 'zh' ? '&variant=zh-cn' : ''}`
+      // TextExtracts strips images and some formulas even in HTML mode.
+      const url = `${root}/w/api.php?action=parse&prop=text&redirects=1&page=${encodeURIComponent(entry.title)}&format=json&formatversion=2&origin=*${language === 'zh' ? '&variant=zh-cn' : ''}`
       const data = await getJson(url, signal)
-      const page = Object.values(data?.query?.pages || {})[0] as { extract?: string } | undefined
-      if (!page?.extract?.trim()) throw new WikiNotFoundError(entry.title)
-      return page.extract
+      if (data?.error && data.error.code !== 'missingtitle') throw new Error('百科正文请求失败')
+      const html = data?.parse?.text
+      if (typeof html !== 'string' || !html.trim()) throw new WikiNotFoundError(entry.title)
+      return sanitizeWikiHtml(html, pageUrl(entry.title))
     },
   }
 }
@@ -340,19 +342,86 @@ function splitCleanParagraphs(content: string): string[] {
   return merged
 }
 
+function normalizeWikiLayout(root: Element): void {
+  // Portal badges decorate navigation links; keep the label without treating the icon as article media.
+  root.querySelectorAll('.portalbox-image').forEach(icon => icon.remove())
+  const punctuationOnly = /^[\s，。、；：！？,.!?:;）】》」』”’]+$/u
+  for (const paragraph of root.querySelectorAll('p')) {
+    if (!punctuationOnly.test(paragraph.textContent || '') || paragraph.querySelector('img, math, br')) continue
+    const previous = paragraph.previousElementSibling
+    if (!previous) continue
+    const target = previous.tagName === 'DL' ? previous.querySelector('dd:last-child') : previous
+    if (!target) continue
+    target.append(...Array.from(paragraph.childNodes))
+    paragraph.remove()
+  }
+  for (const row of root.querySelectorAll('dd')) {
+    if (!row.querySelector('math')) continue
+    const remaining = row.cloneNode(true) as Element
+    remaining.querySelectorAll('math, annotation, img').forEach(el => el.remove())
+    const text = (remaining.textContent || '').trim()
+    if (!text || punctuationOnly.test(text)) row.classList.add('wiki-equation')
+  }
+  for (const formula of root.querySelectorAll('.mwe-math-element-display, .wiki-math-display')) {
+    const next = formula.nextSibling
+    if (next?.nodeType !== 3) continue
+    const text = next.textContent || ''
+    const punctuation = text.match(/^\s*([，。、；：！？,.!?:;）】》」』”’]+)/u)
+    if (!punctuation) continue
+    formula.append(punctuation[1])
+    next.textContent = text.slice(punctuation[0].length)
+  }
+}
+
 /**
  * Sanitizes rich HTML content for wiki cards and full articles,
  * preserving safe typographical tags (sup, sub, math, etc.) while stripping scripts and TeX annotation leaks.
  */
-export function sanitizeWikiHtml(dirty: string): string {
+export function sanitizeWikiHtml(dirty: string, baseUrl = 'https://zh.wikipedia.org'): string {
   if (!dirty) return ''
-  return dirty
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
-    .replace(/\son[a-z]+=["'][^"']*["']/gi, '')
-    .replace(/\son[a-z]+=[^\s>]+/gi, '')
-    .replace(/<annotation\b[^<]*(?:(?!<\/annotation>)<[^<]*)*<\/annotation>/gi, '')
+  const { document } = parseHTML('<html><body></body></html>')
+  document.body.innerHTML = dirty
+  document.querySelectorAll('script, style, iframe, object, embed, form, input, button, link, meta, annotation, annotation-xml, .mw-editsection, .mw-empty-elt, .noteTA, .toc, .navbox').forEach(el => el.remove())
+  normalizeWikiLayout(document.body)
+
+  // Use local MathML rendering: upstream hides it and shows a remote SVG instead.
+  for (const formula of document.querySelectorAll('.mwe-math-element')) {
+    if (formula.querySelector('math')) {
+      formula.querySelectorAll('img').forEach(img => img.remove())
+    }
+  }
+  const allowedTags = new Set(('p div span section h2 h3 h4 h5 h6 a b strong i em u s small sup sub br hr ul ol li dl dt dd blockquote figure figcaption img table caption thead tbody tfoot tr th td math semantics mrow mi mn mo ms mtext mspace msqrt mroot mfrac msup msub msubsup munder mover munderover mtable mtr mtd menclose mpadded mphantom mfenced mstyle mmultiscripts mprescripts none').split(' '))
+  const allowedAttrs = new Set(('href src alt title width height colspan rowspan xmlns display mathvariant displaystyle scriptlevel stretchy fence separator lspace rspace mathsize mathcolor mathbackground linethickness accent accentunder columnalign rowalign columnspacing rowspacing encoding').split(' '))
+  const resourceUrl = (value: string): string | null => {
+    try {
+      const url = new URL(value, baseUrl)
+      return /^https?:$/.test(url.protocol) ? url.href : null
+    } catch { return null }
+  }
+  for (const element of Array.from(document.body.querySelectorAll('*'))) {
+    if (!allowedTags.has(element.localName.toLowerCase())) {
+      element.replaceWith(...Array.from(element.childNodes))
+      continue
+    }
+    const isDisplayMath = element.classList.contains('mwe-math-element-display') || element.classList.contains('wiki-math-display')
+    const isEquation = element.classList.contains('wiki-equation')
+    for (const attr of Array.from(element.attributes)) {
+      const name = attr.name.toLowerCase()
+      if (!allowedAttrs.has(name)) element.removeAttribute(attr.name)
+      else if (name === 'src' || name === 'href') {
+        const url = resourceUrl(attr.value)
+        if (url) element.setAttribute(name, url)
+        else element.removeAttribute(name)
+      }
+    }
+    if (isDisplayMath) element.setAttribute('class', 'wiki-math-display')
+    if (isEquation) element.classList.add('wiki-equation')
+    if (element.localName === 'img') {
+      element.setAttribute('loading', 'lazy')
+      element.setAttribute('referrerpolicy', 'no-referrer')
+    }
+  }
+  return document.body.innerHTML
 }
 
 /**
@@ -369,96 +438,29 @@ export function parseWikiSections(rawText: string, summaryFallback = ''): WikiSe
   }
   if (!raw) return []
 
-  const isHtml = /<(?:h[2-3]|p|ul|ol|blockquote|math|div)\b/i.test(raw)
+  const isHtml = /<(?:h[2-6]|p|ul|ol|blockquote|math|div|dl|figure|img|table|section)\b/i.test(raw)
 
   if (isHtml) {
-    if (typeof DOMParser !== 'undefined') {
-      try {
-        const parser = new DOMParser()
-        const doc = parser.parseFromString(`<div>${raw}</div>`, 'text/html')
-        const root = doc.body.firstElementChild || doc.body
-        root.querySelectorAll('script, style, .mw-empty-elt, .mw-editsection, annotation').forEach(el => el.remove())
-
-        const parsedSections: WikiSection[] = []
-        let currentSection: WikiSection = {
-          id: 'sec-0',
-          title: '词条导言与核心定义',
-          paragraphs: [],
-        }
-
-        Array.from(root.children).forEach(node => {
-          const tag = node.tagName ? node.tagName.toUpperCase() : ''
-          const nodeText = (node.textContent || '').trim()
-          if (!nodeText) return
-
-          if (tag === 'H2' || tag === 'H3') {
-            if (currentSection.paragraphs.length > 0) {
-              parsedSections.push(currentSection)
-            }
-            currentSection = {
-              id: `sec-${parsedSections.length}`,
-              title: nodeText.replace(/\[编辑\]|\[edit\]/gi, '').trim(),
-              paragraphs: [],
-            }
-          } else if (tag === 'P' || tag === 'UL' || tag === 'OL' || tag === 'BLOCKQUOTE' || tag === 'DIV') {
-            const rawHtml = (node as Element).outerHTML || nodeText
-            currentSection.paragraphs.push(formatScientificAndLatex(rawHtml))
-          }
-        })
-
-        if (currentSection.paragraphs.length > 0) {
-          parsedSections.push(currentSection)
-        }
-
-        if (parsedSections.length > 0) {
-          return parsedSections
-        }
-      } catch {
-        // Fallback to regex below
-      }
-    }
-
-    // RegEx fallback for HTML when DOMParser is unavailable
+    const { document } = parseHTML('<html><body></body></html>')
+    document.body.innerHTML = raw
+    document.querySelectorAll('script, style, .mw-empty-elt, .mw-editsection, annotation, .noteTA, .toc, .navbox').forEach(el => el.remove())
+    normalizeWikiLayout(document.body)
     const sections: WikiSection[] = []
-    const cleanedHtml = raw.replace(/<annotation\b[^<]*(?:(?!<\/annotation>)<[^<]*)*<\/annotation>/gi, '')
-    const rawParts = cleanedHtml.split(/(<h[2-3][^>]*>[\s\S]*?<\/h[2-3]>)/i)
-    let currentTitle = '词条导言与核心定义'
-    let currentParagraphs: string[] = []
-
-    for (let i = 0; i < rawParts.length; i++) {
-      const part = rawParts[i].trim()
-      if (!part) continue
-      const headerMatch = part.match(/<h[2-3][^>]*>([\s\S]*?)<\/h[2-3]>/i)
-      if (headerMatch) {
-        if (currentParagraphs.length > 0) {
-          sections.push({
-            id: `sec-${sections.length}`,
-            title: currentTitle,
-            paragraphs: currentParagraphs,
-          })
-          currentParagraphs = []
-        }
-        currentTitle = headerMatch[1].replace(/<[^>]+>/g, '').replace(/\[编辑\]|\[edit\]/gi, '').trim()
-      } else {
-        const textOnly = part.replace(/<[^>]+>/g, '').trim()
-        if (!textOnly) continue
-        const pMatches = part.match(/<(?:p|ul|ol|blockquote)[^>]*>[\s\S]*?<\/(?:p|ul|ol|blockquote)>/gi)
-        if (pMatches) {
-          currentParagraphs.push(...pMatches.map(p => formatScientificAndLatex(p.trim())).filter(Boolean))
-        } else {
-          const clean = formatScientificAndLatex(part.trim())
-          if (clean) currentParagraphs.push(clean)
-        }
+    let current: WikiSection = { id: 'sec-0', title: '词条导言与核心定义', paragraphs: [] }
+    const visit = (node: Element) => {
+      const tag = node.tagName.toUpperCase()
+      if (/^H[2-6]$/.test(tag)) {
+        if (current.paragraphs.length) sections.push(current)
+        current = { id: `sec-${sections.length}`, title: (node.textContent || '').replace(/\[编辑\]|\[edit\]/gi, '').trim(), paragraphs: [] }
+      } else if (node.querySelector('h2, h3, h4, h5, h6') || node.classList.contains('mw-parser-output') || tag === 'SECTION') {
+        Array.from(node.children).forEach(visit)
+      } else if ((node.textContent || '').trim() || node.matches('img, math') || node.querySelector('img, math')) {
+        current.paragraphs.push(node.outerHTML)
       }
     }
-    if (currentParagraphs.length > 0) {
-      sections.push({
-        id: `sec-${sections.length}`,
-        title: currentTitle,
-        paragraphs: currentParagraphs,
-      })
-    }
-    if (sections.length > 0) return sections
+    Array.from(document.body.children).forEach(visit)
+    if (current.paragraphs.length) sections.push(current)
+    if (sections.length) return sections
   }
 
   // Plaintext or Wiki Markup fallback: Clean stacked math artifacts first

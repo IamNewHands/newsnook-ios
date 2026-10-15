@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { DOMParser } from 'linkedom'
 import {
   DEFAULT_WIKI_SETTINGS, encyclopediaProviders, getEncyclopediaProvider,
   lookupEncyclopedia, registerEncyclopediaProvider, WikiNotFoundError, isRelevantWikiTitle,
@@ -23,7 +24,7 @@ try {
       })
     }
     if (input.includes('list=search')) return Response.json({ query: { search: input.includes(encodeURIComponent('已严肃升')) ? [{ title: '馬文升' }] : [] } })
-    if (input.includes('prop=extracts')) return Response.json({ query: { pages: { 1: { extract: '真实百科全文。\n第二段。' } } } })
+    if (input.includes('action=parse')) return Response.json({ parse: { text: '<div class="mw-parser-output"><p>真实百科全文。</p><p>第二段。<a href="#formula">公式</a></p><figure><img src="//upload.wikimedia.org/axes.svg" /></figure></div>' } })
     return Response.json({ search: [] })
   }) as typeof fetch
   assert.deepEqual(encyclopediaProviders().map(provider => provider.id), ['wikipedia-zh', 'wikipedia-en'], '普通网页只展示可用的百科源')
@@ -53,6 +54,13 @@ try {
   assert.equal(result.summary, '真实百科摘要')
   assert.equal(result.providerId, 'wikipedia-zh')
   assert.equal((await getEncyclopediaProvider('wikipedia-zh').fullText!(result, controller.signal)).includes('第二段'), true)
+  const fullRequest = new URL(requests.at(-1)!)
+  assert.equal(fullRequest.searchParams.get('action'), 'parse', '全文接口必须保留公式和插图')
+  assert.equal(fullRequest.searchParams.get('variant'), 'zh-cn')
+  const englishHtml = await getEncyclopediaProvider('wikipedia-en').fullText!({ ...result, title: 'Cartesian coordinate system', providerId: 'wikipedia-en' }, controller.signal)
+  assert.ok(englishHtml.includes('https://en.wikipedia.org/wiki/Cartesian_coordinate_system#formula'), '英文全文中的相对地址应按实际词条解析')
+  assert.ok(englishHtml.includes('https://upload.wikimedia.org/axes.svg'))
+  assert.equal(new URL(requests.at(-1)!).searchParams.has('variant'), false)
   const count = requests.length
   const hit = await lookupEncyclopedia('量子纠缠', settings, controller.signal)
   assert.equal(hit, result, 'repeated query should reuse cached entry')
@@ -124,6 +132,56 @@ try {
   assert.ok(parsedMath[0].paragraphs[0].includes('C = {a ↦ 0, b ↦ 01, c ↦ 011}'))
   assert.ok(parsedMath[0].paragraphs[0].includes('其源字母表是集合 {a, b, c}，其目标字母表是集合'))
   assert.ok(!parsedMath[0].paragraphs[0].includes('\\displaystyle'))
+
+  const { parseWikiSections } = await import('../src/features/wiki/encyclopedia')
+  const richArticle = `<div class="mw-parser-output"><p>导言</p>
+    <div class="mw-heading mw-heading3"><h3>在两点间的距离</h3><span class="mw-editsection">[编辑]</span></div>
+    <p>距离是：</p><dl><dd><span class="mwe-math-element mwe-math-element-display">
+      <span class="mwe-math-mathml-a11y" style="display: none;"><math><semantics><mrow><mi>d</mi><mo>=</mo><msqrt><msup><mi>x</mi><mn>2</mn></msup></msqrt></mrow><annotation>\\displaystyle d</annotation></semantics></math></span>
+      <img class="mwe-math-fallback-image-display" src="https://wikimedia.org/api/rest_v1/media/math/render/svg/test" /></span></dd></dl>
+    <figure><img src="//upload.wikimedia.org/axes.svg" srcset="//upload.wikimedia.org/axes-2.svg 2x" /><figcaption>三个坐标平面</figcaption></figure>
+    <div><img src="/static/axes.png" /></div>
+    <h4>三维空间</h4><p>下一节</p></div>`
+  for (const browserDom of [false, true]) {
+    if (browserDom) Object.assign(globalThis, { DOMParser })
+    try {
+      const sections = parseWikiSections(richArticle)
+      assert.deepEqual(sections.map(s => s.title), ['词条导言与核心定义', '在两点间的距离', '三维空间'])
+      const html = sanitizeWikiHtml(sections[1].paragraphs.join(''))
+      assert.ok(html.includes('<msqrt>'), '独立 dl 公式块必须保留')
+      assert.ok(!html.includes('display: none'), 'MathML 必须可见')
+      assert.ok(!html.includes('mwe-math-fallback-image'), '原生 MathML 和公式图片不能重复显示')
+      assert.ok(html.includes('https://upload.wikimedia.org/axes.svg'), '插图地址必须支持 Android 的本地页面协议')
+      assert.ok(html.includes('三个坐标平面'), '保留图注')
+      assert.ok(html.includes('/static/axes.png'), '纯图片块不能因没有文字而丢失')
+      assert.ok(!html.includes('<annotation'))
+      assert.ok(html.includes('class="wiki-math-display"'), '独立公式保留块级排版')
+      assert.equal(sanitizeWikiHtml(html), html, '重复清洗不能破坏公式排版和资源地址')
+    } finally { Reflect.deleteProperty(globalThis, 'DOMParser') }
+  }
+  const safeHtml = sanitizeWikiHtml('<p><a href="javascript:alert(1)">链接</a><img src="https://upload.wikimedia.org/a.svg" onerror="alert(1)"><iframe src="https://example.test"></iframe></p>')
+  assert.ok(!safeHtml.includes('javascript:'))
+  assert.ok(!safeHtml.includes('onerror'))
+  assert.ok(!safeHtml.includes('iframe'))
+
+  const equationHtml = sanitizeWikiHtml('<dl><dd><span><math><mi>x</mi><mo>=</mo><mi>ρ</mi></math></span>，</dd><dd><math><mi>y</mi></math></dd><dd>这里是解释<math><mi>z</mi></math>。</dd></dl>')
+  const equationDoc = new DOMParser().parseFromString(equationHtml, 'text/html')
+  assert.equal(equationDoc.querySelectorAll('dd.wiki-equation').length, 2, '只将纯公式的缩进行标记为独立公式，不影响说明文字')
+  assert.equal(sanitizeWikiHtml(equationHtml), equationHtml, '公式行重复清洗保持稳定')
+  const displayWithPunctuation = sanitizeWikiHtml('<p><span class="mwe-math-element-display"><math><mi>x</mi></math></span>，下一段</p>')
+  assert.ok(displayWithPunctuation.includes('</math>，</span>'), '句末标点跟随独立公式，不能落到下一行')
+  const orphanSections = parseWikiSections('<p>内容结束</p><p>。</p><p>下一段。</p>')
+  assert.equal(orphanSections[0].paragraphs.length, 2, '独立标点段落合并回上一段')
+  assert.ok(orphanSections[0].paragraphs[0].includes('内容结束。'))
+
+  const portalHtml = '<h2>参考</h2><ul class="portalbox"><li><span class="portalbox-image"><a href="/wiki/File:Math.svg"><img src="//upload.wikimedia.org/math-icon.svg" width="28" height="28" alt="icon"></a></span><span class="portalbox-link"><a href="/wiki/Portal:数学">数学主题</a></span></li></ul><p>正文公式<math><msqrt><mi>x</mi></msqrt></math></p><figure><img src="//upload.wikimedia.org/diagram.svg"><figcaption>正文插图</figcaption></figure>'
+  for (const html of [sanitizeWikiHtml(portalHtml), sanitizeWikiHtml(parseWikiSections(portalHtml)[0].paragraphs.join(''))]) {
+    assert.ok(!html.includes('math-icon.svg'), '门户装饰图标不能混入正文插图')
+    assert.ok(html.includes('Portal:'), '保留门户链接')
+    assert.ok(html.includes('数学主题'), '保留门户文字')
+    assert.ok(html.includes('<msqrt>'), '正文根号公式不能被误删')
+    assert.ok(html.includes('diagram.svg'), '正文插图不能被误删')
+  }
 
   console.log('wiki encyclopedia tests passed')
 } finally {
