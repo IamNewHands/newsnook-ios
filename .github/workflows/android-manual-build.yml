@@ -22,6 +22,9 @@ on:
           - all
         default: apk
 
+permissions:
+  contents: read
+
 concurrency:
   group: android-manual-build-${{ github.ref }}
   cancel-in-progress: true

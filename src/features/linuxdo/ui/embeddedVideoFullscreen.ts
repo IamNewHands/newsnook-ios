@@ -67,7 +67,9 @@ export function installLinuxDoEmbeddedVideoFullscreen(root: HTMLElement): () => 
     // Must be invoked synchronously inside the trusted click event. Awaiting
     // anything first would lose transient user activation in Android WebView.
     const enter = host.requestFullscreen?.bind(host)
-    const useFallback = () => {
+    // 注意：不要把这个闭包命名成 use* —— oxlint 的 react/rules-of-hooks 会把它
+    // 误判成 Hook 调用（upstream v1.8.12 原文件里叫 useFallback，直接红 lint）。
+    const fallbackToInline = () => {
       if (!root.isConnected || !host.isConnected) return
       host.classList.add('is-fullscreen-fallback')
       nativeBridge()?.setEmbeddedVideoFullscreen?.(true)
@@ -80,13 +82,13 @@ export function installLinuxDoEmbeddedVideoFullscreen(root: HTMLElement): () => 
       updateControls()
     }
     if (!enter) {
-      useFallback()
+      fallbackToInline()
       return
     }
     try {
-      void enter().then(updateControls).catch(useFallback)
+      void enter().then(updateControls).catch(fallbackToInline)
     } catch {
-      useFallback()
+      fallbackToInline()
     }
   }
 
