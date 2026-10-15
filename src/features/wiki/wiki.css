@@ -82,7 +82,7 @@
   margin-bottom: 14px;
 }
 .wiki-entry-summary {
-  font-size: 14.5px;
+  font-size: 16px;
   line-height: 1.78;
   margin: 0;
   overflow-wrap: anywhere;
@@ -283,7 +283,7 @@
   gap: 10px;
 }
 .wiki-chapter-p {
-  font-size: 14.5px;
+  font-size: 16px;
   line-height: 1.84;
   margin: 0;
   opacity: 0.94;
