@@ -256,7 +256,9 @@ export const FONT_SCALE_OPTIONS: { label: string; value: number }[] = [
 /**
  * 界面字体选项。字体栈只列系统自带字体：
  * iOS 有苹方 / 宋体 / 楷体 / 圆体，桌面端回落到 SimSun / KaiTi，Android 回落到 Noto。
- * `system` 的取值刻意与 index.css 的 `:root` 默认值一致——默认档必须零观感变化。
+ * `system`（默认档）把 `system-ui` 放在最前，因此中文、英文、西文全部由系统字体级联
+ * 决定——iOS 上就是 San Francisco + 苹方，与系统默认观感完全一致。
+ * 它的取值必须与 theme.css 里 `--ui-font` 的 `:root` 基线逐字相同，否则首帧会跳一下。
  */
 export const UI_FONT_OPTIONS: {
   id: UiFontFamilyId
@@ -269,7 +271,7 @@ export const UI_FONT_OPTIONS: {
   {
     id: 'system',
     label: '默认',
-    body: "'Noto Sans SC', 'PingFang SC', system-ui, sans-serif",
+    body: "system-ui, -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif",
     display: "'Noto Serif SC', 'Songti SC', serif",
   },
   {

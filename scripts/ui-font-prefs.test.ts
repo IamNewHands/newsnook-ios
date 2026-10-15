@@ -17,7 +17,7 @@ import {
 } from '../src/sources/preferences'
 import { readAppStyles } from './helpers/readAppStyles'
 
-// 默认档：字体与字号都必须等于 index.css 的 :root 取值，升级后观感不变
+// 默认档：字体与字号都必须等于 theme.css 的 :root 取值
 assert.deepEqual(DEFAULT_PREFERENCES.ui, DEFAULT_UI_PREFS)
 assert.equal(DEFAULT_UI_PREFS.fontFamily, 'system')
 assert.equal(DEFAULT_UI_PREFS.scale, 1)
@@ -71,10 +71,19 @@ for (const option of UI_FONT_OPTIONS) {
   assert.ok(option.label.length > 0)
 }
 
-// 默认档的字体栈必须与 index.css 里的 :root 默认值逐字一致
+/*
+ * 默认档的字体栈必须与 theme.css 里 :root 的 --ui-font / --ui-font-display 逐字一致：
+ * 两处是同一份基线（CSS 管首帧、TS 管 applyUiPrefs 之后），只改一处会闪一下。
+ * v1.8.11 起样式拆进 src/styles/*.css，入口只维护导入顺序，因此按导入顺序展开再取声明。
+ */
+const css = readAppStyles()
+const declaredUiFont = /^\s*--ui-font:\s*([^;]+);/m.exec(css)?.[1]?.trim()
+const declaredUiFontDisplay = /^\s*--ui-font-display:\s*([^;]+);/m.exec(css)?.[1]?.trim()
 assert.equal(UI_FONT_OPTIONS[0].id, 'system')
-assert.equal(UI_FONT_OPTIONS[0].body, "'Noto Sans SC', 'PingFang SC', system-ui, sans-serif")
-assert.equal(UI_FONT_OPTIONS[0].display, "'Noto Serif SC', 'Songti SC', serif")
+assert.equal(UI_FONT_OPTIONS[0].body, declaredUiFont)
+assert.equal(UI_FONT_OPTIONS[0].display, declaredUiFontDisplay)
+// 默认档必须把 system-ui 放在最前，中文 / 英文 / 西文才会都由系统字体级联决定
+assert.match(UI_FONT_OPTIONS[0].body, /^system-ui,/)
 
 // 未知 id 回落到默认档，保证 CSS 变量永远有值
 assert.equal(resolveUiFontOption('nope' as UiFontFamilyId), UI_FONT_OPTIONS[0])
@@ -109,7 +118,6 @@ assert.equal(updateUiPrefs(navOff, { floatReaderNav: false }), navOff, '无变�
  * 权重表在 CSS 里，两边对不上就会「选了没反应」。
  * v1.8.11 起样式拆进 src/styles/*.css，入口只维护导入顺序，因此按导入顺序展开。
  */
-const css = readAppStyles()
 for (const option of UI_FONT_WEIGHT_OPTIONS) {
   if (option.id === 'regular') continue
   assert.ok(
