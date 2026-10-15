@@ -182,6 +182,10 @@ for (const id of ['bbc-zh', 'rfi-zh', 'dw-top', 'voa-zh']) {
 for (const id of ['nytimes-zh', 'zaobao-world', 'theinitium']) {
   assert.ok(worldZhPress.sourceIds?.includes(id), `${id} must be in 中文报刊通讯`)
 }
+const initium = findSource('theinitium')!
+assert.equal(initium.url, 'https://theinitium.com/zh-hans/rss/')
+assert.equal(initium.cacheVersion, 'zh-hans-v1')
+assert.ok(initium.url.includes('/zh-hans/'), '端传媒 must use the Simplified Chinese feed')
 assert.ok(bizGlobal.sourceIds?.includes('ftchinese'))
 for (const id of ['bbc-world', 'dw-en', 'npr', 'france24', 'aljazeera']) {
   assert.ok(worldNews.sourceIds?.includes(id), `${id} must be in 英文公共媒体`)

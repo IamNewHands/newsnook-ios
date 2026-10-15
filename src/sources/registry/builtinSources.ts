@@ -723,7 +723,10 @@ export const SOURCES: NewsSource[] = [
     label: '端传媒',
     group: 'intl',
     kind: 'feed',
-    url: 'https://theinitium.com/rss/',
+    // 根路径 /rss/ 默认繁体；官方简体频道在 /zh-hans/rss/
+    url: 'https://theinitium.com/zh-hans/rss/',
+    siteUrl: 'https://theinitium.com/zh-hans/',
+    cacheVersion: 'zh-hans-v1',
     enabled: false,
   },
   {
