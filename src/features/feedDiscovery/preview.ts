@@ -32,7 +32,11 @@ function classifyError(error: unknown): {
   return { kind: 'unknown', message: message || '检测失败', retryable: true }
 }
 
-function validateFeedShape(payload: string): { valid: boolean; verification: boolean; message?: string } {
+function normalizeFeedTitle(value: string | null | undefined): string | undefined {
+  return value?.replace(/\s+/g, ' ').trim() || undefined
+}
+
+function validateFeedShape(payload: string): { valid: boolean; verification: boolean; message?: string; title?: string } {
   const nonFeed = describeNonFeedPayload(payload)
   if (nonFeed) {
     return {
@@ -49,7 +53,7 @@ function validateFeedShape(payload: string): { valid: boolean; verification: boo
     try {
       const parsed = JSON.parse(trimmed) as Record<string, unknown>
       const items = parsed.items
-      if (Array.isArray(items) && ['https://jsonfeed.org/version/1', 'https://jsonfeed.org/version/1.1'].includes(String(parsed.version)) && typeof parsed.title === 'string') return { valid: true, verification: false }
+      if (Array.isArray(items) && ['https://jsonfeed.org/version/1', 'https://jsonfeed.org/version/1.1'].includes(String(parsed.version)) && typeof parsed.title === 'string') return { valid: true, verification: false, title: normalizeFeedTitle(parsed.title) }
       return { valid: false, verification: false, message: 'JSON 内容不是有效 JSON Feed' }
     } catch {
       return { valid: false, verification: false, message: 'JSON Feed 格式错误' }
@@ -65,12 +69,20 @@ function validateFeedShape(payload: string): { valid: boolean; verification: boo
     if (doc.querySelector('parsererror')) {
       return { valid: false, verification: false, message: 'XML Feed 格式错误' }
     }
-    const root = doc.documentElement?.localName?.toLowerCase()
-    const valid = (root === 'rss' && Boolean(doc.querySelector('channel'))) ||
-      (root === 'feed' && doc.documentElement.getAttribute('xmlns') === 'http://www.w3.org/2005/Atom') ||
-      (root === 'rdf' && Boolean(doc.querySelector('channel')))
+    const rootElement = doc.documentElement
+    const root = rootElement?.localName?.split(':').at(-1)?.toLowerCase()
+    const childNamed = (element: Element | null, name: string) => Array.from(element?.children ?? [])
+      .find((child) => child.localName.split(':').at(-1)?.toLowerCase() === name)
+    const channel = childNamed(rootElement, 'channel')
+    const prefix = rootElement?.nodeName.includes(':') ? rootElement.nodeName.split(':')[0] : undefined
+    const namespace = rootElement?.getAttribute(prefix ? `xmlns:${prefix}` : 'xmlns') || rootElement?.namespaceURI
+    const valid = (root === 'rss' && Boolean(channel)) ||
+      (root === 'feed' && namespace === 'http://www.w3.org/2005/Atom') ||
+      (root === 'rdf' && Boolean(channel))
+    const titleContainer = root === 'feed' ? rootElement : channel
+    const titleElement = childNamed(titleContainer ?? null, 'title')
     return valid
-      ? { valid: true, verification: false }
+      ? { valid: true, verification: false, title: normalizeFeedTitle(titleElement?.textContent) }
       : { valid: false, verification: false, message: '内容不是 RSS / Atom / RDF Feed' }
   } catch {
     return { valid: false, verification: false, message: '无法识别 Feed 格式' }
@@ -124,6 +136,7 @@ export async function previewFeed(
     return {
       ok: true,
       feedUrl,
+      title: shape.title,
       itemCount: articles.length,
       articles: articles.slice(0, 5).map((article) => ({
         title: article.title,

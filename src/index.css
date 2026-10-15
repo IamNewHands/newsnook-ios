@@ -1,5 +1,9 @@
 @import 'tailwindcss';
 
+/* 明确指定 Tailwind 扫描边界，跳过根目录 android/、cloud/、scripts/ 等大目录，消除编译卡顿 */
+@source '../index.html';
+@source '.';
+
 /* 按原有顺序加载，保留主题、阅读器与站点样式的层叠关系。 */
 @import './styles/fonts.css';
 @import './styles/theme.css';
@@ -11,6 +15,7 @@
 @import './styles/reader/surface.css';
 @import './styles/reader/images.css';
 @import './styles/player/chrome.css';
+@import './styles/player/floating.css';
 @import './styles/controls.css';
 @import './styles/player/media.css';
 @import './styles/reader/overflow.css';
@@ -27,3 +32,8 @@
 @import './styles/linuxdo/feedback.css';
 @import './styles/linuxdo/composer.css';
 @import './styles/linuxdo/primitives.css';
+@import './styles/linuxdo/threaded.css';
+
+@import './styles/settings-paper.css';
+
+@import './styles/history-editorial.css';

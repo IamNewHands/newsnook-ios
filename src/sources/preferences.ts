@@ -73,6 +73,8 @@ export {
   deleteCustomSource,
   deleteCustomSources,
   updateCustomSource,
+  renameSource,
+  moveCmsSource,
 } from './preferences/customSources'
 
 export {

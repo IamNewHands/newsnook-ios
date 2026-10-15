@@ -57,8 +57,10 @@ function isTlsCertError(error: unknown): boolean {
 }
 
 type UpstreamResult = {
+  finalUrl?: string
   status: number
   contentType: string | null
+  rangeHeaders: Record<string, string>
   buffer: Buffer
 }
 
@@ -112,7 +114,12 @@ function fetchInsecure(
           const contentType = res.headers['content-type']
           resolve({
             status,
+            finalUrl: target,
             contentType: typeof contentType === 'string' ? contentType : null,
+            rangeHeaders: Object.fromEntries(['content-range', 'accept-ranges'].flatMap(name => {
+              const value = res.headers[name]
+              return typeof value === 'string' ? [[name, value]] : []
+            })),
             buffer: Buffer.concat(chunks),
           })
         })
@@ -148,7 +155,12 @@ async function fetchViaProxyUri(
     })
     return {
       status: upstream.status,
+      finalUrl: upstream.url,
       contentType: upstream.headers.get('content-type'),
+      rangeHeaders: Object.fromEntries(['content-range', 'accept-ranges'].flatMap(name => {
+        const value = upstream.headers.get(name)
+        return value ? [[name, value]] : []
+      })),
       buffer: Buffer.from(await upstream.arrayBuffer()),
     }
   } finally {
@@ -163,7 +175,8 @@ async function fetchUpstream(target: string, request: UpstreamRequest): Promise<
 
   try {
     if (proxyUri) {
-      return await fetchViaProxyUri(fetchUrl, request, proxyUri)
+      const response = await fetchViaProxyUri(fetchUrl, request, proxyUri)
+      return { ...response, finalUrl: fetchUrl === target ? response.finalUrl : undefined }
     }
 
     const upstream = await fetch(fetchUrl, {
@@ -174,7 +187,12 @@ async function fetchUpstream(target: string, request: UpstreamRequest): Promise<
     })
     return {
       status: upstream.status,
+      finalUrl: fetchUrl === target ? upstream.url : undefined,
       contentType: upstream.headers.get('content-type'),
+      rangeHeaders: Object.fromEntries(['content-range', 'accept-ranges'].flatMap(name => {
+        const value = upstream.headers.get(name)
+        return value ? [[name, value]] : []
+      })),
       buffer: Buffer.from(await upstream.arrayBuffer()),
     }
   } catch (error) {
@@ -182,12 +200,14 @@ async function fetchUpstream(target: string, request: UpstreamRequest): Promise<
     if (proxyUri?.startsWith('socks')) {
       const agent = new SocksProxyAgent(proxyUri)
       try {
-        return await fetchInsecure(fetchUrl, request, 8, agent as http.Agent)
+        const result = await fetchInsecure(fetchUrl, request, 8, agent as http.Agent)
+        return { ...result, finalUrl: fetchUrl === target ? result.finalUrl : undefined }
       } finally {
         agent.destroy()
       }
     }
-    return fetchInsecure(fetchUrl, request)
+    const result = await fetchInsecure(fetchUrl, request)
+    return { ...result, finalUrl: fetchUrl === target ? result.finalUrl : undefined }
   }
 }
 
@@ -297,6 +317,7 @@ function feedProxyPlugin(): Plugin {
             sourceMeta: { id: source.id, group: source.group },
           })
 
+          if (upstream.finalUrl) res.setHeader('X-NewsNook-Upstream-Url', upstream.finalUrl)
           res.statusCode = upstream.status
           res.setHeader(
             'Content-Type',
@@ -402,10 +423,11 @@ function upstreamProxy(): Plugin {
                 'User-Agent': requestedUa || BROWSER_UA,
                 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
                 Accept: '*/*',
-                Referer: 'https://news.google.com/',
+                Referer: new URL(target).origin + '/',
               },
               body,
             })
+            if (upstream.finalUrl) res.setHeader('X-NewsNook-Upstream-Url', upstream.finalUrl)
             res.statusCode = upstream.status
             res.setHeader(
               'Content-Type',
@@ -452,13 +474,20 @@ function upstreamProxy(): Plugin {
                     : `${targetUrl.origin}/`
           }
 
+          const range = isMedia ? req.headers.range : undefined
+          if (range) headers.Range = range
           const upstream = await fetchUpstream(targetUrl.href, { headers })
+          if (upstream.finalUrl) res.setHeader('X-NewsNook-Upstream-Url', upstream.finalUrl)
           res.statusCode = upstream.status
           const contentType =
             upstream.contentType ||
             (isImage ? 'image/jpeg' : isMedia ? 'application/octet-stream' : 'text/html; charset=utf-8')
           res.setHeader('Content-Type', contentType)
-          res.setHeader('Cache-Control', isImage || isMedia ? 'public, max-age=3600' : 'no-store')
+          res.setHeader('Cache-Control', (isImage || isMedia) && !range && upstream.status !== 206 ? 'public, max-age=3600' : 'no-store')
+          if (isMedia) {
+            for (const [name, value] of Object.entries(upstream.rangeHeaders)) res.setHeader(name, value)
+            res.setHeader('Access-Control-Expose-Headers', 'X-NewsNook-Upstream-Url, Content-Range, Accept-Ranges')
+          }
           res.setHeader('Access-Control-Allow-Origin', '*')
           res.end(upstream.buffer)
         } catch (error) {
@@ -720,6 +749,32 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
     __APP_BUILD__: JSON.stringify(buildStamp()),
+  },
+  server: {
+    warmup: {
+      clientFiles: [
+        './src/main.tsx',
+        './src/App.tsx',
+        './src/index.css',
+      ],
+    },
+  },
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      'react-dom/client',
+      'react/jsx-dev-runtime',
+      'lucide-react',
+      'animejs',
+      'dompurify',
+      'marked',
+      'driver.js',
+      'opencc-js',
+      'fast-xml-parser',
+      '@mozilla/readability',
+      'linkedom',
+    ],
   },
   build: {
     target: ['chrome69', 'es2020'],

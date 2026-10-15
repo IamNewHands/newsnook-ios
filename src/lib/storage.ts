@@ -5,6 +5,8 @@ import { log } from './logger'
 import type { Article } from './types'
 
 const PREFIX = 'newsnook:'
+/** Preserve the existing wiki settings key while giving it native durability. */
+export const WIKI_SETTINGS_STORAGE_KEY = 'newsnook.wiki.settings.v1'
 /** 列表缓存超过这个时长就不再展示，避免弱网时看到过于陈旧的版面 */
 const LIST_CACHE_MAX_AGE = 1000 * 60 * 60 * 24 * 7
 const useNativePreferences = Capacitor.isNativePlatform()
@@ -84,14 +86,13 @@ export async function hydrateNativeStorage(): Promise<void> {
 
   try {
     await Promise.all(
-      BOOTSTRAP_MIRROR_KEYS.map(async (key) => {
-        const storageKey = PREFIX + key
+      [...BOOTSTRAP_MIRROR_KEYS.map(key => PREFIX + key), WIKI_SETTINGS_STORAGE_KEY].map(async (storageKey) => {
         try {
           const { value } = await Preferences.get({ key: storageKey })
           if (value === null) return
           localStorage.setItem(storageKey, value)
         } catch (error) {
-          reportNativeStorageError(`hydrate ${key}`, error)
+          reportNativeStorageError(`hydrate ${storageKey}`, error)
         }
       }),
     )
@@ -131,6 +132,16 @@ function mirrorToNative(storageKey: string, serialized: string): Promise<void> |
   return Preferences.set({ key: storageKey, value: serialized }).catch((error: unknown) => {
     reportNativeStorageError('write', error)
   })
+}
+
+export function saveWikiSettingsValue(settings: unknown): void {
+  try {
+    const serialized = JSON.stringify(settings)
+    localStorage.setItem(WIKI_SETTINGS_STORAGE_KEY, serialized)
+    void mirrorToNative(WIKI_SETTINGS_STORAGE_KEY, serialized)
+  } catch (error) {
+    log.storage.warn('Wiki settings write failed', error)
+  }
 }
 
 function write(key: string, value: unknown, options?: WriteOptions): void {
@@ -397,6 +408,8 @@ export interface CachedList {
 }
 
 export interface CachedPagingMeta {
+  /** Observed catalog URL; optional so legacy caches remain readable. */
+  nextUrl?: string
   page?: number
   cursor?: string
   exhausted?: boolean
@@ -455,12 +468,13 @@ export function saveCachedArticles(
   sourceId: string,
   items: Article[],
   paging?: CachedPagingMeta,
+  cachedAt = Date.now(),
 ): void {
   const compactItems = items.slice(0, 160).map(compactCachedArticle)
   scheduleTask(() => {
     write(
       `${LIST_CACHE_PREFIX}${sourceId}`,
-      { at: Date.now(), items: compactItems, paging },
+      { at: cachedAt, items: compactItems, paging },
       { localOnly: true },
     )
   })

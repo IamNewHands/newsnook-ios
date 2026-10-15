@@ -52,6 +52,7 @@
   body,
   #root {
     height: 100%;
+    -webkit-tap-highlight-color: transparent;
   }
 
   body {
@@ -62,6 +63,30 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  /* 媒体防拖拽，避免长按出现浏览器原生拖拽虚影或保存弹窗 */
+  img,
+  video {
+    -webkit-user-drag: none;
+    user-drag: none;
+  }
+
+  /* 文本选择白名单：除正文阅读与编辑控件外，全局禁止选中文本与呼出系统水滴光标 */
+  input,
+  textarea,
+  [contenteditable="true"],
+  [data-selectable="true"],
+  .reader-prose,
+  .reader-prose *,
+  [data-article-body],
+  [data-article-body] * {
+    -webkit-user-select: text;
+    user-select: text;
   }
 
   /*

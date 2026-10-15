@@ -143,7 +143,7 @@ export function AboutScreen({
         </div>
       </div>
 
-      <SettingsSection title="更新">
+      <SettingsSection variant="plain" title="更新">
         <ul className="divide-y divide-haze border-y border-haze bg-ink">
           {updateSupported ? (
             <li className="transition-colors hover:bg-ink-raised/30 active:bg-ink-raised/50">
@@ -238,7 +238,7 @@ export function AboutScreen({
       </SettingsSection>
 
       {onReplayTour ? (
-        <SettingsSection title="使用帮助">
+        <SettingsSection variant="plain" title="使用帮助">
           <ul className="divide-y divide-haze border-y border-haze bg-ink">
             <li className="transition-colors hover:bg-ink-raised/30 active:bg-ink-raised/50">
               <button
@@ -261,7 +261,7 @@ export function AboutScreen({
         </SettingsSection>
       ) : null}
 
-      <SettingsSection title="项目与文档">
+      <SettingsSection variant="plain" title="项目与文档">
         <ul className="divide-y divide-haze border-y border-haze bg-ink">
           {/* 开源仓库 */}
           <li className="transition-colors hover:bg-ink-raised/30 active:bg-ink-raised/50">
@@ -355,7 +355,7 @@ export function AboutScreen({
       </SettingsSection>
 
       {/* 架构与特性 */}
-      <SettingsSection title="架构特性">
+      <SettingsSection variant="plain" title="架构特性">
         <div className="page-x grid grid-cols-2 gap-2.5 pt-1">
           <div className="rounded-xl border border-haze bg-ink/60 p-3.5">
             <div className="flex items-center gap-1.5 text-cinnabar">

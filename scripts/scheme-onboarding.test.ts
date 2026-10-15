@@ -53,7 +53,7 @@ assert.equal(
 const options = schemeOnboardingOptions()
 assert.deepEqual(
   options.map((item) => item.id),
-  ['ink', 'celadon', 'pearl'],
+  ['ink', 'celadon', 'pearl', 'amber', 'forest', 'dusk'],
   '引导只列出内置风格，不含自定义',
 )
 assert.ok(options.every((item) => item.label && item.caption), '每项都有中文名称与说明')

@@ -93,6 +93,7 @@ public class MediaSnifferPlugin extends Plugin {
     private String liveSessionId;
     private WebView liveWebView;
     private FrameLayout liveHost;
+    private OriginVideoFullscreen liveFullscreen;
     private ScriptHandler liveScriptHandler;
     private JSONArray liveNetworkEvents;
     private LiveProbeQueue liveProbeQueue;
@@ -101,6 +102,8 @@ public class MediaSnifferPlugin extends Plugin {
     private String liveEntryUrl;
     private String liveReferrer;
     private boolean liveSuspended;
+    private boolean liveSurfaceSuppressed;
+    private boolean liveSurfaceRequestedVisible = true;
     /** True when hide had to navigate to about:blank (no WebView-level mute). */
     private boolean liveBlanked;
 
@@ -431,6 +434,7 @@ public class MediaSnifferPlugin extends Plugin {
 
     @PluginMethod
     public void preparePlayback(PluginCall call) {
+        String playbackSessionId = call.getString("sessionId");
         String url = call.getString("url");
         String sourcePage = call.getString("sourcePage");
         if (sourcePage != null && !isAllowedPageUrl(sourcePage)) sourcePage = null;
@@ -458,9 +462,10 @@ public class MediaSnifferPlugin extends Plugin {
                 }
             }
         }
-        OkHttpClient client = intercept ? createPlaybackClient(call.getObject("proxy")) : null;
+        OkHttpClient client = intercept ? sessionPlaybackClient(playbackSessionId) : null;
+        if (intercept && client == null) client = createPlaybackClient(call.getObject("proxy"), playbackSessionId);
         if (!opaque) {
-            registerPlaybackContext(url, format, intercept, false, jsHeaders, sourcePage, client);
+            registerAdditionalPlaybackContext(url, format, intercept, false, jsHeaders, sourcePage, client, playbackSessionId);
         }
         if (intercept) {
             Set<String> seeds = new HashSet<>();
@@ -476,10 +481,58 @@ public class MediaSnifferPlugin extends Plugin {
                 if (origin == null || origin.isEmpty()) continue;
                 String seed = origin.endsWith("/") ? origin : origin + "/";
                 if (!isAllowedPageUrl(seed)) continue;
-                registerPlaybackContext(seed, format, true, true, jsHeaders, sourcePage, client);
+                registerAdditionalPlaybackContext(seed, format, true, true, jsHeaders, sourcePage, client, playbackSessionId);
             }
         }
         call.resolve();
+    }
+
+    @PluginMethod
+    public void releasePlayback(PluginCall call) {
+        String sessionId = call.getString("sessionId");
+        if (sessionId != null && !sessionId.isEmpty()) releasePlaybackSession(sessionId);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void renewPlayback(PluginCall call) {
+        String sessionId = call.getString("sessionId");
+        if (!renewPlaybackSession(sessionId)) {
+            call.reject("播放会话已释放");
+            return;
+        }
+        call.resolve();
+    }
+
+    static synchronized boolean renewPlaybackSession(String sessionId) {
+        if (sessionId == null || sessionId.isEmpty()) return false;
+        boolean found = false;
+        long expiresAt = System.currentTimeMillis() + PLAYBACK_CONTEXT_TTL_MS;
+        for (PlaybackContext context : PLAYBACK_CONTEXTS.values()) {
+            if (sessionId.equals(context.sessionId)) {
+                context.expiresAt = expiresAt;
+                found = true;
+            }
+        }
+        return found;
+    }
+
+    static synchronized void releasePlaybackSession(String sessionId) {
+        Set<OkHttpClient> removed = new HashSet<>();
+        PLAYBACK_CONTEXTS.entrySet().removeIf(entry -> {
+            if (!sessionId.equals(entry.getValue().sessionId)) return false;
+            removed.add(entry.getValue().client);
+            return true;
+        });
+        closeUnusedPlaybackClients(removed);
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        stopLiveSessionOnUi(null);
+        LocalStreamProxy.getInstance().close();
+        clearPlaybackContexts();
+        super.handleOnDestroy();
     }
 
     @PluginMethod
@@ -521,8 +574,21 @@ public class MediaSnifferPlugin extends Plugin {
     @PluginMethod
     public void setLiveSessionVisible(PluginCall call) {
         boolean visible = call.getBoolean("visible", true);
+        String sessionId = call.getString("sessionId");
         getActivity().runOnUiThread(() -> {
-            setLiveSessionVisibleOnUi(visible);
+            if (sessionId != null && !sessionId.equals(liveSessionId)) { call.resolve(); return; }
+            liveSurfaceRequestedVisible = visible;
+            setLiveSessionVisibleOnUi(visible && !liveSurfaceSuppressed);
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void setLiveSurfaceSuppressed(PluginCall call) {
+        boolean suppressed = call.getBoolean("suppressed", false);
+        getActivity().runOnUiThread(() -> {
+            liveSurfaceSuppressed = suppressed;
+            setLiveSessionVisibleOnUi(liveSurfaceRequestedVisible && !suppressed);
             call.resolve();
         });
     }
@@ -547,6 +613,7 @@ public class MediaSnifferPlugin extends Plugin {
             webView.setVisibility(View.VISIBLE);
             return;
         }
+        if (liveFullscreen != null) liveFullscreen.onHideCustomView();
         pauseLiveSessionMedia(webView);
         liveSuspended = true;
         boolean muted = setLiveWebViewAudioMuted(webView, true);
@@ -610,6 +677,7 @@ public class MediaSnifferPlugin extends Plugin {
      */
     @PluginMethod
     public void setLiveSessionBounds(PluginCall call) {
+        String sessionId = call.getString("sessionId");
         Double x = call.getDouble("x");
         Double y = call.getDouble("y");
         Double width = call.getDouble("width");
@@ -625,13 +693,50 @@ public class MediaSnifferPlugin extends Plugin {
         final double cssH = height;
         final double cssRadius = cornerRadius == null ? 0d : Math.max(0d, cornerRadius);
         getActivity().runOnUiThread(() -> {
+            if (sessionId != null && !sessionId.equals(liveSessionId)) { call.resolve(); return; }
             applyLiveSessionBoundsOnUi(cssX, cssY, cssW, cssH, cssRadius);
             call.resolve();
         });
     }
 
-    static void clearPlaybackContexts() {
+    static synchronized void clearPlaybackContexts() {
+        Set<OkHttpClient> clients = new HashSet<>();
+        for (PlaybackContext context : PLAYBACK_CONTEXTS.values()) clients.add(context.client);
         PLAYBACK_CONTEXTS.clear();
+        closeUnusedPlaybackClients(clients);
+    }
+
+    private static void closeUnusedPlaybackClients(Set<OkHttpClient> clients) {
+        for (OkHttpClient client : clients) {
+            boolean used = false;
+            for (PlaybackContext context : PLAYBACK_CONTEXTS.values()) {
+                if (context.client == client) { used = true; break; }
+            }
+            if (used) continue;
+            client.dispatcher().cancelAll();
+            client.connectionPool().evictAll();
+            client.dispatcher().executorService().shutdown();
+        }
+    }
+
+    private static synchronized OkHttpClient sessionPlaybackClient(String sessionId) {
+        if (sessionId == null) return null;
+        for (PlaybackContext context : PLAYBACK_CONTEXTS.values()) {
+            if (sessionId.equals(context.sessionId)) return context.client;
+        }
+        return null;
+    }
+
+    private static synchronized void registerAdditionalPlaybackContext(
+        String url, String format, boolean intercept, boolean extraOrigin,
+        Map<String, String> jsHeaders, String sourcePage, OkHttpClient client, String sessionId
+    ) {
+        if (intercept && sessionId != null) {
+            for (PlaybackContext context : PLAYBACK_CONTEXTS.values()) {
+                if (sessionId.equals(context.sessionId) && url.equals(context.originalUrl)) return;
+            }
+        }
+        registerPlaybackContext(url, format, intercept, extraOrigin, jsHeaders, sourcePage, client, sessionId);
     }
 
     static void registerPlaybackContext(
@@ -643,9 +748,23 @@ public class MediaSnifferPlugin extends Plugin {
         String sourcePage,
         OkHttpClient client
     ) {
+        registerPlaybackContext(url, format, intercept, extraOrigin, jsHeaders, sourcePage, client, null);
+    }
+
+    static synchronized void registerPlaybackContext(
+        String url, String format, boolean intercept, boolean extraOrigin,
+        Map<String, String> jsHeaders, String sourcePage, OkHttpClient client, String sessionId
+    ) {
         String origin = OriginHeaderStore.originOf(url);
         if (!intercept) {
-            if (origin != null) PLAYBACK_CONTEXTS.entrySet().removeIf(entry -> origin.equals(entry.getValue().origin));
+            Set<OkHttpClient> removed = new HashSet<>();
+            if (origin != null) PLAYBACK_CONTEXTS.entrySet().removeIf(entry -> {
+                PlaybackContext context = entry.getValue();
+                if (!origin.equals(context.origin) || !java.util.Objects.equals(sessionId, context.sessionId)) return false;
+                removed.add(context.client);
+                return true;
+            });
+            closeUnusedPlaybackClients(removed);
             purgePlaybackContexts();
             return;
         }
@@ -653,16 +772,25 @@ public class MediaSnifferPlugin extends Plugin {
         Map<String, String> headers = jsHeaders == null ? Collections.emptyMap() : jsHeaders;
         OkHttpClient playbackClient = client == null ? new OkHttpClient() : client;
         long expiresAt = System.currentTimeMillis() + PLAYBACK_CONTEXT_TTL_MS;
-        PlaybackContext context = new PlaybackContext(
-            url,
-            format,
-            extraOrigin,
-            headers,
-            sourcePage,
-            playbackClient,
-            expiresAt
-        );
-        PLAYBACK_CONTEXTS.put(UUID.randomUUID().toString(), context);
+        String key = sessionId == null ? UUID.randomUUID().toString() : sessionId.length() + ":" + sessionId + ":" + url;
+        Set<OkHttpClient> replaced = new HashSet<>();
+        PLAYBACK_CONTEXTS.compute(key, (ignored, existing) -> {
+            Map<String, String> captured = new HashMap<>();
+            if (existing != null) {
+                captured.putAll(existing.capturedHeaders);
+                if (existing.client != playbackClient) replaced.add(existing.client);
+            }
+            // Fresh observations may rotate a credential; an expired sniff cache
+            // must not erase the snapshot owned by this decoder.
+            putAllIgnoreCase(captured, OriginHeaderStore.headersFor(url, sourcePage));
+            PlaybackContext context = new PlaybackContext(url, format, extraOrigin, headers, sourcePage,
+                playbackClient, expiresAt, sessionId, captured);
+            if (playbackClient.cookieJar() instanceof SessionCookieJar) {
+                ((SessionCookieJar) playbackClient.cookieJar()).capture(url, context.headers);
+            }
+            return context;
+        });
+        closeUnusedPlaybackClients(replaced);
         purgePlaybackContexts();
     }
 
@@ -673,13 +801,32 @@ public class MediaSnifferPlugin extends Plugin {
         return false;
     }
 
-    private static OkHttpClient createPlaybackClient(JSObject proxyObject) {
+    private static OkHttpClient createPlaybackClient(JSObject proxyObject, String sessionId) {
+        CookieJar cookies = sessionId == null ? new WebViewCookieJar() : new SessionCookieJar();
         OkHttpClient.Builder builder = new OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
-            .cookieJar(new WebViewCookieJar());
+            .cookieJar(cookies);
+        if (sessionId != null) {
+            builder.addNetworkInterceptor(chain -> {
+                Request request = chain.request();
+                Request.Builder scoped = request.newBuilder().removeHeader("Cookie");
+                List<Cookie> matching = cookies.loadForRequest(request.url());
+                if (!matching.isEmpty()) {
+                    StringBuilder value = new StringBuilder();
+                    for (Cookie cookie : matching) {
+                        if (value.length() > 0) value.append("; ");
+                        value.append(cookie.name()).append('=').append(cookie.value());
+                    }
+                    scoped.header("Cookie", value.toString());
+                }
+                // OkHttp may retain the prior explicit Cookie across redirects
+                // when the destination jar is empty. Scope every actual hop.
+                return chain.proceed(scoped.build());
+            });
+        }
         if (proxyObject == null) return builder.build();
 
         String host = proxyObject.getString("host");
@@ -726,14 +873,72 @@ public class MediaSnifferPlugin extends Plugin {
         }
     }
 
+    /** Decoder-owned cookies never read or write another page's WebView state. */
+    private static final class SessionCookieJar implements CookieJar {
+        private final Map<String, Map<String, Cookie>> origins = new HashMap<>();
+
+        synchronized void capture(String value, Map<String, String> headers) {
+            String origin = OriginHeaderStore.originOf(value);
+            // Additional origins/URLs enrich a running decoder. They must not
+            // reset cookies already rotated by its own responses, including an
+            // intentionally empty initial snapshot.
+            if (origins.containsKey(origin)) return;
+            String header = null;
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                if ("cookie".equalsIgnoreCase(entry.getKey())) { header = entry.getValue(); break; }
+            }
+            Map<String, Cookie> captured = new HashMap<>();
+            if (header != null && !header.isEmpty()) {
+                HttpUrl url = HttpUrl.get(value);
+                for (String part : header.split(";")) {
+                    // Captured request cookies carry no Path attribute. Match the
+                    // existing exact-origin snapshot contract for sibling segments.
+                    Cookie cookie = Cookie.parse(url, part.trim() + "; Path=/");
+                    if (cookie != null) captured.put(key(cookie), cookie);
+                }
+            }
+            origins.put(origin, captured);
+        }
+
+        @Override
+        public synchronized void saveFromResponse(@NonNull HttpUrl url, @NonNull List<Cookie> cookies) {
+            String origin = OriginHeaderStore.originOf(url.toString());
+            Map<String, Cookie> current = origins.computeIfAbsent(origin, ignored -> new HashMap<>());
+            long now = System.currentTimeMillis();
+            for (Cookie cookie : cookies) {
+                if (cookie.expiresAt() <= now) current.remove(key(cookie));
+                else current.put(key(cookie), cookie);
+            }
+        }
+
+        @NonNull
+        @Override
+        public synchronized List<Cookie> loadForRequest(@NonNull HttpUrl url) {
+            Map<String, Cookie> current = origins.get(OriginHeaderStore.originOf(url.toString()));
+            if (current == null) return Collections.emptyList();
+            long now = System.currentTimeMillis();
+            current.values().removeIf(cookie -> cookie.expiresAt() <= now);
+            List<Cookie> matching = new ArrayList<>();
+            for (Cookie cookie : current.values()) if (cookie.matches(url)) matching.add(cookie);
+            return matching;
+        }
+
+        private static String key(Cookie cookie) { return cookie.name() + "\n" + cookie.domain() + "\n" + cookie.path(); }
+    }
+
     static PlaybackContext findPlaybackContext(String url) {
+        return findPlaybackContext(url, null);
+    }
+
+    static PlaybackContext findPlaybackContext(String url, String sessionId) {
         purgePlaybackContexts();
         String origin = OriginHeaderStore.originOf(url);
         if (origin == null) return null;
         long now = System.currentTimeMillis();
         PlaybackContext best = null;
         for (PlaybackContext candidate : PLAYBACK_CONTEXTS.values()) {
-            if (!origin.equals(candidate.origin) || candidate.expiresAt < now) continue;
+            if (!java.util.Objects.equals(sessionId, candidate.sessionId)) continue;
+            if (!origin.equals(candidate.origin) || (candidate.sessionId == null && candidate.expiresAt < now)) continue;
             if (!candidate.scoped && !url.equals(candidate.originalUrl)) continue;
             if (best == null
                 || (url.equals(candidate.originalUrl) && !url.equals(best.originalUrl))
@@ -741,12 +946,37 @@ public class MediaSnifferPlugin extends Plugin {
                 best = candidate;
             }
         }
-        return best == null ? null : best.forRequest(url);
+        if (best == null) return null;
+        // An active decoder may stay open for hours. Refresh its lease on each
+        // actual segment/seek request; released sessions cannot be revived.
+        if (best.sessionId != null) {
+            best.expiresAt = now + PLAYBACK_CONTEXT_TTL_MS;
+        }
+        return best.forRequest(url);
     }
 
-    private static void purgePlaybackContexts() {
+    private static synchronized void purgePlaybackContexts() {
         long now = System.currentTimeMillis();
-        PLAYBACK_CONTEXTS.entrySet().removeIf(entry -> entry.getValue().expiresAt < now);
+        Set<OkHttpClient> removed = new HashSet<>();
+        PLAYBACK_CONTEXTS.entrySet().removeIf(entry -> {
+            PlaybackContext context = entry.getValue();
+            // Decoder-owned sessions live until explicit release or Activity destruction.
+            if (context.sessionId != null || context.expiresAt >= now) return false;
+            removed.add(context.client);
+            return true;
+        });
+        closeUnusedPlaybackClients(removed);
+    }
+
+    static boolean hasSessionPlaybackOrigin(String url) {
+        purgePlaybackContexts();
+        String origin = OriginHeaderStore.originOf(url);
+        if (origin == null) return false;
+        for (PlaybackContext context : PLAYBACK_CONTEXTS.values()) {
+            if (context.sessionId != null && origin.equals(context.origin)
+                && (context.scoped || url.equals(context.originalUrl))) return true;
+        }
+        return false;
     }
 
     static final class PlaybackContext {
@@ -758,7 +988,8 @@ public class MediaSnifferPlugin extends Plugin {
         final Map<String, String> jsHeaders;
         final String sourcePage;
         final OkHttpClient client;
-        final long expiresAt;
+        volatile long expiresAt;
+        final String sessionId;
 
         PlaybackContext(
             String originalUrl,
@@ -767,7 +998,9 @@ public class MediaSnifferPlugin extends Plugin {
             Map<String, String> jsHeaders,
             String sourcePage,
             OkHttpClient client,
-            long expiresAt
+            long expiresAt,
+            String sessionId,
+            Map<String, String> capturedHeaders
         ) {
             this.originalUrl = originalUrl;
             String origin = OriginHeaderStore.originOf(originalUrl);
@@ -775,10 +1008,11 @@ public class MediaSnifferPlugin extends Plugin {
             this.scoped = extraOrigin || "dash".equalsIgnoreCase(format) || "hls".equalsIgnoreCase(format);
             this.jsHeaders = Collections.unmodifiableMap(new HashMap<>(jsHeaders));
             this.sourcePage = sourcePage;
-            this.capturedHeaders = Collections.unmodifiableMap(new HashMap<>(OriginHeaderStore.headersFor(originalUrl, sourcePage)));
+            this.capturedHeaders = Collections.unmodifiableMap(new HashMap<>(capturedHeaders));
             this.headers = Collections.unmodifiableMap(mergePlaybackHeaders(originalUrl, sourcePage, jsHeaders, capturedHeaders, this.origin));
             this.client = client;
             this.expiresAt = expiresAt;
+            this.sessionId = sessionId;
         }
 
         private PlaybackContext(PlaybackContext source, Map<String, String> headers) {
@@ -791,6 +1025,7 @@ public class MediaSnifferPlugin extends Plugin {
             this.sourcePage = source.sourcePage;
             this.client = source.client;
             this.expiresAt = source.expiresAt;
+            this.sessionId = source.sessionId;
         }
 
         PlaybackContext forRequest(String requestUrl) {
@@ -929,12 +1164,19 @@ public class MediaSnifferPlugin extends Plugin {
         liveSessionId = sessionId;
         liveWebView = webView;
         liveHost = root;
+        liveFullscreen = new OriginVideoFullscreen(getActivity(), root, active -> {
+            if (getActivity() instanceof MainActivity) {
+                ((MainActivity) getActivity()).setVideoFullscreen(active);
+            }
+        });
+        webView.setWebChromeClient(liveFullscreen);
         liveScriptHandler = scriptHandler;
         liveNetworkEvents = networkEvents;
         liveProbeQueue = liveProbes;
         liveEntryUrl = initialUrl;
         liveReferrer = referrer;
         liveSuspended = false;
+        liveSurfaceRequestedVisible = true;
         liveBlanked = false;
         liveActive.set(true);
 
@@ -945,6 +1187,7 @@ public class MediaSnifferPlugin extends Plugin {
             navigationHeaders.put("Referer", referrer);
             webView.loadUrl(initialUrl, navigationHeaders);
         }
+        if (liveSurfaceSuppressed) setLiveSessionVisibleOnUi(false);
         call.resolve();
     }
 
@@ -995,7 +1238,7 @@ public class MediaSnifferPlugin extends Plugin {
         });
         webView.setClipToOutline(radiusPx > 0.5f);
 
-        if (webView.getVisibility() != View.GONE) {
+        if (!liveSurfaceSuppressed && liveSurfaceRequestedVisible && webView.getVisibility() != View.GONE) {
             webView.setVisibility(onScreen ? View.VISIBLE : View.INVISIBLE);
         }
     }
@@ -1013,6 +1256,8 @@ public class MediaSnifferPlugin extends Plugin {
             && !sessionId.equals(liveSessionId)) {
             return;
         }
+        if (liveFullscreen != null) liveFullscreen.onHideCustomView();
+        liveFullscreen = null;
         liveActive.set(false);
         WebView webView = liveWebView;
         FrameLayout host = liveHost;

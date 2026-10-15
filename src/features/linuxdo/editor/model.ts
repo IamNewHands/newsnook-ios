@@ -45,6 +45,7 @@ export interface ComposerSnippetContext {
 
 export interface ComposerValidationInput {
   mode: 'create' | 'reply' | 'edit'
+  topicArchetype?: string
   title: string
   raw: string
 }
@@ -53,6 +54,7 @@ export interface ComposerValidation {
   canSubmit: boolean
   titleCount: number
   bodyCount: number
+  bodyMinimum: number
   titleRemaining: number
   bodyRemaining: number
 }
@@ -69,6 +71,8 @@ export interface ComposerDraftInput {
 
 const TITLE_MIN = 6
 const BODY_MIN = 20
+const REPLY_MIN = 6
+const PRIVATE_REPLY_MIN = 3
 
 function clampSelection(raw: string, selection: ComposerSelection): ComposerSelection {
   const start = Math.max(0, Math.min(raw.length, selection.start))
@@ -253,11 +257,15 @@ export function validateComposer(input: ComposerValidationInput): ComposerValida
   const titleCount = characterCount(input.title)
   const bodyCount = characterCount(input.raw)
   const titleRemaining = input.mode === 'create' ? Math.max(0, TITLE_MIN - titleCount) : 0
-  const bodyRemaining = Math.max(0, BODY_MIN - bodyCount)
+  const bodyMinimum = input.mode === 'reply'
+    ? input.topicArchetype === 'private_message' ? PRIVATE_REPLY_MIN : REPLY_MIN
+    : BODY_MIN
+  const bodyRemaining = Math.max(0, bodyMinimum - bodyCount)
   return {
     canSubmit: titleRemaining === 0 && bodyRemaining === 0,
     titleCount,
     bodyCount,
+    bodyMinimum,
     titleRemaining,
     bodyRemaining,
   }

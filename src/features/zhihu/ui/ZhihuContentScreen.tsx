@@ -22,6 +22,7 @@ import type { ZhihuQuestionAnswerOrder } from '../api/endpoints'
 import { SegmentedControl } from '../../../components/SegmentedControl'
 import { AiSpeedReadPanel } from '../../../components/AiSpeedReadPanel'
 import { ImageLightbox } from '../../../components/ImageLightbox'
+import { collectImageGallery, type ImageGallery } from '../../../lib/imageGallery'
 import { InlineArticleVideos } from '../../../components/InlineArticleVideos'
 import { InlineYoutubeEmbeds } from '../../../components/InlineYoutubeEmbeds'
 import { InlineVideoPages } from '../../../components/InlineVideoPages'
@@ -50,6 +51,7 @@ import { formatZhihuCount, zhihuEntityLabel } from './ZhihuUiUtils'
 
 interface Props {
   refValue: ZhihuEntityRef
+  onArticleRead?: (detail: ZhihuContentSummary) => void
   preview?: ZhihuContentSummary
   contentService: ZhihuContentService
   feedService: ZhihuFeedService
@@ -154,8 +156,8 @@ export function ZhihuAnswerActionBar({
 
   return (
     <nav
-      className="pointer-events-none fixed inset-x-0 z-40 flex justify-center px-3 sm:px-4"
-      style={{ bottom: 'calc(var(--sab) + 0.65rem)' }}
+      className="fixed inset-x-0 bottom-0 z-40 flex justify-center border-t border-haze/70 bg-ink-raised/98 px-2 sm:px-4"
+      style={{ paddingBottom: 'var(--sab, 0px)' }}
       aria-label="回答操作"
     >
       <div className="relative w-full max-w-lg">
@@ -165,7 +167,7 @@ export function ZhihuAnswerActionBar({
           </div>
         )}
 
-        <div className="zhihu-action-dock pointer-events-auto flex h-13 min-w-0 items-center gap-1 rounded-2xl p-1.5">
+        <div className="zhihu-action-dock pointer-events-auto flex h-14 min-w-0 items-center gap-1 px-1.5">
           <button
             type="button"
             disabled={voteDisabled}
@@ -305,8 +307,10 @@ export function ZhihuAnswerCommentsDialog({ open, onClose, children }: ZhihuAnsw
   )
 }
 
-export function ZhihuContentScreen({ refValue, preview, contentService, feedService, commentsService, onNavigate, onReplaceNavigate, overlayCloserRef, restoreAnchor, authenticated, accountId, commentDraftStore, interaction, onRecommendationSignal, onWriteAnswer, scrollContainerRef, answerPreviewHostRef, fontScale, onFontScale, speedReadConfig, onSpeedReadHeaderActionChange }: Props) {
+export function ZhihuContentScreen({ refValue, preview, onArticleRead, contentService, feedService, commentsService, onNavigate, onReplaceNavigate, overlayCloserRef, restoreAnchor, authenticated, accountId, commentDraftStore, interaction, onRecommendationSignal, onWriteAnswer, scrollContainerRef, answerPreviewHostRef, fontScale, onFontScale, speedReadConfig, onSpeedReadHeaderActionChange }: Props) {
   const [detail, setDetail] = useState<ZhihuContentDetail | null>(null)
+  const onArticleReadRef = useRef(onArticleRead)
+  onArticleReadRef.current = onArticleRead
   const [answers, setAnswers] = useState<ZhihuContentSummary[]>([])
   const [answerOrder, setAnswerOrder] = useState<ZhihuQuestionAnswerOrder>('default')
   const [answersCursor, setAnswersCursor] = useState<string | undefined>()
@@ -345,7 +349,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
   )
   const proseRef = useRef<HTMLDivElement | null>(null)
   const questionDetailRef = useRef<HTMLDivElement | null>(null)
-  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
+  const [lightbox, setLightbox] = useState<ImageGallery | null>(null)
   const [commentsOpen, setCommentsOpen] = useState(Boolean(restoreAnchor))
   const [questionDetailExpanded, setQuestionDetailExpanded] = useState(false)
   const [questionDetailCanCollapse, setQuestionDetailCanCollapse] = useState(false)
@@ -509,6 +513,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
       async (value) => {
         if (controller.signal.aborted) return
         setDetail(value)
+        onArticleReadRef.current?.(value)
         setGuestLimited(false)
         setVoteState(value.voteState)
         setVoteCount(value.voteupCount)
@@ -795,7 +800,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
       if (src) {
         event.preventDefault()
         event.stopPropagation()
-        setLightbox({ src, alt: image.alt || detail?.title || '' })
+        setLightbox(collectImageGallery(proseRef.current, { src, alt: image.alt || detail?.title || '' }))
         return
       }
     }
@@ -874,7 +879,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
     : null
 
   return (
-    <article className={`mx-auto w-full max-w-3xl px-4 pt-5 sm:px-6 ${refValue.kind === 'answer' ? 'pb-28' : 'pb-24'}`}>
+    <article className={`mx-auto w-full max-w-3xl px-4 pt-5 sm:px-6 ${refValue.kind === 'answer' ? 'pb-[calc(6rem+var(--sab,0px))]' : 'pb-24'}`}>
       {answerPreviewPortal}
       {hudLabel && (
         <div
@@ -1022,7 +1027,16 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
                 ref={proseRef}
                 className="reader-prose zhihu-prose text-paper"
                 data-article-lang="zh"
+                style={refValue.kind === 'answer' ? { touchAction: 'manipulation' } : undefined}
                 onClick={handleBodyClick}
+                onDoubleClick={(event) => {
+                  if (refValue.kind !== 'answer' || guestLimited || commentsOpen || selectedSegment || lightbox || speedReadOpen) return
+                  const target = event.target instanceof Element ? event.target : null
+                  if (!target || target.closest('a, button, img, video, audio, iframe, input, textarea, [contenteditable], [data-segment-id]')) return
+                  if (window.getSelection()?.toString().trim()) return
+                  event.preventDefault()
+                  setCommentsOpen(true)
+                }}
                 dangerouslySetInnerHTML={normalizedHtmlMarkup}
               />
               <InlineArticleVideos
@@ -1182,7 +1196,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
           authenticated={authenticated}
           accountId={accountId}
           draftStore={commentDraftStore}
-          onOpenImage={(src, alt) => setLightbox({ src, alt })}
+          onOpenImage={(src, alt) => setLightbox({ items: [{ src, alt }], index: 0 })}
         />
       )}
 
@@ -1198,7 +1212,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
           authenticated={authenticated}
           accountId={accountId}
           draftStore={commentDraftStore}
-          onOpenImage={(src, alt) => setLightbox({ src, alt })}
+          onOpenImage={(src, alt) => setLightbox({ items: [{ src, alt }], index: 0 })}
           variant="dialog"
         />
       </ZhihuAnswerCommentsDialog>
@@ -1293,7 +1307,7 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
                 authenticated={authenticated}
                 accountId={accountId}
                 draftStore={commentDraftStore}
-                onOpenImage={(src, alt) => setLightbox({ src, alt })}
+                onOpenImage={(src, alt) => setLightbox({ items: [{ src, alt }], index: 0 })}
               />
             </div>
           </div>
@@ -1302,8 +1316,13 @@ export function ZhihuContentScreen({ refValue, preview, contentService, feedServ
 
       {lightbox && (
         <ImageLightbox
-          src={lightbox.src}
-          alt={lightbox.alt}
+          {...lightbox.items[lightbox.index]}
+          items={lightbox.items}
+          index={lightbox.index}
+          total={lightbox.items.length}
+          onSelect={(index) => setLightbox((state) => state ? { ...state, index } : state)}
+          onPrevious={lightbox.index > 0 ? () => setLightbox((state) => state ? { ...state, index: state.index - 1 } : state) : undefined}
+          onNext={lightbox.index < lightbox.items.length - 1 ? () => setLightbox((state) => state ? { ...state, index: state.index + 1 } : state) : undefined}
           onClose={() => setLightbox(null)}
         />
       )}

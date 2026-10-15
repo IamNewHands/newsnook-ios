@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react'
 
 import { createLongPressController, type Point } from '../lib/contextActions'
+import { haptics } from '../lib/haptics'
 
 /**
  * 统一长按手势：500ms 触发、滚动位移取消，并吞掉长按释放后浏览器补发的 click。
@@ -31,13 +32,7 @@ export function useLongPressAction<T extends string>(
           suppressClearTimerRef.current = null
         }, 900)
 
-        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-          try {
-            navigator.vibrate(10)
-          } catch {
-            // WebView / 系统策略不允许振动时，菜单本身仍照常打开。
-          }
-        }
+        void haptics.toggle()
         callbackRef.current(target, point)
       },
     })

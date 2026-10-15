@@ -16,6 +16,7 @@ import {
   ensureValidActivePreset,
   listResolvedBuiltins,
   normalizePresetsState,
+  moveUserPreset,
   renameUserPreset,
   removeSourcesFromPresets,
   resolvePreset,
@@ -67,6 +68,7 @@ export interface UsePresetsApi {
   createBlank: (name: string) => string
   restoreFactory: (id?: string) => void
   rename: (id: string, name: string) => void
+  move: (id: string, direction: -1 | 1) => void
   remove: (id: string) => void
   removeSourceReferences: (sourceIds: string | string[]) => void
   /**
@@ -178,6 +180,10 @@ export function usePresets({
     setState(renameUserPreset(stateRef.current, id, name))
   }, [])
 
+  const move = useCallback((id: string, direction: -1 | 1) => {
+    setState((prev) => moveUserPreset(prev, id, direction))
+  }, [])
+
   const replaceFromSync = useCallback((next: PresetsState) => {
     skipSync.current = true
     setState(ensureValidActivePreset(next))
@@ -210,6 +216,7 @@ export function usePresets({
     createBlank,
     restoreFactory,
     rename,
+    move,
     remove,
     removeSourceReferences,
     replaceFromSync,

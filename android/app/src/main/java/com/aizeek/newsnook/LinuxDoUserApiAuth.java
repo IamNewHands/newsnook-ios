@@ -53,7 +53,7 @@ final class LinuxDoUserApiAuth {
     private static final String RSA_ALIAS = "newsnook_linuxdo_user_api_rsa_v2";
     private static final String AES_ALIAS = "newsnook_linuxdo_user_api_aes_v1";
     private static final String KEYSTORE = "AndroidKeyStore";
-    private static final long AUTH_MAX_AGE_MILLIS = 15L * 60L * 1000L;
+    static final long AUTH_MAX_AGE_MILLIS = 15L * 60L * 1000L;
     private static final SecureRandom RANDOM = new SecureRandom();
 
     interface AuthCallback {
@@ -140,7 +140,22 @@ final class LinuxDoUserApiAuth {
     }
 
     boolean isAuthenticating() {
-        return authenticating.get();
+        if (!authenticating.get()) return false;
+        // A persisted nonce permits a late redirect, but is not a live browser
+        // operation. Only a callback owned by this process may block a new login.
+        if (activeCallback == null) {
+            authenticating.set(false);
+            return false;
+        }
+        long startedAt = preferences().getLong(PREF_PENDING_STARTED_AT, 0L);
+        long age = System.currentTimeMillis() - startedAt;
+        if (startedAt <= 0L || age < 0L || age >= AUTH_MAX_AGE_MILLIS) {
+            AuthCallback expired = activeCallback;
+            clearPendingAuth();
+            expired.onFailure("LINUXDO_USER_API_TIMEOUT", "Linux.do 授权已超时，请重新登录");
+            return false;
+        }
+        return true;
     }
 
     Credential credential() {
@@ -287,6 +302,10 @@ final class LinuxDoUserApiAuth {
             clearPendingAuth();
             if (callback != null) callback.onSuccess(credential);
         } catch (Exception errorValue) {
+            // A late/foreign redirect must not clear the nonce or callback of a
+            // newer login. In particular, the payload may carry an older nonce.
+            boolean foreignNonce = errorValue instanceof SecurityException
+                && "nonce mismatch".equals(errorValue.getMessage());
             Log.w(
                 TAG,
                 "auth_redirect_rejected stage=" + stage
@@ -296,6 +315,7 @@ final class LinuxDoUserApiAuth {
                     + " error=" + errorValue.getClass().getSimpleName()
                     + ":" + empty(errorValue.getMessage())
             );
+            if (foreignNonce) return true;
             AuthCallback callback = activeCallback;
             clearPendingAuth();
             if (callback != null) {
@@ -313,8 +333,10 @@ final class LinuxDoUserApiAuth {
             prefs.edit().remove(PREF_PENDING_NONCE).remove(PREF_PENDING_STARTED_AT).apply();
             return;
         }
+        // Do not resurrect a BUSY state after process death: the old JS promise
+        // and browser window no longer belong to this process. Keep only the
+        // nonce so an already-in-flight auth redirect can still be validated.
         pendingNonce = nonce;
-        authenticating.set(true);
     }
 
     private String pendingNonce() {

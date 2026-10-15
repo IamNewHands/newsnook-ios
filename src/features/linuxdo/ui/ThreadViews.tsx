@@ -1,5 +1,5 @@
 import { Browser } from '@capacitor/browser'
-import { ArrowLeft, Bookmark, Check, ChevronDown, Hash, Heart, Link, Loader2, MessageCircle, MoreHorizontal, Pencil, Quote, Reply, Rocket, Send, Trash2, TriangleAlert, X } from 'lucide-react'
+import { ArrowLeft, Bookmark, Check, ChevronDown, GitBranch, Hash, Heart, Link, List, Loader2, MessageCircle, MoreHorizontal, Pencil, Quote, Reply, Rocket, Send, Trash2, TriangleAlert, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject } from 'react'
 
 import { ImageLightbox } from '../../../components/ImageLightbox'
@@ -30,21 +30,25 @@ import type {
 import { decodeTagNames } from '../api/decode'
 import { LinuxDoApiError } from '../types'
 import { ago, avatar, compact, readableError, tagGlyph } from './utils'
-import { resolveReplyTarget } from './threadModel'
+import { buildLinuxDoThreads, resolveReplyTarget } from './threadModel'
 import { boostText, reactionGlyph, reactionTotal } from './engagementModel'
 import { ComposerEditor, type ComposerEditorHandle, type ComposerUploadVisualItem } from '../editor/ComposerEditor'
 import { CategoryPickerSheet, InsertMenuSheet, TagPickerSheet, TemplatePickerSheet } from '../editor/ComposerSheets'
 import { buildComposerDraftData, validateComposer } from '../editor/model'
 import { resolveLinuxDoTemplate, type LinuxDoComposerTemplate, type LinuxDoTemplateVariables } from '../template/service'
 import { LinuxDoReadTracker } from '../topic/readTracker'
-import { verifyLinuxDoBrowserSession } from '../session/native'
+import { verifyLinuxDoBrowserSession, verifyLinuxDoChallenge } from '../session/native'
+import { LinuxDoRequestError, type LinuxDoVerify } from './VerificationAction'
 import { ReadSyncStatus } from './ReadSyncStatus'
+import { installLinuxDoEmbeddedVideoFullscreen } from './embeddedVideoFullscreen'
 import { PostDevice } from './PostDevice'
 import { readSyncDiagnostic, type ReadSyncFailure } from '../topic/readSyncDiagnostic'
 import { applyLinuxDoTopicReadProgress, linuxDoOpeningUnreadFloor } from '../topic/readState'
 import { LINUXDO_UPLOAD_BATCH_LIMIT } from '../upload/service'
 import { adjacentLinuxDoPostIds, linuxDoServerResumePosition, linuxDoTopicPositionOf, type LinuxDoTopicPosition } from '../topic/readingPosition'
 import { useTopicPosition } from './useTopicPosition'
+import { linuxDoReadingMode, rememberLinuxDoReadingMode, type LinuxDoReadingMode } from '../topic/readingMode'
+import type { LinuxDoProfileDraft } from '../people/sections'
 
 async function openExternal(url: string): Promise<void> {
   try {
@@ -82,6 +86,14 @@ function buildComposerTemplateVariables(
 
 function LinuxDoPostBody({ html, onClick }: { html: string; onClick: (event: ReactMouseEvent<HTMLDivElement>) => void }) {
   const rootRef = useRef<HTMLDivElement | null>(null)
+  // React compares dangerouslySetInnerHTML by object identity. A fresh { __html }
+  // on every read-state/notification render rewrites innerHTML and restarts embedded
+  // iframes (Bilibili, YouTube, etc.) even when the post HTML has not changed.
+  const stableHtml = useMemo(() => ({ __html: html }), [html])
+  useEffect(() => {
+    const root = rootRef.current
+    return root ? installLinuxDoEmbeddedVideoFullscreen(root) : undefined
+  }, [html])
   useProgressiveImages(rootRef, html, Boolean(html), {
     autoLoad: true,
     forceNativeFallback: true,
@@ -110,7 +122,7 @@ function LinuxDoPostBody({ html, onClick }: { html: string; onClick: (event: Rea
       ref={rootRef}
       className="reader-prose linuxdo-post-prose mt-3 text-paper"
       onClick={onClick}
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={stableHtml}
     />
   )
 }
@@ -207,6 +219,7 @@ export function LinuxDoComposer({
   editPost,
   onEdited,
   requestCloseRef,
+  resumedDraft,
 }: {
   open: boolean
   topic?: LinuxDoTopic
@@ -218,6 +231,7 @@ export function LinuxDoComposer({
   editPost?: LinuxDoPost
   onEdited?: (post: LinuxDoPost) => void
   requestCloseRef?: MutableRefObject<(() => void) | null>
+  resumedDraft?: LinuxDoProfileDraft
 }) {
   const [title, setTitle] = useState('')
   const [raw, setRaw] = useState('')
@@ -276,10 +290,17 @@ export function LinuxDoComposer({
       return
     }
     const action = editPost ? 'edit' : topic ? 'reply' : 'createTopic'
-    const key = linuxDoDrafts.keyFor({ action, topicId: topic?.id, postId: editPost?.id })
+    const key = resumedDraft?.key ?? linuxDoDrafts.keyFor({ action, topicId: topic?.id, postId: editPost?.id })
     setDraftKey(key)
     if (initialRaw) setRaw((previous) => previous || initialRaw)
-    if (session.authenticated) {
+    if (resumedDraft?.data) {
+      setDraftSequence(resumedDraft.sequence)
+      draftSequenceRef.current = resumedDraft.sequence
+      setRaw(resumedDraft.data.reply)
+      setTitle(resumedDraft.data.title || '')
+      setCategoryId(resumedDraft.data.categoryId)
+      setSelectedTags(decodeTagNames(resumedDraft.data.tags || []))
+    } else if (session.authenticated) {
       void linuxDoDrafts.get(key).then((snapshot) => {
         setDraftSequence(snapshot.sequence)
         draftSequenceRef.current = snapshot.sequence
@@ -297,7 +318,7 @@ export function LinuxDoComposer({
         setTags(nextTags)
       }).catch(() => undefined)
     }
-  }, [open, topic, session.authenticated, initialRaw, editPost])
+  }, [open, topic, session.authenticated, initialRaw, editPost, resumedDraft])
 
   useEffect(() => {
     if (!open || !session.authenticated || !draftKey || (!raw.trim() && !title.trim())) return
@@ -398,7 +419,7 @@ export function LinuxDoComposer({
   if (!open) return null
 
   const mode = editPost ? 'edit' : topic ? 'reply' : 'create'
-  const validation = validateComposer({ mode, title, raw })
+  const validation = validateComposer({ mode, title, raw, topicArchetype: topic?.archetype })
   const selectedCategory = categories.find((category) => category.id === categoryId)
   const hasContent = Boolean(title.trim() || raw.trim() || categoryId || selectedTags.length)
   const requestClose = () => {
@@ -615,7 +636,7 @@ export function LinuxDoComposer({
           onUpload={chooseFile}
           onOpenInsert={() => setInsertMenuOpen(true)}
           onOpenTemplate={openTemplatePicker}
-          footer={<span className={'block truncate whitespace-nowrap font-mono text-[9.5px] ' + (validation.bodyRemaining > 0 ? 'text-cinnabar-soft' : 'text-paper-faint')}>{validation.bodyCount}/20{draftSequence > 0 ? ' · 草稿已保存' : ''}</span>}
+          footer={<span className={'block truncate whitespace-nowrap font-mono text-[9.5px] ' + (validation.bodyRemaining > 0 ? 'text-cinnabar-soft' : 'text-paper-faint')}>{validation.bodyCount}/{validation.bodyMinimum}{draftSequence > 0 ? ' · 草稿已保存' : ''}</span>}
         />
         <input ref={fileRef} type="file" multiple className="hidden" accept="image/*,.pdf,.zip,.txt" onChange={(event) => {
           const files = Array.from(event.target.files ?? [])
@@ -774,7 +795,9 @@ export function LinuxDoTopicView({
   postMutation,
   overlayBackHandlerRef,
   onReadProgress,
+  onArticleRead,
   onSession,
+  onVerify,
 }: {
   summary: LinuxDoTopicSummary
   session: LinuxDoSessionSnapshot
@@ -791,7 +814,9 @@ export function LinuxDoTopicView({
   postMutation?: LinuxDoPost
   overlayBackHandlerRef: MutableRefObject<(() => boolean) | null>
   onReadProgress?: (topicId: number, highestSeen: number) => void
+  onArticleRead?: (topic: LinuxDoTopic) => void
   onSession?: (session: LinuxDoSessionSnapshot) => void
+  onVerify?: LinuxDoVerify
 }) {
   const [categoryMap, setCategoryMap] = useState<Record<number, LinuxDoCategory>>(categoriesById ?? {})
   useEffect(() => {
@@ -803,11 +828,22 @@ export function LinuxDoTopicView({
       setCategoryMap(Object.fromEntries(cats.map((c) => [c.id, c])))
     }).catch(() => undefined)
   }, [categoriesById])
+  const onArticleReadRef = useRef(onArticleRead)
+  onArticleReadRef.current = onArticleRead
   const [topic, setTopic] = useState<LinuxDoTopic | null>(null)
   const [posts, setPosts] = useState<LinuxDoPost[]>([])
+  const [readingMode, setReadingMode] = useState(linuxDoReadingMode)
+  const [collapsedThreads, setCollapsedThreads] = useState<Set<number>>(new Set())
+  const threadRows = useMemo(() => buildLinuxDoThreads(posts), [posts])
+  const rowsByNumber = useMemo(() => new Map(threadRows.map(row => [row.post.postNumber, row])), [threadRows])
+  const visiblePosts = useMemo(() => readingMode === 'threaded'
+    ? threadRows.filter(row => row.depth === 0 || !collapsedThreads.has(row.rootPostNumber)).map(row => row.post)
+    : posts, [collapsedThreads, posts, readingMode, threadRows])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
+  const [failedJumpPost, setFailedJumpPost] = useState<number | undefined>()
   const [loadingPosts, setLoadingPosts] = useState(false)
+  const loadingPostsRef = useRef(false)
   const [jumpingPostNumber, setJumpingPostNumber] = useState<number | undefined>()
   const [lightbox, setLightbox] = useState<{ items: Array<{ src: string; actionSrc?: string; alt: string }>; index: number } | null>(null)
   const [returnPostNumber, setReturnPostNumber] = useState<number | undefined>()
@@ -827,20 +863,31 @@ export function LinuxDoTopicView({
   const [openingPosition, setOpeningPosition] = useState<LinuxDoTopicPosition | undefined>()
   const openingUnreadFloorRef = useRef(linuxDoOpeningUnreadFloor(summary))
   const loadRequestRef = useRef(0)
-  const preservePosition = useTopicPosition(summary.id, userId, topicScrollerRef, openingPosition, posts, !loading && !error && topic?.id === summary.id)
+  const preservePosition = useTopicPosition(summary.id, userId, topicScrollerRef, openingPosition, visiblePosts, !loading && !error && topic?.id === summary.id)
+  const changeReadingMode = (mode: LinuxDoReadingMode) => {
+    if (mode === readingMode) return
+    preservePosition()
+    setReadingMode(mode)
+    try { rememberLinuxDoReadingMode(mode) }
+    catch (nextError) {
+      log.storage.warn('LinuxDO reading mode save failed', nextError)
+      showToast('阅读方式未能保存，本次仍可使用')
+    }
+  }
 
   const syncVisibleReadPosts = useCallback(() => {
     const root = topicScrollerRef.current
     const tracker = readTrackerRef.current
     if (!root || !tracker) return
     const viewport = root.getBoundingClientRect()
+    const visibleTop = viewport.top + (root.querySelector<HTMLElement>('[data-linuxdo-reading-toolbar]')?.offsetHeight ?? 0)
     const visible = new Set<number>()
     const readVisible = new Set<number>()
     root.querySelectorAll<HTMLElement>('article[data-linuxdo-post-number]').forEach((element) => {
       const postNumber = Number(element.dataset.linuxdoPostNumber)
       if (!Number.isInteger(postNumber) || postNumber <= 0) return
       const rect = element.getBoundingClientRect()
-      const overlap = Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top)
+      const overlap = Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, visibleTop)
       const required = Math.min(32, Math.max(1, rect.height * 0.2))
       if (overlap >= required) {
         visible.add(postNumber)
@@ -963,21 +1010,26 @@ export function LinuxDoTopicView({
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
+    setFailedJumpPost(undefined)
     setReadPostNumbers(new Set())
     setReadSyncFailure(null)
     const request = ++loadRequestRef.current
     const local = linuxDoTopicPositionOf(summary.id, userId)
-    let position = targetPostNumber ? { postNumber: targetPostNumber, offset: 0 } : local
+    let position: LinuxDoTopicPosition | undefined = targetPostNumber ? { postNumber: targetPostNumber, offset: 0, alignBelowToolbar: true } : local
     try {
       const requestedPostNumber = position?.postNumber
       let next = await linuxDoTopics.get(summary.slug, summary.id, requestedPostNumber)
-      if (!position && session.authenticated) position = linuxDoServerResumePosition(next)
+      if (!position && session.authenticated) {
+        const resume = linuxDoServerResumePosition(next)
+        if (resume) position = { ...resume, alignBelowToolbar: true }
+      }
       if (position && position.postNumber !== requestedPostNumber && !next.postStream.posts.some(post => post.postNumber === position?.postNumber)) {
         next = await linuxDoTopics.get(summary.slug, summary.id, position.postNumber)
       }
       if (request !== loadRequestRef.current) return
       setOpeningPosition(position)
       setTopic(next)
+      onArticleReadRef.current?.(next)
       let initialPosts = next.postStream.posts
       // Keep a deep opening window contiguous; earlier replies are loaded on upward scroll.
       if (!position || position.postNumber === 1) {
@@ -1074,7 +1126,7 @@ export function LinuxDoTopicView({
   }, [onReadProgress, session.authenticated, session.currentUser?.id, summary.id, topic?.id])
 
   useEffect(() => {
-    if (!session.authenticated || !topic?.id || !posts.length) return
+    if (!session.authenticated || !topic?.id || !visiblePosts.length) return
     const root = topicScrollerRef.current
     if (!root || !readTrackerRef.current) return
 
@@ -1093,34 +1145,70 @@ export function LinuxDoTopicView({
       observer?.disconnect()
       window.removeEventListener('resize', syncVisibleReadPosts)
     }
-  }, [posts, session.authenticated, syncVisibleReadPosts, topic?.id])
+  }, [visiblePosts, session.authenticated, syncVisibleReadPosts, topic?.id])
 
   useEffect(() => {
     if (!postMutation || (postMutation.topicId && postMutation.topicId !== topic?.id)) return
+    preservePosition()
     setPosts((previous) => {
       const exists = previous.some((post) => post.id === postMutation.id)
       return (exists
         ? previous.map((post) => post.id === postMutation.id ? { ...post, ...postMutation } : post)
         : previous.concat(postMutation)).sort((a, b) => a.postNumber - b.postNumber)
     })
-  }, [postMutation, topic?.id])
+  }, [postMutation, topic?.id, preservePosition])
+
+  const loadPostBatch = useCallback(async (ids: number[]) => {
+    if (!topic || !ids.length || loadingPostsRef.current) return
+    const request = loadRequestRef.current
+    loadingPostsRef.current = true
+    setLoadingPosts(true)
+    try {
+      const extra = await linuxDoTopics.loadPosts(topic.id, ids)
+      if (request !== loadRequestRef.current) return
+      preservePosition()
+      setPosts(previous => {
+        const byId = new Map(previous.map(post => [post.id, post]))
+        for (const post of extra) if (!byId.has(post.id)) byId.set(post.id, post)
+        return Array.from(byId.values()).sort((a, b) => a.postNumber - b.postNumber)
+      })
+    } catch (nextError) {
+      if (request === loadRequestRef.current) showToast('回复加载失败：' + readableError(nextError))
+    } finally {
+      loadingPostsRef.current = false
+      if (request === loadRequestRef.current) setLoadingPosts(false)
+    }
+  }, [preservePosition, showToast, topic])
+
+  const postBatches = useMemo(() => topic ? {
+    before: adjacentLinuxDoPostIds(topic.postStream.stream, posts, 'before'),
+    after: adjacentLinuxDoPostIds(topic.postStream.stream, posts, 'after'),
+    gap: adjacentLinuxDoPostIds(topic.postStream.stream, posts, 'gap'),
+  } : { before: [], after: [], gap: [] }, [posts, topic])
+  const ownerUsername = topic?.details?.createdBy?.username || posts.find(post => post.postNumber === 1)?.username || summary.posters?.[0]?.username
 
   const jumpToPost = useCallback(async (postNumber: number, fromPostNumber?: number) => {
     const request = loadRequestRef.current
     if (fromPostNumber) setReturnPostNumber(fromPostNumber)
     setJumpingPostNumber(postNumber)
+    // Reveal a collapsed discussion before measuring the destination. Expanding
+    // all branches also handles a target whose parent arrives in this request.
+    setCollapsedThreads(new Set())
     if (!posts.some((post) => post.postNumber === postNumber)) {
       try {
         const windowTopic = await linuxDoTopics.get(summary.slug, summary.id, postNumber)
         if (request !== loadRequestRef.current) return
+        setError(null)
+        setFailedJumpPost(undefined)
         setPosts((previous) => {
           const byId = new Map(previous.map((post) => [post.id, post]))
-          for (const post of windowTopic.postStream.posts) byId.set(post.id, post)
+          for (const post of windowTopic.postStream.posts) if (!byId.has(post.id)) byId.set(post.id, post)
           return Array.from(byId.values()).sort((a, b) => a.postNumber - b.postNumber)
         })
       } catch (nextError) {
         if (request !== loadRequestRef.current) return
         setError(nextError)
+        setFailedJumpPost(postNumber)
         setJumpingPostNumber(undefined)
         return
       }
@@ -1137,10 +1225,9 @@ export function LinuxDoTopicView({
     if (!tracker || readSyncBusy) return
     setReadSyncBusy(true)
     try {
-      const error = readSyncFailure?.error
-      const readSyncChallenge = error instanceof LinuxDoApiError && error.kind === 'browser-verification'
-        && error.diagnostics?.transport === 'browser-firstparty'
-      const next = await verifyLinuxDoBrowserSession('https://linux.do/', { readSyncChallenge })
+      // Authentication-required recovery is intentionally separate: only this
+      // path may replace the session, and mismatched accounts abandon the batch.
+      const next = await verifyLinuxDoBrowserSession('https://linux.do/login')
       if (!next.authenticated || !next.currentUser) throw new Error('请先完成 Linux.do 登录')
       if (next.currentUser.id !== session.currentUser?.id) {
         tracker.stop(false)
@@ -1161,7 +1248,7 @@ export function LinuxDoTopicView({
   }
 
   return (
-    <div data-linuxdo-topic-view className="flex h-full min-h-0 flex-col">
+    <div data-linuxdo-topic-view data-linuxdo-reading-layout={readingMode} className="flex h-full min-h-0 flex-col">
       <div className="sticky top-0 z-20 flex h-12 items-center gap-2 border-b border-haze/45 bg-ink/90 page-x backdrop-blur-2xl">
         <button
           type="button"
@@ -1226,7 +1313,8 @@ export function LinuxDoTopicView({
         failure={readSyncFailure}
         busy={readSyncBusy}
         onRetry={() => readTrackerRef.current?.resume()}
-        onVerify={() => void recoverReadSession()}
+        onVerify={onVerify ?? ((options) => verifyLinuxDoChallenge(options?.url, { readSyncChallenge: options?.readSyncChallenge }))}
+        onLogin={() => void recoverReadSession()}
         onCopy={() => {
           if (!navigator.clipboard?.writeText) { showToast('复制不可用，请截图保留错误信息'); return }
           void navigator.clipboard.writeText(readSyncDiagnostic(readSyncFailure))
@@ -1247,18 +1335,19 @@ export function LinuxDoTopicView({
           remaining = adjacentLinuxDoPostIds(topic.postStream.stream, posts, direction)
         }
         if (!remaining.length) return
-        const request = loadRequestRef.current
-        setLoadingPosts(true)
-        void linuxDoTopics.loadPosts(topic.id, remaining).then((extra) => {
-          if (request !== loadRequestRef.current) return
-          preservePosition()
-          setPosts((previous) => previous.concat(extra).sort((a, b) => a.postNumber - b.postNumber))
-        }).catch(nextError => {
-          if (request === loadRequestRef.current) showToast('回复加载失败：' + readableError(nextError))
-        }).finally(() => { if (request === loadRequestRef.current) setLoadingPosts(false) })
+        void loadPostBatch(remaining)
       }}>
         {loading ? <div className="space-y-2.5 sm:space-y-3 py-4 sm:py-5" role="status" aria-label="正在加载主题回复">{Array.from({ length: 4 }, (_, index) => <div key={index} className="rounded-xl sm:rounded-2xl border border-haze/50 bg-ink-raised/35 p-3 sm:p-4"><div className="flex items-center gap-2.5 sm:gap-3"><div className="linuxdo-skeleton h-8 w-8 sm:h-9 sm:w-9 rounded-full" /><div className="flex-1"><div className="linuxdo-skeleton h-3 w-28 rounded" /><div className="linuxdo-skeleton mt-2 h-2.5 w-20 rounded" /></div></div><div className="linuxdo-skeleton mt-4 sm:mt-5 h-3 w-[92%] rounded" /><div className="linuxdo-skeleton mt-2.5 sm:mt-3 h-3 w-[76%] rounded" /><div className="linuxdo-skeleton mt-2.5 sm:mt-3 h-28 sm:h-32 rounded-lg sm:rounded-xl" /></div>)}</div> : null}
-        {error ? <div className="py-24 text-center text-[13px] text-paper-muted">{readableError(error)}</div> : null}
+        {error ? (
+          <LinuxDoRequestError
+            variant={topic ? 'inline' : 'empty'}
+            error={error}
+            onVerify={onVerify}
+            onRetry={() => failedJumpPost ? jumpToPost(failedJumpPost) : load()}
+            verificationOptions={{ url: 'https://linux.do/t/' + encodeURIComponent(summary.slug || 'topic') + '/' + summary.id }}
+            busy={loading || jumpingPostNumber !== undefined}
+          />
+        ) : null}
         {topic ? (
           <>
             <header className="px-1.5 sm:px-0 py-3.5 sm:py-5 border-b border-haze/30 mb-2.5 sm:mb-3">
@@ -1306,22 +1395,63 @@ export function LinuxDoTopicView({
                 })}
               </div>
             </header>
-            <div className="space-y-2.5 sm:space-y-3">
-              {posts.map((post) => {
+            <div data-linuxdo-reading-toolbar className="linuxdo-reading-toolbar">
+              {(() => {
+                const totalPosts = Math.max(topic.postsCount, topic.postStream.stream.length)
+                const isPartial = posts.length < totalPosts
+                return (
+                  <span className="linuxdo-reading-count">
+                    <span className="linuxdo-reading-dot" data-complete={!isPartial} aria-hidden="true" />
+                    {isPartial ? (
+                      <>
+                        <span className="text-paper-faint tracking-tight">已加载 </span>
+                        <span className="font-mono font-semibold text-paper">{posts.length}</span>
+                        <span className="font-mono text-paper-faint"> / {totalPosts}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-paper-faint tracking-tight">已加载全部 </span>
+                        <span className="font-mono font-semibold text-paper">{posts.length}</span>
+                        <span className="text-paper-faint tracking-tight"> 帖</span>
+                      </>
+                    )}
+                  </span>
+                )
+              })()}
+              <div className="linuxdo-segmented linuxdo-reading-switch" role="group" aria-label="帖子阅读方式">
+                {([{ id: 'floors', label: '楼层', Icon: List }, { id: 'threaded', label: '楼中楼', Icon: GitBranch }] as const).map(({ id, label, Icon }) => (
+                  <button key={id} type="button" data-linuxdo-reading-mode={id} className="linuxdo-control linuxdo-segment"
+                    aria-label={`${label}视图`} aria-pressed={readingMode === id} onClick={() => changeReadingMode(id)}
+                    title={id === 'floors' ? '按楼层顺序阅读' : '沿着回复关系阅读'}>
+                    <Icon size={14} aria-hidden="true" />
+                  </button>
+                ))}
+              </div>
+            </div>
+            {postBatches.before.length && !postBatches.gap.length ? <button type="button" data-linuxdo-load-direction="before" disabled={loadingPosts}
+              className="linuxdo-control linuxdo-thread-load" onClick={() => void loadPostBatch(postBatches.before)}>加载更早楼层</button> : null}
+            <div className="linuxdo-post-stream space-y-2.5 sm:space-y-3">
+              {visiblePosts.map((post) => {
+                const row = rowsByNumber.get(post.postNumber)!
                 const like = post.actions.find((action) => action.id === 2)
                 const replyTarget = resolveReplyTarget(post, posts)
                 const readByServerCursor = post.read === undefined && typeof topic.lastReadPostNumber === 'number' && post.postNumber <= topic.lastReadPostNumber
                 const unreadAtOpen = openingUnreadFloorRef.current !== undefined && post.postNumber > openingUnreadFloorRef.current
                 const showUnreadDot = session.authenticated && !readPostNumbers.has(post.postNumber) && (unreadAtOpen || (post.read !== true && !readByServerCursor))
-                const isTopicOwner = (summary?.posters?.[0]?.username && summary.posters[0].username === post.username) || post.postNumber === 1
+                const isTopicOwner = ownerUsername === post.username || post.postNumber === 1
                 return (
-                  <article key={post.id} id={'linuxdo-post-' + post.postNumber} data-linuxdo-post-number={post.postNumber} data-linuxdo-read={showUnreadDot ? 'false' : 'true'} className="group rounded-xl sm:rounded-2xl border border-haze/45 bg-ink-raised/85 p-3 sm:p-4 shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-150 hover:border-paper/[0.12]">
+                  <article key={post.id} id={'linuxdo-post-' + post.postNumber} data-linuxdo-post-number={post.postNumber} data-linuxdo-read={showUnreadDot ? 'false' : 'true'}
+                    data-linuxdo-thread-depth={readingMode === 'threaded' ? row.depth : undefined}
+                    data-linuxdo-thread-first={readingMode === 'threaded' && row.firstReply ? '' : undefined}
+                    data-linuxdo-thread-last={readingMode === 'threaded' && row.lastReply ? '' : undefined}
+                    data-linuxdo-thread-root={readingMode === 'threaded' && row.replyCount > 0 && !collapsedThreads.has(row.rootPostNumber) ? '' : undefined}
+                    className="group rounded-xl sm:rounded-2xl border border-haze/45 bg-ink-raised/85 p-3 sm:p-4 shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-150 hover:border-paper/[0.12]">
                     <header className="linuxdo-control flex items-start gap-2.5 sm:gap-3 select-none">
                       <button type="button" onClick={() => onOpenUser(post.username)} className="relative mt-0.5 flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-black/5 dark:ring-white/10 bg-ink-deep transition-transform active:scale-95">
                         {avatar(post.avatarTemplate, post.username)}
                       </button>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
+                        <div className="linuxdo-post-author flex items-center gap-1.5">
                           <button type="button" onClick={() => onOpenUser(post.username)} className="truncate text-[13.5px] font-semibold text-paper hover:underline">
                             {post.name || post.username}
                           </button>
@@ -1330,6 +1460,15 @@ export function LinuxDoTopicView({
                               楼主
                             </span>
                           )}
+                          {readingMode === 'threaded' && post.replyToPostNumber && post.replyToPostNumber > 1 ? (
+                            <button type="button" data-linuxdo-parent-link
+                              className="linuxdo-control linuxdo-thread-relation" onClick={() => void jumpToPost(post.replyToPostNumber!, post.postNumber)}
+                              aria-label={`跳转到 ${replyTarget?.username || '被回复'} 的帖子 #${post.replyToPostNumber}`}>
+                              <Reply size={12} aria-hidden="true" />
+                              <span>回复 {replyTarget?.name || replyTarget?.username || '此楼'}</span>
+                              <span className="linuxdo-thread-parent-number">#{post.replyToPostNumber}</span>
+                            </button>
+                          ) : null}
                         </div>
                         <div className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-paper-faint">
                           <span className="truncate">{'@' + post.username}</span>
@@ -1351,7 +1490,7 @@ export function LinuxDoTopicView({
                           <button
                             type="button"
                             onClick={() => void jumpToPost(post.replyToPostNumber!, post.postNumber)}
-                            className="linuxdo-control inline-flex max-w-28 sm:max-w-32 items-center gap-1 rounded-full border border-haze/60 bg-paper/[0.03] py-0.5 pl-1 pr-2 text-[10px] text-paper-muted transition-colors hover:border-cinnabar/30 hover:text-cinnabar"
+                            className="linuxdo-floor-relation linuxdo-control inline-flex max-w-28 sm:max-w-32 items-center gap-1 rounded-full border border-haze/60 bg-paper/[0.03] py-0.5 pl-1 pr-2 text-[10px] text-paper-muted transition-colors hover:border-cinnabar/30 hover:text-cinnabar"
                             aria-label={'跳转到 ' + replyTarget.username + ' 的帖子 #' + post.replyToPostNumber}
                           >
                             <Reply size={11} className="shrink-0 text-cinnabar-soft" />
@@ -1362,7 +1501,7 @@ export function LinuxDoTopicView({
                             <span className="font-mono text-[9px] text-paper-faint">#{post.replyToPostNumber}</span>
                           </button>
                         ) : null}
-                        <span className="font-mono text-[11px] font-medium text-paper-faint/70 tracking-tight">
+                        <span className="linuxdo-post-number font-mono text-[11px] font-medium text-paper-faint/70 tracking-tight">
                           {'#' + post.postNumber}
                         </span>
                       </div>
@@ -1556,11 +1695,32 @@ export function LinuxDoTopicView({
                         </button>
                       </div>
                     </footer>
+                    {readingMode === 'threaded' && row.replyCount > 0 ? (
+                      <button type="button" data-linuxdo-thread-toggle={post.postNumber}
+                        className="linuxdo-control linuxdo-thread-toggle" aria-expanded={!collapsedThreads.has(post.postNumber)}
+                        aria-label={`${collapsedThreads.has(post.postNumber) ? '展开' : '收起'} #${post.postNumber} 的 ${row.replyCount} 条已加载回复`}
+                        onClick={() => {
+                          preservePosition()
+                          setCollapsedThreads(previous => {
+                            const next = new Set(previous)
+                            if (next.has(post.postNumber)) next.delete(post.postNumber)
+                            else next.add(post.postNumber)
+                            return next
+                          })
+                        }}>
+                        <MessageCircle size={13} aria-hidden="true" /><span>{row.replyCount} 条回复</span>
+                        <ChevronDown size={13} aria-hidden="true" /><span className="linuxdo-thread-toggle-label">{collapsedThreads.has(post.postNumber) ? '展开' : '收起'}</span>
+                      </button>
+                    ) : null}
                   </article>
                 )
               })}
               {loadingPosts ? <div className="flex items-center justify-center gap-2 py-5 text-[10.5px] text-paper-faint" role="status" aria-live="polite"><Loader2 size={15} className="animate-spin" />正在加载更多回复</div> : null}
             </div>
+            {!loadingPosts ? <div className="linuxdo-thread-pagination">
+              {postBatches.gap.length ? <button type="button" data-linuxdo-load-direction="gap" className="linuxdo-control linuxdo-thread-load" onClick={() => void loadPostBatch(postBatches.gap)}>补全中间楼层</button> : null}
+              {postBatches.after.length && !postBatches.gap.length ? <button type="button" data-linuxdo-load-direction="after" className="linuxdo-control linuxdo-thread-load" onClick={() => void loadPostBatch(postBatches.after)}>加载后续楼层</button> : null}
+            </div> : null}
           </>
         ) : null}
       </div>
@@ -1653,7 +1813,7 @@ export function LinuxDoTopicView({
       {lightbox ? (() => {
         const current = lightbox.items[lightbox.index]
         if (!current) return null
-        return <ImageLightbox src={current.src} actionSrc={current.actionSrc} alt={current.alt} index={lightbox.index} total={lightbox.items.length} onPrevious={lightbox.index > 0 ? () => setLightbox((state) => state ? { ...state, index: state.index - 1 } : state) : undefined} onNext={lightbox.index < lightbox.items.length - 1 ? () => setLightbox((state) => state ? { ...state, index: state.index + 1 } : state) : undefined} onClose={() => setLightbox(null)} overlayCloserRef={overlayBackHandlerRef} />
+        return <ImageLightbox src={current.src} actionSrc={current.actionSrc} alt={current.alt} items={lightbox.items} onSelect={(index) => setLightbox((state) => state ? { ...state, index } : state)} index={lightbox.index} total={lightbox.items.length} onPrevious={lightbox.index > 0 ? () => setLightbox((state) => state ? { ...state, index: state.index - 1 } : state) : undefined} onNext={lightbox.index < lightbox.items.length - 1 ? () => setLightbox((state) => state ? { ...state, index: state.index + 1 } : state) : undefined} onClose={() => setLightbox(null)} overlayCloserRef={overlayBackHandlerRef} />
       })() : null}
     </div>
   )

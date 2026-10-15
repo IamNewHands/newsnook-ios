@@ -1,5 +1,17 @@
 import {
   Award,
+  BadgeCheck,
+  Bookmark,
+  CheckCircle2,
+  History,
+  KeyRound,
+  LogOut,
+  Mail,
+  Pencil,
+  Settings,
+  ShieldCheck,
+  UserPlus,
+  Vote,
   BookOpen,
   CalendarDays,
   ChevronRight,
@@ -31,9 +43,30 @@ import type {
   LinuxDoUserSummaryTopic,
 } from '../people/service'
 import type { LinuxDoCategory, LinuxDoTopicSummary } from '../types'
+import type { LinuxDoSessionSnapshot } from '../types'
+import type { LinuxDoProfileDraft, LinuxDoProfileSection } from '../people/sections'
+import { ProfileSectionView } from './ProfileSectionView'
+import { BookmarksView } from './CommunityViews'
 import { ago, avatar, compact, readableError, tagGlyph } from './utils'
+import { isLinuxDoVerificationError, LinuxDoRequestError, type LinuxDoVerify } from './VerificationAction'
 
-export type UserProfileTab = 'overview' | 'activity' | 'topics' | 'replies' | 'likes' | 'boosts' | 'responses' | 'badges'
+export interface UserProfileAccountControls {
+  onPrivateMessages?: () => void
+  onBookmarks?: () => void
+  onTrustLevel?: () => void
+  onLogout?: () => void | Promise<void>
+  onVerifyBrowser?: () => void | Promise<void>
+  onClearBrowserSession?: () => void | Promise<void>
+  accountError?: string
+  onClearAccountError?: () => void
+  capabilities?: {
+    uploads?: boolean
+    bookmarks?: boolean
+    boost?: { available: boolean; reason?: string }
+  }
+}
+
+export type UserProfileTab = 'overview' | 'activity' | 'topics' | 'replies' | 'likes' | 'boosts' | 'responses' | 'badges' | 'bookmarks' | LinuxDoProfileSection
 type ActivityTab = Extract<UserProfileTab, 'activity' | 'topics' | 'replies' | 'likes' | 'responses'>
 type BoostMode = 'received' | 'given'
 
@@ -52,9 +85,17 @@ const profileTabs: Array<{ id: UserProfileTab; label: string; icon: typeof UserR
   { id: 'activity', label: '所有', icon: Sparkles },
   { id: 'topics', label: '话题', icon: FileText },
   { id: 'replies', label: '回复', icon: MessageCircle },
+  { id: 'read', label: '已读', icon: BookOpen },
+  { id: 'drafts', label: '草稿', icon: Pencil },
+  { id: 'pending', label: '待处理', icon: Clock3 },
   { id: 'likes', label: '赞', icon: Heart },
+  { id: 'bookmarks', label: '书签', icon: Bookmark },
+  { id: 'assigned', label: '已指定', icon: UserPlus },
   { id: 'boosts', label: 'Boosts', icon: Rocket },
-  { id: 'responses', label: '回应', icon: Sparkles },
+  { id: 'reactions', label: '回应', icon: Sparkles },
+  { id: 'votes', label: '投票', icon: Vote },
+  { id: 'solved', label: '已解决', icon: CheckCircle2 },
+  { id: 'responses', label: '收到回复', icon: MessageCircle },
   { id: 'badges', label: '徽章', icon: Award },
 ]
 
@@ -388,17 +429,37 @@ export function UserProfileView({
   initialBadgeId,
   onOpenTopic,
   onOpenUser,
+  session = { authenticated: false, authMode: 'none' },
+  onResumeDraft,
+  onVerify,
+  accountControls,
 }: {
   username: string
   initialTab?: UserProfileTab
   initialBadgeId?: number
   onOpenTopic: (topic: LinuxDoTopicSummary, targetPostNumber?: number) => void
   onOpenUser: (username: string) => void
+  session?: LinuxDoSessionSnapshot
+  onResumeDraft?: (draft: LinuxDoProfileDraft) => Promise<void>
+  onVerify?: LinuxDoVerify
+  accountControls?: UserProfileAccountControls
 }) {
   const [profile, setProfile] = useState<LinuxDoUserProfile | null>(null)
   const [summary, setSummary] = useState<LinuxDoUserSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [profileError, setProfileError] = useState('')
+  const [showAccountSettings, setShowAccountSettings] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [challenge, setChallenge] = useState<{
+    error: unknown
+    scope: 'header' | 'activity' | 'boosts' | 'badges'
+    tab?: ActivityTab
+    append?: boolean
+  } | null>(null)
+  const captureChallenge = useCallback((error: unknown, scope: 'header' | 'activity' | 'boosts' | 'badges', tab?: ActivityTab, append?: boolean) => {
+    if (isLinuxDoVerificationError(error)) setChallenge({ error, scope, tab, append })
+  }, [])
   const [summaryError, setSummaryError] = useState('')
   const [activeTab, setActiveTab] = useState<UserProfileTab>(initialTab)
   const [activities, setActivities] = useState<Partial<Record<ActivityTab, ActivityCacheEntry>>>({})
@@ -417,6 +478,12 @@ export function UserProfileView({
   const [categoriesById, setCategoriesById] = useState<Record<number, LinuxDoCategory>>({})
   const generationRef = useRef(0)
   const targetBadgeRef = useRef<HTMLElement | null>(null)
+  const viewingSelf = (session.authenticated && session.currentUser?.username.toLowerCase() === username.toLowerCase()) || Boolean(accountControls)
+  const visibleTabs = profileTabs.filter(tab =>
+    (!['read', 'drafts', 'pending', 'bookmarks'].includes(tab.id) || viewingSelf)
+    && (tab.id !== 'assigned' || (session.authenticated && session.currentUser?.canAssignGlobally !== false)),
+  )
+  const sectionTab = (['read', 'drafts', 'pending', 'assigned', 'votes', 'solved', 'reactions'] as UserProfileTab[]).includes(activeTab) ? activeTab as LinuxDoProfileSection : undefined
 
   const loadHeader = useCallback(() => {
     const generation = ++generationRef.current
@@ -426,6 +493,7 @@ export function UserProfileView({
     setSummary(null)
     setProfileError('')
     setSummaryError('')
+    setChallenge(null)
     setActiveTab(initialTab)
     setActivities({})
     setBoostsReceived([])
@@ -443,13 +511,13 @@ export function UserProfileView({
       if (generation === generationRef.current) setProfile(next)
     }).catch((error) => {
       if (generation !== generationRef.current) return
-      if (!(error instanceof DOMException && error.name === 'AbortError')) setProfileError(readableError(error))
+      if (!(error instanceof DOMException && error.name === 'AbortError')) { setProfileError(readableError(error)); captureChallenge(error, 'header') }
     })
     const summaryRequest = peopleApi.summary(username, { signal: controller.signal }).then((next) => {
       if (generation === generationRef.current) setSummary(next)
     }).catch((error) => {
       if (generation !== generationRef.current) return
-      if (!(error instanceof DOMException && error.name === 'AbortError')) setSummaryError(readableError(error))
+      if (!(error instanceof DOMException && error.name === 'AbortError')) { setSummaryError(readableError(error)); captureChallenge(error, 'header') }
     })
 
     void Promise.allSettled([profileRequest, summaryRequest]).finally(() => {
@@ -457,7 +525,7 @@ export function UserProfileView({
     })
 
     return () => controller.abort()
-  }, [initialTab, username])
+  }, [captureChallenge, initialTab, username])
 
   useEffect(() => loadHeader(), [loadHeader])
 
@@ -519,6 +587,7 @@ export function UserProfileView({
       })
     } catch (error) {
       if (generation !== generationRef.current) return
+      captureChallenge(error, 'activity', tab, append)
       setActivities((previous) => ({
         ...previous,
         [tab]: {
@@ -530,7 +599,7 @@ export function UserProfileView({
         },
       }))
     }
-  }, [activities, ensureCategories, username])
+  }, [activities, captureChallenge, ensureCategories, username])
 
   const loadBoosts = useCallback(async (force = false) => {
     if (boostLoading || (!force && boostReceivedLoaded && boostGivenLoaded)) return
@@ -548,6 +617,7 @@ export function UserProfileView({
       setBoostReceivedLoaded(true)
     } else {
       setBoostReceivedError(readableError(received.reason))
+      captureChallenge(received.reason, 'boosts')
       setBoostReceivedLoaded(true)
     }
     if (given.status === 'fulfilled') {
@@ -555,10 +625,11 @@ export function UserProfileView({
       setBoostGivenLoaded(true)
     } else {
       setBoostGivenError(readableError(given.reason))
+      captureChallenge(given.reason, 'boosts')
       setBoostGivenLoaded(true)
     }
     setBoostLoading(false)
-  }, [boostGivenLoaded, boostLoading, boostReceivedLoaded, username])
+  }, [boostGivenLoaded, boostLoading, boostReceivedLoaded, captureChallenge, username])
 
   const loadBadges = useCallback(async (force = false) => {
     if (badgesLoading || (!force && badgesLoaded)) return
@@ -573,11 +644,12 @@ export function UserProfileView({
     } catch (error) {
       if (generation !== generationRef.current) return
       setBadgesError(readableError(error))
+      captureChallenge(error, 'badges')
       setBadgesLoaded(true)
     } finally {
       if (generation === generationRef.current) setBadgesLoading(false)
     }
-  }, [badgesLoaded, badgesLoading, username])
+  }, [badgesLoaded, badgesLoading, captureChallenge, username])
 
   useEffect(() => {
     if (activeTab === 'activity' || activeTab === 'topics' || activeTab === 'replies' || activeTab === 'likes' || activeTab === 'responses') {
@@ -651,12 +723,26 @@ export function UserProfileView({
     }, postNumber)
   }
 
+  const retryChallenge = () => {
+    const pending = challenge
+    if (!pending) return
+    setChallenge(null)
+    if (pending.scope === 'header') { loadHeader(); return }
+    if (pending.scope === 'activity' && pending.tab) { void loadActivity(pending.tab, pending.append); return }
+    if (pending.scope === 'boosts') { void loadBoosts(true); return }
+    if (pending.scope === 'badges') void loadBadges(true)
+  }
+
   if (loading && !profile) return <ProfileSkeleton />
 
   if (!profile) {
     return (
       <div className="page-x py-16">
-        <InlineStatus message={profileError || '用户资料暂时无法加载'} actionLabel="重新加载" onAction={() => loadHeader()} />
+        {challenge ? (
+          <LinuxDoRequestError variant="empty" error={challenge.error} onVerify={onVerify} onRetry={retryChallenge} />
+        ) : (
+          <InlineStatus message={profileError || '用户资料暂时无法加载'} actionLabel="重新加载" onAction={() => loadHeader()} />
+        )}
       </div>
     )
   }
@@ -684,42 +770,83 @@ export function UserProfileView({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain page-x pb-5 pt-3">
-      <section className="overflow-hidden rounded-[22px] border border-haze/60 bg-ink-raised/45 shadow-[0_8px_30px_-24px_rgba(0,0,0,0.35)]">
-        <div className="p-4 sm:p-5">
-          <div className="flex items-center gap-3.5">
-            <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-full border border-haze bg-paper/5 ring-2 ring-paper/[0.025] sm:h-16 sm:w-16">
-              {avatar(profile.avatarTemplate, profile.username)}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-center gap-2">
-                <h2 className="truncate text-[18px] font-bold tracking-[-0.02em] text-paper sm:text-[20px]">{profile.name || profile.username}</h2>
-                {profile.trustLevel !== undefined ? <span className="shrink-0 rounded-full border border-haze bg-paper/[0.035] px-2 py-0.5 font-mono text-[9px] font-semibold text-paper-faint">TL{profile.trustLevel}</span> : null}
-              </div>
-              <p className="mt-0.5 truncate text-[11px] text-paper-faint">@{profile.username}{profile.title ? ' · ' + profile.title : ''}</p>
-              <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-paper-faint">
-                {profile.createdAt ? <span>加入于 {dateLabel(profile.createdAt)}</span> : null}
-                {profile.lastSeenAt ? <span>最近活跃 {ago(profile.lastSeenAt)}</span> : null}
-                {profile.location ? <span>{profile.location}</span> : null}
-              </div>
-            </div>
+      {challenge ? <LinuxDoRequestError error={challenge.error} onVerify={onVerify} onRetry={retryChallenge} /> : null}
+      <section className="overflow-hidden rounded-[24px] border border-haze/60 bg-gradient-to-b from-ink-raised/90 via-ink-raised/70 to-ink-raised/50 p-4.5 sm:p-5.5 shadow-[0_12px_32px_-16px_rgba(0,0,0,0.3)] backdrop-blur-xl">
+        <div className="flex items-start gap-3.5 sm:gap-4">
+          <div className="relative grid h-15 w-15 shrink-0 place-items-center overflow-hidden rounded-full border border-haze bg-paper/5 ring-2 ring-paper/[0.04] sm:h-17 sm:w-17">
+            {avatar(profile.avatarTemplate, profile.username)}
           </div>
-
-          {profile.bioCooked ? <div className="linuxdo-post-prose reader-prose mt-3.5 select-text text-[12px] leading-[1.72] text-paper-muted" dangerouslySetInnerHTML={{ __html: profile.bioCooked }} /> : null}
-
-          <div className="mt-4 grid grid-cols-4 gap-1.5 sm:gap-2">
-            {summaryMetrics.map(({ label, value, icon: Icon }) => (
-              <div key={label} className="rounded-xl border border-haze/45 bg-paper/[0.03] px-1.5 py-2.5 text-center">
-                <Icon size={12} className="mx-auto mb-1 text-paper-faint" />
-                <div className="font-mono text-[13px] font-semibold text-paper">{metric(value)}</div>
-                <div className="mt-0.5 text-[8.5px] text-paper-faint">{label}</div>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <h2 className="truncate text-[19px] sm:text-[21px] font-bold tracking-tight text-paper">{profile.name || profile.username}</h2>
+                {profile.trustLevel !== undefined ? (
+                  <button
+                    type="button"
+                    disabled={!accountControls?.onTrustLevel}
+                    onClick={() => accountControls?.onTrustLevel?.()}
+                    className={'shrink-0 rounded-full border border-[#20c36b]/30 bg-[#20c36b]/10 px-2 py-0.5 font-mono text-[9px] font-semibold text-[#20c36b] transition-all ' + (accountControls?.onTrustLevel ? 'hover:bg-[#20c36b]/20 active:scale-95 cursor-pointer' : '')}
+                    title={accountControls?.onTrustLevel ? '点击查看信任等级详情与达成要求' : undefined}
+                  >
+                    TL{profile.trustLevel}
+                  </button>
+                ) : null}
+                {profile.title ? (
+                  <span className="hidden truncate rounded-md border border-paper/10 bg-paper/[0.04] px-1.5 py-0.5 text-[9.5px] font-medium text-paper-muted sm:inline-block">{profile.title}</span>
+                ) : null}
               </div>
-            ))}
+              {accountControls ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAccountSettings(prev => !prev)}
+                  aria-label="账号与安全设置"
+                  className={'linuxdo-control grid h-8 w-8 shrink-0 place-items-center rounded-full border border-haze text-paper-muted transition-all ' + (showAccountSettings ? 'bg-cinnabar/10 border-cinnabar/30 text-cinnabar' : 'hover:bg-paper/5 hover:text-paper active:scale-95')}
+                >
+                  <Settings size={15} />
+                </button>
+              ) : null}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span className="text-[11.5px] font-medium text-paper-muted">@{profile.username}</span>
+              {profile.title ? (
+                <span className="truncate rounded-md border border-paper/10 bg-paper/[0.04] px-1.5 py-0.5 text-[9.5px] font-medium text-paper-muted sm:hidden">{profile.title}</span>
+              ) : null}
+              {accountControls ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAccountSettings(prev => !prev)}
+                  className="linuxdo-control inline-flex items-center gap-1 rounded-full border border-cinnabar/25 bg-cinnabar/10 px-2 py-0.5 text-[9px] font-semibold text-cinnabar transition-all hover:bg-cinnabar/15 active:scale-95"
+                >
+                  <ShieldCheck size={11} />
+                  <span>第一方安全会话</span>
+                </button>
+              ) : null}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[9.5px] text-paper-faint">
+              {profile.createdAt ? <span>加入于 {dateLabel(profile.createdAt)}</span> : null}
+              {profile.lastSeenAt ? <span>最近活跃 {ago(profile.lastSeenAt)}</span> : null}
+              {profile.location ? <span>{profile.location}</span> : null}
+            </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 border-t border-haze/50 sm:grid-cols-4">
+        {profile.bioCooked ? (
+          <div className="linuxdo-post-prose reader-prose mt-3.5 rounded-2xl border border-haze/40 bg-paper/[0.02] p-3 select-text text-[12px] leading-[1.7] text-paper-muted" dangerouslySetInnerHTML={{ __html: profile.bioCooked }} />
+        ) : null}
+
+        <div className="mt-4 grid grid-cols-4 gap-1.5 sm:gap-2">
+          {summaryMetrics.map(({ label, value, icon: Icon }) => (
+            <div key={label} className="rounded-xl border border-haze/45 bg-paper/[0.03] px-1.5 py-2.5 text-center transition-all hover:bg-paper/[0.05]">
+              <Icon size={12} className="mx-auto mb-1 text-paper-faint" />
+              <div className="font-mono text-[13px] font-bold text-paper">{metric(value)}</div>
+              <div className="mt-0.5 text-[8.5px] text-paper-faint">{label}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-3.5 grid grid-cols-2 border-t border-haze/50 pt-2 sm:grid-cols-4">
           {detailMetrics.map(({ label, value, icon: Icon, format }) => (
-            <div key={label} className="flex items-center gap-2 border-b border-haze/40 px-3 py-2.5 last:border-b-0 odd:border-r sm:border-b-0 sm:border-r sm:last:border-r-0">
+            <div key={label} className="flex items-center gap-2 border-b border-haze/40 px-2.5 py-2 last:border-b-0 odd:border-r sm:border-b-0 sm:border-r sm:last:border-r-0">
               <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-paper/[0.035] text-paper-faint"><Icon size={12} /></span>
               <span className="min-w-0">
                 <span className="block truncate text-[8.5px] text-paper-faint">{label}</span>
@@ -729,6 +856,196 @@ export function UserProfileView({
           ))}
         </div>
       </section>
+
+      {/* 快捷功能卡片带 (Quick Tools Hub) - 当处于账号中心模式时渲染 */}
+      {accountControls ? (
+        <section className="mt-3 space-y-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <button
+              type="button"
+              aria-label="打开个人私信"
+              onClick={accountControls.onPrivateMessages}
+              className="linuxdo-control group flex items-center gap-2.5 rounded-2xl border border-haze/60 bg-ink-raised/65 p-3 text-left transition-all hover:border-cinnabar/30 hover:bg-ink-raised/90 active:scale-[0.98] shadow-sm"
+            >
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-cinnabar/10 text-cinnabar transition-transform group-hover:scale-105">
+                <Mail size={17} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[11.5px] font-bold text-paper">个人私信</span>
+                <span className="mt-0.5 block truncate text-[9px] text-paper-faint">收件箱与互动</span>
+              </span>
+              <ChevronRight size={13} className="shrink-0 text-paper-faint transition-transform group-hover:translate-x-0.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={accountControls.onTrustLevel}
+              className="linuxdo-control group flex items-center gap-2.5 rounded-2xl border border-[#20c36b]/20 bg-[#20c36b]/[0.05] p-3 text-left transition-all hover:border-[#20c36b]/40 hover:bg-[#20c36b]/[0.09] active:scale-[0.98] shadow-sm"
+            >
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#20c36b]/12 text-[#20c36b] transition-transform group-hover:scale-105">
+                <BadgeCheck size={17} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1 truncate text-[11.5px] font-bold text-paper">
+                  <span>信任等级</span>
+                  {profile.trustLevel !== undefined ? (
+                    <span className="font-mono text-[8.5px] text-[#20c36b]">TL{profile.trustLevel}</span>
+                  ) : null}
+                </span>
+                <span className="mt-0.5 block truncate text-[9px] text-paper-faint">升级要求与进度</span>
+              </span>
+              <ChevronRight size={13} className="shrink-0 text-paper-faint transition-transform group-hover:translate-x-0.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (visibleTabs.some(t => t.id === 'bookmarks')) {
+                  setActiveTab('bookmarks')
+                } else {
+                  accountControls.onBookmarks?.()
+                }
+              }}
+              className="linuxdo-control group flex items-center gap-2.5 rounded-2xl border border-haze/60 bg-ink-raised/65 p-3 text-left transition-all hover:border-[#f5b326]/30 hover:bg-ink-raised/90 active:scale-[0.98] shadow-sm"
+            >
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#f5b326]/10 text-[#f5b326] transition-transform group-hover:scale-105">
+                <Bookmark size={17} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[11.5px] font-bold text-paper">我的书签</span>
+                <span className="mt-0.5 block truncate text-[9px] text-paper-faint">楼层与主题</span>
+              </span>
+              <ChevronRight size={13} className="shrink-0 text-paper-faint transition-transform group-hover:translate-x-0.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('drafts')}
+              className="linuxdo-control group flex items-center gap-2.5 rounded-2xl border border-haze/60 bg-ink-raised/65 p-3 text-left transition-all hover:border-[#7b61ff]/30 hover:bg-ink-raised/90 active:scale-[0.98] shadow-sm"
+            >
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#7b61ff]/10 text-[#7b61ff] transition-transform group-hover:scale-105">
+                <FileText size={17} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1 truncate text-[11.5px] font-bold text-paper">
+                  <span>我的草稿</span>
+                  {profile.draftCount ? (
+                    <span className="rounded-full bg-[#7b61ff]/15 px-1.5 py-0.2 font-mono text-[8.5px] font-semibold text-[#7b61ff]">
+                      {profile.draftCount}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="mt-0.5 block truncate text-[9px] text-paper-faint">
+                  {profile.draftCount ? profile.draftCount + ' 篇待续' : '继续编辑'}
+                </span>
+              </span>
+              <ChevronRight size={13} className="shrink-0 text-paper-faint transition-transform group-hover:translate-x-0.5" />
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-haze/40 bg-ink-raised/35 px-3 py-2 text-[9.5px] text-paper-faint">
+            <span className="inline-flex items-center gap-1.5">
+              <History size={12} className="text-[#20c36b]" />
+              <span>媒体与附件：{accountControls.capabilities?.uploads ? '原生上传与图片预览已启用' : '不可用'}</span>
+            </span>
+            {accountControls.capabilities?.boost && !accountControls.capabilities.boost.available ? (
+              <span className="inline-flex items-center gap-1 text-paper-muted">
+                <Rocket size={11} className="text-paper-faint" />
+                <span>{accountControls.capabilities.boost.reason || 'Boost 权益受限'}</span>
+              </span>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {/* 账号与安全管理面板 (Account & Security Management) */}
+      {accountControls ? (
+        <section className="mt-3 overflow-hidden rounded-[22px] border border-haze/60 bg-ink-raised/50 p-3.5 sm:p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-cinnabar/10 text-cinnabar">
+              <ShieldCheck size={18} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[12px] font-bold text-paper">第一方安全会话</span>
+                <span className="rounded-full bg-[#20c36b]/10 px-2 py-0.2 font-mono text-[8.5px] font-semibold text-[#20c36b]">设备本地</span>
+              </div>
+              <p className="mt-0.5 text-[10px] leading-relaxed text-paper-faint">
+                当前会话只保存在设备的 Linux.do 第一方会话中。密码与人机验证全程在官方页面完成，NewsNook 本地零明文存储。
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-haze/40 pt-2.5">
+            <button
+              type="button"
+              onClick={() => void accountControls.onVerifyBrowser?.()}
+              className="linuxdo-control inline-flex min-h-8 items-center gap-1.5 rounded-xl border border-haze/60 bg-paper/[0.03] px-3 py-1 text-[10.5px] font-medium text-paper-muted transition-colors hover:border-cinnabar/30 hover:text-paper active:scale-95"
+            >
+              <KeyRound size={12} className="text-paper-faint" />
+              <span>打开 Linux.do 登录页面</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => void accountControls.onClearBrowserSession?.()}
+              className="linuxdo-control inline-flex min-h-8 items-center gap-1.5 rounded-xl border border-haze/60 bg-paper/[0.03] px-3 py-1 text-[10.5px] font-medium text-paper-muted transition-colors hover:border-cinnabar/30 hover:text-paper active:scale-95"
+            >
+              <RefreshCcw size={12} className="text-paper-faint" />
+              <span>清除验证数据</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowLogoutConfirm(true)}
+              className="linuxdo-control ml-auto inline-flex min-h-8 items-center gap-1.5 rounded-xl border border-cinnabar/25 bg-cinnabar/5 px-3 py-1 text-[10.5px] font-medium text-cinnabar transition-colors hover:bg-cinnabar/10 active:scale-95"
+            >
+              <LogOut size={12} />
+              <span>退出账号</span>
+            </button>
+          </div>
+
+          {showLogoutConfirm ? (
+            <div className="mt-2.5 rounded-xl border border-cinnabar/30 bg-cinnabar/10 p-2.5">
+              <p className="text-[10.5px] font-medium text-cinnabar">确认退出当前 Linux.do 账号？本设备的本地会话将被清除。</p>
+              <div className="mt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowLogoutConfirm(false)}
+                  className="linuxdo-control rounded-lg border border-haze bg-ink-raised px-2.5 py-1 text-[10px] text-paper-muted"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  disabled={loggingOut}
+                  onClick={async () => {
+                    setLoggingOut(true)
+                    try {
+                      await accountControls.onLogout?.()
+                    } finally {
+                      setLoggingOut(false)
+                      setShowLogoutConfirm(false)
+                    }
+                  }}
+                  className="linuxdo-control inline-flex items-center gap-1 rounded-lg bg-cinnabar px-3 py-1 text-[10px] font-semibold text-white disabled:opacity-50"
+                >
+                  {loggingOut ? <Loader2 size={10} className="animate-spin" /> : null}
+                  <span>确认退出</span>
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {accountControls.accountError ? (
+            <button
+              type="button"
+              onClick={() => accountControls.onClearAccountError?.()}
+              className="mt-2.5 block w-full rounded-xl border border-cinnabar/25 bg-cinnabar/[0.08] p-2 text-left text-[10px] leading-relaxed text-cinnabar"
+            >
+              {accountControls.accountError} · 点击关闭
+            </button>
+          ) : null}
+        </section>
+      ) : null}
 
       {loading && !summary && !summaryError ? <div className="mt-3 flex items-center justify-center gap-2 rounded-xl border border-haze/45 bg-paper/[0.025] px-3 py-2 text-[9.5px] text-paper-faint" role="status"><Loader2 size={12} className="animate-spin" />正在加载公开统计与摘要</div> : null}
 
@@ -754,19 +1071,22 @@ export function UserProfileView({
       ) : null}
 
       <div className="sticky top-0 z-20 -mx-1 mt-3 border-y border-haze/45 bg-ink/95 px-1 py-2 backdrop-blur-xl">
-        <div className="scrollbar-none flex gap-1 overflow-x-auto">
-          {profileTabs.map((tab) => {
+        <div role="tablist" aria-label="个人主页栏目" className="scrollbar-none flex gap-1 overflow-x-auto">
+          {visibleTabs.map((tab) => {
             const Icon = tab.icon
             const active = tab.id === activeTab
             return (
               <button
                 key={tab.id}
                 type="button"
+                role="tab"
+                aria-selected={active}
                 onClick={() => setActiveTab(tab.id)}
                 className={'linuxdo-control inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[10.5px] font-medium transition-all ' + (active ? 'bg-cinnabar text-white shadow-sm' : 'text-paper-muted hover:bg-paper/5 hover:text-paper')}
               >
                 <Icon size={12.5} />
                 {tab.label}
+                {tab.id === 'drafts' && profile.draftCount !== undefined ? ' (' + profile.draftCount + ')' : tab.id === 'pending' && profile.pendingPostsCount !== undefined ? ' (' + profile.pendingPostsCount + ')' : ''}
               </button>
             )
           })}
@@ -774,7 +1094,7 @@ export function UserProfileView({
       </div>
 
       <section className="mt-3">
-        {activeTab === 'overview' ? (
+        {sectionTab ? <ProfileSectionView key={sectionTab + ':' + username + ':' + (session.currentUser?.id ?? 'guest')} section={sectionTab} username={username} session={session} onVerify={onVerify} onOpenTopic={onOpenTopic} onResumeDraft={onResumeDraft} /> : activeTab === 'bookmarks' ? (viewingSelf ? <BookmarksView key={session.currentUser?.id} session={session} onOpenTopic={onOpenTopic} /> : <InlineStatus message="书签仅本人登录后可查看" />) : activeTab === 'overview' ? (
           <div className="space-y-4">
             <div>
               <div className="mb-2 flex items-center justify-between">

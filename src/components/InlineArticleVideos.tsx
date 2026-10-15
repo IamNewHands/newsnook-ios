@@ -79,7 +79,12 @@ export function InlineArticleVideos({
     const scan = () => {
       const previous = mountedRef.current
       const rawVideos = [...root.querySelectorAll<HTMLVideoElement>('video')]
-        .filter(video => !video.closest('[data-reader-inline-video]'))
+        // Other inline enhancers (video-page / YouTube) portal InkVideoPlayer into
+        // this same article root after mount. Capturing their <video> again would
+        // recursively nest new players and duplicate every control layer.
+        .filter(video => !video.closest(
+          '[data-reader-inline-video], [data-reader-inline-video-page], [data-reader-inline-youtube], [data-video-stage]',
+        ))
       const next = previous.filter(item => root.contains(item.anchor))
       if (!rawVideos.length && next.length === previous.length) return
 

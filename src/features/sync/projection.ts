@@ -27,6 +27,7 @@ export const SETTING_KEYS = {
   translation: 'translation',
   readAloud: 'readAloud',
   proxy: 'proxy',
+  rsshubInstances: 'rsshubInstances',
   autoRefresh: 'autoRefreshOnCategorySwitch',
   recommend: 'recommendEnabled',
   presets: 'presets',
@@ -228,6 +229,7 @@ function customSourcePayload(source: NewsSource, enabled: boolean, sortRank: str
     paused: source.paused === true,
     discovery: source.discovery,
     frameworkHint: source.frameworkHint,
+    catalogProfile: source.catalogProfile ?? source.catalogProfileOpaque,
   }
 }
 
@@ -343,6 +345,7 @@ function projectSettings(target: LocalProjection, input: ProjectionInput): void 
   project(target, 'setting', SETTING_KEYS.translation, { value: translationSetting(prefs) })
   project(target, 'setting', SETTING_KEYS.readAloud, { value: prefs.readAloud })
   project(target, 'setting', SETTING_KEYS.proxy, { value: proxySetting(prefs) })
+  project(target, 'setting', SETTING_KEYS.rsshubInstances, { value: prefs.rsshubInstances })
   project(target, 'setting', SETTING_KEYS.autoRefresh, {
     value: prefs.autoRefreshOnCategorySwitch !== false,
   })

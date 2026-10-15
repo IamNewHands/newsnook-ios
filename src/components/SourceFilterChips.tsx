@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { Bookmark, BookmarkCheck, CircleMinus } from 'lucide-react'
+import { Bookmark, BookmarkCheck, CircleMinus, Pencil } from 'lucide-react'
 
 import { useLongPressAction } from '../hooks/useLongPressAction'
 import type { Point } from '../lib/contextActions'
 import type { NewsSource } from '../sources/registry'
 import { ContextActionMenu, type ContextActionItem } from './ContextActionMenu'
+import { PromptDialog } from './ConfirmDialog'
 
 interface Props {
   sources: NewsSource[]
@@ -13,6 +14,7 @@ interface Props {
   favoriteSourceIds?: readonly string[]
   onToggleFavorite?: (sourceId: string) => void
   onRemoveSource?: (sourceId: string) => void
+  onRenameSource?: (sourceId: string, name: string) => void
   /** 可选：每个信源的文章数量统计 */
   counts?: Record<string, number>
 }
@@ -24,9 +26,11 @@ export function SourceFilterChips({
   favoriteSourceIds = [],
   onToggleFavorite,
   onRemoveSource,
+  onRenameSource,
   counts,
 }: Props) {
   const [actionMenu, setActionMenu] = useState<{ sourceId: string; anchor: Point } | null>(null)
+  const [renameSourceId, setRenameSourceId] = useState<string | null>(null)
   const longPress = useLongPressAction<string>((sourceId, anchor) => {
     setActionMenu({ sourceId, anchor })
   })
@@ -37,8 +41,15 @@ export function SourceFilterChips({
     ? sources.find((source) => source.id === actionMenu.sourceId)
     : undefined
   const actionIsFavorite = actionSource ? favoriteSourceIds.includes(actionSource.id) : false
+  const renameSource = sources.find((source) => source.id === renameSourceId)
   const actionItems: ContextActionItem[] = actionSource
     ? [
+        ...(onRenameSource ? [{
+          id: 'rename',
+          label: '重命名信源',
+          icon: Pencil,
+          onSelect: () => setRenameSourceId(actionSource.id),
+        }] : []),
         ...(onToggleFavorite
           ? [
               {
@@ -138,6 +149,21 @@ export function SourceFilterChips({
         caption="当前预设 · 信源管理"
         actions={actionItems}
         onClose={() => setActionMenu(null)}
+      />
+      <PromptDialog
+        open={Boolean(renameSource && onRenameSource)}
+        title="重命名信源"
+        message="修改显示名称，不影响订阅地址和内容。"
+        label="信源名称"
+        defaultValue={renameSource?.name ?? ''}
+        confirmLabel="保存名称"
+        onConfirm={(value) => {
+          const name = value.trim()
+          if (!renameSource || !onRenameSource || !name) return
+          onRenameSource(renameSource.id, name)
+          setRenameSourceId(null)
+        }}
+        onCancel={() => setRenameSourceId(null)}
       />
     </div>
   )

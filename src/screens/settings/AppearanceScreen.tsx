@@ -135,7 +135,7 @@ export function AppearanceScreen({
       </div>
 
       {isModernWebView() && (
-        <SettingsSection title="风格">
+        <SettingsSection variant="plain" title="风格">
           <ul aria-label="选择外观风格" className="page-x grid grid-cols-2 gap-3">
             {THEME_SCHEMES.map((item) => {
             const checked = item.id === scheme
@@ -255,7 +255,7 @@ export function AppearanceScreen({
         </ul>
       </SettingsSection>
 
-      <SettingsSection title="首页布局">
+      <SettingsSection variant="plain" title="首页布局">
         <div className="page-x grid grid-cols-2 gap-3">
           {([
             {

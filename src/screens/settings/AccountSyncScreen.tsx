@@ -698,7 +698,7 @@ export function AccountSyncScreen({ account, sync, runtime, onBack }: Props) {
 
       {view === 'ready' && (
         <>
-          <SettingsSection title="同步状态">
+          <SettingsSection variant="plain" title="同步状态">
             <div className="page-x">
               <Card>
                 <div className="flex items-center gap-3">
@@ -748,7 +748,7 @@ export function AccountSyncScreen({ account, sync, runtime, onBack }: Props) {
           </SettingsSection>
 
           {sync.conflicts.length > 0 && (
-            <SettingsSection title="需要你决定">
+            <SettingsSection variant="plain" title="需要你决定">
               <div className="page-x">
                 <div className="rounded-2xl border border-cinnabar/50 bg-cinnabar/10 p-4">
                   <div className="flex items-start gap-3">
@@ -781,7 +781,7 @@ export function AccountSyncScreen({ account, sync, runtime, onBack }: Props) {
             </SettingsSection>
           )}
 
-          <SettingsSection title="设备">
+          <SettingsSection variant="plain" title="设备">
             <div className="page-x">
               <Card>
                 {deviceError && (
@@ -873,7 +873,7 @@ export function AccountSyncScreen({ account, sync, runtime, onBack }: Props) {
             </div>
           </SettingsSection>
 
-          <SettingsSection title="登录方式">
+          <SettingsSection variant="plain" title="登录方式">
             <div className="page-x">
               <Card>
                 <ul className="divide-y divide-haze/60">
@@ -922,7 +922,7 @@ export function AccountSyncScreen({ account, sync, runtime, onBack }: Props) {
             </div>
           </SettingsSection>
 
-          <SettingsSection title="退出与回滚">
+          <SettingsSection variant="plain" title="退出与回滚">
             <div className="page-x">
               <Card>
                 <ul className="divide-y divide-haze/60">

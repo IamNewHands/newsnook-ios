@@ -10,6 +10,7 @@ export interface LinuxDoUser {
   unreadNotifications?: number
   allUnreadNotificationsCount?: number
   canUseTemplates?: boolean
+  canAssignGlobally?: boolean
 }
 
 export interface LinuxDoCategory {
@@ -132,6 +133,7 @@ export interface LinuxDoPost {
 
 export interface LinuxDoTopic {
   id: number
+  archetype?: string
   slug: string
   title: string
   fancyTitle?: string

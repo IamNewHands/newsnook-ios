@@ -4,6 +4,12 @@ News Nook（有所闻）使用 React + Vite 构建 Web 应用，并通过 Capaci
 
 产品说明见根目录 [`README.md`](../README.md)。
 
+## 保护已有调试数据
+
+有用户数据的设备或模拟器只用 `adb install -r` 覆盖安装，不执行 `adb uninstall` 或 `pm clear`。运行 `connectedAndroidTest` 前必须改用独立空白 AVD 或隔离包名：Gradle 的 UTP 安装器可能设置 `uninstall_after_test: true`，从而在测试结束时删除目标 App 及其本地数据。不要在日常使用的调试 App 上直接运行此任务。
+
+更新前将应用私有目录备份到电脑的私有目录，勿放入仓库。覆盖安装后核对 `firstInstallTime` 与本地偏好/订阅是否保留；包名和签名不一致时停止处理，不能以卸载重装来消除安装错误。
+
 ## 环境要求
 
 - Node.js 22 或更高版本
@@ -67,6 +73,8 @@ npm run android:aab
 ```
 
 两个命令都会自动完成 Web 生产构建、Capacitor 同步、Gradle Release 构建、R8 压缩、资源裁剪和签名校验。
+
+APK 构建还会检查 ZIP 中原生库的 16KB 对齐，以及所有 64 位 ELF 的 LOAD / RELRO 对齐；不兼容的 JNI 或预编译库会阻止交付。回归检查：`node scripts/android-apk-pages.test.mjs`。
 
 | 变体 | 本地翻译 | 设置中的离线入口 | 用途 |
 |---|---|---|---|
@@ -180,6 +188,22 @@ npm run android:sync
 npm run android:run
 npm run android:run:local
 ```
+
+两个命令均使用独立的调试包名 `com.aizeek.newsnook.debug`，桌面名称为「有所闻（调试）」；可与正式版 `com.aizeek.newsnook` 同时安装，本地设置与缓存各自独立。`cloudDebug` 与 `localDebug` 使用相同调试包名，切换时会互相覆盖。Release APK / AAB 的包名不变。
+
+Linux.do 楼中楼的 CSS 回归需要真实布局引擎，先在调试版打开一个 Linux.do 帖子。运行 `adb shell cat /proc/net/unix` 查找当前应用的 `webview_devtools_remote_<pid>`，用 `adb forward tcp:9223 localabstract:webview_devtools_remote_<pid>` 转发，再执行 `npm run test:linuxdo-threaded-layout`，验证连续卡片衔接、首尾圆角、组间距、八层回复宽度与紧凑操作栏。测试会临时切换到 320 / 390 / 426 / 768px 视口并创建隐藏布局样本，结束时删除样本、恢复视口；无需登录。自定义调试地址可通过 `NEWSNOOK_WEBVIEW_CDP_URL` 指定。普通行为测试仍用 `npm run test:linuxdo-threaded`，不依赖模拟器。
+
+调试版与正式版仍共用深链和登录回调 scheme；同时安装时，系统可能提示选择打开的应用。调试版不能通过应用内更新安装正式发布的 APK（包名与签名不匹配），更新调试版请重新运行上述命令。
+
+只打包、不安装 Debug APK：
+
+```bash
+npm run android:apk:debug        # cloud + local
+npm run android:apk:debug:cloud  # 仅轻量版
+npm run android:apk:debug:local  # 仅本地翻译版
+```
+
+这些命令自动构建 Web、同步 Capacitor、构建 Debug APK 并校验包名、签名和 16KB 对齐；不要求正式签名材料，不拆分 ABI，也不连接或安装到设备。local 与生产打包一样会在缺少 Bergamot 源码时自动执行 `bergamot:init`。产物归档为 `artifacts/android/newsnook-<version>-cloud-debug.apk` 和 `artifacts/android/newsnook-<version>-local-debug.apk`。
 
 在 Android Studio 中打开原生工程：
 

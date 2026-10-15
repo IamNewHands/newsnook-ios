@@ -3,6 +3,7 @@ import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 
 import { AppShell } from './components/AppShell'
+import { WikiSelectionLayer } from './features/wiki/WikiSelectionLayer'
 import { DlnaCastBanner } from './components/DlnaCastBanner'
 import { OpenInAppBanner } from './components/OpenInAppBanner'
 import { DesktopSidebar } from './components/DesktopSidebar'
@@ -30,6 +31,7 @@ import {
 import { sortArticles } from './lib/feedPagination'
 import { recoverAppScrollAfterNavigation } from './lib/gestureStyles'
 import { dismissTopHardwareBackLayer } from './lib/hardwareBackStack'
+import { haptics } from './lib/haptics'
 import { log } from './lib/logger'
 import {
   buildReadingProfile,
@@ -39,6 +41,7 @@ import {
   scopeSignalsToSources,
 } from './lib/recommend'
 import { resolveArticleBody } from './lib/resolveBody'
+import { withArticlePreviewImage } from './lib/articlePreview'
 import {
   isAndroidBrowser,
   preferredOpenInAppUrl,
@@ -73,6 +76,7 @@ import { ChannelsScreen } from './screens/ChannelsScreen'
 import { FeedScreen } from './screens/FeedScreen'
 import { MeScreen } from './screens/MeScreen'
 import { SiteScreen } from './screens/SiteScreen'
+import { formatSiteBrandName, formatSiteDisplayName, getSiteCleanDomain } from './features/siteCatalog/uiUtils'
 import { AboutScreen } from './screens/settings/AboutScreen'
 import { AccountSyncScreen } from './screens/settings/AccountSyncScreen'
 import { ChangelogScreen } from './screens/settings/ChangelogScreen'
@@ -84,6 +88,9 @@ import { CategorySourcesScreen } from './screens/settings/CategorySourcesScreen'
 import { CategoryEditScreen } from './screens/settings/CategoryEditScreen'
 import { CustomSourcesScreen } from './screens/settings/CustomSourcesScreen'
 import { HistoryScreen } from './screens/settings/HistoryScreen'
+import { clearReadingHistory, listReadingHistory, migrateCachedReadingHistory, recordArticleRead, removeReadingHistory, removeReadingHistories, restoreReadingHistories, type ReadingHistoryEntry } from './features/readingHistory/store'
+import type { LinuxDoTopicSummary } from './features/linuxdo/types'
+import type { ZhihuEntityRef } from './features/zhihu/types'
 import { LaterScreen } from './screens/settings/LaterScreen'
 import { LocalSearchScreen } from './screens/settings/LocalSearchScreen'
 import { PresetListScreen } from './screens/settings/PresetListScreen'
@@ -139,6 +146,8 @@ import {
   resetTypography,
   setAutoRefreshOnCategorySwitch,
   setCategoryOrder,
+  moveCategory,
+  moveCmsSource,
   setEinkMode,
   setHomeFeedLayout,
   setPrestoreEnabled,
@@ -154,6 +163,7 @@ import {
   toggleCategoryVisible,
   updateCustomCategory,
   updateCustomSource,
+  renameSource,
   updateTypography,
   visibleCategories,
   withFavoriteCategory,
@@ -161,7 +171,7 @@ import {
   type TypographyPrefs,
 } from './sources/preferences'
 import { SITES, SOURCES, findSite, findSource, makeCustomSourceId } from './sources/registry'
-import { replaceCustomSourceInstance, setCustomSourcePaused } from './features/feedDiscovery/subscriptionActions'
+import { findSubscriptionDuplicate, replaceCustomSourceInstance, setCustomSourcePaused } from './features/feedDiscovery/subscriptionActions'
 import { SettingsShell } from './components/SettingsShell'
 
 const FeedStoreScreen = lazy(() => import('./screens/settings/FeedStoreScreen').then((module) => ({ default: module.FeedStoreScreen })))
@@ -230,7 +240,7 @@ interface BodyPrefetchTask {
   article: Article
   signal: AbortSignal
   shouldPin: () => boolean
-  onCacheChange: () => void
+  onCacheChange: (article?: Article) => void
   extraSources?: import('./sources/registry').NewsSource[]
 }
 
@@ -251,15 +261,16 @@ function drainBodyPrefetchQueue(): void {
         const resolved = await resolveArticleBody(task.article, task.signal, task.extraSources)
         if (task.signal.aborted) return
         if (resolved.bodySource === 'video') return
+        const previewArticle = withArticlePreviewImage(task.article, resolved.contentHtml, resolved.image)
         const cached = saveCachedBody(
-          task.article,
+          previewArticle,
           {
             html: resolved.contentHtml,
             bodySource: resolved.bodySource,
           },
           { pinned: task.shouldPin() },
         )
-        if (cached) task.onCacheChange()
+        if (cached) task.onCacheChange(previewArticle)
       } catch {
         // 离线或抽取失败时静默跳过；下次启动、重新收藏或实际阅读时会再试。
       } finally {
@@ -434,11 +445,15 @@ export default function App() {
   /** 推荐排序经 ref 读取已读集合：打开文章返回时不重排，避免列表跳动 */
   const readIdsRef = useRef(readIds)
   readIdsRef.current = readIds
+  const [readingHistory, setReadingHistory] = useState<ReadingHistoryEntry[]>(() => listReadingHistory())
+  const [historyLinuxDoTarget, setHistoryLinuxDoTarget] = useState<LinuxDoTopicSummary | null>(null)
+  const [historyZhihuTarget, setHistoryZhihuTarget] = useState<ZhihuEntityRef | null>(null)
   const [cacheSnapshot, setCacheSnapshot] = useState(emptyCacheSnapshot)
   const cacheSnapshotReadyRef = useRef(false)
   const refreshCacheSnapshot = useCallback(() => {
     cacheSnapshotReadyRef.current = true
     setCacheSnapshot(readCacheSnapshot())
+    setReadingHistory(migrateCachedReadingHistory(listCachedArticles(500), readIdsRef.current))
   }, [])
   const notifyCacheChange = useCallback(() => {
     // 首屏不主动扫正文/列表统计；等「我的 / 存储 / 历史」真正需要时再计算
@@ -526,9 +541,9 @@ export default function App() {
   const availableCategorySources = useMemo(
     () =>
       categorySourceIds
-        .map((id) => findSource(id, prefs.customSources))
+        .map((id) => allRegisteredSources(prefs).find((source) => source.id === id))
         .filter((s): s is NonNullable<ReturnType<typeof findSource>> => Boolean(s)),
-    [categorySourceIds, prefs.customSources],
+    [categorySourceIds, prefs],
   )
 
   // 若切换分类导致已选信源不在新分类中，自动重置回全部
@@ -585,7 +600,9 @@ export default function App() {
   const closeReader = useCallback(() => {
     setReading(null)
     clearShareLocation()
-    recoverAppScrollAfterNavigation()
+    window.requestAnimationFrame(() => {
+      recoverAppScrollAfterNavigation()
+    })
   }, [])
 
   const dismissDeepLinkError = useCallback(() => {
@@ -703,6 +720,7 @@ export default function App() {
     paginationState,
     refresh,
     loadMore,
+    updateArticlePreview,
   } = useFeeds(fetchIds, notifyCacheChange, prefs.customSources, activePresetId, automaticFetchIds)
 
   const prestore = usePrestore({
@@ -712,12 +730,23 @@ export default function App() {
     // 首页刷新、加载历史和主动阅读优先，自动预存不与前台关键路径争抢网络/CPU。
     suspend: refreshing || loadingMore || Boolean(reading),
   })
+  const updatePrestorePreview = prestore.updateArticlePreview
+  const handleBodyCacheChange = useCallback((article?: Article) => {
+    if (article) {
+      updateArticlePreview(article)
+      updatePrestorePreview(article)
+    }
+    notifyCacheChange()
+  }, [notifyCacheChange, updateArticlePreview, updatePrestorePreview])
 
   // 预存清单自身携带文章元数据，离线时无需依赖 localStorage 列表缓存。
   // 当前在线/列表缓存版本覆盖同 ID 的旧元数据，随后统一按发布时间排序。
   const availableArticles = useMemo(() => {
     const byId = new Map(prestore.snapshot.articles.map((article) => [article.id, article]))
-    fetchedArticles.forEach((article) => byId.set(article.id, article))
+    fetchedArticles.forEach((article) => {
+      const image = article.image || byId.get(article.id)?.image
+      byId.set(article.id, image && !article.image ? { ...article, image } : article)
+    })
     return sortArticles([...byId.values()])
   }, [fetchedArticles, prestore.snapshot.articles])
 
@@ -847,10 +876,20 @@ export default function App() {
     [update],
   )
 
+  const handleMoveCategory = useCallback(
+    (id: CategoryId, direction: -1 | 1) => update((prev) => moveCategory(prev, id, direction)),
+    [update],
+  )
+
   const handleRenameCategory = useCallback(
     (id: CategoryId, name: string) => {
       update((prev) => renameCategory(prev, id, name))
     },
+    [update],
+  )
+
+  const handleRenameSource = useCallback(
+    (id: string, name: string) => update((prev) => renameSource(prev, id, name)),
     [update],
   )
 
@@ -873,22 +912,23 @@ export default function App() {
         article,
         signal: controller.signal,
         shouldPin: () => laterRef.current.some((item) => item.id === article.id),
-        onCacheChange: notifyCacheChange,
+        onCacheChange: handleBodyCacheChange,
         extraSources: prefs.customSources,
       })
     })
     notifyCacheChange()
     return () => controller.abort()
-  }, [later, notifyCacheChange, prefs.customSources])
+  }, [later, notifyCacheChange, handleBodyCacheChange, prefs.customSources])
+
+  const customSourcesRef = useRef(prefs.customSources)
+  customSourcesRef.current = prefs.customSources
 
   const openArticle = useCallback((article: Article) => {
     setReaderReturnArticle(null)
     setReading(article)
     setReadIds((prev) => new Set(prev).add(article.id))
+    setReadingHistory(recordArticleRead(article, findSource(article.sourceId, customSourcesRef.current)?.kind === 'web-catalog' ? 'cms' : 'feed'))
   }, [])
-
-  const customSourcesRef = useRef(prefs.customSources)
-  customSourcesRef.current = prefs.customSources
 
   /**
    * App 唤起深链：Android 的 https App Links 与 `newsnook://` 自定义 scheme
@@ -995,6 +1035,7 @@ export default function App() {
       laterRef.current = next
       setLater(next)
       setBodyPinned(article.id, false)
+      void haptics.tick()
       notifyCacheChange()
       return
     }
@@ -1002,6 +1043,7 @@ export default function App() {
     const next = [article, ...laterRef.current]
     laterRef.current = next
     setLater(next)
+    void haptics.success()
   }, [notifyCacheChange])
 
   const removeLater = useCallback((id: string) => {
@@ -1009,6 +1051,7 @@ export default function App() {
     laterRef.current = next
     setLater(next)
     setBodyPinned(id, false)
+    void haptics.tick()
     notifyCacheChange()
   }, [notifyCacheChange])
 
@@ -1049,10 +1092,12 @@ export default function App() {
     ]
   }, [activeSiteId, presets.builtins, presets.state])
 
-  const frameworkSiteCount = useMemo(
-    () => (prefs.customSources ?? []).filter((s) => s.frameworkHint && s.kind === 'web-catalog').length,
+  const cmsSources = useMemo(
+    () => (prefs.customSources ?? []).filter((s) => s.kind === 'web-catalog'),
     [prefs.customSources],
   )
+  const frameworkSiteCount = cmsSources.length
+  const [selectedCmsId, setSelectedCmsId] = useState<string | null>(null)
 
   const siteSwitcherItems = useMemo(
     () => Capacitor.isNativePlatform()
@@ -1067,11 +1112,24 @@ export default function App() {
   )
 
   const presetSwitcherConfig = useMemo(() => ({
-    activeName: findSite(activeSiteId)?.name ?? presets.activePreset?.name ?? '场景预设',
+    activeName: findSite(activeSiteId)?.name
+      ?? (tab === 'sites'
+        ? (formatSiteBrandName(cmsSources.find((source) => source.id === selectedCmsId))
+          || 'CMS 站点')
+        : null)
+      ?? presets.activePreset?.name ?? '场景预设',
     items: presetSwitcherItems,
+    onRenamePreset: presets.rename,
+    onMovePreset: presets.move,
+    onRenameCms: handleRenameSource,
+    onMoveCms: (id: string, direction: -1 | 1) => update((prev) => moveCmsSource(prev, id, direction)),
     onSelect: (id: string) => {
       if (activeSiteId) leaveActiveSite()
       if (id !== presets.state.activePresetId) presets.applyPreset(id)
+      // 从独立 CMS 站点切回资讯布局时，必须真的返回首页而非只改预设状态。
+      setSelectedCmsId(null)
+      setSettingsRoute(null)
+      setTab('today')
     },
     onManage: () => {
       if (activeSiteId) leaveActiveSite()
@@ -1096,18 +1154,60 @@ export default function App() {
     },
     onSites: frameworkSiteCount > 0 ? () => {
       if (activeSiteId) leaveActiveSite()
+      setSettingsRoute(null)
+      setSelectedCmsId(null)
       setTab('sites')
     } : undefined,
-    siteCount: frameworkSiteCount,
-  }), [activeSiteId, frameworkSiteCount, leaveActiveSite, presetSwitcherItems, presets, siteSwitcherItems])
+    cmsActive: tab === 'sites',
+    activeCmsId: tab === 'sites' ? selectedCmsId : null,
+    cmsSites: cmsSources.map((source) => ({
+      id: source.id,
+      // A source label is a short category tag (often auto-cut to 8 characters),
+      // not the site title. Preserve the full name and its domain suffix.
+      name: formatSiteDisplayName({ name: source.name, url: source.url }),
+      description: getSiteCleanDomain(source.url),
+      framework: source.frameworkHint?.framework ?? source.catalogProfile?.engine,
+      url: source.url,
+    })),
+    onSelectCms: (id: string) => {
+      if (!cmsSources.some((source) => source.id === id)) return
+      if (activeSiteId) leaveActiveSite()
+      setSettingsRoute(null)
+      setSelectedCmsId(id)
+      setTab('sites')
+    },
+    onAddCms: () => {
+      if (activeSiteId) leaveActiveSite()
+      setTab('me')
+      setSettingsRoute({ name: 'custom-sources' })
+    },
+  }), [activeSiteId, cmsSources, frameworkSiteCount, handleRenameSource, leaveActiveSite, presetSwitcherItems, presets, selectedCmsId, siteSwitcherItems, tab, update])
 
   const cachedHistory = useMemo(
-    () =>
-      cacheSnapshot.history
-        .filter((entry) => !laterIds.has(entry.article.id))
-        .map((entry) => entry.article),
-    [cacheSnapshot.history, laterIds],
+    () => readingHistory.filter((entry): entry is Extract<ReadingHistoryEntry, { kind: 'article' }> => entry.kind === 'article').map((entry) => entry.article),
+    [readingHistory],
   )
+
+  const openHistoryEntry = useCallback((entry: ReadingHistoryEntry) => {
+    if (entry.kind === 'article') {
+      openArticle(entry.article)
+      return
+    }
+    setSettingsRoute(null)
+    setTab('today')
+    if (entry.kind === 'linuxdo') {
+      setHistoryZhihuTarget(null)
+      setHistoryLinuxDoTarget({ id: entry.topicId, slug: entry.slug, title: entry.title, postsCount: 1,
+        replyCount: 0, views: 0, likeCount: 0, createdAt: '', lastPostedAt: '', tags: [], posters: [] })
+      saveActiveSiteId('linuxdo')
+      setActiveSiteId('linuxdo')
+    } else {
+      setHistoryLinuxDoTarget(null)
+      setHistoryZhihuTarget(entry.ref)
+      saveActiveSiteId('zhihu')
+      setActiveSiteId('zhihu')
+    }
+  }, [openArticle])
 
   const customSourcesSummary = useMemo(() => {
     const count = prefs.customSources?.length ?? 0
@@ -1358,6 +1458,34 @@ export default function App() {
             setEnabledIds(nextEnabled)
             return { ok: true }
           }}
+          onSubscribeMany={(drafts, targetCatId, addToMix, expectedPresetId) => {
+            if (presets.state.activePresetId !== expectedPresetId) {
+              return { ok: false, message: '场景预设已变化，请重新选择订阅分类。' }
+            }
+            if (!drafts.length || drafts.length > 8) return { ok: false, message: '单次最多添加 8 个频道。' }
+            let nextPrefs = prefs
+            const nextEnabled = [...enabledIds]
+            let added = 0
+            for (const draft of drafts) {
+              const existing = findSubscriptionDuplicate(nextPrefs, { url: draft.url, discovery: draft.discovery })
+              if (existing) continue
+              const outcome = addCustomSource(nextPrefs, draft, targetCatId)
+              nextPrefs = outcome.nextPrefs
+              if (addToMix && !nextEnabled.includes(outcome.newSourceId)) nextEnabled.push(outcome.newSourceId)
+              added++
+            }
+            if (!added) return { ok: false, message: '所选频道已经订阅，无需重复添加。' }
+            if (targetCatId && nextPrefs.hiddenCategoryIds.includes(targetCatId)) nextPrefs = toggleCategoryVisible(nextPrefs, targetCatId)
+            if (addToMix && nextPrefs.hiddenCategoryIds.includes(FOLLOWS_ENABLED_SOURCES)) nextPrefs = toggleCategoryVisible(nextPrefs, FOLLOWS_ENABLED_SOURCES)
+            try {
+              saveSubscriptionState(sanitizeForPersistence(nextPrefs), nextEnabled)
+            } catch {
+              return { ok: false, message: '订阅保存失败，请检查本机存储空间后重试。' }
+            }
+            replacePreferences(nextPrefs)
+            setEnabledIds(nextEnabled)
+            return { ok: true }
+          }}
           onAddBuiltinToCategory={(sourceId, targetCatId, expectedPresetId, addToMix = false) => {
             if (presets.state.activePresetId !== expectedPresetId) {
               return { ok: false, message: '场景预设已变化，请重新选择分类。' }
@@ -1372,6 +1500,7 @@ export default function App() {
             setEnabledIds(nextEnabled)
             return { ok: true }
           }}
+          onUpdateRssHubInstances={(instances) => update((previous) => ({ ...previous, rsshubInstances: instances }))}
           onPause={(sourceId, paused) => {
             const nextPrefs = setCustomSourcePaused(prefs, sourceId, paused)
             try { saveSubscriptionState(sanitizeForPersistence(nextPrefs), enabledIds) } catch { return { ok: false, message: '订阅保存失败，请检查本机存储空间后重试。' } }
@@ -1497,8 +1626,12 @@ export default function App() {
     if (settingsRoute.name === 'history') {
       return (
         <HistoryScreen
-          history={cachedHistory}
-          onOpen={openArticle}
+          history={readingHistory}
+          onOpen={openHistoryEntry}
+          onRemove={(key) => setReadingHistory(removeReadingHistory(key))}
+          onBatchRemove={(keys) => setReadingHistory(removeReadingHistories(keys))}
+          onRestore={(entries) => setReadingHistory(restoreReadingHistories(entries))}
+          onClear={() => setReadingHistory(clearReadingHistory())}
           onBack={() => setSettingsRoute(null)}
         />
       )
@@ -1627,8 +1760,7 @@ export default function App() {
           onLoadMore={() => void loadMore([focusSource.id])}
           onOpen={openArticle}
           onBack={closeSourceFeed}
-          searchTemplate={focusSource.frameworkHint?.searchTemplate}
-          frameworkCategories={focusSource.frameworkHint?.categories}
+          catalogSource={focusSource.kind === 'web-catalog' ? focusSource : undefined}
         />
       )
     }
@@ -1637,7 +1769,7 @@ export default function App() {
       return (
         <MeScreen
           later={later}
-          history={cachedHistory}
+          historyCount={readingHistory.length}
           readCount={readIds.size}
           customSourcesSummary={customSourcesSummary}
           categoriesSummary={`${regularCategories.length} 个启用分类 · ${
@@ -1667,6 +1799,7 @@ export default function App() {
           onOpenTypographySettings={() => setSettingsRoute({ name: 'typography' })}
           onOpenAppearanceSettings={() => setSettingsRoute({ name: 'appearance' })}
           onOpenTranslationSettings={() => setSettingsRoute({ name: 'translation' })}
+          onOpenWikiSettings={() => window.dispatchEvent(new Event('newsnook:open-wiki-settings'))}
           onOpenReadAloudSettings={() => setSettingsRoute({ name: 'read-aloud' })}
           onOpenAiSettings={() => setSettingsRoute({ name: 'ai' })}
           onOpenProxySettings={() => setSettingsRoute({ name: 'proxy' })}
@@ -1678,15 +1811,28 @@ export default function App() {
     }
 
     if (tab === 'sites') {
-      const frameworkSites = (prefs.customSources ?? [])
-        .filter((s) => s.frameworkHint && s.kind === 'web-catalog')
-        .map((s) => ({ source: s, hint: s.frameworkHint! }))
+      const allFrameworkSites = cmsSources.map((s) => ({
+        source: s,
+        hint: s.frameworkHint!,
+      }))
       return (
         <SiteScreen
-          sites={frameworkSites}
+          key="cms-site-workspace"
+          sites={allFrameworkSites}
+          activeSiteId={selectedCmsId ?? allFrameworkSites[0]?.source.id}
           readIds={readIds}
           onOpen={openArticle}
-          onBack={() => setTab('today')}
+          onSelectSite={(id) => {
+            setSelectedCmsId(id)
+          }}
+          onManageSites={() => {
+            setTab('me')
+            setSettingsRoute({ name: 'custom-sources' })
+          }}
+          onBack={() => {
+            setSelectedCmsId(null)
+            setTab('today')
+          }}
         />
       )
     }
@@ -1725,6 +1871,7 @@ export default function App() {
         onSelectSource={setCategoryFilterSourceId}
         favoriteSourceIds={prefs.favoriteSourceIds}
         onToggleFavoriteSource={handleToggleFavoriteSource}
+        onRenameSource={handleRenameSource}
         onRemoveSource={
           categoryId === FAVORITES_CATEGORY_ID || categoryId === RECOMMEND_CATEGORY_ID
             ? undefined
@@ -1732,6 +1879,7 @@ export default function App() {
         }
         onRemoveCategory={handleRemoveCategory}
         onRenameCategory={handleRenameCategory}
+        onMoveCategory={handleMoveCategory}
         articlesForCategory={articlesForCategory}
         translationPrefs={prefs.translation}
         customSources={prefs.customSources}
@@ -1741,8 +1889,7 @@ export default function App() {
         onBrandTap={onBrandTap}
         onOpenLocalSearch={() => setSettingsRoute({ name: 'local-search' })}
         pullRefreshSeq={todayPullRefreshSeq}
-        searchTemplate={activeFilterSource?.frameworkHint?.searchTemplate}
-        frameworkCategories={activeFilterSource?.frameworkHint?.categories}
+        catalogSource={activeFilterSource?.kind === 'web-catalog' ? activeFilterSource : undefined}
       />
     )
   }
@@ -1763,7 +1910,7 @@ export default function App() {
           activeTab={tab}
           settingsRouteName={settingsRoute ? settingsRoute.name : null}
           laterCount={later.length}
-          historyCount={cachedHistory.length}
+          historyCount={readingHistory.length}
           theme={prefs.theme}
           resolvedTheme={resolvedTheme}
           hasUpdate={appUpdate.hasUpdate}
@@ -1813,6 +1960,9 @@ export default function App() {
                   update((prev) => updateTypography(prev, { fontScale: next }))
                 }
                 speedReadConfig={speedReadConfig}
+                historyTarget={historyZhihuTarget}
+                onHistoryTargetConsumed={() => setHistoryZhihuTarget(null)}
+                onHistoryChange={() => setReadingHistory(listReadingHistory())}
               />
             </Suspense>
           ) : activeSiteId === 'linuxdo' ? (
@@ -1827,6 +1977,9 @@ export default function App() {
                 onExit={leaveActiveSite}
                 backHandlerRef={siteBackHandlerRef}
                 presetSwitcher={presetSwitcherConfig}
+                historyTarget={historyLinuxDoTarget}
+                onHistoryTargetConsumed={() => setHistoryLinuxDoTarget(null)}
+                onHistoryChange={() => setReadingHistory(listReadingHistory())}
               />
             </Suspense>
           ) : (
@@ -1837,7 +1990,7 @@ export default function App() {
                 currentReaderArticleId={reading?.id ?? null}
               />
 
-              {!focusSource && (
+              {!focusSource && tab !== 'sites' && (
                 <TabBar
                   active={tab}
                   laterCount={later.length}
@@ -1888,7 +2041,7 @@ export default function App() {
             saved={laterIds.has(reading.id)}
             onClose={closeReader}
             onToggleLater={toggleLater}
-            onCacheChange={notifyCacheChange}
+            onCacheChange={handleBodyCacheChange}
             overlayCloserRef={readerOverlayCloserRef}
             translationPrefs={prefs.translation}
             readAloudPrefs={prefs.readAloud}
@@ -1913,6 +2066,8 @@ export default function App() {
       {showOpenInAppBanner && openInAppUrl && (
         <OpenInAppBanner href={openInAppUrl} onDismiss={() => setOpenInAppDismissed(true)} />
       )}
+
+      <WikiSelectionLayer />
 
       <SchemeOnboardingPrompt
         open={showSchemeOnboarding}

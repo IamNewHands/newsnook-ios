@@ -1,3 +1,4 @@
+import { recordZhihuRead } from '../../readingHistory/store'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import { ArrowLeft, Bell, Home, Loader2, ScrollText, Search, UserRound } from 'lucide-react'
@@ -52,6 +53,9 @@ interface Props {
   fontScale: number
   onFontScale: (next: number) => void
   speedReadConfig: CloudTranslationConfig
+  historyTarget?: ZhihuEntityRef | null
+  onHistoryTargetConsumed?: () => void
+  onHistoryChange?: () => void
 }
 
 let retainedFrames: RouteFrame[] | null = null
@@ -122,7 +126,7 @@ function capabilityPlaceholder(title: string, description: string) {
   )
 }
 
-export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontScale, onFontScale, speedReadConfig }: Props) {
+export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontScale, onFontScale, speedReadConfig, historyTarget, onHistoryTargetConsumed, onHistoryChange }: Props) {
   const runtime = useMemo(() => createZhihuRuntime(), [])
   const feedService = useMemo(() => createZhihuFeedService(runtime.api), [runtime])
   const recommendationFeedback = useMemo(
@@ -147,6 +151,11 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
   const [workspaceError, setWorkspaceError] = useState<string | null>(null)
   const [speedReadHeaderAction, setSpeedReadHeaderAction] = useState<ZhihuSpeedReadHeaderAction | null>(null)
   const [frames, setFrames] = useState<RouteFrame[]>(() => retainedFrames?.map((frame) => ({ ...frame })) ?? [createZhihuRootFrame()])
+  useEffect(() => {
+    if (!historyTarget) return
+    setFrames([{ route: { screen: 'feed', mode: 'recommended' }, scrollTop: 0 }, { route: { screen: 'entity', ref: historyTarget }, scrollTop: 0 }])
+    onHistoryTargetConsumed?.()
+  }, [historyTarget, onHistoryTargetConsumed])
   const current = frames.at(-1) ?? createZhihuRootFrame()
   const currentRouteKey = zhihuRouteKey(current.route)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -515,6 +524,7 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
         return (
           <ZhihuContentScreen
             refValue={current.route.ref}
+            onArticleRead={(detail) => { recordZhihuRead(detail); onHistoryChange?.() }}
             preview={feedPreviewRef.current.get(`${current.route.ref.kind}:${current.route.ref.id}`)}
             contentService={contentService}
             feedService={feedService}

@@ -92,7 +92,7 @@ assert.equal(composerModel.normalizeComposerTag('  #Open AI  '), 'open-ai')
 assert.equal(composerModel.normalizeComposerTag(' #Node.js / API '), 'node.js-api')
 assert.deepEqual(
   composerModel.validateComposer({ mode: 'create', title: '短标题', raw: '不足二十字' }),
-  { canSubmit: false, titleCount: 3, bodyCount: 5, titleRemaining: 3, bodyRemaining: 15 },
+  { canSubmit: false, titleCount: 3, bodyCount: 5, bodyMinimum: 20, titleRemaining: 3, bodyRemaining: 15 },
 )
 assert.equal(composerModel.validateComposer({ mode: 'create', title: '这是合格标题', raw: '这是一段已经达到二十个字符要求并且能够正常发布的正文内容。' }).canSubmit, true)
 assert.equal(composerModel.validateComposer({ mode: 'reply', title: '', raw: '这是一段已经达到二十个字符要求并且能够正常发布的回复内容。' }).canSubmit, true)
@@ -590,6 +590,23 @@ const dirty = '<p onclick="evil()">safe</p><iframe src="javascript:alert(1)"></i
 const clean = sanitizeLinuxDoCooked(dirty)
 assert.doesNotMatch(clean, /onclick/i)
 assert.doesNotMatch(clean, /javascript:/i)
+
+// Bilibili's mobile iframe redirects between trusted Bilibili origins and uses
+// deviceorientation for its own fullscreen button. NewsNook supplies a separate
+// parent-origin fullscreen action instead of recreating the iframe after play.
+const bilibiliVideoHtml = sanitizeLinuxDoCooked(
+  '<p>video</p><iframe src="https://player.bilibili.com/player.html?bvid=BV1wpWw6zEiX&page=1" allowfullscreen></iframe>',
+)
+assert.match(bilibiliVideoHtml, /data-linuxdo-video-fullscreen=""/)
+assert.match(bilibiliVideoHtml, /data-linuxdo-video-fullscreen-toggle=""/)
+assert.match(bilibiliVideoHtml, /accelerometer https:\/\/player\.bilibili\.com https:\/\/www\.bilibili\.com/)
+assert.match(bilibiliVideoHtml, /gyroscope https:\/\/player\.bilibili\.com https:\/\/www\.bilibili\.com/)
+assert.equal((bilibiliVideoHtml.match(/<iframe\b/g) ?? []).length, 1)
+assert.equal((bilibiliVideoHtml.match(/data-linuxdo-video-fullscreen-toggle=/g) ?? []).length, 1)
+assert.doesNotMatch(sanitizeLinuxDoCooked('<iframe src="https://fake.bilibili.com/video/1"></iframe>'), /data-linuxdo-video-fullscreen/)
+assert.doesNotMatch(sanitizeLinuxDoCooked('<iframe src="https://player.bilibili.com.evil.example/player.html"></iframe>'), /data-linuxdo-video-fullscreen/)
+assert.doesNotMatch(sanitizeLinuxDoCooked('<iframe src="https://www.youtube.com/embed/test123"></iframe>'), /data-linuxdo-video-fullscreen/)
+assert.match(bilibiliVideoHtml, /<button[^>]*aria-label="全屏播放 Bilibili 视频"/)
 
 // Linux.do's web theme enhances GitHub-style Markdown alerts after cooking.
 // NewsNook must preserve the same semantics without depending on Discourse JS/CSS.

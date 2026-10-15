@@ -9,6 +9,7 @@ import { isPartialFeedTeaser, type BodySource } from './resolveBody'
 import { hasEmbedNoise } from './sanitize'
 import { hasBrokenTextEncoding } from './textEncoding'
 import type { Article } from './types'
+import { withArticlePreviewImage } from './articlePreview'
 
 export const BODY_CACHE_PREFIX = 'body:v1:'
 const INDEX_KEY = 'body:index'
@@ -200,7 +201,7 @@ export function saveCachedBody(
   if (hasBrokenTextEncoding(body.html)) return false
 
   const now = Date.now()
-  const payload: CachedBody = { ...body, article, savedAt: now }
+  const payload: CachedBody = { ...body, article: withArticlePreviewImage(article, body.html), savedAt: now }
   const serialized = JSON.stringify(payload)
   const key = keyOf(article.id)
   const bytes = approxStoredBytes(key, serialized)
@@ -255,6 +256,15 @@ export function saveCachedBody(
   if (previous) index[article.id] = previous
   saveIndex(index)
   return false
+}
+
+/** Read only the requested body; preview lookup must not touch LRU state or scan all caches. */
+export function withCachedBodyPreview(article: Article): Article {
+  if (article.image) return article
+  const raw = readRaw(keyOf(article.id))
+  const body = raw ? parseBody(raw) : null
+  if (!body || body.bodySource === 'blocked' || body.bodySource === 'video') return article
+  return withArticlePreviewImage(article, body.html, body.article?.image)
 }
 
 /** 稍后读集合变化时以业务状态为准，修复异步预取或旧版本留下的固定标记。 */
