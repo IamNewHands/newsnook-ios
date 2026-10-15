@@ -169,10 +169,10 @@ const bizGlobal = CATEGORIES.find((category) => category.id === 'biz-global')!
 const bizIndustry = CATEGORIES.find((category) => category.id === 'biz-industry')!
 const depthKnowledge = CATEGORIES.find((category) => category.id === 'depth-knowledge')!
 
-assert.equal(worldZh.label, '中文公共媒体')
-assert.equal(worldZhPress.label, '中文报刊通讯')
-assert.equal(worldNews.label, '英文公共媒体')
-assert.equal(worldNewsPress.label, '英文报刊聚合')
+assert.equal(worldZh.label, '中文公共')
+assert.equal(worldZhPress.label, '中文报刊')
+assert.equal(worldNews.label, '英文公共')
+assert.equal(worldNewsPress.label, '英文聚合')
 assert.equal(worldAsia.label, '亚太观察')
 assert.equal(worldOpinion.label, '国际评论')
 
