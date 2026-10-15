@@ -67,7 +67,7 @@ export function installLinuxDoEmbeddedVideoFullscreen(root: HTMLElement): () => 
     // Must be invoked synchronously inside the trusted click event. Awaiting
     // anything first would lose transient user activation in Android WebView.
     const enter = host.requestFullscreen?.bind(host)
-    const useFallback = () => {
+    const applyFallback = () => {
       if (!root.isConnected || !host.isConnected) return
       host.classList.add('is-fullscreen-fallback')
       nativeBridge()?.setEmbeddedVideoFullscreen?.(true)
@@ -80,13 +80,13 @@ export function installLinuxDoEmbeddedVideoFullscreen(root: HTMLElement): () => 
       updateControls()
     }
     if (!enter) {
-      useFallback()
+      applyFallback()
       return
     }
     try {
-      void enter().then(updateControls).catch(useFallback)
+      void enter().then(updateControls).catch(applyFallback)
     } catch {
-      useFallback()
+      applyFallback()
     }
   }
 

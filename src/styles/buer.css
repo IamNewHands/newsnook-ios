@@ -1,0 +1,226 @@
+/*
+ * 不二的AI / BUER.AI — 先锋黑白社论高级视觉体系
+ *
+ * 核心 VI：INK #000000 / PAPER #FFFFFF / SIGNAL #C8F008
+ * 设计定位：现代先锋奢牌纸媒 (Monocle / Acne Paper 风格) — 极简纯粹、轻盈透气、高知高级，拒绝粗暴厚重的粗野堆砌。
+ */
+
+/* ==========================================================================
+   01 — 设置与「我的」工作区 (Paper Settings Shell)
+   ========================================================================== */
+
+/* 头部品牌标符：极简高阶铭牌，一抹纯粹电绿珠宝微标 */
+html[data-scheme='buer'] .paper-settings-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: #111111;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  padding: 0;
+  margin-bottom: 2px;
+}
+html[data-scheme='buer'][data-theme='dark'] .paper-settings-brand {
+  color: #F5F5F7;
+}
+html[data-scheme='buer'] .paper-settings-brand-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50% !important;
+  background: #C8F008 !important;
+  box-shadow: 0 0 8px rgba(200, 240, 8, 0.9) !important;
+}
+
+/* 一级主标题：优雅黑体，精致字间距 */
+html[data-scheme='buer'] .paper-settings-header h1 {
+  font-weight: 800 !important;
+  letter-spacing: -0.035em !important;
+  color: var(--tone-paper) !important;
+}
+
+/* 分组标题：精致微间距，低调大写，不喧宾夺主 */
+html[data-scheme='buer'] .paper-settings-group-title,
+html[data-scheme='buer'] .paper-settings-section-title {
+  color: var(--tone-paper-muted) !important;
+  font-weight: 700 !important;
+  font-size: 11.5px !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  margin-bottom: 8px !important;
+}
+
+/* 设置卡片：优雅 10px 现代圆角，高精细致微线框，轻盈空气感，拒绝粗笨黑框与硬投影 */
+html[data-scheme='buer'] .paper-settings-panel,
+html[data-scheme='buer'] .paper-settings-section-content {
+  border-radius: 12px !important;
+  border: 1px solid rgba(0, 0, 0, 0.07) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02), 0 8px 24px -12px rgba(0, 0, 0, 0.04) !important;
+  background: var(--tone-ink-raised) !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .paper-settings-panel,
+html[data-scheme='buer'][data-theme='dark'] .paper-settings-section-content {
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), 0 8px 24px -12px rgba(0, 0, 0, 0.6) !important;
+}
+
+/* 功能图标座：取自品牌 VI code 浅绿微纸色 (#F0F3E8)，温和舒适，搭配精雕深墨图标 */
+html[data-scheme='buer'] .paper-settings-icon {
+  border-radius: 8px !important;
+  background: #F0F3E6 !important;
+  color: #1A1A1A !important;
+  border: 1px solid rgba(200, 240, 8, 0.25) !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .paper-settings-icon {
+  background: #181A16 !important;
+  color: #C8F008 !important;
+  border: 1px solid rgba(200, 240, 8, 0.2) !important;
+}
+
+/* 列表行微交互 */
+html[data-scheme='buer'] .paper-settings-row:active {
+  background: rgba(0, 0, 0, 0.02) !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .paper-settings-row:active {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* 快捷方式卡片 */
+html[data-scheme='buer'] .paper-settings-shortcut {
+  border-radius: 12px !important;
+  border: 1px solid rgba(0, 0, 0, 0.07) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02) !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .paper-settings-shortcut {
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
+}
+html[data-scheme='buer'] .paper-settings-shortcut-icon {
+  border-radius: 8px !important;
+  background: #F0F3E6 !important;
+  color: #111111 !important;
+}
+
+
+/* ==========================================================================
+   02 — 底栏导航 (TabBar)
+   ========================================================================== */
+
+html[data-scheme='buer'] [data-surface="tabbar"] {
+  border-top: 1px solid rgba(0, 0, 0, 0.06) !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  backdrop-filter: blur(16px) !important;
+}
+html[data-scheme='buer'][data-theme='dark'] [data-surface="tabbar"] {
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(10, 11, 13, 0.94) !important;
+}
+
+/* 激活标签：纯黑文字 + 精准电绿高亮指示微条 */
+html[data-scheme='buer'] [data-surface="tabbar"] button[aria-current="page"] svg {
+  color: #111111 !important;
+}
+html[data-scheme='buer'][data-theme='dark'] [data-surface="tabbar"] button[aria-current="page"] svg {
+  color: #C8F008 !important;
+  filter: drop-shadow(0 0 6px rgba(200, 240, 8, 0.6));
+}
+html[data-scheme='buer'] [data-surface="tabbar"] button[aria-current="page"] span:last-child {
+  color: #111111 !important;
+  font-weight: 700 !important;
+  position: relative;
+}
+html[data-scheme='buer'][data-theme='dark'] [data-surface="tabbar"] button[aria-current="page"] span:last-child {
+  color: #C8F008 !important;
+  font-weight: 700 !important;
+}
+
+/* 中央「布局」按钮：圆润雅致黑球 + 纯正电光绿图标 */
+html[data-scheme='buer'] [data-tour="preset-switcher"] span.rounded-full {
+  background: #111111 !important;
+  border: 1px solid rgba(200, 240, 8, 0.4) !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16) !important;
+}
+html[data-scheme='buer'][data-theme='dark'] [data-tour="preset-switcher"] span.rounded-full {
+  background: #18191B !important;
+  border: 1px solid rgba(200, 240, 8, 0.6) !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4) !important;
+}
+html[data-scheme='buer'] [data-tour="preset-switcher"] svg {
+  color: #C8F008 !important;
+}
+
+/* 稍后读角标：小巧雅致电绿胶囊 */
+html[data-scheme='buer'] [data-surface="tabbar"] span.rounded-full.bg-cinnabar {
+  background: #C8F008 !important;
+  color: #111111 !important;
+  font-weight: 800 !important;
+}
+
+
+/* ==========================================================================
+   03 — 分类导轨 (CategoryRail)
+   ========================================================================== */
+
+html[data-scheme='buer'] .CategoryRail span.bg-cinnabar,
+html[data-scheme='buer'] [aria-hidden] span.bg-cinnabar {
+  height: 2.5px !important;
+  background: #C8F008 !important;
+  box-shadow: 0 0 6px rgba(200, 240, 8, 0.7) !important;
+}
+
+
+/* ==========================================================================
+   04 — 阅读器正文 (Reader Prose — 高级文言排版)
+   ========================================================================== */
+
+html[data-scheme='buer'] .reader-prose h1 {
+  color: #111111 !important;
+  font-weight: 850 !important;
+  letter-spacing: -0.03em !important;
+  border-bottom: 2px solid #111111 !important;
+  padding-bottom: 12px !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .reader-prose h1 {
+  color: #FDFDFD !important;
+  border-bottom-color: #333333 !important;
+}
+
+/* H2 导轨条：精致左缘深黑 + 顶边细绿 */
+html[data-scheme='buer'] .reader-prose h2 {
+  border-left: 3px solid #111111 !important;
+  padding-left: 12px !important;
+  color: #111111 !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .reader-prose h2 {
+  border-left-color: #C8F008 !important;
+  color: #FDFDFD !important;
+}
+
+/* 内联强调与超链接：电绿双像素细底线，字色保持清晰 */
+html[data-scheme='buer'] .reader-prose strong,
+html[data-scheme='buer'] .reader-prose b {
+  color: inherit;
+  font-weight: 750;
+  border-bottom: 2px solid #C8F008;
+  padding-bottom: 1px;
+}
+html[data-scheme='buer'] .reader-prose a {
+  color: inherit !important;
+  text-decoration: none !important;
+  border-bottom: 2px solid #C8F008 !important;
+}
+
+/* 引语卡片：纯净微暗底 + 电绿左缘微线，优雅静谧 */
+html[data-scheme='buer'] .reader-prose blockquote {
+  background-color: #F8FAF2 !important;
+  color: #333333 !important;
+  border-left: 4px solid #C8F008 !important;
+  border-radius: 6px !important;
+  padding: 16px 18px !important;
+  font-style: normal !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .reader-prose blockquote {
+  background-color: #121411 !important;
+  color: #E2E2E2 !important;
+}

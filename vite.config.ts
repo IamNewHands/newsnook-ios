@@ -751,6 +751,28 @@ export default defineConfig({
     __APP_BUILD__: JSON.stringify(buildStamp()),
   },
   server: {
+    watch: {
+      ignored: [
+        '**/android/**',
+        '**/third-party/**',
+        '**/iosapp/**',
+        '**/dist/**',
+        '**/cloud/**',
+        '**/.gradle/**',
+        '**/build/**',
+        '**/reports/**',
+        '**/artifacts/**',
+        '**/evidence/**',
+        '**/logs/**',
+        '**/promo-video/**',
+        '**/video/**',
+        '**/.superpowers/**',
+        '**/.worktrees/**',
+        '**/.cxx/**',
+        '**/coverage/**',
+        '**/.git/**',
+      ],
+    },
     warmup: {
       clientFiles: [
         './src/main.tsx',
@@ -760,6 +782,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
+    entries: ['index.html'],
     include: [
       'react',
       'react-dom',
@@ -774,6 +797,9 @@ export default defineConfig({
       'fast-xml-parser',
       '@mozilla/readability',
       'linkedom',
+      'hls.js',
+      'dashjs',
+      'html-to-image',
     ],
   },
   build: {
