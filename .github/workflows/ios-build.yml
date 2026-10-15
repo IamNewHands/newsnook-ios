@@ -161,6 +161,11 @@ jobs:
           npm run test:translation
           npm run test:ui-font
           npm run test:image-actions
+          # 设置页入口 / 预设切换的回归。这两条原先不在清单里，红了很久没人发现：
+          # settings-paper 的期望值过去是手抄常量，上游与本 fork 各加过一个入口后失配；
+          # preset-navigation 在 v1.8.11 被上游改了 useFeeds 签名而失效，v1.8.12 已自行修好。
+          npm run test:settings-paper
+          npm run test:preset-navigation
 
       - name: Resolve Swift packages
         run: |
