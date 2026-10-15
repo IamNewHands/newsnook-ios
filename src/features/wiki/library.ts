@@ -1,4 +1,5 @@
-import type { WikiEntry } from './encyclopedia'
+import { getEncyclopediaProvider, type WikiEntry } from './encyclopedia'
+import { log } from '../../lib/logger'
 
 const HISTORY_KEY = 'newsnook.wiki.history.v1'
 const BOOKMARKS_KEY = 'newsnook.wiki.bookmarks.v1'
@@ -7,15 +8,23 @@ const MAX_BOOKMARKS = 200
 export type SavedWikiEntry = Pick<WikiEntry, 'query' | 'title' | 'url' | 'providerId'> & { savedAt: number }
 export function readWikiLibrary(kind: 'history' | 'bookmarks'): SavedWikiEntry[] {
   try {
-    const raw = localStorage.getItem(kind === 'history' ? HISTORY_KEY : BOOKMARKS_KEY)
+    const key = kind === 'history' ? HISTORY_KEY : BOOKMARKS_KEY
+    const raw = localStorage.getItem(key)
     const parsed: unknown = raw ? JSON.parse(raw) : []
     if (!Array.isArray(parsed)) return []
-    return parsed.filter((item): item is SavedWikiEntry =>
+    const entries = parsed.filter((item): item is SavedWikiEntry =>
       !!item && typeof item === 'object' &&
       typeof item.query === 'string' && typeof item.title === 'string' &&
       typeof item.providerId === 'string' && typeof item.url === 'string' &&
       typeof item.savedAt === 'number'
-    ).slice(0, kind === 'history' ? MAX_HISTORY : MAX_BOOKMARKS)
+    )
+    const supported = entries.filter(item => getEncyclopediaProvider(item.providerId).isAvailable?.() !== false)
+    const available = supported.slice(0, kind === 'history' ? MAX_HISTORY : MAX_BOOKMARKS)
+    if (supported.length !== entries.length) {
+      try { localStorage.setItem(key, JSON.stringify(available)) }
+      catch (error) { log.storage.warn('Failed to remove unavailable encyclopedia records', error) }
+    }
+    return available
   } catch { return [] }
 }
 export function wikiEntryIdentity(entry: Pick<SavedWikiEntry, 'query' | 'providerId'>) {

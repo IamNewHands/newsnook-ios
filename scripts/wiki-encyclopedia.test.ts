@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {
   DEFAULT_WIKI_SETTINGS, encyclopediaProviders, getEncyclopediaProvider,
   lookupEncyclopedia, registerEncyclopediaProvider, WikiNotFoundError, isRelevantWikiTitle,
+  loadWikiSettings, WIKI_SETTINGS_KEY,
 } from '../src/features/wiki/encyclopedia'
 
 const nativeFetch = globalThis.fetch
@@ -25,7 +26,23 @@ try {
     if (input.includes('prop=extracts')) return Response.json({ query: { pages: { 1: { extract: '真实百科全文。\n第二段。' } } } })
     return Response.json({ search: [] })
   }) as typeof fetch
-  assert.deepEqual(encyclopediaProviders().map(provider => provider.id), ['wikipedia-zh', 'wikipedia-en'])
+  assert.deepEqual(encyclopediaProviders().map(provider => provider.id), ['wikipedia-zh', 'wikipedia-en'], '普通网页只展示可用的百科源')
+  let storedSettings = JSON.stringify({ ...DEFAULT_WIKI_SETTINGS, providerId: 'baidu-baike', directLookup: true })
+  const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (key: string) => key === WIKI_SETTINGS_KEY ? storedSettings : null,
+    setItem: (key: string, value: string) => { if (key === WIKI_SETTINGS_KEY) storedSettings = value },
+  } })
+  try {
+    assert.equal(loadWikiSettings().providerId, 'wikipedia-zh', 'Web 不再使用开发期间的百度偏好')
+    assert.equal(JSON.parse(storedSettings).providerId, 'wikipedia-zh', '直接保存可用来源，不保留开发期百度偏好')
+    assert.equal(loadWikiSettings().directLookup, true, '保留其他划词设置')
+  } finally {
+    if (storageDescriptor) Object.defineProperty(globalThis, 'localStorage', storageDescriptor)
+    else Reflect.deleteProperty(globalThis, 'localStorage')
+  }
+  await assert.rejects(lookupEncyclopedia('WebUnsupported', DEFAULT_WIKI_SETTINGS, new AbortController().signal, 'baidu-baike'), /当前平台.*百度百科/)
+  assert.equal(requests.length, 0, '旧收藏或历史查询不应再发送必然失败的百度请求')
   assert.ok(isRelevantWikiTitle('国庆节的','中华人民共和国国庆节'))
   assert.ok(isRelevantWikiTitle('Albert Einstein','Albert Einstein'))
   assert.equal(isRelevantWikiTitle('已严肃升','馬文升'), false)

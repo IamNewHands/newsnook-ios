@@ -292,6 +292,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(DlnaCastPlugin.class);
         registerPlugin(VolumePageTurnPlugin.class);
         registerPlugin(ProxiedHttpPlugin.class);
+        registerPlugin(EncyclopediaPagePlugin.class);
         registerPlugin(MediaSnifferPlugin.class);
         registerPlugin(AppUpdatePlugin.class);
         registerPlugin(SecureStorePlugin.class);

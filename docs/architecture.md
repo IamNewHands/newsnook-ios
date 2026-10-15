@@ -546,6 +546,18 @@ Secret 上传但不做 E2EE；服务端 AES-256-GCM 加密（AAD 绑定 `userId:
 （`features/sync/notifier.ts` 的 `mapSyncEventToNotification` + `SyncNotificationPlugin.java`，
 单一 `newsnook-sync` 低优先级渠道、稳定通知 id）。例行后台同步成功不发任何通知，也不为同步在冷启动索要通知权限。
 
+### 8.10 划词百科
+
+`features/wiki/encyclopedia.ts` 的 `EncyclopediaProvider` 统一摘要与全文契约，UI、历史和收藏不依赖具体来源。维基百科使用公开接口；百度百科由 `baiduBaike.ts` 提取网页，输出相同的 `WikiEntry`，重建可读 HTML 并移除上游活动内容。
+
+Android 直连百度百科时，`baiduBrowser.ts → EncyclopediaPagePlugin` 用普通 WebView 请求桌面布局的官方页面，等待 DOM 正文就绪后运行本地 `wiki-baike-probe.js`，再交回本地解析。WebView 不向远程页面暴露原生 JS 接口；顶层导航限于百度百科与官方验证域。若出现验证，展示官方页面由用户手动完成，随后继续提取；取消、切源、超时或 Activity 销毁都会清理加载任务。该通道共享设备 WebView Cookie，不读取 Chrome Cookie，不实现验证码自动化，也不绕过 TLS 检查。显式用户代理继续经过 `lib/http.ts`，不会为浏览器提取静默绕开代理配置。
+
+Provider 可用性由可选的 `isAvailable()` 声明，来源选择器只显示当前平台可用项。百度百科目前仅开放 Android；Web 的 Node / 边缘 HTTP 代理无法复用浏览器会话，上游 403 由代理原样传递，普通网页也不能读取跨域页面 DOM。加载设置时，不可用来源会重置并保存为默认维基百科；读取历史或收藏时清理不可用来源的开发记录。Android 的百度百科偏好、历史及收藏继续保留。显式查询不可用来源仍在发送请求前报错。
+
+百度百科的初次查询会等待 HTML 文档解析完成，再同时抽取摘要与章节全文；无需等待图片等附属资源全部加载。全文快照以查询结果对象为生命周期保留在 Provider 内，展开全文复用同一份快照，避免重新创建浏览器请求。该快照不进入历史、收藏或持久化存储。
+
+百科设置保留原有 `newsnook.wiki.settings.v1` 键与 JSON 格式，作为历史前缀例外接入原生 Preferences 镜像和启动水合；查询面板切源也会保存默认提供商。此处不改变云同步范围。
+
 ## 9. HTTP、代理与网络安全
 
 | 环境 | 行为 |

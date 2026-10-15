@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { Capacitor } from '@capacitor/core'
 import {
   DEFAULT_WIKI_SETTINGS, WIKI_SETTINGS_KEY, loadWikiSettings, saveWikiSettings,
   encyclopediaProviders, registerEncyclopediaProvider, lookupEncyclopedia,
@@ -27,6 +28,23 @@ try {
   rememberWikiEntry(entry,'bookmarks')
   assert.equal(readWikiLibrary('bookmarks')[0].title,'Bauhaus')
   assert.equal(removeWikiBookmark(entry).length,0)
+  const getPlatform = Capacitor.getPlatform
+  try {
+    const records = [
+      { query: '星星', title: '星星', providerId: 'baidu-baike', url: 'https://baike.baidu.com/item/星星', savedAt: 2 },
+      { query: entry.query, title: entry.title, providerId: entry.providerId, url: entry.url, savedAt: 1 },
+    ]
+    for (const kind of ['history', 'bookmarks'] as const) {
+      const key = `newsnook.wiki.${kind}.v1`
+      map.set(key, JSON.stringify(records))
+      Capacitor.getPlatform = () => 'android'
+      assert.equal(readWikiLibrary(kind).length, 2, 'Android 百度记录保持不变')
+      assert.equal(JSON.parse(map.get(key)!).length, 2)
+      Capacitor.getPlatform = () => 'web'
+      assert.deepEqual(readWikiLibrary(kind).map(item => item.providerId), ['wikipedia-en'], 'Web 移除不可用百度记录，保留维基记录')
+      assert.deepEqual(JSON.parse(map.get(key)!).map((item: { providerId: string }) => item.providerId), ['wikipedia-en'], 'Web 清理写回本机')
+    }
+  } finally { Capacitor.getPlatform = getPlatform }
   const adapter: EncyclopediaProvider = {
     id:'test-encyclopedia-provider',
     name:'测试源', language:'zh',

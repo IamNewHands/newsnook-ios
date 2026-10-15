@@ -41,11 +41,10 @@ export function WikiSelectionLayer() {
   viewRef.current = view
 
   const updateSettings = (patch: Partial<WikiSettings>) => {
-    setSettings(old => {
-      const next = { ...old, ...patch }
-      saveWikiSettings(next)
-      return next
-    })
+    const next = { ...settingsRef.current, ...patch }
+    settingsRef.current = next
+    saveWikiSettings(next)
+    setSettings(next)
   }
   const dismiss = useCallback(() => {
     requestRef.current?.abort()
@@ -410,7 +409,7 @@ export function WikiSelectionLayer() {
                 <>
                   <div className="wiki-sheet-body" key={entry?.url || 'loading'}>
                     {loading && <p className="wiki-status">正在查询 {activeProvider.name}…</p>}
-                    {error && <div className="wiki-error" role="alert">{error}<button type="button" onClick={() => void lookup(activeTerm || selected.text)}>重试</button></div>}
+                    {error && <div className="wiki-error" role="alert">{error}<button type="button" onClick={() => void lookup(activeTerm || selected.text, queryProviderId)}>重试</button></div>}
                     {entry && (
                       <>
                         <div className="wiki-badges-row">
@@ -418,7 +417,7 @@ export function WikiSelectionLayer() {
                             {getEncyclopediaProvider(entry.providerId).name}{isFullArticleMode ? ' · 全文模式' : ''}
                           </span>
                           <span className="wiki-mode-badge">
-                            {isFullArticleMode ? 'IN-APP READER' : (entry.isLiveApi ? 'REALTIME REST' : 'ADAPTER DTO')}
+                            {isFullArticleMode ? '站内全文' : (entry.isLiveApi ? '实时接口' : '网页提取')}
                           </span>
                         </div>
 
@@ -567,7 +566,7 @@ export function WikiSelectionLayer() {
                     <div className="wiki-footer-left">
                       <div className="wiki-footer-telemetry">
                         <span className="wiki-telemetry-dot" />
-                        <span>{entry?.isLiveApi ? 'Live API' : 'Adapter'} · {entry?.latencyMs ? `${entry.latencyMs}ms` : '就绪'}</span>
+                        <span>{entry?.isLiveApi ? '实时接口' : '网页提取'} · {entry?.latencyMs ? `${entry.latencyMs}ms` : '就绪'}</span>
                       </div>
                       <div className="wiki-footer-dropdown-container relative min-w-0">
                         <button
@@ -594,6 +593,7 @@ export function WikiSelectionLayer() {
                                   className={`wiki-dropdown-item ${active ? 'is-active' : ''}`}
                                   onClick={() => {
                                     setFooterDropdownOpen(false)
+                                    updateSettings({ providerId: provider.id })
                                     void lookup(activeTerm || selected.text, provider.id)
                                   }}
                                 >

@@ -87,6 +87,7 @@ newsnook/
 | 站内正文 | `lib/resolveBody.ts` · `lib/sanitize.ts` · `lib/bodyCache.ts` · `screens/ReaderScreen.tsx` |
 | 视频悬浮播放 | `features/floatingVideo/`（会话 / 稳定宿主 / 窗口手势） · `components/InkVideoPlayer.tsx` · `BootstrapRoot.tsx`；`test:floating-video`，原生鉴权隔离见 `PlaybackSessionTest` |
 | 翻译 | `features/translation/`（稳定边界：`types.ts`；新增引擎实现 Provider 并注册） |
+| 划词百科 | `features/wiki/encyclopedia.ts`（Provider / 缓存） · `baiduBaike.ts`（网页提取） · `baiduBrowser.ts` → `EncyclopediaPagePlugin`（Android 官方页面加载 / 人工验证）；`test:wiki` |
 | 代理 / 网络 | `features/proxy/` · `lib/http.ts` · `vite.config.ts` · `functions/` |
 | 跟贴 | `features/comments/` |
 | 分享短链 / App 唤起深链 | `lib/shareToken.ts`（token 编解码） · `lib/shareLink.ts` · `lib/appDeepLink.ts` · `functions/lib/shareCard.ts`（爬虫 OG 卡片） · `wrangler.jsonc`（`run_worker_first`） |
@@ -117,6 +118,7 @@ newsnook/
 ### 5.1 改动原则
 
 - **最小必要改动**：只改完成当前任务所需的文件；不顺手重构、不批量格式化无关代码。
+- **保护调试数据**：有用户数据的设备/模拟器只用 `adb install -r` 覆盖安装；禁止对该目标运行 `connectedAndroidTest`（UTP 可能卸载目标包）、`adb uninstall` 或 `pm clear`。设备测试使用独立空白 AVD 或隔离包名；更新前先做私有数据备份。
 - **融入现有结构**：复用已有模块、命名、错误处理与测试风格；优先扩展（新 Provider / 新 kind）而非改核心路径。
 - **先读再改**：改解析、缓存、翻译、代理前，先读对应 `lib/` 或 `features/` 入口与相关 `scripts/*.test.*`。
 - **中文给用户，英文给代码**：面向用户的文案与文档用中文；标识符、API、日志字段保持项目既有英文风格。

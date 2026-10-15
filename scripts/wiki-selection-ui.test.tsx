@@ -30,6 +30,9 @@ const { dismissTopHardwareBackLayer } = await import('../src/lib/hardwareBackSta
 registerEncyclopediaProvider({ id: 'test', name: '测试百科', language: 'zh', async lookup(term) {
   return { query: term, title: term, description: '', summary: '词条摘要', url: 'https://example.test/wiki', providerId: 'test', language: 'zh', related: [] }
 } })
+registerEncyclopediaProvider({ id: 'persisted-test', name: '持久化测试百科', language: 'zh', async lookup(term) {
+  return { query: term, title: term, description: '', summary: '保存后的词条摘要', url: 'https://example.test/persisted', providerId: 'persisted-test', language: 'zh', related: [] }
+} })
 memory.set('newsnook.wiki.settings.v1', JSON.stringify({ enabled: true, providerId: 'test', directLookup: false, fallbackEnglish: true }))
 const root = createRoot(document.getElementById('root')!)
 const peek = () => document.querySelector('.wiki-selection-popover')
@@ -58,9 +61,18 @@ try {
   assert.ok(peek(), '工具栏内部点击不能关闭工具栏')
   await act(async () => document.querySelector<HTMLButtonElement>('.wiki-popover-item')!.click())
   assert.ok(document.querySelector('.wiki-entry-summary'), '百科按钮仍能查询词条')
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label^="切换查询百科源"]')!.click())
+  const persistedOption = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find(option => option.textContent === '持久化测试百科')!
+  await act(async () => persistedOption.click())
+  assert.equal(JSON.parse(memory.get('newsnook.wiki.settings.v1')!).providerId, 'persisted-test', '查询面板切源必须持久化，即使随后关闭面板')
   await event(document.getElementById('blank')!, 'pointerdown')
   assert.ok(document.querySelector('.wiki-sheet'), '正文外部点击监听不能错误关闭词条面板')
   await act(async () => { dismissTopHardwareBackLayer() })
+  await act(async () => root.render(null))
+  await act(async () => root.render(<WikiSelectionLayer />))
+  await act(async () => window.dispatchEvent(new window.Event('newsnook:open-wiki-settings')))
+  assert.ok(document.querySelector('[aria-label="默认百科源：持久化测试百科"]'), '重新挂载后恢复查询面板选择的提供商')
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="关闭百科"]')!.click())
 
   let copied = ''
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {
@@ -88,6 +100,22 @@ try {
     assert.ok(peek() === null)
   }
   await act(async () => window.dispatchEvent(new window.Event('newsnook:open-wiki-settings')))
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label^="默认百科源："]')!.click())
+  assert.ok(!Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).some(option => option.textContent === '百度百科'), 'Web 设置不显示不可用的百度百科')
+  // The same UI exposes Baike on Android.
+  const { Capacitor } = await import('@capacitor/core')
+  const getPlatform = Capacitor.getPlatform
+  Capacitor.getPlatform = () => 'android'
+  await act(async () => root.render(null))
+  await act(async () => root.render(<WikiSelectionLayer />))
+  await act(async () => window.dispatchEvent(new window.Event('newsnook:open-wiki-settings')))
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label^="默认百科源："]')!.click())
+  const baiduOption = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find(option => option.textContent === '百度百科')
+  assert.ok(baiduOption, '设置中可以选择百度百科')
+  await act(async () => baiduOption.click())
+  assert.equal(JSON.parse(memory.get('newsnook.wiki.settings.v1')!).providerId, 'baidu-baike', '百度百科偏好保存到本机')
+  assert.ok(document.querySelector('[aria-label="默认百科源：百度百科"]'))
+  Capacitor.getPlatform = getPlatform
   await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="启用划词百科"]')!.click())
   await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="关闭百科"]')!.click())
   anchor = document.getElementById('text')!.firstChild!

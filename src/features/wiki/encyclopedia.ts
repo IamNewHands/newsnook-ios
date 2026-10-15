@@ -1,7 +1,10 @@
 /**
  * Encyclopedia sources share a minimal DTO. The reader never knows which API was used.
- * Only real Wikimedia endpoints are registered; other sources can be added as providers.
+ * Providers own their API or HTML extraction; the reader consumes the same entry contract.
  */
+import { baiduBaikeProvider } from './baiduBaike'
+import { saveWikiSettingsValue, WIKI_SETTINGS_STORAGE_KEY } from '../../lib/storage'
+
 export interface WikiFact {
   label: string
   value: string
@@ -30,13 +33,14 @@ export interface EncyclopediaProvider {
   id: string
   name: string
   language: string
+  isAvailable?(): boolean
   lookup(term: string, signal: AbortSignal): Promise<WikiEntry>
   fullText?(entry: WikiEntry, signal: AbortSignal): Promise<string>
 }
 export class WikiNotFoundError extends Error {
   constructor(term: string) { super(`未找到“${term}”的百科词条`); this.name = 'WikiNotFoundError' }
 }
-export const WIKI_SETTINGS_KEY = 'newsnook.wiki.settings.v1'
+export const WIKI_SETTINGS_KEY = WIKI_SETTINGS_STORAGE_KEY
 export interface WikiSettings {
   enabled: boolean
   providerId: string
@@ -49,11 +53,17 @@ export const DEFAULT_WIKI_SETTINGS: WikiSettings = {
 export function loadWikiSettings(): WikiSettings {
   try {
     const data = JSON.parse(localStorage.getItem(WIKI_SETTINGS_KEY) || '{}') as Partial<WikiSettings>
-    return { ...DEFAULT_WIKI_SETTINGS, ...data }
+    const settings = { ...DEFAULT_WIKI_SETTINGS, ...data }
+    const provider = registry.get(settings.providerId)
+    if (!provider || provider.isAvailable?.() === false) {
+      settings.providerId = DEFAULT_WIKI_SETTINGS.providerId
+      saveWikiSettings(settings)
+    }
+    return settings
   } catch { return { ...DEFAULT_WIKI_SETTINGS } }
 }
 export function saveWikiSettings(settings: WikiSettings) {
-  try { localStorage.setItem(WIKI_SETTINGS_KEY, JSON.stringify(settings)) } catch { /* storage unavailable */ }
+  saveWikiSettingsValue(settings)
 }
 const TTL = 10 * 60 * 1000
 const MAX_CACHE = 100
@@ -518,12 +528,14 @@ export function registerEncyclopediaProvider(provider: EncyclopediaProvider) {
 }
 registerEncyclopediaProvider(wikiProvider('zh'))
 registerEncyclopediaProvider(wikiProvider('en'))
-export function encyclopediaProviders() { return Array.from(registry.values()) }
+registerEncyclopediaProvider(baiduBaikeProvider())
+export function encyclopediaProviders() { return Array.from(registry.values()).filter(provider => provider.isAvailable?.() !== false) }
 export function getEncyclopediaProvider(id: string) { return registry.get(id) || registry.get(DEFAULT_WIKI_SETTINGS.providerId)! }
 export async function lookupEncyclopedia(term: string, settings: WikiSettings, signal: AbortSignal, override?: string) {
   const normalized = term.trim().slice(0, 160)
   if (!normalized) throw new WikiNotFoundError(term)
   const source = getEncyclopediaProvider(override || settings.providerId)
+  if (source.isAvailable?.() === false) throw new Error(`当前平台暂不支持${source.name}，请切换百科源`)
   // Fallback policy belongs to the lookup identity: disabling English fallback must
   // never reuse an English result cached by an earlier Chinese lookup.
   const allowEnglishFallback = settings.fallbackEnglish && source.id === 'wikipedia-zh'

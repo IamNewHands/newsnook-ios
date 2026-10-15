@@ -4,6 +4,12 @@ News Nook（有所闻）使用 React + Vite 构建 Web 应用，并通过 Capaci
 
 产品说明见根目录 [`README.md`](../README.md)。
 
+## 保护已有调试数据
+
+有用户数据的设备或模拟器只用 `adb install -r` 覆盖安装，不执行 `adb uninstall` 或 `pm clear`。运行 `connectedAndroidTest` 前必须改用独立空白 AVD 或隔离包名：Gradle 的 UTP 安装器可能设置 `uninstall_after_test: true`，从而在测试结束时删除目标 App 及其本地数据。不要在日常使用的调试 App 上直接运行此任务。
+
+更新前将应用私有目录备份到电脑的私有目录，勿放入仓库。覆盖安装后核对 `firstInstallTime` 与本地偏好/订阅是否保留；包名和签名不一致时停止处理，不能以卸载重装来消除安装错误。
+
 ## 环境要求
 
 - Node.js 22 或更高版本
