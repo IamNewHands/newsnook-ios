@@ -3,7 +3,7 @@ import type { SpeedReadProfile } from './sections'
 
 const STORAGE_KEY = 'newsnook:speed-read:v1'
 const MAX_ENTRIES = 32
-export const SPEED_READ_PROMPT_VERSION = 'speed-read-v4'
+export const SPEED_READ_PROMPT_VERSION = 'speed-read-v5'
 
 interface CacheEntry {
   key: string
