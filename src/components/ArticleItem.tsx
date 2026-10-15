@@ -2,6 +2,7 @@ import { memo, useState } from 'react'
 import { BookmarkCheck, Cloud } from 'lucide-react'
 
 import { InkImage } from './InkImage'
+import { EditorialCoverPlaceholder } from './EditorialCoverPlaceholder'
 import { articleCoverUrl } from '../lib/articleAudio'
 import { feedDisplayTitle } from '../lib/articleTitle'
 import { cleanSummaryText } from '../lib/cleanSummary'
@@ -62,10 +63,10 @@ export const ArticleRow = memo(function ArticleRow({
           setShowOriginal((prev) => !prev)
         }}
         title={isTranslated ? '点击查看原文' : '点击查看译文'}
-        className={`inline-flex items-center px-1.5 py-0.2 rounded text-[9.5px] font-sans font-normal transition-all cursor-pointer select-none ${
+        className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-mono font-medium transition-all cursor-pointer select-none active:scale-90 ${
           isTranslated
-            ? 'text-cinnabar/90 border border-cinnabar/25 bg-cinnabar/5 hover:bg-cinnabar/15 active:scale-95'
-            : 'text-paper-muted border border-haze bg-paper/5 hover:bg-paper/10 hover:text-paper active:scale-95'
+            ? 'text-cinnabar border border-cinnabar/30 bg-cinnabar/10 shadow-xs'
+            : 'text-paper-muted border border-haze bg-paper/5 hover:bg-paper/10 hover:text-paper'
         }`}
       >
         {isTranslated ? '译' : '原'}
@@ -91,12 +92,12 @@ export const ArticleRow = memo(function ArticleRow({
         <button
           type="button"
           onClick={() => onOpen(article)}
-          className={`group relative flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-all duration-200 sm:px-5 sm:py-4 ${
+          className={`group pressable-card relative flex w-full items-center gap-3.5 px-4 py-3.5 text-left sm:px-5 sm:py-4 ${
             variant === 'auto' ? 'md:hidden' : ''
           } ${
             read
-              ? 'bg-transparent hover:bg-ink/50 group-active:bg-ink-deep/40'
-              : 'bg-gradient-to-b from-ink-raised/40 to-transparent hover:bg-ink-raised group-active:bg-ink-deep/20'
+              ? 'bg-transparent hover:bg-ink/50'
+              : 'bg-gradient-to-b from-ink-raised/40 to-transparent hover:bg-ink-raised'
           }`}
         >
           <span className="min-w-0 flex-1">
@@ -200,13 +201,13 @@ export const ArticleRow = memo(function ArticleRow({
         <button
           type="button"
           onClick={() => onOpen(article)}
-          className={`group relative flex w-full flex-col overflow-hidden rounded-[13px] border text-left transition-[transform,background-color,border-color,box-shadow] duration-150 active:scale-[0.985] ${
+          className={`group pressable-card chamfer-surface relative flex w-full flex-col overflow-hidden rounded-[13px] border text-left transition-[transform,background-color,border-color,box-shadow] duration-150 ${
             read
               ? 'border-haze/65 bg-ink-raised/30 active:bg-ink-raised/55'
               : 'border-haze/85 bg-ink-raised/65 active:border-cinnabar/25 active:bg-ink-raised/90'
           }`}
         >
-          {cover && (
+          {cover ? (
             <span className={`relative block w-full overflow-hidden border-b border-haze/55 bg-ink-deep/30 ${article.contentType === 'video' ? 'aspect-video' : 'aspect-[4/3]'}`}>
               <InkImage
                 src={cover}
@@ -229,13 +230,15 @@ export const ArticleRow = memo(function ArticleRow({
                 </span>
               )}
             </span>
+          ) : (
+            <EditorialCoverPlaceholder
+              article={article}
+              read={read}
+              className={`relative block w-full overflow-hidden border-b border-haze/55 ${article.contentType === 'video' ? 'aspect-video' : 'aspect-[4/3]'}`}
+            />
           )}
 
-          <span className={`flex min-w-0 flex-1 flex-col ${cover ? 'p-2.5 sm:p-3' : 'p-3 sm:p-3.5'}`}>
-            {!cover && !read && (
-              <span className="mb-2 h-1.5 w-1.5 rounded-full bg-cinnabar" aria-label="未读" />
-            )}
-
+          <span className="flex min-w-0 flex-1 flex-col p-2.5 sm:p-3">
             <span
               className={`row-title line-clamp-3 text-[15px] leading-[1.42] tracking-[0.005em] transition-colors min-[430px]:text-[15.5px] ${
                 read ? 'font-normal text-paper-muted/78' : 'font-medium text-paper'
@@ -295,7 +298,7 @@ export const ArticleRow = memo(function ArticleRow({
         <button
           type="button"
           onClick={() => onOpen(article)}
-          className={`group relative h-full w-full flex-col justify-between rounded-xl border p-5 text-left transition-all duration-300 ${
+          className={`group pressable-card chamfer-surface relative h-full w-full flex-col justify-between rounded-xl border p-5 text-left transition-all duration-300 ${
             variant === 'auto' ? 'hidden md:flex' : 'flex'
           } ${
             read
@@ -304,8 +307,8 @@ export const ArticleRow = memo(function ArticleRow({
           }`}
         >
           <div className="w-full">
-            {/* 大图展示 (如果有图) */}
-            {cover && (
+            {/* 大图展示 (如果有图)，无图时展示形式化编辑封面以维持网格对齐 */}
+            {cover ? (
               <div className="relative mb-3.5 overflow-hidden rounded-lg bg-ink border border-haze/60">
                 <InkImage
                   src={cover}
@@ -321,6 +324,15 @@ export const ArticleRow = memo(function ArticleRow({
                     视频
                   </span>
                 )}
+              </div>
+            ) : (
+              <div className="relative mb-3.5 overflow-hidden rounded-lg border border-haze/60">
+                <EditorialCoverPlaceholder
+                  article={article}
+                  read={read}
+                  className={`${article.contentType === 'video' ? 'aspect-video h-auto' : 'h-38'} w-full`}
+                  showUnreadDot={false}
+                />
               </div>
             )}
 

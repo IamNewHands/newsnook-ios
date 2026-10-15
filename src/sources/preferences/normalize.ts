@@ -1,3 +1,4 @@
+import { normalizeCatalogProfile, normalizeFrameworkHint, preserveFutureCatalogProfile } from '../../features/siteCatalog/profile'
 /**
  * 偏好归一化：读入持久化数据时剔除已下线的分类与信源，避免脏配置导致空列表。
  */
@@ -12,6 +13,7 @@ import { DEFAULT_CUSTOM_SCHEME, normalizeCustomScheme } from '../../lib/customSc
 import { normalizeTranslationPrefs } from '../../features/translation/config'
 import { normalizeReadAloudPrefs } from '../../features/readAloud/config'
 import { normalizeProxyPrefs } from '../../features/proxy/config'
+import { normalizeRssHubInstances } from '../../features/rsshub/instances'
 import {
   CATEGORIES,
   CATEGORY_TAXONOMY_VERSION,
@@ -36,7 +38,6 @@ import {
   isAggregateCategoryId,
   FONT_FAMILY_OPTIONS,
   normalizePrestorePrefs,
-  normalizeUiPrefs,
   uniqueValid,
   type FontFamilyId,
   type CategoryNameOverride,
@@ -59,6 +60,8 @@ function normalizeDiscoveryMetadata(raw: unknown): SourceDiscoveryMetadata | und
   if (input.params && typeof input.params === 'object') {
     Object.entries(input.params).forEach(([key, value]) => {
       if (!key || key.length > 120) return
+      // Authorization must never be duplicated into ordinary synced discovery metadata.
+      if (generator === 'rsshub' && /(?:token|secret|password|passwd|cookie|api.?key|auth|credential)/i.test(key)) return
       if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
         params[key] = value
       }
@@ -111,6 +114,13 @@ export function normalizePreferences(raw: unknown): Preferences {
       const rawUrl = typeof item.url === 'string' ? item.url.trim() : ''
       const rawName = typeof item.name === 'string' ? item.name.trim() : ''
       if (!rawUrl || !rawName) return
+      const kind = normalizeSourceKind(typeof item.kind === 'string' ? item.kind : undefined)
+      if (kind === 'web-catalog') {
+        try {
+          const url = new URL(rawUrl)
+          if (!/^https?:$/.test(url.protocol) || url.username || url.password) return
+        } catch { return }
+      }
 
       const rawId =
         typeof item.id === 'string' && item.id.trim()
@@ -131,7 +141,7 @@ export function normalizePreferences(raw: unknown): Preferences {
         name: rawName,
         label: rawLabel || rawName.slice(0, 4),
         group: rawGroup,
-        kind: normalizeSourceKind(typeof item.kind === 'string' ? item.kind : undefined),
+        kind,
         url: rawUrl,
         siteUrl: rawSiteUrl,
         enabled: typeof item.enabled === 'boolean' ? item.enabled : true,
@@ -140,9 +150,10 @@ export function normalizePreferences(raw: unknown): Preferences {
         paused: item.paused === true,
         discovery: normalizeDiscoveryMetadata(item.discovery),
       }
-      if (item.frameworkHint && typeof item.frameworkHint === 'object') {
-        source.frameworkHint = item.frameworkHint
-      }
+      source.catalogProfileOpaque = preserveFutureCatalogProfile(item.catalogProfile ?? item.catalogProfileOpaque, source.url)
+      source.catalogProfile = normalizeCatalogProfile(item.catalogProfile, source.url)
+      source.frameworkHint = normalizeFrameworkHint(item.frameworkHint, source.url)
+
       customSources.push(source)
     })
   }
@@ -234,6 +245,9 @@ export function normalizePreferences(raw: unknown): Preferences {
     favoriteSourceIds: uniqueValidSourceIds(input.favoriteSourceIds, knownSourceIds),
     customCategories,
     customSources,
+    sourceNames: Object.fromEntries(Object.entries(input.sourceNames ?? {}).filter(([id, name]) =>
+      SOURCES.some((source) => source.id === id && !source.workspaceOnly) && typeof name === 'string' && name.trim(),
+    ).map(([id, name]) => [id, name.trim()])),
     theme: isThemeMode(input.theme) ? input.theme : DEFAULT_THEME_MODE,
     scheme,
     customScheme,
@@ -247,6 +261,7 @@ export function normalizePreferences(raw: unknown): Preferences {
     translation: normalizeTranslationPrefs(input.translation),
     readAloud: normalizeReadAloudPrefs(input.readAloud),
     proxy: normalizeProxyPrefs(input.proxy),
+    rsshubInstances: normalizeRssHubInstances(input.rsshubInstances),
     autoRefreshOnCategorySwitch:
       typeof input.autoRefreshOnCategorySwitch === 'boolean'
         ? input.autoRefreshOnCategorySwitch
@@ -258,8 +273,6 @@ export function normalizePreferences(raw: unknown): Preferences {
     wifiOnlyAutoLoadMedia:
       typeof input.wifiOnlyAutoLoadMedia === 'boolean' ? input.wifiOnlyAutoLoadMedia : false,
     prestore: normalizePrestorePrefs(input.prestore),
-    // 旧偏好无此字段时回到「默认字体 + 原字号」，升级后观感不变
-    ui: normalizeUiPrefs(input.ui),
     typography: {
       fontScale: clamp(typography.fontScale, DEFAULT_TYPOGRAPHY.fontScale, 0.8, 1.4),
       lineHeight: clamp(typography.lineHeight, DEFAULT_TYPOGRAPHY.lineHeight, 1.4, 2.4),

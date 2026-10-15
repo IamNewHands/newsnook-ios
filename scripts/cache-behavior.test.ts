@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 
+import './helpers/immediate-idle'
+
 import {
   bodyCacheStats,
   clearBodyCache,
@@ -91,6 +93,14 @@ try {
   save(first)
   assert.equal(loadCachedBody(first.id)?.html, '<p>标题 first</p>')
   assert.equal(listCachedArticles()[0]?.article.id, first.id)
+
+  const illustrated = article('illustrated')
+  save(illustrated, '<p>正文图片</p><img src="/api/image?url=https%3A%2F%2Fexample.com%2Fphoto.jpg">')
+  assert.equal(loadCachedBody(illustrated.id)?.article?.image, 'https://example.com/photo.jpg', '正文缓存必须保留可跨环境使用的原始配图地址')
+  assert.equal(illustrated.image, undefined, '补图不得修改调用方文章对象')
+  const covered = { ...article('covered'), image: 'https://example.com/cover.jpg' }
+  save(covered, '<img src="https://example.com/body.jpg">')
+  assert.equal(loadCachedBody(covered.id)?.article?.image, 'https://example.com/cover.jpg', '正文配图不得覆盖上游封面')
 
   const pinned = article('pinned')
   const ordinary = article('ordinary')

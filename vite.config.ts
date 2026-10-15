@@ -15,29 +15,15 @@ import { planNodeUpstream } from './src/features/proxy/nodeAgent.ts'
 import type { ProxyPrefs } from './src/features/proxy/types.ts'
 import { type NewsSource } from './src/sources/registry.ts'
 import { applyWebViewCssCompat } from './scripts/webview-css-compat.ts'
-import { applyUiScale } from './scripts/ui-scale-css.ts'
 
 const { version: appVersion } = JSON.parse(readFileSync('./package.json', 'utf-8')) as {
   version: string
 }
 
-/**
- * 构建戳，显示在「我的 → 关于」的「构建」上。
- *
- * 必须**每次构建都不一样**。自签安装时 `CFBundleShortVersionString` 固定跟随上游
- * （1.8.9，设备端工具靠它判断有没有新版本，不能改），所以如果这里也只到「年月」，
- * 同一个上游版本下的所有构建在设备上完全无法区分：用户报「插件没生效」时，
- * 第一步就卡在「你到底装的是哪一版」，而答案恰恰决定了是代码问题还是装错包。
- * CI 里用 run number + 短 SHA；本地开发用日期 + 时分。
- */
+/** 构建年月戳，如 2026.08 */
 function buildStamp(): string {
-  const run = process.env.GITHUB_RUN_NUMBER?.trim()
-  const sha = process.env.GITHUB_SHA?.trim().slice(0, 7)
-  if (run) return sha ? `${run}-${sha}` : run
   const now = new Date()
-  const pad = (value: number) => String(value).padStart(2, '0')
-  const date = `${now.getFullYear()}.${pad(now.getMonth() + 1)}.${pad(now.getDate())}`
-  return `${date}-${pad(now.getHours())}${pad(now.getMinutes())}`
+  return `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
 const BROWSER_UA =
@@ -71,8 +57,10 @@ function isTlsCertError(error: unknown): boolean {
 }
 
 type UpstreamResult = {
+  finalUrl?: string
   status: number
   contentType: string | null
+  rangeHeaders: Record<string, string>
   buffer: Buffer
 }
 
@@ -126,7 +114,12 @@ function fetchInsecure(
           const contentType = res.headers['content-type']
           resolve({
             status,
+            finalUrl: target,
             contentType: typeof contentType === 'string' ? contentType : null,
+            rangeHeaders: Object.fromEntries(['content-range', 'accept-ranges'].flatMap(name => {
+              const value = res.headers[name]
+              return typeof value === 'string' ? [[name, value]] : []
+            })),
             buffer: Buffer.concat(chunks),
           })
         })
@@ -162,7 +155,12 @@ async function fetchViaProxyUri(
     })
     return {
       status: upstream.status,
+      finalUrl: upstream.url,
       contentType: upstream.headers.get('content-type'),
+      rangeHeaders: Object.fromEntries(['content-range', 'accept-ranges'].flatMap(name => {
+        const value = upstream.headers.get(name)
+        return value ? [[name, value]] : []
+      })),
       buffer: Buffer.from(await upstream.arrayBuffer()),
     }
   } finally {
@@ -177,7 +175,8 @@ async function fetchUpstream(target: string, request: UpstreamRequest): Promise<
 
   try {
     if (proxyUri) {
-      return await fetchViaProxyUri(fetchUrl, request, proxyUri)
+      const response = await fetchViaProxyUri(fetchUrl, request, proxyUri)
+      return { ...response, finalUrl: fetchUrl === target ? response.finalUrl : undefined }
     }
 
     const upstream = await fetch(fetchUrl, {
@@ -188,7 +187,12 @@ async function fetchUpstream(target: string, request: UpstreamRequest): Promise<
     })
     return {
       status: upstream.status,
+      finalUrl: fetchUrl === target ? upstream.url : undefined,
       contentType: upstream.headers.get('content-type'),
+      rangeHeaders: Object.fromEntries(['content-range', 'accept-ranges'].flatMap(name => {
+        const value = upstream.headers.get(name)
+        return value ? [[name, value]] : []
+      })),
       buffer: Buffer.from(await upstream.arrayBuffer()),
     }
   } catch (error) {
@@ -196,12 +200,14 @@ async function fetchUpstream(target: string, request: UpstreamRequest): Promise<
     if (proxyUri?.startsWith('socks')) {
       const agent = new SocksProxyAgent(proxyUri)
       try {
-        return await fetchInsecure(fetchUrl, request, 8, agent as http.Agent)
+        const result = await fetchInsecure(fetchUrl, request, 8, agent as http.Agent)
+        return { ...result, finalUrl: fetchUrl === target ? result.finalUrl : undefined }
       } finally {
         agent.destroy()
       }
     }
-    return fetchInsecure(fetchUrl, request)
+    const result = await fetchInsecure(fetchUrl, request)
+    return { ...result, finalUrl: fetchUrl === target ? result.finalUrl : undefined }
   }
 }
 
@@ -311,6 +317,7 @@ function feedProxyPlugin(): Plugin {
             sourceMeta: { id: source.id, group: source.group },
           })
 
+          if (upstream.finalUrl) res.setHeader('X-NewsNook-Upstream-Url', upstream.finalUrl)
           res.statusCode = upstream.status
           res.setHeader(
             'Content-Type',
@@ -416,10 +423,11 @@ function upstreamProxy(): Plugin {
                 'User-Agent': requestedUa || BROWSER_UA,
                 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
                 Accept: '*/*',
-                Referer: 'https://news.google.com/',
+                Referer: new URL(target).origin + '/',
               },
               body,
             })
+            if (upstream.finalUrl) res.setHeader('X-NewsNook-Upstream-Url', upstream.finalUrl)
             res.statusCode = upstream.status
             res.setHeader(
               'Content-Type',
@@ -466,13 +474,20 @@ function upstreamProxy(): Plugin {
                     : `${targetUrl.origin}/`
           }
 
+          const range = isMedia ? req.headers.range : undefined
+          if (range) headers.Range = range
           const upstream = await fetchUpstream(targetUrl.href, { headers })
+          if (upstream.finalUrl) res.setHeader('X-NewsNook-Upstream-Url', upstream.finalUrl)
           res.statusCode = upstream.status
           const contentType =
             upstream.contentType ||
             (isImage ? 'image/jpeg' : isMedia ? 'application/octet-stream' : 'text/html; charset=utf-8')
           res.setHeader('Content-Type', contentType)
-          res.setHeader('Cache-Control', isImage || isMedia ? 'public, max-age=3600' : 'no-store')
+          res.setHeader('Cache-Control', (isImage || isMedia) && !range && upstream.status !== 206 ? 'public, max-age=3600' : 'no-store')
+          if (isMedia) {
+            for (const [name, value] of Object.entries(upstream.rangeHeaders)) res.setHeader(name, value)
+            res.setHeader('Access-Control-Expose-Headers', 'X-NewsNook-Upstream-Url, Content-Range, Accept-Ranges')
+          }
           res.setHeader('Access-Control-Allow-Origin', '*')
           res.end(upstream.buffer)
         } catch (error) {
@@ -687,7 +702,7 @@ function unlayerCssPlugin(): Plugin {
           css.replace(
             /\.(gap-[^\s{]+)\s*\{\s*(column-gap|row-gap|gap):\s*([^;}]+);?\s*\}/g,
             (_full, cls: string, prop: string, val: string) => {
-              const sel = `.${cls}`
+              const sel = `.${cls}`.replace(/\\\./g, '\\.')
               if (prop === 'column-gap') {
                 gapFallbacks.push(
                   `html[data-no-flex-gap="1"] ${sel} > * + * { margin-left: ${val.trim()}; }`,
@@ -714,8 +729,7 @@ function unlayerCssPlugin(): Plugin {
 
           // lightningcss 不降级 :where()（Chrome 88+）；剥离 @property 后部分
           // Android WebView 又匹配不到 Tailwind 的 @supports 变量兜底 → divide-y 等失效
-          // 最后一步：把所有 px 字号挂到 --ui-scale 上，供「界面字体」设置项消费
-          file.source = applyUiScale(applyWebViewCssCompat(css))
+          file.source = applyWebViewCssCompat(css)
         }
       }
     },
@@ -735,6 +749,32 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
     __APP_BUILD__: JSON.stringify(buildStamp()),
+  },
+  server: {
+    warmup: {
+      clientFiles: [
+        './src/main.tsx',
+        './src/App.tsx',
+        './src/index.css',
+      ],
+    },
+  },
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      'react-dom/client',
+      'react/jsx-dev-runtime',
+      'lucide-react',
+      'animejs',
+      'dompurify',
+      'marked',
+      'driver.js',
+      'opencc-js',
+      'fast-xml-parser',
+      '@mozilla/readability',
+      'linkedom',
+    ],
   },
   build: {
     target: ['chrome69', 'es2020'],

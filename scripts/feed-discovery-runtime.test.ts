@@ -6,6 +6,20 @@ import { saveSubscriptionState } from '../src/lib/storage'
 Object.assign(globalThis, { DOMParser })
 const originalFetch = globalThis.fetch
 try {
+  for (const [payload, title] of [
+    ['<rss version="2.0"><channel><title><![CDATA[某个作者 & 投稿]]></title><item><title>文章标题</title></item></channel></rss>', '某个作者 & 投稿'],
+    ['<feed xmlns="http://www.w3.org/2005/Atom"><title>  独立博客\n 动态 </title><entry><title>文章标题</title></entry></feed>', '独立博客 动态'],
+    ['<atom:feed xmlns:atom="http://www.w3.org/2005/Atom"><atom:title>另一个作者</atom:title></atom:feed>', '另一个作者'],
+    ['<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/"><channel><title>新闻 &amp; 评论</title></channel></rdf:RDF>', '新闻 & 评论'],
+    ['{"version":"https://jsonfeed.org/version/1.1","title":"技术周刊","items":[]}', '技术周刊'],
+    ['<rss><channel><item><title>不能用文章标题命名信源</title></item></channel></rss>', undefined],
+    ['<rss><channel><title>  </title></channel></rss>', undefined],
+  ] as const) {
+    globalThis.fetch = async () => new Response(payload)
+    const result = await previewFeed('https://example.com/feed')
+    assert.equal(result.ok, true, payload)
+    if (result.ok) assert.equal(result.title, title, 'preview must expose the feed title, never an article title')
+  }
   globalThis.fetch = async () => new Response('{"version":"arbitrary","items":[]}')
   assert.equal((await previewFeed('https://example.com/feed')).ok, false, 'arbitrary JSON version is not a JSON Feed')
   globalThis.fetch = async () => new Response('{"version":"https://jsonfeed.org/version/1.1","title":"Empty","items":[]}')

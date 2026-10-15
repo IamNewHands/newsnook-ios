@@ -240,7 +240,7 @@ export function AiProviderSettings({ prefs, onChange }: Props) {
 
   return (
     <>
-      <SettingsSection title="AI 提供商">
+      <SettingsSection variant="plain" title="AI 提供商">
         <p className="page-x pb-3 font-mono text-[10px] leading-relaxed tracking-[0.08em] text-paper-faint">
           可添加多个 OpenAI 兼容接口。名称、Base URL 与 Key 属于提供商；具体 Model 由下方每项功能单独选择。
         </p>
@@ -364,7 +364,7 @@ export function AiProviderSettings({ prefs, onChange }: Props) {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="功能模型">
+      <SettingsSection variant="plain" title="功能模型">
         <ul className="divide-y divide-haze border-y border-haze">
           {features.map((feature) => {
             const Icon = feature.icon

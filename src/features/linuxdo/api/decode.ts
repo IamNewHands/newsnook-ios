@@ -54,6 +54,7 @@ export function decodeCurrentUser(input: unknown): LinuxDoUser | undefined {
     unreadNotifications: typeof user.unread_notifications === 'number' ? user.unread_notifications : undefined,
     allUnreadNotificationsCount: typeof user.all_unread_notifications_count === 'number' ? user.all_unread_notifications_count : undefined,
     canUseTemplates: typeof user.can_use_templates === 'boolean' ? user.can_use_templates : undefined,
+    canAssignGlobally: typeof user.can_assign_globally === 'boolean' ? user.can_assign_globally : undefined,
   }
 }
 
@@ -182,6 +183,7 @@ export function decodeTopic(input: unknown): LinuxDoTopic {
   const stream = root?.post_stream ?? {}
   return {
     id: Number(root.id),
+    archetype: typeof root.archetype === 'string' ? root.archetype : undefined,
     slug: String(root.slug ?? ''),
     title: String(root.title ?? ''),
     fancyTitle: typeof root.fancy_title === 'string' ? root.fancy_title : undefined,

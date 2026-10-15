@@ -77,7 +77,7 @@ export function LocalSearchScreen({
   return (
     <SettingsShell
       title="本地搜索"
-      caption={`在本机 ${corpus.length} 篇已缓存内容里查找 · 不联网`}
+      caption={`共 ${corpus.length} 篇`}
       onBack={onBack}
     >
       <div className="page-x pt-4">
@@ -88,7 +88,7 @@ export function LocalSearchScreen({
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索标题、摘要或信源名…"
+            placeholder="搜索标题、摘要或来源"
             className="w-full rounded-xl border border-haze bg-ink-raised/60 py-2.5 pl-10 pr-9 text-[14px] text-paper placeholder-paper-faint/50 transition-colors focus:border-cinnabar focus:outline-none"
           />
           {query && (
@@ -130,19 +130,11 @@ export function LocalSearchScreen({
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-haze bg-paper/5 text-paper-faint">
             <Search size={22} strokeWidth={1.5} />
           </div>
-          <p className="mt-4 font-display text-[16px] text-paper">只在本机已有内容里找</p>
-          <p className="mt-2 text-[12px] leading-relaxed text-paper-faint">
-            覆盖列表缓存、稍后读与最近阅读，不会发起任何网络请求。
-            <br />
-            想搜某个视频站的全站内容，请到该信源页用站内搜索。
-          </p>
+          <p className="mt-4 font-display text-[16px] text-paper">搜索本地内容</p>
         </div>
       ) : results.length === 0 ? (
         <div className="page-x py-14 text-center">
-          <p className="text-[13.5px] text-paper">没有匹配「{trimmed}」的本地内容</p>
-          <p className="mt-2 text-[12px] leading-relaxed text-paper-faint">
-            换个关键词，或先刷新对应分类把内容取到本机。
-          </p>
+          <p className="text-[13.5px] text-paper">无匹配结果</p>
         </div>
       ) : (
         <>

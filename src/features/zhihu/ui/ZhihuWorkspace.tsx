@@ -1,11 +1,10 @@
+import { recordZhihuRead } from '../../readingHistory/store'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import { ArrowLeft, Bell, Home, Loader2, ScrollText, Search, UserRound } from 'lucide-react'
 
 import { HomeRefreshButton } from '../../../components/HomeRefreshButton'
 import { PresetSwitcher, type PresetSwitcherProps } from '../../../components/PresetSwitcher'
-import { useEdgeSwipeBack } from '../../../hooks/useEdgeSwipeBack'
-import { useReducedMotion } from '../../../hooks/useReducedMotion'
 import type { CloudTranslationConfig } from '../../translation/types'
 import { ZhihuCollectionService } from '../collection/service'
 import { ZhihuCommentDraftStore } from '../comments/draftStore'
@@ -54,6 +53,9 @@ interface Props {
   fontScale: number
   onFontScale: (next: number) => void
   speedReadConfig: CloudTranslationConfig
+  historyTarget?: ZhihuEntityRef | null
+  onHistoryTargetConsumed?: () => void
+  onHistoryChange?: () => void
 }
 
 let retainedFrames: RouteFrame[] | null = null
@@ -124,7 +126,7 @@ function capabilityPlaceholder(title: string, description: string) {
   )
 }
 
-export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontScale, onFontScale, speedReadConfig }: Props) {
+export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontScale, onFontScale, speedReadConfig, historyTarget, onHistoryTargetConsumed, onHistoryChange }: Props) {
   const runtime = useMemo(() => createZhihuRuntime(), [])
   const feedService = useMemo(() => createZhihuFeedService(runtime.api), [runtime])
   const recommendationFeedback = useMemo(
@@ -149,11 +151,14 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
   const [workspaceError, setWorkspaceError] = useState<string | null>(null)
   const [speedReadHeaderAction, setSpeedReadHeaderAction] = useState<ZhihuSpeedReadHeaderAction | null>(null)
   const [frames, setFrames] = useState<RouteFrame[]>(() => retainedFrames?.map((frame) => ({ ...frame })) ?? [createZhihuRootFrame()])
+  useEffect(() => {
+    if (!historyTarget) return
+    setFrames([{ route: { screen: 'feed', mode: 'recommended' }, scrollTop: 0 }, { route: { screen: 'entity', ref: historyTarget }, scrollTop: 0 }])
+    onHistoryTargetConsumed?.()
+  }, [historyTarget, onHistoryTargetConsumed])
   const current = frames.at(-1) ?? createZhihuRootFrame()
   const currentRouteKey = zhihuRouteKey(current.route)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const shellRef = useRef<HTMLElement | null>(null)
-  const reduced = useReducedMotion()
   const feedHomeRefreshRef = useRef<(() => void) | null>(null)
   const answerPreviewHostRef = useRef<HTMLDivElement>(null)
   const contentOverlayCloserRef = useRef<(() => boolean) | null>(null)
@@ -338,20 +343,6 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
     }
   }, [backHandlerRef, handleWorkspaceBack])
 
-  // 左缘右滑返回：与系统返回同一套优先级（先关浮层，再退一层路由），
-  // 退到工作区根仍无历史时交给 onExit 退出工作区。
-  // `resetAfterBack`：本工作区的根元素在换路由时不卸载，必须让 hook 复位，
-  // 否则整页会停在屏幕外（阅读器那条路径靠卸载容器收尾，不适用这里）。
-  useEdgeSwipeBack({
-    containerRef: shellRef,
-    onBack: () => {
-      if (!handleWorkspaceBack()) onExit()
-    },
-    edgeOnly: true,
-    reduced,
-    resetAfterBack: true,
-  })
-
   const setFeedMode = useCallback((mode: ZhihuFeedMode) => {
     if (mode === homeFeedMode) return
     setFrames((prev) => {
@@ -533,6 +524,7 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
         return (
           <ZhihuContentScreen
             refValue={current.route.ref}
+            onArticleRead={(detail) => { recordZhihuRead(detail); onHistoryChange?.() }}
             preview={feedPreviewRef.current.get(`${current.route.ref.kind}:${current.route.ref.id}`)}
             contentService={contentService}
             feedService={feedService}
@@ -607,7 +599,7 @@ export function ZhihuWorkspace({ onExit, backHandlerRef, presetSwitcher, fontSca
   })()
 
   return (
-    <section ref={shellRef} className="relative flex h-full min-h-0 flex-1 flex-col bg-ink" aria-label="知乎工作区">
+    <section className="relative flex h-full min-h-0 flex-1 flex-col bg-ink" aria-label="知乎工作区">
       {/* AppShell 已经统一吃掉顶部 safe-area；工作区再次加 --sat 会在打孔/刘海机型上形成双倍顶部留白。 */}
       <header className={`relative z-20 flex shrink-0 items-center gap-2.5 border-b border-paper/[0.06] bg-ink/90 px-3 backdrop-blur-2xl sm:px-5 ${primaryRoute ? 'min-h-[56px]' : 'min-h-[50px]'}`}>
         <button

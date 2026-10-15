@@ -163,15 +163,17 @@ PresetSwitcher / 切换布局
 
 - 分类顺序/显隐/显示名称、分类选源、综合频道启用列表
 - 正文字号/字体/行高/段距/首行缩进（CSS 变量注入阅读器）
-- 主题 `system | light | dark`；风格方案 `ink | celadon | pearl | custom`（与明暗正交，custom 配色见 `lib/customScheme.ts`）；**墨水屏** `einkMode`（行为叠加，非第三主题）
+- 主题 `system | light | dark`；风格方案 `ink | celadon | pearl | amber | forest | dusk | custom`（与明暗正交，custom 配色见 `lib/customScheme.ts`）；**墨水屏** `einkMode`（行为叠加，非第三主题）
 - 翻译引擎、语言、呈现方式、云 API 配置、列表标题翻译
 - 代理模式与地址、切换分类时自动刷新
 
-主题（`lib/theme.ts`）：明暗解析后写入 `<html data-theme>`；风格方案写入 `<html data-scheme>`（默认 `ink` 墨问，另有天青、现代优雅两套内置配色与 `custom` 自定义；已下线方案在读取偏好时自动回落墨问）。`styles/theme.css` 语义色 `--color-ink / --color-paper / …` 统一指向 `--tone-*`；内置方案块按 `[data-scheme][data-theme]` 重绑同一组 token，`--tone-cinnabar` 是「主题强调色」语义 token（各方案取色不同，名称保留兼容）。自定义配色（`lib/customScheme.ts`）：用户只选昼/夜两档的「底色 + 强调色」（存 `prefs.customScheme`），其余 token 由 `deriveSchemeTokens` 按对比度推导并内联到 `<html>`（内联优先于样式表，故无静态方案块；切回内置方案按 `CUSTOM_TOKEN_KEYS` 移除）；推导含文字色/强调色可读性兜底。图片查看器与视频播放器局部 `data-theme="dark"`（自定义方案下保持墨问夜读底色，与既有「固定深色」设计一致）。首屏由 `index.html` 内联脚本先行定色，并同步写入 `data-scheme` / `data-eink` 防闪。
+主题（`lib/theme.ts`）：明暗解析后写入 `<html data-theme>`；风格方案写入 `<html data-scheme>`（默认 `ink` 墨问，另有天青、现代优雅、琥珀、松烟、暮山五套内置配色与 `custom` 自定义；已下线方案在读取偏好时自动回落墨问）。`styles/theme.css` 语义色 `--color-ink / --color-paper / …` 统一指向 `--tone-*`；内置方案块按 `[data-scheme][data-theme]` 重绑同一组 token，`--tone-cinnabar` 是「主题强调色」语义 token（各方案取色不同，名称保留兼容）。自定义配色（`lib/customScheme.ts`）：用户只选昼/夜两档的「底色 + 强调色」（存 `prefs.customScheme`），其余 token 由 `deriveSchemeTokens` 按对比度推导并内联到 `<html>`（内联优先于样式表，故无静态方案块；切回内置方案按 `CUSTOM_TOKEN_KEYS` 移除）；推导含文字色/强调色可读性兜底。图片查看器与视频播放器局部 `data-theme="dark"`（自定义方案下保持墨问夜读底色，与既有「固定深色」设计一致）。首屏由 `index.html` 内联脚本先行定色，并同步写入 `data-scheme` / `data-eink` 防闪。
 
 ### 7.4 RSS 订阅商店
 
-`features/feedDiscovery/onlineSearch.ts` 使用 Feedly 按关键词检索少量 Feed 地址；输入网址时，经 `siteDiscovery.ts` 直连目标网站发现，必要时调用 Feedsearch。沿已有原生 HTTP / Web 代理路径联网，搜索不依赖登录或 NewsNook Cloud；订阅前用 `preview.ts` 实际验证。结果仅保留页面/导航内存，未订阅地址不写 localStorage 或 IndexedDB，不打包、下载或索引全量目录。订阅仍使用 `kind: 'feed'`，最终 URL 先落本机，再沿原有可选同步路径上传。
+`features/feedDiscovery/onlineSearch.ts` 使用 Feedly 按关键词检索少量 Feed 地址；输入网址时，经 `siteDiscovery.ts` 直连目标网站发现，必要时调用 Feedsearch，同时按需读取 RSSHub Radar 官方规则进行网址→路由模板匹配。沿已有原生 HTTP / Web 代理路径联网，搜索不依赖登录或 NewsNook Cloud；订阅前用 `preview.ts` 实际验证。远端 Radar 规则仅在需要时下载、放入有界进程内缓存，不恢复先前离线 RSSHub/RSS-Bridge 全量目录快照。未订阅候选仅留页面/导航内存。订阅仍使用 `kind: 'feed'`，同时在 `discovery.generator = 'rsshub'` 保存逻辑路由与实例 ID；实例设置作为 Preferences 普通同步设置随可选云同步及本地备份保存。
+
+`features/rsshub/` 独立处理公开/自定义实例配置、静态 Radar 匹配、手动更换绑定和同信任组内的限次故障回退；不执行远端 JS 路由逻辑、不接受任意私网实例地址。`fetchSourceText` 复用现有 RSS 网络与缓存入口，URL 更换不更换 sourceId（保持阅读状态与预设引用），普通 RSS 刷新不触发 RSSHub 目录请求。
 
 旧 IndexedDB `newsnook:feed-discovery` 与目录小配置在商店启动时清理；目录缓存统计、目录备份和快照生成脚本已移除，已有订阅与正文缓存不受迁移影响。
 
@@ -248,6 +250,14 @@ HTML / JSON / iframe 嵌入页 / Android 短生命周期 WebView
 
 `InkVideoPlayer` 统一处理 HLS/dash.js/HTMLMediaElement、播放控制、双击播放/暂停、长按临时倍速、进度/亮度/音量手势、捏合缩放、平移和还原。Android 横向视频进入全屏时优先锁定 Activity 横屏，系统导航栏和四向安全区随屏幕一起旋转；退出全屏或卸载播放器时恢复原方向。方向锁定不可用时才旋转播放器交互平面，确保视频与控件仍处于同一坐标系。
 
+`features/floatingVideo/` 在 `BootstrapRoot` 的应用分支提供会话所有权：页面上的 `InkVideoPlayer` 只注册展示 slot，`VideoSessionHost` 拥有稳定 portal 与播放器运行时，在内嵌、小窗、独立播放页之间移动同一宿主而不重建媒体引擎。浏览器 DOM 全屏保留原宿主位置，固定定位兜底全屏才提升至 body。页面卸载时内嵌会话关闭，悬浮会话撤销页面回调后继续；恢复时母页已消失则打开独立播放页。全应用最多一个悬浮或独立页会话，另一个播放器开始播放会暂停其他会话；后台暂停并退出全屏，回到前台不自动续播。全屏、旋转与销毁释放经过同一转换队列；返回键先关闭播放器菜单，再退出全屏或回到小窗，普通小窗不阻止页面返回。
+
+悬浮窗口支持标题栏拖动、角落缩放、双指缩放和键盘调整；几何限制基于 visualViewport 与四向安全区，用户选择的位置尺寸跨展示模式保留。Android 原站 WebView 在全局视频界面显示期间由 native bridge 抑制可见性，关闭后仅恢复仍存活的原站会话。原生播放请求带独立 session 标识，代理 URL 或 HLS/DASH 请求头定位对应鉴权上下文；释放一个播放器不清除其他会话的同 CDN 上下文。窗口位置只在当前运行时保留；首次提示通过本机 `newsnook:floating-guide-seen` 标记避免重复，存储不可用时不阻止播放。不新增云接口或系统悬浮权限。
+
+活动原生播放会话持有独立的凭据快照，按播放器 release 或 Activity destroy 释放；嗅探缓存的十分钟过期不会清除正在使用或暂停的会话。播放器四分钟及前台恢复时仅续已有会话，不从已过期的嗅探缓存重建；新增 CDN 权限保留现有凭据。Android HLS 使用默认 XHR 并携带内部会话标记，由原生流式补齐鉴权、CORS 与 Range；无效会话在本机失败，内部标记不会发送给 CDN。Web HLS 加载器和开发／生产媒体代理保留字节范围与响应范围头，206 响应不进入完整资源缓存。
+
+HLS 自动恢复只有一个待执行任务，连续失败最多三次退避；实际播放连续推进十秒后恢复预算，暂停、等待与 seek 会打断该窗口。清单加载错误使用 `loadSource` 重新请求，分片网络错误使用 `startLoad`，媒体错误使用 `recoverMediaError`。终止与销毁取消恢复任务；手动重试重建当前引擎并保存进度、正常倍速与暂停意图。页面卸载后的会话仍可重试当前资源，来源重新探测仅在来源页仍存在时提供。
+
 完整设计与实现映射见 [`xiutan.md`](./xiutan.md#二十newsnook-当前实现)。
 
 ### 8.4 文章翻译
@@ -312,7 +322,7 @@ ReaderScreen / CommentsDrawer
             → searchLocalArticles（空格切片 AND 子串匹配，标题/摘要/信源名加权，默认取前 80 条）
 ```
 
-本地搜索与 `web-catalog` 源的 `searchTemplate`（站内联网搜索）是两条独立路径：前者零请求，只覆盖本机已有内容。
+本地搜索与 `web-catalog` 源的 `catalogProfile.search`（站内联网搜索，旧配置仍可发现页面能力）是两条独立路径：前者零请求，只覆盖本机已有内容。
 
 #### 8.6.1 分享深链 `/a/<token>`
 
@@ -459,6 +469,7 @@ GET /a/<token>/og.png[?src=<上游首图>]   ← 卡片首图的同域端点（�
 | `later-items` | 稍后读文章 |
 | `read` | 已读 ID 集合 |
 | `reading-pos` | 阅读位置表 `{ [articleId]: { scrollTop, scrollRange?, pageIndex?, updatedAt } }`（仅 localStorage，上限 240 条） |
+| `linuxdo-reading-mode:v1` | Linux.do 帖子阅读方式 `floors` / `threaded`（仅 localStorage；默认 `floors`，不进入云同步） |
 | `cache:v3:{sourceId}` | 列表元数据（约 7 天过期 / 12 小时标 stale） |
 | `body:v1:{id}` + `body:index` | 正文缓存（约 3MB 预算，稍后读 pin） |
 | `feed-translation:*` | 列表标题译文缓存 |
@@ -534,6 +545,18 @@ Secret 上传但不做 E2EE；服务端 AES-256-GCM 加密（AAD 绑定 `userId:
 **通知分寸**：前台一律用应用内 `SyncToast`；Android 通知栏只留给首次同步完成、连续失败、待裁决冲突三类
 （`features/sync/notifier.ts` 的 `mapSyncEventToNotification` + `SyncNotificationPlugin.java`，
 单一 `newsnook-sync` 低优先级渠道、稳定通知 id）。例行后台同步成功不发任何通知，也不为同步在冷启动索要通知权限。
+
+### 8.10 划词百科
+
+`features/wiki/encyclopedia.ts` 的 `EncyclopediaProvider` 统一摘要与全文契约，UI、历史和收藏不依赖具体来源。维基百科使用公开接口；百度百科由 `baiduBaike.ts` 提取网页，输出相同的 `WikiEntry`，重建可读 HTML 并移除上游活动内容。
+
+Android 直连百度百科时，`baiduBrowser.ts → EncyclopediaPagePlugin` 用普通 WebView 请求桌面布局的官方页面，等待 DOM 正文就绪后运行本地 `wiki-baike-probe.js`，再交回本地解析。WebView 不向远程页面暴露原生 JS 接口；顶层导航限于百度百科与官方验证域。若出现验证，展示官方页面由用户手动完成，随后继续提取；取消、切源、超时或 Activity 销毁都会清理加载任务。该通道共享设备 WebView Cookie，不读取 Chrome Cookie，不实现验证码自动化，也不绕过 TLS 检查。显式用户代理继续经过 `lib/http.ts`，不会为浏览器提取静默绕开代理配置。
+
+Provider 可用性由可选的 `isAvailable()` 声明，来源选择器只显示当前平台可用项。百度百科目前仅开放 Android；Web 的 Node / 边缘 HTTP 代理无法复用浏览器会话，上游 403 由代理原样传递，普通网页也不能读取跨域页面 DOM。加载设置时，不可用来源会重置并保存为默认维基百科；读取历史或收藏时清理不可用来源的开发记录。Android 的百度百科偏好、历史及收藏继续保留。显式查询不可用来源仍在发送请求前报错。
+
+百度百科的初次查询会等待 HTML 文档解析完成，再同时抽取摘要与章节全文；无需等待图片等附属资源全部加载。全文快照以查询结果对象为生命周期保留在 Provider 内，展开全文复用同一份快照，避免重新创建浏览器请求。该快照不进入历史、收藏或持久化存储。
+
+百科设置保留原有 `newsnook.wiki.settings.v1` 键与 JSON 格式，作为历史前缀例外接入原生 Preferences 镜像和启动水合；查询面板切源也会保存默认提供商。此处不改变云同步范围。
 
 ## 9. HTTP、代理与网络安全
 
@@ -689,3 +712,36 @@ npm run android:apk | android:aab
 | APK 构建 | `scripts/android-build.mjs` |
 | 产品设计 | `docs/superpowers/specs/2026-07-31-newsnook-mobile-app-design.md` |
 | 墨水屏设计 | `docs/superpowers/specs/2026-08-11-eink-mode-design.md` |
+
+
+## 网页目录与 CMS 适配（2026-10）
+
+`features/siteCatalog` 是站点浏览、单源搜索、主列表与预存共用的页面服务。引擎身份独立于页面能力；分类/排序/筛选/分页使用实际链接，搜索使用已观察的 GET/POST 表单。`catalogEngine` 抽取语义卡片与 JSON-LD，并始终使用真实 sourceId 映射 Article。错误保留上次成功页面，请求取消与过期响应不影响新的会话。
+
+可选 `catalogProfile` 配置保存在本机并兼容备份/同步；未来合法配置保留为 `catalogProfileOpaque`，仅运行时退化。列表新增可选 nextUrl 与目录专用版本标识，旧全视频元信息在本机迁移；正文缓存、已读与稍后读身份不变。读取继续直连上游，Cloud 不参与解析。具体模块、规则矩阵、网络预算与限制见 [网页目录与 CMS 适配](./cms-catalog.md)。
+
+## Cross-source reading history (v1)
+
+The Recent Reading screen is a local reading *journal*, not a list of cached HTML.
+The repository in `src/features/readingHistory/store.ts` stores metadata and replay
+routes, bounded to 500 unique items / roughly 310 KB. It never stores article body
+HTML, authentication sessions, Discourse private messages, or Zhihu drafts.
+
+* Feed / custom RSS / CMS: article detail-opening events write an article snapshot.
+  A cache hit is not a prerequisite for being recorded. The existing reader
+  continues to own optional full-text caching and offline replay.
+* Linux.do: successful public regular-topic responses record a stable topic id
+  and slug; replay uses the regular workspace topic route and its existing API.
+  Private-message archetypes are explicitly excluded.
+* Zhihu: successful content detail responses record public question/answer/
+  article/pin refs; replay uses the normal Zhihu entity navigation path.
+* Reopening updates the original item in-place and moves it to the top.
+  A 15-second repeat-open interval does not inflate the visit count.
+* The first recent-reading visit imports legacy body-cache items **only when
+  their article IDs were actually marked read**. The migration is idempotent;
+  clearing the journal does not re-import old caches.
+* The journal is local-only and separate from the 3 MB body-cache budget.
+  Clearing offline caches does not remove reading metadata, but replay of
+  noncached content may require network access. No cloud sync is implied.
+
+Regression: `npm run test:reading-history`, followed by `npm run build`.

@@ -17,6 +17,11 @@ dist-ssr
 *.jks
 *.keystore
 
+# Android local build & gradle cache
+android/.gradle/
+android/app/build/
+android/capacitor-cordova-android-plugins/
+
 # Signed build outputs from npm run android:apk / android:aab
 artifacts/
 
@@ -47,11 +52,15 @@ cloud/.env
 cloud/.env.*
 !cloud/.env.example
 
-# 真机验收清单与逐轮实测记录：只留本地，不进仓库
-docs/local/
-
 .coding-tools/
 
 evidence
 
 .chappie/
+
+promo-video/
+video/
+
+# Local screenshot capture probes / thumbs (keep committed docs/screenshots/*.jpg)
+docs/screenshots/_*
+.gemini/

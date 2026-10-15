@@ -8,6 +8,7 @@ import { collectAudioSrc, isAudioMediaUrl } from '../articleAudio'
 import { feedArticleId } from '../articleId'
 import { normalizeArticleTitle } from '../articleTitle'
 import { cleanSummaryText } from '../cleanSummary'
+import { firstImageIn, previewImageUrl } from '../articlePreview'
 import {
   extractDirectVideoUrlFromHtml,
   extractEmbeddedVideoPageUrl,
@@ -16,6 +17,8 @@ import {
 } from '../videoArticle'
 import type { NewsSource } from '../../sources/registry'
 import type { Article } from '../types'
+
+export { firstImageIn } from '../articlePreview'
 
 export type Unknown = Record<string, unknown>
 
@@ -65,33 +68,6 @@ export function stripTags(html: string): string {
     .replace(/&gt;/gi, '>')
     .replace(/\s+/g, ' ')
     .trim()
-}
-
-function imageUrl(value: unknown, baseUrl?: string): string | undefined {
-  if (typeof value !== 'string' || !value.trim()) return undefined
-  try {
-    const raw = value.trim().replace(/&amp;/gi, '&')
-    const url = new URL(raw.startsWith('//') ? `https:${raw}` : raw, baseUrl)
-    if (!/^https?:$/.test(url.protocol)) return undefined
-    if (/\.(?:pdf|zip|docx?|xlsx?|mp[34]|m4[av]|webm|ogg|wav)(?:$|[?#])/i.test(url.href)) return undefined
-    return url.href
-  } catch { return undefined }
-}
-
-export function firstImageIn(html: string, baseUrl?: string): string | undefined {
-  for (const tag of html.match(/<img\b[^>]*>/gi) ?? []) {
-    const attributes = new Map<string, string>()
-    for (const match of tag.matchAll(/\s([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g)) {
-      attributes.set(match[1].toLowerCase(), match[2] ?? match[3] ?? match[4])
-    }
-    for (const name of ['data-src', 'data-original', 'data-lazy-src', 'src', 'data-srcset', 'srcset']) {
-      const raw = attributes.get(name)
-      const candidate = name.endsWith('srcset') ? raw?.split(',')[0]?.trim().split(/\s+/)[0] : raw
-      const url = imageUrl(candidate, baseUrl)
-      if (url) return url
-    }
-  }
-  return undefined
 }
 
 export function attr(value: unknown, name: string): string | undefined {
@@ -256,7 +232,11 @@ export function imageOf(node: Unknown, html: string, baseUrl?: string): string |
     const group = asRecord(raw)
     if (group) collectMedia(group)
   }
-  candidates.push(attr(node.image, '@_url'), attr(node.image, '@_href'), text(asRecord(node.image)?.url))
+  candidates.push(attr(node.image, '@_url'), attr(node.image, '@_href'), text(asRecord(node.image)?.url), text(node.image), text(node.thumbnail))
+  for (const raw of toArray(node.link)) {
+    const link = asRecord(raw)
+    if (link?.['@_rel'] === 'enclosure' && /^image\//i.test(text(link['@_type']))) candidates.push(link['@_href'])
+  }
   for (const rec of enclosureRecords(node)) {
     const type = text(rec['@_type'])
     if (!type || /^image\//i.test(type)) candidates.push(rec['@_url'])
@@ -268,7 +248,7 @@ export function imageOf(node: Unknown, html: string, baseUrl?: string): string |
     if (!type || /^image\//i.test(type)) candidates.push(rec.url)
   }
   for (const candidate of candidates) {
-    const url = imageUrl(candidate, baseUrl)
+    const url = previewImageUrl(candidate, baseUrl)
     if (url && !isAudioMediaUrl(url) && !isDirectVideoMediaUrl(url) && !isLikelyEmbeddedVideoPageUrl(url)) return url
   }
   return firstImageIn(html, baseUrl)

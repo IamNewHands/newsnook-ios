@@ -7,6 +7,7 @@ import {
   resistedPullDistance,
 } from '../lib/pullToRefresh'
 import { clearGestureCompositorStyles } from '../lib/gestureStyles'
+import { haptics } from '../lib/haptics'
 
 export type PullPhase = 'idle' | 'pulling' | 'ready' | 'refreshing'
 
@@ -70,7 +71,11 @@ export function usePullToRefresh({
 
   const setPhaseSafe = useCallback((next: PullPhase) => {
     if (phaseRef.current === next) return
+    const prev = phaseRef.current
     phaseRef.current = next
+    if (next === 'ready' && prev !== 'ready') {
+      void haptics.snap()
+    }
     setPhase(next)
   }, [])
 

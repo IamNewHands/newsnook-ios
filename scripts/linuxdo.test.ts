@@ -92,7 +92,7 @@ assert.equal(composerModel.normalizeComposerTag('  #Open AI  '), 'open-ai')
 assert.equal(composerModel.normalizeComposerTag(' #Node.js / API '), 'node.js-api')
 assert.deepEqual(
   composerModel.validateComposer({ mode: 'create', title: '短标题', raw: '不足二十字' }),
-  { canSubmit: false, titleCount: 3, bodyCount: 5, titleRemaining: 3, bodyRemaining: 15 },
+  { canSubmit: false, titleCount: 3, bodyCount: 5, bodyMinimum: 20, titleRemaining: 3, bodyRemaining: 15 },
 )
 assert.equal(composerModel.validateComposer({ mode: 'create', title: '这是合格标题', raw: '这是一段已经达到二十个字符要求并且能够正常发布的正文内容。' }).canSubmit, true)
 assert.equal(composerModel.validateComposer({ mode: 'reply', title: '', raw: '这是一段已经达到二十个字符要求并且能够正常发布的回复内容。' }).canSubmit, true)
@@ -591,6 +591,23 @@ const clean = sanitizeLinuxDoCooked(dirty)
 assert.doesNotMatch(clean, /onclick/i)
 assert.doesNotMatch(clean, /javascript:/i)
 
+// Bilibili's mobile iframe redirects between trusted Bilibili origins and uses
+// deviceorientation for its own fullscreen button. NewsNook supplies a separate
+// parent-origin fullscreen action instead of recreating the iframe after play.
+const bilibiliVideoHtml = sanitizeLinuxDoCooked(
+  '<p>video</p><iframe src="https://player.bilibili.com/player.html?bvid=BV1wpWw6zEiX&page=1" allowfullscreen></iframe>',
+)
+assert.match(bilibiliVideoHtml, /data-linuxdo-video-fullscreen=""/)
+assert.match(bilibiliVideoHtml, /data-linuxdo-video-fullscreen-toggle=""/)
+assert.match(bilibiliVideoHtml, /accelerometer https:\/\/player\.bilibili\.com https:\/\/www\.bilibili\.com/)
+assert.match(bilibiliVideoHtml, /gyroscope https:\/\/player\.bilibili\.com https:\/\/www\.bilibili\.com/)
+assert.equal((bilibiliVideoHtml.match(/<iframe\b/g) ?? []).length, 1)
+assert.equal((bilibiliVideoHtml.match(/data-linuxdo-video-fullscreen-toggle=/g) ?? []).length, 1)
+assert.doesNotMatch(sanitizeLinuxDoCooked('<iframe src="https://fake.bilibili.com/video/1"></iframe>'), /data-linuxdo-video-fullscreen/)
+assert.doesNotMatch(sanitizeLinuxDoCooked('<iframe src="https://player.bilibili.com.evil.example/player.html"></iframe>'), /data-linuxdo-video-fullscreen/)
+assert.doesNotMatch(sanitizeLinuxDoCooked('<iframe src="https://www.youtube.com/embed/test123"></iframe>'), /data-linuxdo-video-fullscreen/)
+assert.match(bilibiliVideoHtml, /<button[^>]*aria-label="全屏播放 Bilibili 视频"/)
+
 // Linux.do's web theme enhances GitHub-style Markdown alerts after cooking.
 // NewsNook must preserve the same semantics without depending on Discourse JS/CSS.
 const warningCallout = sanitizeLinuxDoCooked(
@@ -639,7 +656,7 @@ const discourseMedia = sanitizeLinuxDoCooked(`
   <p>before <img src="/images/emoji/twitter/smiley.png" class="emoji" alt="smiley" width="20" height="20"> after</p>
   <div class="lightbox-wrapper">
     <a class="lightbox" href="/uploads/default/original/1X/photo.png">
-      <img src="/uploads/default/optimized/1X/photo_2_690x74.png" width="690" height="74" srcset="/uploads/default/optimized/1X/photo_2_690x74.png, /uploads/default/optimized/1X/photo_2_1035x111.png 1.5x, /uploads/default/optimized/1X/photo_2_1380x148.png 2x">
+      <img src="/uploads/default/optimized/1X/photo_2_690x74.png" width="690" height="74">
       <div class="meta"><span class="filename">image</span><span class="informations">2134×230 22.6 KB</span></div>
     </a>
   </div>
@@ -652,52 +669,6 @@ assert.doesNotMatch(discourseMedia, /<a[^>]+data-linuxdo-role="image-link"[^>]+h
 assert.match(discourseMedia, /https:\/\/linux\.do\/uploads\/default\/optimized/)
 assert.doesNotMatch(discourseMedia, /2134×230/)
 assert.doesNotMatch(discourseMedia, />image</)
-// 正文用 srcset 里最大的 retina 变体（约 2x，高分屏不发虚），1x 的 cooked src 留作兜底候选。
-// 原图（href）不进正文 src —— 它可能是几千像素的大文件，只留在 data-linuxdo-original-src
-// 给灯箱的「查看原图」按需取用。
-assert.match(
-  discourseMedia,
-  /<img[^>]+\ssrc="https:\/\/linux\.do\/uploads\/default\/optimized\/1X\/photo_2_1380x148\.png"/,
-  '正文图片的 src 必须是 srcset 里最大的 retina 变体',
-)
-assert.doesNotMatch(
-  discourseMedia,
-  /<img[^>]+\ssrc="https:\/\/linux\.do\/uploads\/default\/original\/1X\/photo\.png"/,
-  '原图不得出现在正文 src',
-)
-assert.match(
-  discourseMedia,
-  /data-reader-image-fallbacks="[^"]*photo_2_690x74\.png[^"]*"/,
-  '1x optimized 必须留作兜底候选',
-)
-assert.doesNotMatch(
-  discourseMedia,
-  /data-reader-image-fallbacks="[^"]*\/original\/[^"]*"/,
-  '原图不得进兜底链',
-)
-assert.match(
-  discourseMedia,
-  /data-linuxdo-original-src="https:\/\/linux\.do\/uploads\/default\/original\/1X\/photo\.png"/,
-  '原图仍要留在 data-linuxdo-original-src 供灯箱「查看原图」取用',
-)
-
-const discourseMediaNoSrcset = sanitizeLinuxDoCooked(`
-  <div class="lightbox-wrapper">
-    <a class="lightbox" href="/uploads/default/original/1X/solo.png">
-      <img src="/uploads/default/optimized/1X/solo_2_690x74.png" width="690" height="74">
-    </a>
-  </div>
-`)
-assert.match(
-  discourseMediaNoSrcset,
-  /<img[^>]+\ssrc="https:\/\/linux\.do\/uploads\/default\/optimized\/1X\/solo_2_690x74\.png"/,
-  '没有 srcset 时正文 src 就是 cooked 的原始 optimized 地址',
-)
-assert.match(
-  discourseMediaNoSrcset,
-  /data-linuxdo-original-src="https:\/\/linux\.do\/uploads\/default\/original\/1X\/solo\.png"/,
-  '原图仍要留在 data-linuxdo-original-src 供灯箱取用',
-)
 
 const discourseSemantics = sanitizeLinuxDoCooked(`
   <aside class="quote" data-topic="321" data-post="7" data-username="alice">

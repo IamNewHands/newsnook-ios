@@ -67,7 +67,7 @@ export function FeedSkeleton({ showLead = false, rows = 6, layout = 'classic' }:
                 className="overflow-hidden rounded-[13px] border border-haze/80 bg-ink-raised/45"
                 style={{ opacity: Math.max(0.45, 1 - index * 0.08) }}
               >
-                {index % 3 !== 2 && <div className="ink-shimmer aspect-[4/3] w-full border-b border-haze/50" />}
+                <div className="ink-shimmer aspect-[4/3] w-full border-b border-haze/50" />
                 <div className="p-2.5 sm:p-3">
                   <div className="ink-shimmer h-3.5 w-[92%] rounded-full" />
                   <div className="ink-shimmer mt-2 h-3.5 w-[68%] rounded-full" />

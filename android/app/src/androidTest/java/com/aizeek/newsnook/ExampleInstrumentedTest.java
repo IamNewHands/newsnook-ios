@@ -21,6 +21,11 @@ public class ExampleInstrumentedTest {
         // Context of the app under test.
         Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
 
-        assertEquals("com.aizeek.newsnook", appContext.getPackageName());
+        // Test APK names follow <applicationId>.test across both cloudDebug and
+        // release; do not hard-code the release ID for a debug-only test.
+        String instrumentationPackage = InstrumentationRegistry.getInstrumentation().getContext().getPackageName();
+        assertTrue(instrumentationPackage.endsWith(".test"));
+        assertEquals(instrumentationPackage.substring(0, instrumentationPackage.length() - 5),
+            appContext.getPackageName());
     }
 }

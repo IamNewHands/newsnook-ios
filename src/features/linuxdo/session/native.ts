@@ -20,23 +20,16 @@ export interface LinuxDoBrowserPreparation {
   status?: number
 }
 
-export interface LinuxDoMediaResponse {
-  status: number
-  base64: string
-  contentType?: string
-  transport?: 'native' | 'browser' | 'browser-firstparty'
-}
-
 interface LinuxDoSessionPlugin {
   prepareBrowserSession(): Promise<LinuxDoBrowserPreparation>
   authenticate(options?: { url?: string; readSyncChallenge?: boolean }): Promise<LinuxDoSessionSnapshot>
+  verifyChallenge(options: { url: string; readSyncChallenge?: boolean }): Promise<{ completed: boolean }>
   authenticateUserApiKey(): Promise<LinuxDoSessionSnapshot>
   cancelUserApiKeyAuth(): Promise<void>
   clearUserApiKey(): Promise<void>
   snapshot(): Promise<LinuxDoSessionSnapshot>
   browserSnapshot(): Promise<LinuxDoSessionSnapshot>
   request(options: { url: string; method: 'GET' | 'POST' | 'PUT' | 'DELETE'; headers?: Record<string, string>; body?: string; browserOnly?: boolean }): Promise<LinuxDoNativeResponse>
-  fetchMedia(options: { url: string; referer?: string }): Promise<LinuxDoMediaResponse>
   fetchConnectTrustPage(): Promise<{ status: number; data: string; finalUrl: string; headers?: Record<string, string> }>
   beginUpload(options: { fileName: string; mimeType: string }): Promise<{ uploadId: string }>
   appendUploadChunk(options: { uploadId: string; base64: string }): Promise<{ bytesWritten: number }>
@@ -68,6 +61,15 @@ export async function verifyLinuxDoBrowserSession(url = 'https://linux.do/', opt
   return NativeLinuxDoSession.authenticate({ url, ...options })
 }
 
+/** User-completed first-party Cloudflare challenge, not an account login. */
+export async function verifyLinuxDoChallenge(url = 'https://linux.do/', options?: { readSyncChallenge?: boolean }): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) {
+    throw new Error('请在 NewsNook Android App 中完成 Linux.do 安全验证')
+  }
+  const result = await NativeLinuxDoSession.verifyChallenge({ url, ...options })
+  return result.completed === true
+}
+
 export async function readLinuxDoSession(): Promise<LinuxDoSessionSnapshot> {
   if (!Capacitor.isNativePlatform()) return { authenticated: false, authMode: 'none' }
   return NativeLinuxDoSession.snapshot()
@@ -81,12 +83,6 @@ export async function readLinuxDoBrowserSession(): Promise<LinuxDoSessionSnapsho
 export async function requestLinuxDoNative(options: { url: string; method: 'GET' | 'POST' | 'PUT' | 'DELETE'; headers?: Record<string, string>; body?: string; browserOnly?: boolean }): Promise<LinuxDoNativeResponse> {
   if (!Capacitor.isNativePlatform()) throw new Error('Linux.do 原生请求仅可在 App 内使用')
   return NativeLinuxDoSession.request(options)
-}
-
-/** 取 linux.do 主站图片字节（base64）。Android 不需要：那边的 WebView 与 CookieManager 共享会话，图片能直接加载。 */
-export async function fetchLinuxDoMedia(options: { url: string; referer?: string }): Promise<LinuxDoMediaResponse> {
-  if (!Capacitor.isNativePlatform()) throw new Error('Linux.do 媒体请求仅可在 App 内使用')
-  return NativeLinuxDoSession.fetchMedia(options)
 }
 
 export async function prepareLinuxDoBrowserSession(): Promise<LinuxDoBrowserPreparation> {

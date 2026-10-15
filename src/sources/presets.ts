@@ -634,6 +634,17 @@ export function renameUserPreset(state: PresetsState, presetId: string, name: st
   return { ...state, userPresets: next }
 }
 
+export function moveUserPreset(state: PresetsState, presetId: string, direction: -1 | 1): PresetsState {
+  const index = state.userPresets.findIndex((preset) => preset.id === presetId)
+  const targetIndex = index + direction
+  if (index < 0 || targetIndex < 0 || targetIndex >= state.userPresets.length) return state
+  const userPresets = [...state.userPresets]
+  const moving = userPresets[index]
+  userPresets[index] = userPresets[targetIndex]
+  userPresets[targetIndex] = moving
+  return { ...state, userPresets }
+}
+
 export function deleteUserPreset(state: PresetsState, presetId: string): PresetsState {
   if (findBuiltinPreset(presetId)) return state
   const userPresets = state.userPresets.filter((preset) => preset.id !== presetId)

@@ -1,6 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import {
-  ALargeSmall,
   ArrowLeft,
   Bookmark,
   ChevronRight,
@@ -19,6 +18,7 @@ import {
   Search,
   Type,
   Volume2,
+  BookOpen,
 } from 'lucide-react'
 
 import { useReducedMotion } from '../hooks/useReducedMotion'
@@ -27,13 +27,12 @@ import type { Article } from '../lib/types'
 
 interface Props {
   later: Article[]
-  history: Article[]
+  historyCount: number
   readCount: number
   customSourcesSummary?: string
   categoriesSummary?: string
   presetsSummary: string
   typographySummary: string
-  uiFontSummary: string
   appearanceSummary: string
   translationSummary: string
   readAloudSummary: string
@@ -51,9 +50,9 @@ interface Props {
   onOpenCategories: () => void
   onOpenPresets: () => void
   onOpenTypographySettings: () => void
-  onOpenUiFontSettings: () => void
   onOpenAppearanceSettings: () => void
   onOpenTranslationSettings: () => void
+  onOpenWikiSettings: () => void
   onOpenReadAloudSettings: () => void
   onOpenAiSettings: () => void
   onOpenProxySettings: () => void
@@ -64,53 +63,40 @@ interface Props {
   onBackToReading?: () => void
 }
 
-interface SettingsRowProps {
+interface EntryProps {
   icon: typeof Type
   title: string
-  caption: string
-  badge?: number | string | null
+  subtitle?: string
+  badge?: string | number | null
   onClick: () => void
-  /** 功能引导锚点，见 features/productTour/steps.ts */
   dataTour?: string
 }
 
-function SettingsRow({ icon: Icon, title, caption, badge, onClick, dataTour }: SettingsRowProps) {
-  return (
-    <li className="bg-ink" data-tour={dataTour}>
-      <button
-        type="button"
-        onClick={onClick}
-        className="page-x flex w-full items-center gap-3 py-4 text-left transition-colors hover:bg-ink-raised/30 active:bg-ink-raised/50"
-      >
-        <Icon size={17} strokeWidth={1.5} className="shrink-0 text-paper-muted" />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            <span className="text-[14px] font-medium text-paper">{title}</span>
-            {badge !== undefined && badge !== null && badge !== 0 && (
-              <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-cinnabar px-1.5 font-mono text-[10px] font-semibold leading-none text-white shadow-sm">
-                {badge}
-              </span>
-            )}
-          </span>
-          <span className="mt-0.5 block truncate font-mono text-[10px] text-paper-faint">
-            {caption}
-          </span>
-        </span>
-        <ChevronRight size={14} strokeWidth={1.5} className="shrink-0 text-paper-faint" />
-      </button>
-    </li>
-  )
+function Entry({ icon: Icon, title, subtitle, badge, onClick, dataTour }: EntryProps) {
+  return <li className="paper-settings-item" data-tour={dataTour}>
+    <button type="button" className="paper-settings-row" onClick={onClick}>
+      <span className="paper-settings-icon"><Icon size={18} strokeWidth={1.8} aria-hidden="true" /></span>
+      <span className="paper-settings-copy"><span className="paper-settings-name">{title}</span>
+        {subtitle && <span className="paper-settings-subtitle">{subtitle}</span>}</span>
+      {badge !== undefined && badge !== null && badge !== 0 && <span className="paper-settings-badge">{badge}</span>}
+      <ChevronRight size={16} className="paper-settings-chevron" aria-hidden="true" />
+    </button>
+  </li>
+}
+
+function Group({ title, children }: { title: string; children: ReactNode }) {
+  return <section className="paper-settings-group"><h2 className="paper-settings-group-title">{title}</h2>
+    <ul className="paper-settings-panel">{children}</ul></section>
 }
 
 export function MeScreen({
   later,
-  history,
+  historyCount,
   readCount,
   customSourcesSummary,
   categoriesSummary,
   presetsSummary,
   typographySummary,
-  uiFontSummary,
   appearanceSummary,
   translationSummary,
   readAloudSummary,
@@ -128,9 +114,9 @@ export function MeScreen({
   onOpenCategories,
   onOpenPresets,
   onOpenTypographySettings,
-  onOpenUiFontSettings,
   onOpenAppearanceSettings,
   onOpenTranslationSettings,
+  onOpenWikiSettings,
   onOpenReadAloudSettings,
   onOpenAiSettings,
   onOpenProxySettings,
@@ -141,190 +127,49 @@ export function MeScreen({
 }: Props) {
   const reduced = useReducedMotion()
   const rootRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    revealItems(rootRef.current, reduced)
-  }, [history.length, later.length, reduced])
-
-  return (
-    <section className="flex min-h-0 flex-1 flex-col">
-      <header className="shrink-0 pt-2 pb-3">
-        <div className="page-x lg:px-8 max-w-4xl mx-auto w-full">
-          <div className="flex items-start gap-2">
-            {onBackToReading && (
-              <button
-                type="button"
-                onClick={onBackToReading}
-                aria-label="返回阅读"
-                className="-ml-1.5 shrink-0 p-1.5 hover:text-paper"
-              >
-                <ArrowLeft size={19} strokeWidth={1.6} className="text-paper" />
-              </button>
-            )}
-            <div className="min-w-0 flex-1">
-              <h1 className="font-display text-[26px] leading-none text-paper md:text-[30px]">我的</h1>
-              <p className="mt-1.5 font-mono text-[10px] tracking-[0.16em] text-paper-faint">
-                {onBackToReading
-                  ? '返回可继续阅读 · 稍后读 ' + later.length + ' · 已读 ' + readCount
-                  : `稍后读 ${later.length} · 已读 ${readCount}`}
-              </p>
-            </div>
-          </div>
-          <div className="mt-3 h-px w-full bg-haze" />
-        </div>
-      </header>
-
-      <div ref={rootRef} className="scroll-hidden min-h-0 flex-1 overflow-y-auto pb-8">
-        <div className="max-w-4xl mx-auto w-full">
-          <div className="page-x lg:px-8 flex items-center gap-3 pt-6 pb-2">
-            <span className="font-mono text-[10px] tracking-[0.28em] text-paper-faint">阅读与收藏</span>
-            <span className="h-px flex-1 bg-haze" aria-hidden />
-          </div>
-
-        <ul
-          data-tour="me-reading"
-          className="divide-y divide-haze border-y border-haze md:grid md:grid-cols-2 md:gap-px md:divide-y-0 md:bg-haze"
-        >
-          <SettingsRow
-            icon={Bookmark}
-            title="稍后读"
-            caption={later.length ? `${later.length} 篇待读` : '阅读器顶栏可收藏'}
-            badge={later.length > 0 ? later.length : null}
-            onClick={onOpenLater}
-          />
-          <SettingsRow
-            icon={History}
-            title="最近阅读"
-            caption={history.length ? `${history.length} 篇` : '打开过的文章会出现在这里'}
-            onClick={onOpenHistory}
-          />
-          <SettingsRow
-            icon={Search}
-            title="本地搜索"
-            caption="在已缓存的列表、稍后读与历史里查找 · 不联网"
-            onClick={onOpenLocalSearch}
-          />
-        </ul>
-
-        <div className="page-x flex items-center gap-3 pt-8 pb-2">
-          <span className="font-mono text-[10px] tracking-[0.28em] text-paper-faint">偏好设置</span>
-          <span className="h-px flex-1 bg-haze" aria-hidden />
-        </div>
-
-        <ul
-          data-tour="me-settings"
-          className="divide-y divide-haze border-y border-haze md:grid md:grid-cols-2 md:gap-px md:divide-y-0 md:bg-haze"
-        >
-          <SettingsRow
-            icon={Store}
-            title="RSS 订阅商店"
-            caption="在线搜索网站与订阅地址、管理已订阅"
-            onClick={onOpenFeedStore}
-          />
-          <SettingsRow
-            icon={Rss}
-            title="自定义订阅与 OPML"
-            caption={customSourcesSummary ?? 'RSS / Atom · OPML 导入导出'}
-            onClick={onOpenCustomSources}
-            dataTour="me-custom-sources"
-          />
-          <SettingsRow
-            icon={LayoutGrid}
-            title="分类与自动刷新"
-            caption={categoriesSummary ?? '顺序、信源与切换刷新'}
-            onClick={onOpenCategories}
-          />
-          <SettingsRow
-            icon={LayoutTemplate}
-            title="场景预设"
-            caption={presetsSummary}
-            onClick={onOpenPresets}
-            dataTour="me-presets"
-          />
-          <SettingsRow
-            icon={Type}
-            title="阅读字体"
-            caption={typographySummary}
-            onClick={onOpenTypographySettings}
-          />
-          <SettingsRow
-            icon={ALargeSmall}
-            title="界面字体"
-            caption={uiFontSummary}
-            onClick={onOpenUiFontSettings}
-          />
-          <SettingsRow
-            icon={Contrast}
-            title="外观"
-            caption={appearanceSummary}
-            onClick={onOpenAppearanceSettings}
-          />
-          <SettingsRow
-            icon={Languages}
-            title="翻译"
-            caption={translationSummary}
-            onClick={onOpenTranslationSettings}
-            dataTour="me-translation"
-          />
-          <SettingsRow
-            icon={Volume2}
-            title="朗读"
-            caption={readAloudSummary}
-            onClick={onOpenReadAloudSettings}
-          />
-          <SettingsRow
-            icon={ServerCog}
-            title="AI"
-            caption={aiSummary}
-            onClick={onOpenAiSettings}
-          />
-          <SettingsRow
-            icon={Globe}
-            title="网络与代理"
-            caption={proxySummary}
-            onClick={onOpenProxySettings}
-          />
-          <SettingsRow
-            icon={Database}
-            title="离线存储与备份"
-            caption={storageSummary}
-            onClick={onOpenStorageSettings}
-          />
-          <SettingsRow
-            icon={CloudUpload}
-            title="账户与同步"
-            caption={accountSummary}
-            onClick={onOpenAccountSync}
-          />
-        </ul>
-
-        <div className="page-x flex items-center gap-3 pt-8 pb-2">
-          <span className="font-mono text-[10px] tracking-[0.28em] text-paper-faint">关于与项目</span>
-          <span className="h-px flex-1 bg-haze" aria-hidden />
-        </div>
-
-        <ul className="divide-y divide-haze border-y border-haze md:grid md:grid-cols-2 md:gap-px md:divide-y-0 md:bg-haze">
-          <SettingsRow
-            icon={Info}
-            title="关于有所闻"
-            caption={
-              hasUpdate && availableVersion
-                ? `发现新版本 v${availableVersion} · 开源仓库与专栏文章`
-                : `v${__APP_VERSION__} · 开源仓库与专栏文章`
-            }
-            badge={hasUpdate ? (availableVersion ? `v${availableVersion}` : 'NEW') : null}
-            onClick={onOpenAbout}
-          />
-        </ul>
-
-        <div data-reveal className="page-x lg:px-8 max-w-2xl pt-8">
-          <p className="font-display text-[15px] text-paper">权利和免责</p>
-          <p className="mt-2 text-[11.5px] leading-relaxed text-paper-faint">
-            内容版权归原发布方。本应用只做本地阅读，不托管内容库；列表与正文由本机直连来源站点，稍后读与已读仅存本机。
-          </p>
-        </div>
-        </div>
+  useEffect(() => { revealItems(rootRef.current, reduced) }, [historyCount, later.length, reduced])
+  return <section className="paper-settings-root flex min-h-0 flex-1 flex-col">
+    <header className="paper-settings-header">
+      <div className="paper-settings-container">
+        <div className="paper-settings-brand">{onBackToReading && <button type="button" onClick={onBackToReading} aria-label="返回阅读" className="paper-settings-back"><ArrowLeft size={20}/></button>}<span className="paper-settings-brand-dot"/>有所闻</div>
+        <h1>设置</h1><p className="paper-settings-reading-count">已读 {readCount} 篇</p>
       </div>
-    </section>
-  )
+    </header>
+    <div ref={rootRef} className="paper-settings-scroller scroll-hidden">
+      <div className="paper-settings-container paper-settings-grid">
+        <section className="paper-settings-group" data-tour="me-reading">
+          <h2 className="paper-settings-group-title">阅读与收藏</h2>
+          <div className="paper-settings-shortcuts">
+            <button type="button" className="paper-settings-shortcut" onClick={onOpenLater}><span className="paper-settings-icon paper-settings-shortcut-icon"><Bookmark size={19}/></span><span><strong>稍后读</strong><small>{later.length ? `${later.length} 篇` : '暂无内容'}</small></span></button>
+            <button type="button" className="paper-settings-shortcut" onClick={onOpenHistory}><span className="paper-settings-icon paper-settings-shortcut-icon"><History size={19}/></span><span><strong>最近阅读</strong><small>{historyCount ? `${historyCount} 篇` : '暂无记录'}</small></span></button>
+          </div>
+          <ul className="paper-settings-panel paper-settings-search-panel"><Entry icon={Search} title="本地搜索" onClick={onOpenLocalSearch}/></ul>
+        </section>
+        <Group title="订阅与内容">
+          <Entry icon={Store} title="RSS 订阅商店" subtitle="发现和添加订阅" onClick={onOpenFeedStore} dataTour="me-feed-store"/>
+          <Entry icon={Rss} title="自定义订阅与 OPML" subtitle={customSourcesSummary ?? 'RSS / Atom · OPML 导入导出'} onClick={onOpenCustomSources} dataTour="me-custom-sources"/>
+          <Entry icon={LayoutGrid} title="分类与自动刷新" subtitle={categoriesSummary ?? '顺序、信源与刷新方式'} onClick={onOpenCategories}/>
+          <Entry icon={LayoutTemplate} title="场景预设" subtitle={presetsSummary} onClick={onOpenPresets} dataTour="me-presets"/>
+        </Group>
+        <Group title="阅读体验">
+          <Entry icon={Type} title="阅读字体" subtitle={typographySummary} onClick={onOpenTypographySettings}/>
+          <Entry icon={Contrast} title="外观" subtitle={appearanceSummary} onClick={onOpenAppearanceSettings}/>
+          <Entry icon={Languages} title="翻译" subtitle={translationSummary} onClick={onOpenTranslationSettings} dataTour="me-translation"/>
+          <Entry icon={BookOpen} title="划词百科" subtitle="划词查询与百科源" onClick={onOpenWikiSettings}/>
+          <Entry icon={Volume2} title="朗读" subtitle={readAloudSummary} onClick={onOpenReadAloudSettings}/>
+        </Group>
+        <Group title="应用与数据">
+          <Entry icon={ServerCog} title="AI" subtitle={aiSummary} onClick={onOpenAiSettings}/>
+          <Entry icon={Globe} title="网络与代理" subtitle={proxySummary} onClick={onOpenProxySettings}/>
+          <Entry icon={Database} title="离线存储与备份" subtitle={storageSummary} onClick={onOpenStorageSettings}/>
+          <Entry icon={CloudUpload} title="账户与同步" subtitle={accountSummary} onClick={onOpenAccountSync}/>
+          <Entry icon={Info} title="关于有所闻" subtitle={hasUpdate && availableVersion ? `发现新版本 v${availableVersion}` : `v${__APP_VERSION__}`} badge={hasUpdate ? 'NEW' : null} onClick={onOpenAbout} dataTour="me-about"/>
+        </Group>
+        <footer className="paper-settings-footer">
+          <p>有所闻 · NewsNook</p>
+          <p>内容版权归原发布方。本应用只做本地阅读，不托管内容库；列表与正文由本机直连来源站点，稍后读与已读仅存本机。</p>
+        </footer>
+      </div>
+    </div>
+  </section>
 }

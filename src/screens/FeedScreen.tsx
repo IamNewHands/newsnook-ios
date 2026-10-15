@@ -18,12 +18,12 @@ import type { Article, RefreshProgress, SourceStatus } from '../lib/types'
 import { DEFAULT_TRANSLATION_PREFS } from '../features/translation/config'
 import { useFeedTranslation } from '../features/translation/useFeedTranslation'
 import type { TranslationPrefs } from '../features/translation/types'
-import { extractCatalog } from '../features/catalogEngine/engine'
-import { catalogHtmlToArticles } from '../features/catalogEngine/toArticles'
+import { useCatalogSession } from '../features/siteCatalog/useCatalogSession'
+import { catalogProfileFor } from '../features/siteCatalog/profile'
+import { catalogSearchRequest } from '../features/siteCatalog/requests'
 import { RECOMMEND_CATEGORY_ID, type CategoryId, type NewsCategory } from '../sources/categories'
 import type { HomeFeedLayout } from '../sources/preferences'
 import { findSource, type NewsSource } from '../sources/registry'
-import { fetchAbsoluteText } from '../lib/http'
 
 const EMPTY_ARTICLE_IDS: ReadonlySet<string> = new Set()
 
@@ -57,9 +57,11 @@ interface Props {
   onSelectSource?: (sourceId: string | null) => void
   favoriteSourceIds?: readonly string[]
   onToggleFavoriteSource?: (sourceId: string) => void
+  onRenameSource?: (sourceId: string, name: string) => void
   onRemoveSource?: (sourceId: string) => void
   onRemoveCategory?: (categoryId: CategoryId) => void
   onRenameCategory?: (categoryId: CategoryId, name: string) => void
+  onMoveCategory?: (categoryId: CategoryId, direction: -1 | 1) => void
   /** 预览邻页用：按分类取已缓存的文章，横滑时并排露出 */
   articlesForCategory?: (id: CategoryId) => Article[]
   translationPrefs?: TranslationPrefs
@@ -75,10 +77,7 @@ interface Props {
   onOpenLocalSearch?: () => void
   /** 递增时触发与下拉相同的刷新动画与加载（底栏双击速闻） */
   pullRefreshSeq?: number
-  /** 站内搜索模板（仅 web-catalog 源有 frameworkHint.searchTemplate 时传入） */
-  searchTemplate?: string
-  /** 框架站点分类列表（frameworkHint.categories） */
-  frameworkCategories?: { title: string; url: string }[]
+  catalogSource?: NewsSource
 }
 
 /** 邻页预览：排版与正式列表对齐，并恢复该分类上次滚动位置，避免滑入时先顶后跳 */
@@ -151,34 +150,45 @@ function CategoryPeek({
             variant="lead"
           />
         )}
-        {grouped.map(([bucket, items]) => (
-          <div key={bucket}>
-            <div className={homeFeedLayout === 'cards'
-              ? 'flex items-center gap-2.5 px-3.5 pt-4 pb-1.5 min-[430px]:px-4'
-              : 'page-x flex items-center gap-2.5 pt-5 pb-1.5'}>
-              <span className={homeFeedLayout === 'cards'
-                ? 'font-display text-[13px] font-medium tracking-[0.08em] text-paper-muted'
-                : 'font-mono text-[11px] font-medium tracking-[0.16em] text-paper-muted'}>{bucket}</span>
-              <span className="h-px flex-1 bg-haze" aria-hidden />
+        {homeFeedLayout === 'cards' ? (
+          <ul className="grid grid-cols-1 items-start gap-2.5 px-3.5 py-2.5 min-[360px]:grid-cols-2 min-[430px]:gap-3 min-[430px]:px-4">
+            {rest.map((article) => (
+              <ArticleRow
+                key={article.id}
+                article={article}
+                read={readIds.has(article.id)}
+                saved={laterIds.has(article.id)}
+                prestored={prestoredIds.has(article.id)}
+                onOpen={onOpen}
+                revealed
+                variant="compact-card"
+              />
+            ))}
+          </ul>
+        ) : (
+          grouped.map(([bucket, items]) => (
+            <div key={bucket}>
+              <div className="page-x flex items-center gap-2.5 pt-5 pb-1.5">
+                <span className="font-mono text-[11px] font-medium tracking-[0.16em] text-paper-muted">{bucket}</span>
+                <span className="h-px flex-1 bg-haze" aria-hidden />
+              </div>
+              <ul className="divide-y divide-haze">
+                {items.map((article) => (
+                  <ArticleRow
+                    key={article.id}
+                    article={article}
+                    read={readIds.has(article.id)}
+                    saved={laterIds.has(article.id)}
+                    prestored={prestoredIds.has(article.id)}
+                    onOpen={onOpen}
+                    revealed
+                    variant="row"
+                  />
+                ))}
+              </ul>
             </div>
-            <ul className={homeFeedLayout === 'cards'
-              ? 'grid grid-cols-1 items-start gap-2.5 px-3.5 py-1.5 min-[360px]:grid-cols-2 min-[430px]:gap-3 min-[430px]:px-4'
-              : 'divide-y divide-haze'}>
-              {items.map((article) => (
-                <ArticleRow
-                  key={article.id}
-                  article={article}
-                  read={readIds.has(article.id)}
-                  saved={laterIds.has(article.id)}
-                  prestored={prestoredIds.has(article.id)}
-                  onOpen={onOpen}
-                  revealed
-                  variant={homeFeedLayout === 'cards' ? 'compact-card' : 'row'}
-                />
-              ))}
-            </ul>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   )
@@ -208,9 +218,11 @@ export const FeedScreen = memo(function FeedScreen({
   onSelectSource,
   favoriteSourceIds,
   onToggleFavoriteSource,
+  onRenameSource,
   onRemoveSource,
   onRemoveCategory,
   onRenameCategory,
+  onMoveCategory,
   articlesForCategory,
   translationPrefs,
   customSources,
@@ -221,8 +233,7 @@ export const FeedScreen = memo(function FeedScreen({
   onBrandTap,
   onOpenLocalSearch,
   pullRefreshSeq = 0,
-  searchTemplate,
-  frameworkCategories,
+  catalogSource,
 }: Props) {
   const isDesktop = useIsDesktop()
   const reduced = useReducedMotion()
@@ -239,101 +250,45 @@ export const FeedScreen = memo(function FeedScreen({
   const onLoadMoreRef = useRef(onLoadMore)
   onLoadMoreRef.current = onLoadMore
 
+  const { session: catalogSession, state: catalogState } = useCatalogSession(catalogSource)
   const [searchQuery, setSearchQuery] = useState('')
-  const [searching, setSearching] = useState(false)
-  const [searchResults, setSearchResults] = useState<Article[] | null>(null)
-  const [searchError, setSearchError] = useState<string | null>(null)
-
-  const handleSearch = useCallback(async () => {
-    if (!searchTemplate || !searchQuery.trim()) return
-    const url = searchTemplate.replace('{query}', encodeURIComponent(searchQuery.trim()))
-    setSearching(true)
-    setSearchError(null)
-    try {
-      const html = await fetchAbsoluteText(url)
-      const catalog = extractCatalog(html, url)
-      if (!catalog.items.length) {
-        setSearchResults([])
-        return
-      }
-      const dummySource: NewsSource = {
-        id: 'search_temp',
-        name: 'Search',
-        label: 'Search',
-        group: 'custom',
-        kind: 'web-catalog',
-        url,
-        enabled: true,
-      }
-      const results = catalogHtmlToArticles(dummySource, html, Date.now())
-      setSearchResults(results)
-    } catch (err) {
-      setSearchError(err instanceof Error ? err.message : '搜索失败')
-    } finally {
-      setSearching(false)
-    }
-  }, [searchTemplate, searchQuery])
-
-  const clearSearch = useCallback(() => {
-    setSearchQuery('')
-    setSearchResults(null)
-    setSearchError(null)
-  }, [])
-
+  const [catalogMode, setCatalogMode] = useState<'search' | 'category' | null>(null)
   const [activeFwCat, setActiveFwCat] = useState<number | null>(null)
-  const [fwCatArticles, setFwCatArticles] = useState<Article[] | null>(null)
-  const [fwCatLoading, setFwCatLoading] = useState(false)
-  const [fwCatPage, setFwCatPage] = useState(0)
-  const [fwCatExhausted, setFwCatExhausted] = useState(false)
-
-  const selectFwCategory = useCallback(async (idx: number | null) => {
+  const profile = catalogState.page?.profile ?? (catalogSource ? catalogProfileFor(catalogSource) : undefined)
+  const searchTemplate = Boolean(profile?.search)
+  const frameworkCategories = profile?.categories
+  const searching = catalogMode === 'search' && catalogState.loading
+  const searchResults = catalogMode === 'search' ? catalogState.history.flatMap((page) => page.articles).filter((article, index, all) => all.findIndex((item) => item.id === article.id) === index) : null
+  const searchError = catalogState.error ?? null
+  const fwCatArticles = catalogMode === 'category' ? catalogState.history.flatMap((page) => page.articles).filter((article, index, all) => all.findIndex((item) => item.id === article.id) === index) : null
+  const fwCatLoading = catalogMode === 'category' && catalogState.loading
+  const fwCatExhausted = catalogState.exhausted
+  useEffect(() => {
+    setCatalogMode(null)
+    setActiveFwCat(null)
+    setSearchQuery('')
+    if (catalogSource) void catalogSession?.open({ method: 'GET', url: catalogSource.url })
+  }, [catalogSession, catalogSource])
+  const handleSearch = useCallback(() => {
+    const request = profile && catalogSearchRequest(profile, searchQuery.trim())
+    if (!request || !searchQuery.trim()) return
+    setCatalogMode('search')
+    setActiveFwCat(null)
+    void catalogSession?.open(request)
+  }, [profile, searchQuery, catalogSession])
+  const clearSearch = useCallback(() => {
+    catalogSession?.cancel()
+    setSearchQuery('')
+    setCatalogMode(null)
+    if (catalogSource) void catalogSession?.open({ method: 'GET', url: catalogSource.url })
+  }, [catalogSession, catalogSource])
+  const selectFwCategory = useCallback((idx: number | null) => {
     setActiveFwCat(idx)
-    setFwCatPage(0)
-    setFwCatExhausted(false)
-    if (idx === null || !frameworkCategories?.[idx]) {
-      setFwCatArticles(null)
-      return
-    }
-    const catUrl = frameworkCategories[idx].url
-    setFwCatLoading(true)
-    try {
-      const html = await fetchAbsoluteText(catUrl)
-      const results = catalogHtmlToArticles(
-        { id: 'fw_cat', name: '', label: '', group: 'custom', kind: 'web-catalog', url: catUrl, enabled: true },
-        html, Date.now(),
-      )
-      setFwCatArticles(results)
-    } catch {
-      setFwCatArticles([])
-    } finally {
-      setFwCatLoading(false)
-    }
-  }, [frameworkCategories])
-
-  const loadMoreFwCat = useCallback(async () => {
-    if (fwCatLoading || fwCatExhausted || activeFwCat === null || !frameworkCategories?.[activeFwCat]) return
-    const catUrl = frameworkCategories[activeFwCat].url
-    const nextPage = fwCatPage + 1
-    const pageUrl = catUrl.replace(/\.html$/i, '') + `/page/${nextPage + 1}.html`
-    setFwCatLoading(true)
-    try {
-      const html = await fetchAbsoluteText(pageUrl)
-      const results = catalogHtmlToArticles(
-        { id: 'fw_cat', name: '', label: '', group: 'custom', kind: 'web-catalog', url: pageUrl, enabled: true },
-        html, Date.now(),
-      )
-      if (!results.length) {
-        setFwCatExhausted(true)
-      } else {
-        setFwCatArticles((prev) => [...(prev ?? []), ...results])
-        setFwCatPage(nextPage)
-      }
-    } catch {
-      setFwCatExhausted(true)
-    } finally {
-      setFwCatLoading(false)
-    }
-  }, [activeFwCat, frameworkCategories, fwCatPage, fwCatLoading, fwCatExhausted])
+    setCatalogMode(idx === null ? null : 'category')
+    const url = idx === null ? catalogSource?.url : frameworkCategories?.[idx]?.url
+    if (url) void catalogSession?.open({ method: 'GET', url })
+  }, [frameworkCategories, catalogSession, catalogSource?.url])
+  const loadMoreFwCat = useCallback(() => { void catalogSession?.next() }, [catalogSession])
 
   const loadingMoreRef = useRef(loadingMore)
   loadingMoreRef.current = loadingMore
@@ -574,7 +529,7 @@ export const FeedScreen = memo(function FeedScreen({
       )}
 
       {searchError && (
-        <p className="page-x lg:px-6 xl:px-8 2xl:px-10 py-2 text-[12px] text-red-400">{searchError}</p>
+        <p className="page-x lg:px-6 xl:px-8 2xl:px-10 py-2 text-[12px] text-red-400">{searchError}<button type="button" className="ml-3 text-cinnabar" onClick={() => void catalogSession?.retry()}>重试</button></p>
       )}
 
       {frameworkCategories && frameworkCategories.length > 0 && (
@@ -634,6 +589,8 @@ export const FeedScreen = memo(function FeedScreen({
               />
             ))}
           </ul>
+          {!catalogState.exhausted && searchResults.length > 0 && <button type="button" disabled={searching} onClick={() => void catalogSession?.next()} className="my-4 rounded-xl border border-haze px-4 py-2 text-[12px] text-paper-muted">加载更多</button>}
+          {!searching && !searchError && !searchResults.length && <p className="py-6 text-center text-[13px] text-paper-muted">未找到相关内容</p>}
         </div>
       ) : fwCatArticles !== null ? (
         <div className="page-x lg:px-6 xl:px-8 2xl:px-10">
@@ -702,57 +659,69 @@ export const FeedScreen = memo(function FeedScreen({
             </div>
           )}
 
-          {grouped.map(([bucket, items]) => (
-            <div key={bucket}>
-              <div className={useCompactCards
-                ? 'flex items-center gap-2.5 px-3.5 pt-4 pb-1.5 min-[430px]:px-4'
-                : 'page-x flex items-center gap-2.5 pt-4 pb-1.5 lg:px-6 xl:px-8 2xl:px-10'}>
-                <span className={useCompactCards
-                  ? 'font-display text-[13px] font-medium tracking-[0.08em] text-paper-muted'
-                  : 'font-mono text-[11px] font-medium tracking-[0.16em] text-paper-muted'}>{bucket}</span>
-                <span className="h-px flex-1 bg-haze" aria-hidden />
+          {useCompactCards ? (
+            /* 手机双列卡片：连续优雅杂志流，卡片自然并排排满，左右严整对齐，杜绝被日期硬切碎导致的空洞与横竖混杂 */
+            <ul className="grid grid-cols-1 items-start gap-2.5 px-3.5 py-2.5 min-[360px]:grid-cols-2 min-[430px]:gap-3 min-[430px]:px-4">
+              {rest.map((article) => (
+                <ArticleRow
+                  key={article.id}
+                  article={article}
+                  read={readIds.has(article.id)}
+                  saved={laterIds.has(article.id)}
+                  prestored={prestoredIds.has(article.id)}
+                  translated={translations.get(article.id)}
+                  displayMode={activeTranslationPrefs.displayMode}
+                  onOpen={onOpen}
+                  onSourceClick={onSelectSource}
+                  variant="compact-card"
+                />
+              ))}
+            </ul>
+          ) : !isDesktop ? (
+            /* 移动端经典单列时间线：按今天/昨天/更早分组 */
+            grouped.map(([bucket, items]) => (
+              <div key={bucket}>
+                <div className="page-x flex items-center gap-2.5 pt-4 pb-1.5 lg:px-6 xl:px-8 2xl:px-10">
+                  <span className="font-mono text-[11px] font-medium tracking-[0.16em] text-paper-muted">{bucket}</span>
+                  <span className="h-px flex-1 bg-haze" aria-hidden />
+                </div>
+                <ul className="divide-y divide-haze">
+                  {items.map((article) => (
+                    <ArticleRow
+                      key={article.id}
+                      article={article}
+                      read={readIds.has(article.id)}
+                      saved={laterIds.has(article.id)}
+                      prestored={prestoredIds.has(article.id)}
+                      translated={translations.get(article.id)}
+                      displayMode={activeTranslationPrefs.displayMode}
+                      onOpen={onOpen}
+                      onSourceClick={onSelectSource}
+                      variant="row"
+                    />
+                  ))}
+                </ul>
               </div>
-
-              {/* 新版手机双栏与经典单栏都保留；桌面继续规则网格。 */}
-              {!isDesktop ? (
-                <ul className={useCompactCards
-                  ? 'grid grid-cols-1 items-start gap-2.5 px-3.5 py-1.5 min-[360px]:grid-cols-2 min-[430px]:gap-3 min-[430px]:px-4'
-                  : 'divide-y divide-haze'}>
-                  {items.map((article) => (
-                    <ArticleRow
-                      key={article.id}
-                      article={article}
-                      read={readIds.has(article.id)}
-                      saved={laterIds.has(article.id)}
-                      prestored={prestoredIds.has(article.id)}
-                      translated={translations.get(article.id)}
-                      displayMode={activeTranslationPrefs.displayMode}
-                      onOpen={onOpen}
-                      onSourceClick={onSelectSource}
-                      variant={useCompactCards ? 'compact-card' : 'row'}
-                    />
-                  ))}
-                </ul>
-              ) : (
-                <ul className="grid grid-cols-2 gap-4 px-6 py-2 xl:grid-cols-3 2xl:grid-cols-4 min-[2100px]:grid-cols-5 xl:px-8 2xl:px-10 min-[2100px]:gap-5">
-                  {items.map((article) => (
-                    <ArticleRow
-                      key={article.id}
-                      article={article}
-                      read={readIds.has(article.id)}
-                      saved={laterIds.has(article.id)}
-                      prestored={prestoredIds.has(article.id)}
-                      translated={translations.get(article.id)}
-                      displayMode={activeTranslationPrefs.displayMode}
-                      onOpen={onOpen}
-                      onSourceClick={onSelectSource}
-                      variant="card"
-                    />
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
+            ))
+          ) : (
+            /* 桌面端规则多列网格：同样连续流排布，防止多列网格被日期切碎留下大片空白 */
+            <ul className="grid grid-cols-2 gap-4 px-6 py-4 xl:grid-cols-3 2xl:grid-cols-4 min-[2100px]:grid-cols-5 xl:px-8 2xl:px-10 min-[2100px]:gap-5">
+              {rest.map((article) => (
+                <ArticleRow
+                  key={article.id}
+                  article={article}
+                  read={readIds.has(article.id)}
+                  saved={laterIds.has(article.id)}
+                  prestored={prestoredIds.has(article.id)}
+                  translated={translations.get(article.id)}
+                  displayMode={activeTranslationPrefs.displayMode}
+                  onOpen={onOpen}
+                  onSourceClick={onSelectSource}
+                  variant="card"
+                />
+              ))}
+            </ul>
+          )}
         </>
       )}
 
@@ -923,6 +892,7 @@ export const FeedScreen = memo(function FeedScreen({
               reduced={reduced}
               onRemoveCategory={onRemoveCategory}
               onRenameCategory={onRenameCategory}
+              onMoveCategory={onMoveCategory}
             />
           </div>
         )}
@@ -936,6 +906,7 @@ export const FeedScreen = memo(function FeedScreen({
               counts={sourceCounts}
               favoriteSourceIds={favoriteSourceIds}
               onToggleFavorite={onToggleFavoriteSource}
+              onRenameSource={onRenameSource}
               onRemoveSource={onRemoveSource}
             />
           </div>

@@ -58,8 +58,6 @@ interface JandanTucaoResponse {
 }
 
 export const jandanCommentProvider: CommentProvider = {
-  label: '吐槽',
-  defaultTab: 'latest',
   canHandle(article) {
     if (article.sourceId === 'jandan') return true
     if (article.originUrl?.includes('jandan.net')) return true

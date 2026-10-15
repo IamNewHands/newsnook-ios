@@ -1,6 +1,7 @@
 import { mapConcurrent } from '../../lib/asyncPool'
 import { log } from '../../lib/logger'
 import { resolveArticleBody } from '../../lib/resolveBody'
+import { withArticlePreviewImage } from '../../lib/articlePreview'
 import type { Article } from '../../lib/types'
 import type { NewsSource } from '../../sources/registry'
 import { revokeBlobUrl } from '../proxy/hydrateImages'
@@ -113,7 +114,7 @@ async function prepareBody(
 
   const resolved = await resolveArticleBody(article, signal, extraSources)
   if (resolved.bodySource === 'video' || resolved.bodySource === 'blocked') return null
-  const entry = await writePrestoredBody(article, {
+  const entry = await writePrestoredBody(withArticlePreviewImage(article, resolved.contentHtml, resolved.image), {
     // resolveArticleBody may hydrate tunneled images to process-local blob: URLs.
     // A durable offline body must never persist those ephemeral addresses.
     html: makePortableBodyHtml(resolved.contentHtml),

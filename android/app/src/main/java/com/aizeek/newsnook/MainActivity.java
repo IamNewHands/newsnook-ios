@@ -29,6 +29,11 @@ public class MainActivity extends BridgeActivity {
 
     /** 系统开屏一直挂到 WebView 提交首帧，避免撤出后露出默认白底 WebView */
     private volatile boolean webContentReady = false;
+    /** Main WebView hosts embedded videos (Linux.do, RSS); keep Capacitor chrome features intact. */
+    private NewsNookWebChromeClient mainWebChromeClient;
+    /** Restore the user's previous rotation policy after CSS fullscreen fallback. */
+    private int previousEmbeddedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+    private boolean embeddedFullscreenFallback;
     /** 视频全屏态：系统栏必须持续隐藏。旋转 / 重新获焦后隐藏状态可能被系统复位，需要主动补隐藏 */
     private volatile boolean videoFullscreenActive = false;
     /** 自愈重排标志：同一窗口期内只排一次补隐藏，避免叠加（仅主线程读写） */
@@ -81,6 +86,11 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public void setEmbeddedVideoFullscreen(boolean enabled) {
+            runOnUiThread(() -> applyEmbeddedVideoFullscreen(enabled));
+        }
+
+        @JavascriptInterface
         public void setKeepScreenOn(boolean keepScreenOn) {
             runOnUiThread(() -> applyKeepScreenOn(keepScreenOn));
         }
@@ -100,6 +110,19 @@ public class MainActivity extends BridgeActivity {
     @androidx.annotation.Keep
     private void applyFullScreen(boolean fullScreen) {
         setVideoFullscreen(fullScreen);
+    }
+
+    private void applyEmbeddedVideoFullscreen(boolean enabled) {
+        if (embeddedFullscreenFallback == enabled) return;
+        embeddedFullscreenFallback = enabled;
+        if (enabled) {
+            previousEmbeddedOrientation = getRequestedOrientation();
+            setVideoFullscreen(true);
+            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        } else {
+            setRequestedOrientation(previousEmbeddedOrientation);
+            setVideoFullscreen(false);
+        }
     }
 
     /** Package-visible entry point used by DeviceMediaControlsPlugin. */
@@ -269,6 +292,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(DlnaCastPlugin.class);
         registerPlugin(VolumePageTurnPlugin.class);
         registerPlugin(ProxiedHttpPlugin.class);
+        registerPlugin(EncyclopediaPagePlugin.class);
         registerPlugin(MediaSnifferPlugin.class);
         registerPlugin(AppUpdatePlugin.class);
         registerPlugin(SecureStorePlugin.class);
@@ -310,6 +334,14 @@ public class MainActivity extends BridgeActivity {
         // 外部媒体仍由 WebView 播放；仅已登记的媒体会话走流式请求上下文桥接。
         if (bridge != null) {
             bridge.setWebViewClient(new MediaPlaybackWebViewClient(bridge));
+            // Capacitor's default BridgeWebChromeClient immediately declines
+            // onShowCustomView. Its replacement must STILL extend that class so
+            // file pickers, Web permissions, alerts and prompts remain functional.
+            WebView mainWebView = bridge.getWebView();
+            if (mainWebView != null) {
+                mainWebChromeClient = new NewsNookWebChromeClient(bridge, this);
+                mainWebView.setWebChromeClient(mainWebChromeClient);
+            }
         }
 
         View decorView = getWindow().getDecorView();
@@ -379,6 +411,10 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onDestroy() {
         cancelScheduledCompositorWake();
+        if (mainWebChromeClient != null) {
+            mainWebChromeClient.release();
+            mainWebChromeClient = null;
+        }
         cancelFullscreenReassert();
         videoFullscreenActive = false;
         super.onDestroy();

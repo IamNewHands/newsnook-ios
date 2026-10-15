@@ -9,7 +9,7 @@
   color: var(--tone-paper);
   border: 1px solid var(--tone-haze);
   border-radius: 16px;
-  min-width: 258px;
+  min-width: min(258px, calc(100vw - 28px));
   max-width: min(320px, calc(100vw - 28px));
   padding: 18px;
   box-shadow: var(--shadow-lift, 0 12px 40px -16px rgb(0 0 0 / 0.85));
@@ -25,6 +25,8 @@
 }
 
 .newsnook-tour .driver-popover-description {
+  max-height: max(60px, calc(100dvh - 200px));
+  overflow-y: auto;
   font-size: 13px;
   line-height: 1.8;
   color: var(--tone-paper-muted);

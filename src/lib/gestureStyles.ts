@@ -23,7 +23,9 @@ export function recoverScrollSurface(element: HTMLElement | null | undefined): v
   if (!element) return
   clearGestureCompositorStyles(element)
   const shell = element.closest<HTMLElement>('.reader-swipe-surface')
-  if (shell && shell !== element) clearGestureCompositorStyles(shell)
+  if (shell && shell !== element && shell.style.visibility !== 'hidden') {
+    clearGestureCompositorStyles(shell)
+  }
 }
 
 /**

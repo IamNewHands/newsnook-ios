@@ -56,6 +56,7 @@ const { createRoot } = await import('react-dom/client')
 const { InkVideoPlayer } = await import('../src/components/InkVideoPlayer')
 const { OriginPlayerSurface } = await import('../src/components/OriginPlayerSurface')
 const { InlineArticleVideos } = await import('../src/components/InlineArticleVideos')
+const { InlineVideoPages } = await import('../src/components/InlineVideoPages')
 const src = 'https://example.com/video.mp4'
 const extra = ['https://example.com/segment.mp4']
 const resource = (url: string, id = url): MediaResourceDescriptor => ({
@@ -93,8 +94,104 @@ function InlineFixture({ title, html }: { title: string; html: string }) {
   return <><article ref={body} dangerouslySetInnerHTML={markup} /><InlineArticleVideos rootRef={body} html={html} enabled fallbackTitle={title} /></>
 }
 
+const zhihuVideoHtml = '<div data-reader-role="zhihu-video-page" data-media-format="video-page" data-source-page="https://www.bilibili.com/video/BVtest" data-related-title="知乎嵌入视频"></div>'
+const resolveFixtureVideo = async () => resource(src)
+function ZhihuVideoFixture() {
+  const body = useRef<HTMLElement>(null)
+  const markup = useMemo(() => ({ __html: zhihuVideoHtml }), [])
+  return <>
+    <article ref={body} dangerouslySetInnerHTML={markup} />
+    <InlineArticleVideos rootRef={body} html={zhihuVideoHtml} enabled fallbackTitle="知乎正文" />
+    <InlineVideoPages rootRef={body} html={zhihuVideoHtml} enabled fallbackTitle="知乎正文" resolveDirect={resolveFixtureVideo} />
+  </>
+}
+
 type Render = (element: React.ReactNode) => Promise<void>
 const cases: Array<[string, (render: Render) => Promise<void>]> = [
+  ['manual origin handoff starts playback once when the stream is ready', async render => {
+    nativeMode = true
+    await render(<OriginPlayerSurface pageUrl="https://example.com/watch/1" title="One" />)
+    await emit({ url: src })
+    await click('button[aria-label="关闭原站并切换播放器"]')
+    const v = player()
+    const before = plays
+    await act(async () => v.dispatchEvent(new window.Event('canplay')))
+    assert.equal(v.paused, false, 'switching players must carry the explicit play intent')
+    assert.equal(plays, before + 1)
+    await act(async () => v.pause())
+    await act(async () => v.dispatchEvent(new window.Event('canplay')))
+    assert.equal(plays, before + 1, 'later readiness cannot undo a manual pause')
+  }],
+  ['stalled startup stops the spinner and cannot attach after timing out', async render => {
+    nativeMode = true
+    let release!: () => void
+    prepareGate = new Promise(resolve => { release = resolve })
+    const originalTimeout = window.setTimeout
+    let expire: (() => void) | undefined
+    window.setTimeout = ((fn: () => void, delay?: number, ...args: unknown[]) => {
+      if (delay === 30000) expire = fn
+      return originalTimeout(fn, delay, ...args)
+    }) as typeof window.setTimeout
+    try {
+      await render(<InkVideoPlayer src={src} />)
+      assert.ok(expire, 'startup must have a finite deadline')
+      await act(async () => expire!())
+      assert.ok(document.body.textContent?.includes('视频加载超时'))
+      assert.ok(!document.body.textContent?.includes('视频加载中'))
+      const count = loads
+      prepareGate = undefined
+      await act(async () => release())
+      assert.equal(loads, count, 'a timed-out preparation cannot attach later')
+    } finally {
+      window.setTimeout = originalTimeout
+      prepareGate = undefined
+      await act(async () => release())
+    }
+  }],
+  ['startup timeout wins over a late progressive recovery', async render => {
+    nativeMode = true
+    const originalTimeout = window.setTimeout
+    const originalClear = window.clearTimeout
+    let expire: (() => void) | undefined
+    let deadline: ReturnType<typeof window.setTimeout> | undefined
+    window.setTimeout = ((fn: () => void, delay?: number, ...args: unknown[]) => {
+      const id = originalTimeout(fn, delay, ...args)
+      if (delay === 30000) { expire = fn; deadline = id }
+      return id
+    }) as typeof window.setTimeout
+    window.clearTimeout = ((id: ReturnType<typeof window.setTimeout>) => {
+      if (id === deadline) expire = undefined
+      originalClear(id)
+    }) as typeof window.clearTimeout
+    let release!: () => void
+    try {
+      await render(<InkVideoPlayer src={src} autoPlay />)
+      const v = player()
+      // A requested play can await media bytes without emitting playing yet.
+      v.play = async () => { Object.assign(v, { paused: false }); v.dispatchEvent(new window.Event('play')) }
+      await act(async () => v.dispatchEvent(new window.Event('loadedmetadata')))
+      assert.ok(expire, 'metadata alone must not cancel the deadline before media data arrives')
+      prepareGate = new Promise(resolve => { release = resolve })
+      await act(async () => v.dispatchEvent(new window.Event('error')))
+      await act(async () => expire!())
+      const count = loads
+      prepareGate = undefined
+      await act(async () => release())
+      assert.equal(loads, count, 'recovery that completes after timeout must not reload the video')
+      await act(async () => v.dispatchEvent(new window.Event('canplay')))
+      assert.ok(document.body.textContent?.includes('视频加载超时'), 'late readiness cannot erase timeout')
+      await render(<span>Closed</span>)
+      await render(<InkVideoPlayer src={src} />)
+      await act(async () => player().dispatchEvent(new window.Event('loadedmetadata')))
+      assert.equal(expire, undefined, 'a normal metadata preload waiting for a user click must not time out')
+      assert.equal(player().paused, true)
+    } finally {
+      window.setTimeout = originalTimeout
+      window.clearTimeout = originalClear
+      prepareGate = undefined
+      if (release) await act(async () => release())
+    }
+  }],
   ['additional sniff URLs must not restart playback', async render => {
     await render(<InkVideoPlayer src={src} extraUrls={extra} />)
     const v = await playAt(); const count = loads
@@ -144,10 +241,25 @@ const cases: Array<[string, (render: Render) => Promise<void>]> = [
     nativeMode = true
     await render(<OriginPlayerSurface pageUrl="https://example.com/watch/1" title="One" />)
     await emit({ url: src })
-    await click('button[aria-label="关闭原站并使用阅读器播放"]')
+    await click('button[aria-label="关闭原站并切换播放器"]')
     const v = await playAt(); const count = loads
     await emit({ url: 'https://example.com/higher-score.mp4', source: 'dom', width: 1920, height: 1080 })
     steady(v, count)
+  }],
+  ['failed origin handoff keeps the error and manual retry visible', async render => {
+    nativeMode = true
+    await render(<OriginPlayerSurface pageUrl="https://example.com/watch/1" title="One" />)
+    await emit({ url: src })
+    await click('button[aria-label="关闭原站并切换播放器"]')
+    const v = player()
+    let reject!: (error: Error) => void
+    prepareGate = new Promise((_resolve, fail) => { reject = fail })
+    await act(async () => v.dispatchEvent(new window.Event('error')))
+    await act(async () => reject(new Error('synthetic transport failure')))
+    prepareGate = undefined
+    assert.ok(document.querySelector('video'), 'failure must not silently return to origin')
+    assert.ok(document.querySelector('button[aria-label="重试当前视频"]'))
+    assert.ok(document.body.textContent?.includes('视频源暂时无法播放'))
   }],
   ['late handoff cannot reopen a different origin session', async render => {
     nativeMode = true
@@ -156,7 +268,7 @@ const cases: Array<[string, (render: Render) => Promise<void>]> = [
     let release!: () => void
     prepareGate = new Promise(resolve => { release = resolve })
     try {
-      await click('button[aria-label="关闭原站并使用阅读器播放"]')
+      await click('button[aria-label="关闭原站并切换播放器"]')
       await render(<OriginPlayerSurface pageUrl="https://example.com/watch/2" title="Two" />)
       await emit({ url: 'https://example.com/two.mp4' })
     } finally {
@@ -220,6 +332,31 @@ const cases: Array<[string, (render: Render) => Promise<void>]> = [
     await act(async () => release())
     assert.equal(loads, count)
     assert.ok(!oldVideo.getAttribute('src'))
+  }],
+  ['Zhihu video-page and article enhancers coexist with exactly one player and one control layer', async render => {
+    await render(<ZhihuVideoFixture />)
+    await act(async () => { await Promise.resolve() })
+    assert.equal(document.querySelectorAll('[data-reader-inline-video-page]').length, 1)
+    const media = document.querySelector<HTMLVideoElement>('[data-video-stage] video')
+    assert.ok(media, 'a custom player must render for the Zhihu video-page')
+    await act(async () => { media.dispatchEvent(new window.Event('loadeddata')) })
+    assert.equal(document.querySelectorAll('[data-video-stage] video').length, 1, 'the Zhihu video has only one managed media element')
+    assert.equal(document.querySelectorAll('.ink-video-top-chrome').length, 1, 'only one top control layer')
+    assert.equal(document.querySelectorAll('.ink-video-bottom-chrome').length, 1, 'only one bottom control layer')
+    assert.equal(document.querySelectorAll('[data-reader-inline-video]').length, 0, 'no nested raw-video enhancer')
+  }],
+  ['video-page managed media must never be captured by the raw article-video observer', async render => {
+    const html = '<div data-reader-inline-video-page="1"></div><p>Body</p>'
+    await render(<InlineFixture title="Zhihu" html={html} />)
+    const pageHost = document.querySelector<HTMLElement>('[data-reader-inline-video-page="1"]')
+    assert.ok(pageHost)
+    // InlineVideoPages mounts the InkVideoPlayer <video> asynchronously through a portal.
+    // The raw-video observer must not convert that player into a second nested player.
+    const managedVideo = document.createElement('video')
+    managedVideo.setAttribute('src', src)
+    await act(async () => { pageHost.append(managedVideo) })
+    assert.equal(pageHost.querySelector('video'), managedVideo)
+    assert.equal(document.querySelectorAll('[data-reader-inline-video]').length, 0, 'a mounted video-page may only have one player')
   }],
   ['inline HTML metadata enrichment keeps the existing portal host', async render => {
     const html = `<video src="${src}"></video><p>Body</p>`

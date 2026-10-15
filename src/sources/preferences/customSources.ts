@@ -1,3 +1,4 @@
+import { normalizeCatalogProfile } from '../../features/siteCatalog/profile'
 /**
  * 自定义订阅源：单个增删改、批量删除与 OPML 批量导入。
  */
@@ -5,6 +6,7 @@
 import { CATEGORIES, type CategoryId, type NewsCategory } from '../categories'
 import {
   isWechatAlbumUrl,
+  findSource,
   makeCustomSourceId,
   normalizeSourceKind,
   normalizeWechatAlbumUrl,
@@ -16,6 +18,34 @@ import type { Preferences } from './model'
 import { categorySourceIds, describeSources, isCustomCategory } from './categoryPrefs'
 import { normalizePreferences } from './normalize'
 
+/** 重命名自建源或覆盖内置信源的本地显示名称。 */
+export function renameSource(prefs: Preferences, sourceId: string, value: string): Preferences {
+  const name = value.trim()
+  if (!name) return prefs
+  if (prefs.customSources?.some((source) => source.id === sourceId)) {
+    return updateCustomSource(prefs, sourceId, { name, label: name.slice(0, 12) })
+  }
+  const source = findSource(sourceId)
+  if (!source || source.workspaceOnly) return prefs
+  return { ...prefs, sourceNames: { ...prefs.sourceNames, [sourceId]: name } }
+}
+
+/** 只交换 CMS 站点，保留其它自建订阅的位置与配置。 */
+export function moveCmsSource(prefs: Preferences, sourceId: string, direction: -1 | 1): Preferences {
+  const sources = prefs.customSources ?? []
+  const cmsIndices = sources.flatMap((source, index) => source.kind === 'web-catalog' ? [index] : [])
+  const index = cmsIndices.findIndex((sourceIndex) => sources[sourceIndex].id === sourceId)
+  const targetIndex = index + direction
+  if (index < 0 || targetIndex < 0 || targetIndex >= cmsIndices.length) return prefs
+  const customSources = [...sources]
+  const from = cmsIndices[index]
+  const to = cmsIndices[targetIndex]
+  const moving = customSources[from]
+  customSources[from] = customSources[to]
+  customSources[to] = moving
+  return { ...prefs, customSources }
+}
+
 /** 添加单个自定义 RSS / 网页目录信源 */
 export function addCustomSource(
   prefs: Preferences,
@@ -26,6 +56,7 @@ export function addCustomSource(
     siteUrl?: string
     group?: SourceGroup
     kind?: NewsSource['kind']
+    catalogProfile?: NewsSource['catalogProfile']
     frameworkHint?: import('../../features/frameworkDetect/types').FrameworkHint
     discovery?: SourceDiscoveryMetadata
     paused?: boolean
@@ -56,6 +87,7 @@ export function addCustomSource(
     createdAt: Date.now(),
     paused: draft.paused === true,
     ...(draft.discovery ? { discovery: draft.discovery } : {}),
+    catalogProfile: normalizeCatalogProfile(draft.catalogProfile, url),
     ...(draft.frameworkHint ? { frameworkHint: draft.frameworkHint } : {}),
   }
 
@@ -105,7 +137,7 @@ export function addCustomSource(
 export function updateCustomSource(
   prefs: Preferences,
   sourceId: string,
-  patch: Partial<Pick<NewsSource, 'name' | 'label' | 'url' | 'siteUrl' | 'group' | 'kind' | 'paused' | 'discovery'>>,
+  patch: Partial<Pick<NewsSource, 'name' | 'label' | 'url' | 'siteUrl' | 'group' | 'kind' | 'paused' | 'discovery' | 'frameworkHint' | 'catalogProfile'>>,
 ): Preferences {
   const list = prefs.customSources ?? []
   const index = list.findIndex((s) => s.id === sourceId)
@@ -127,6 +159,9 @@ export function updateCustomSource(
     siteUrl,
     group,
     kind,
+    frameworkHint: Object.hasOwn(patch, 'frameworkHint') ? patch.frameworkHint : url === current.url && kind === current.kind ? current.frameworkHint : undefined,
+    catalogProfileOpaque: patch.catalogProfile || url !== current.url || kind !== current.kind ? undefined : current.catalogProfileOpaque,
+    catalogProfile: Object.hasOwn(patch, 'catalogProfile') ? normalizeCatalogProfile(patch.catalogProfile, url) : url === current.url && kind === current.kind ? current.catalogProfile : undefined,
     ...(patch.paused !== undefined ? { paused: patch.paused } : {}),
     ...(patch.discovery !== undefined ? { discovery: patch.discovery } : {}),
   }

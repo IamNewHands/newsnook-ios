@@ -1,0 +1,137 @@
+import { memo } from 'react'
+import { BookOpen, Check, Film, Layers3, UsersRound } from 'lucide-react'
+import { useLongPressAction } from '../hooks/useLongPressAction'
+import type { Point } from '../lib/contextActions'
+import {
+  formatSiteDisplayName,
+  getSiteCleanDomain,
+  getSiteFrameworkInfo,
+} from '../features/siteCatalog/uiUtils'
+
+export interface CmsGridCardItem {
+  id: string
+  name: string
+  description?: string
+  framework?: string
+  url?: string
+}
+
+export interface CmsGridCardProps {
+  site: CmsGridCardItem
+  active: boolean
+  onPick: () => void
+  onManage?: (anchor: Point) => void
+}
+
+/**
+ * 统一 CMS 站点网格卡片：
+ * 用于外部布局切换（PresetSwitcher）与内部站点切换抽屉（SiteScreen），
+ * 保持完全一致的 2 列网格视觉风格、微图标、品牌标题、分类角标与高亮反馈。
+ */
+export const CmsGridCard = memo(function CmsGridCard({
+  site,
+  active,
+  onPick,
+  onManage,
+}: CmsGridCardProps) {
+  const longPress = useLongPressAction<string>((_id, anchor) => onManage?.(anchor))
+  const fw = getSiteFrameworkInfo(site.framework)
+  const domain = site.description || getSiteCleanDomain(site.url)
+  const name = formatSiteDisplayName({ name: site.name, url: site.url || site.description })
+  const subtitle = [
+    fw.categoryBadge !== '目录' ? fw.categoryBadge : '',
+    domain.toLowerCase() === name.toLowerCase() ? '' : domain,
+  ].filter(Boolean).join(' · ') || '独立空间'
+
+  return (
+    <li className="min-w-0">
+      <button
+        type="button"
+        onClick={() => {
+          if (!longPress.consumeClick(site.id)) onPick()
+        }}
+        onPointerDown={onManage ? (event) => longPress.start(site.id, event) : undefined}
+        onPointerMove={longPress.move}
+        onPointerUp={longPress.cancel}
+        onPointerCancel={longPress.cancel}
+        onPointerLeave={longPress.cancel}
+        onContextMenu={onManage ? (event) => {
+          event.preventDefault()
+          longPress.cancel()
+          onManage({ x: event.clientX, y: event.clientY })
+        } : undefined}
+        onKeyDown={onManage ? (event) => {
+          if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+          event.preventDefault()
+          const rect = event.currentTarget.getBoundingClientRect()
+          onManage({ x: rect.left, y: rect.bottom })
+        } : undefined}
+        aria-haspopup={onManage ? 'menu' : undefined}
+        aria-current={active ? 'page' : undefined}
+        aria-pressed={active}
+        aria-label={`${active ? '当前站点' : '切换至'}：${name}${onManage ? '，长按管理' : ''}`}
+        title={name}
+        className={`${onManage ? 'custom-long-press-target ' : ''}group relative flex min-h-[78px] h-full w-full flex-col overflow-hidden rounded-xl border px-2.5 py-2.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cinnabar/45 ${
+          active
+            ? 'border-cinnabar/75 bg-cinnabar/12 shadow-[0_4px_12px_rgba(0,0,0,0.08)]'
+            : 'border-haze/80 bg-ink/55 hover:-translate-y-px hover:border-cinnabar/40 hover:bg-ink hover:shadow-sm active:translate-y-0'
+        }`}
+      >
+        <span className="flex w-full min-w-0 items-center gap-2">
+          <span
+            className={`flex size-7 shrink-0 items-center justify-center rounded-lg border transition-all duration-200 ${
+              active
+                ? 'border-cinnabar bg-cinnabar text-white shadow-xs'
+                : 'border-haze bg-ink-raised text-paper-muted group-hover:border-cinnabar/35 group-hover:text-cinnabar'
+            }`}
+          >
+            {fw.isVideo ? (
+              <Film size={14} strokeWidth={1.75} />
+            ) : site.framework === 'wordpress' || site.framework === 'typecho' ? (
+              <BookOpen size={14} strokeWidth={1.75} />
+            ) : site.framework === 'discuz' ? (
+              <UsersRound size={14} strokeWidth={1.75} />
+            ) : (
+              <Layers3 size={14} strokeWidth={1.75} />
+            )}
+          </span>
+
+          <span
+            className={`min-w-0 flex-1 break-words pb-[2px] font-display text-[13px] font-semibold leading-[1.4] transition-colors ${
+              active ? 'text-cinnabar' : 'text-paper group-hover:text-cinnabar'
+            }`}
+          >
+            {name}
+          </span>
+        </span>
+
+        {/* Selection state is on the secondary row so full names have the first row. */}
+        <span className="mt-1.5 flex w-full min-w-0 items-center justify-between gap-1.5">
+          <span className="min-w-0 flex-1 truncate text-[10px] leading-[1.35] text-paper-faint transition-colors group-hover:text-paper-muted">
+            {subtitle}
+          </span>
+          <span
+            className={`shrink-0 rounded-full px-1.5 py-0.5 font-mono text-[8.5px] font-semibold leading-none tracking-[0.06em] transition-colors ${
+              active
+                ? 'bg-cinnabar/15 text-cinnabar'
+                : 'border border-haze/80 bg-ink-raised/70 text-paper-faint group-hover:border-cinnabar/30 group-hover:text-cinnabar'
+            }`}
+          >
+            {active ? (
+              <span className="inline-flex items-center gap-0.5">
+                <Check size={9} strokeWidth={2.4} />当前
+              </span>
+            ) : '选用'}
+          </span>
+        </span>
+
+        {active && (
+          <span
+            className="pointer-events-none absolute inset-x-2.5 bottom-0 h-px bg-gradient-to-r from-transparent via-cinnabar/45 to-transparent"
+            aria-hidden
+          />
+        )}
+      </button>
+    </li>
+  )
+})

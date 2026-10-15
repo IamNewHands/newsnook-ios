@@ -1,3 +1,4 @@
+import { normalizeCatalogProfile, normalizeFrameworkHint, preserveFutureCatalogProfile } from '../siteCatalog/profile'
 /**
  * 远端记录 → 本机运行时状态。
  *
@@ -122,9 +123,10 @@ function toCustomSource(entity: MergedEntity): NewsSource | null {
         ? (payload.discovery as NewsSource['discovery'])
         : undefined,
   }
-  if (payload.frameworkHint && typeof payload.frameworkHint === 'object') {
-    source.frameworkHint = payload.frameworkHint as NewsSource['frameworkHint']
-  }
+  source.catalogProfileOpaque = preserveFutureCatalogProfile(payload.catalogProfile ?? payload.catalogProfileOpaque, source.url)
+  source.catalogProfile = normalizeCatalogProfile(payload.catalogProfile, source.url)
+  source.frameworkHint = normalizeFrameworkHint(payload.frameworkHint, source.url)
+
   return source
 }
 
@@ -191,6 +193,9 @@ function applySettings(prefs: Preferences, merged: Map<string, MergedEntity>): P
         : prefs.proxy.customProxyDomains,
     }
   }
+
+  const rsshubInstances = readSetting(SETTING_KEYS.rsshubInstances)
+  if (rsshubInstances !== undefined) next.rsshubInstances = rsshubInstances as Preferences['rsshubInstances']
 
   const autoRefresh = readSetting(SETTING_KEYS.autoRefresh)
   if (autoRefresh !== undefined) next.autoRefreshOnCategorySwitch = autoRefresh !== false
@@ -274,7 +279,24 @@ function applySubscriptions(
     if (entity.payload.enabled !== false) enabledIds.push(entity.entityId)
   }
 
-  return { prefs: { ...prefs, customSources }, enabledIds }
+  // CMS 卡片顺序是本机展示偏好，不能被资讯源的启用顺序覆盖。
+  // 对象仍取物化后的最新元数据；远端新增站点接在已有 CMS 后，删除自动过滤。
+  const remainingCms = new Map(customSources.filter((source) => source.kind === 'web-catalog')
+    .map((source) => [source.id, source]))
+  const orderedCms: NewsSource[] = []
+  for (const source of prefs.customSources ?? []) {
+    const updated = remainingCms.get(source.id)
+    if (!updated) continue
+    orderedCms.push(updated)
+    remainingCms.delete(source.id)
+  }
+  orderedCms.push(...remainingCms.values())
+  let cmsIndex = 0
+  const orderedSources = customSources.map((source) =>
+    source.kind === 'web-catalog' ? orderedCms[cmsIndex++] : source,
+  )
+
+  return { prefs: { ...prefs, customSources: orderedSources }, enabledIds }
 }
 
 function applyCategories(prefs: Preferences, merged: Map<string, MergedEntity>): Preferences {

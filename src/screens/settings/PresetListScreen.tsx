@@ -658,7 +658,7 @@ export function PresetListScreen({
       <SettingsHint>切换会整包替换；改分类写回当前预设，内置可恢复出厂。</SettingsHint>
 
       {/* 内置场景包 */}
-      <SettingsSection title="内置场景包">
+      <SettingsSection variant="plain" title="内置场景包">
         <ul className="page-x grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {builtins.map((preset) => {
             const isCurrent = preset.id === state.activePresetId
@@ -690,7 +690,7 @@ export function PresetListScreen({
       </SettingsSection>
 
       {/* 我的自定义预设 */}
-      <SettingsSection title="我的预设">
+      <SettingsSection variant="plain" title="我的预设">
         {state.userPresets.length === 0 ? (
           <PresetEmptyState
             onSaveAs={() => setDialog({ type: 'saveAs' })}
