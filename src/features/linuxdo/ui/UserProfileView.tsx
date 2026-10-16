@@ -1,6 +1,7 @@
 import {
   Award,
   BadgeCheck,
+  BatteryLow,
   Bookmark,
   CheckCircle2,
   History,
@@ -9,6 +10,7 @@ import {
   Mail,
   Pencil,
   Settings,
+  Shield,
   ShieldCheck,
   UserPlus,
   Vote,
@@ -47,7 +49,7 @@ import type { LinuxDoSessionSnapshot } from '../types'
 import type { LinuxDoProfileDraft, LinuxDoProfileSection } from '../people/sections'
 import { ProfileSectionView } from './ProfileSectionView'
 import { BookmarksView } from './CommunityViews'
-import { ago, avatar, compact, readableError, tagGlyph } from './utils'
+import { ago, avatar, compact, isLinuxDoSiteAdmin, readableError, tagGlyph } from './utils'
 import { isLinuxDoVerificationError, LinuxDoRequestError, type LinuxDoVerify } from './VerificationAction'
 
 export interface UserProfileAccountControls {
@@ -297,6 +299,7 @@ function ActivityCard({
   const actorDriven = tab === 'likes' || tab === 'responses' || (tab === 'activity' && (action.actionType === 1 || action.actionType === 6))
   const actor = actorDriven ? (action.actingUsername || action.username) : action.username
   const actorAvatar = actorDriven ? (action.actingAvatarTemplate || action.avatarTemplate) : action.avatarTemplate
+  const isActorAdmin = isLinuxDoSiteAdmin(actor)
   const semantic = tab === 'activity'
     ? action.actionType === 1
       ? (action.username && action.username !== actor ? '赞了 @' + action.username + ' 的帖子' : '赞了这个帖子')
@@ -318,23 +321,42 @@ function ActivityCard({
   return (
     <article className="rounded-2xl border border-haze/55 bg-ink-raised/35 px-3.5 py-3 shadow-[0_1px_3px_rgba(0,0,0,0.025)]">
       <div className="flex items-start gap-2.5">
-        <button
-          type="button"
-          disabled={!actor}
-          onClick={() => actor && onOpenUser(actor)}
-          className="linuxdo-control grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full border border-haze bg-paper/5 disabled:pointer-events-none"
-        >
-          {avatar(actorAvatar, actor)}
-        </button>
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            disabled={!actor}
+            onClick={() => actor && onOpenUser(actor)}
+            className={`linuxdo-control grid h-8 w-8 shrink-0 place-items-center overflow-hidden border border-haze bg-paper/5 disabled:pointer-events-none transition-transform active:scale-95 ${
+              isActorAdmin ? 'rounded-[7px]' : 'rounded-full'
+            }`}
+          >
+            {avatar(actorAvatar, actor)}
+          </button>
+          {isActorAdmin && (
+            <span
+              data-linuxdo-site-admin-badge
+              title="站长"
+              className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#0088ff] text-white shadow-xs ring-1.5 ring-ink-raised pointer-events-none"
+              aria-label="站长角标"
+            >
+              <BatteryLow size={9} strokeWidth={2.5} className="shrink-0" aria-hidden="true" />
+            </span>
+          )}
+        </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             {actor ? (
               <button
                 type="button"
                 onClick={() => onOpenUser(actor)}
-                className="linuxdo-control max-w-full truncate text-[11.5px] font-semibold text-paper hover:text-cinnabar-soft"
+                className={`linuxdo-control max-w-full truncate text-[11.5px] hover:text-cinnabar-soft inline-flex items-center gap-1 ${
+                  isActorAdmin ? 'font-bold text-[#0088ff] dark:text-[#38a3ff]' : 'font-semibold text-paper'
+                }`}
               >
-                @{actor}
+                <span>@{actor}</span>
+                {isActorAdmin && (
+                  <Shield size={11} className="shrink-0 fill-[#0088ff] text-[#0088ff] dark:fill-[#38a3ff] dark:text-[#38a3ff]" aria-label="站长认证" />
+                )}
               </button>
             ) : null}
             <span className="text-[9.5px] text-paper-faint">{semantic}</span>
@@ -388,17 +410,32 @@ function BoostCard({
 }) {
   const who = item.user?.username || item.post?.username
   const whoAvatar = item.user?.avatarTemplate || item.post?.avatarTemplate
+  const isWhoAdmin = isLinuxDoSiteAdmin(who)
   return (
     <article className="rounded-2xl border border-haze/55 bg-ink-raised/35 px-3.5 py-3">
       <div className="flex items-center gap-2.5">
         {who ? (
-          <button
-            type="button"
-            onClick={() => onOpenUser(who)}
-            className="linuxdo-control grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full border border-haze bg-paper/5"
-          >
-            {avatar(whoAvatar, who)}
-          </button>
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => onOpenUser(who)}
+              className={`linuxdo-control grid h-8 w-8 shrink-0 place-items-center overflow-hidden border border-haze bg-paper/5 transition-transform active:scale-95 ${
+                isWhoAdmin ? 'rounded-[7px]' : 'rounded-full'
+              }`}
+            >
+              {avatar(whoAvatar, who)}
+            </button>
+            {isWhoAdmin && (
+              <span
+                data-linuxdo-site-admin-badge
+                title="站长"
+                className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#0088ff] text-white shadow-xs ring-1.5 ring-ink-raised pointer-events-none"
+                aria-label="站长角标"
+              >
+                <BatteryLow size={9} strokeWidth={2.5} className="shrink-0" aria-hidden="true" />
+              </span>
+            )}
+          </div>
         ) : (
           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-paper/5 text-cinnabar-soft"><Rocket size={13} /></span>
         )}
@@ -413,7 +450,15 @@ function BoostCard({
               {item.post.topicTitle}
             </button>
           ) : <div className="text-[12px] font-medium text-paper">Boost</div>}
-          <div className="mt-0.5 text-[9px] text-paper-faint">{who ? '@' + who : 'Linux.do'}{item.createdAt ? ' · ' + ago(item.createdAt) : ''}</div>
+          <div className="mt-0.5 text-[9px] text-paper-faint flex items-center gap-1">
+            <span className={isWhoAdmin ? 'font-bold text-[#0088ff] dark:text-[#38a3ff]' : ''}>
+              {who ? '@' + who : 'Linux.do'}
+            </span>
+            {isWhoAdmin && (
+              <Shield size={10} className="shrink-0 fill-[#0088ff] text-[#0088ff] dark:fill-[#38a3ff] dark:text-[#38a3ff]" aria-label="站长认证" />
+            )}
+            {item.createdAt ? <span> · {ago(item.createdAt)}</span> : null}
+          </div>
         </div>
         {onOpen ? <button type="button" onClick={onOpen} className="linuxdo-control grid h-8 w-8 place-items-center rounded-full text-paper-faint"><ChevronRight size={14} /></button> : null}
       </div>
@@ -768,18 +813,42 @@ export function UserProfileView({
   const currentBoostLoaded = boostMode === 'received' ? boostReceivedLoaded : boostGivenLoaded
   const currentBoostError = boostMode === 'received' ? boostReceivedError : boostGivenError
 
+  const isSiteAdmin = isLinuxDoSiteAdmin(profile.username)
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain page-x pb-5 pt-3">
       {challenge ? <LinuxDoRequestError error={challenge.error} onVerify={onVerify} onRetry={retryChallenge} /> : null}
       <section className="overflow-hidden rounded-[24px] border border-haze/60 bg-gradient-to-b from-ink-raised/90 via-ink-raised/70 to-ink-raised/50 p-4.5 sm:p-5.5 shadow-[0_12px_32px_-16px_rgba(0,0,0,0.3)] backdrop-blur-xl">
         <div className="flex items-start gap-3.5 sm:gap-4">
-          <div className="relative grid h-15 w-15 shrink-0 place-items-center overflow-hidden rounded-full border border-haze bg-paper/5 ring-2 ring-paper/[0.04] sm:h-17 sm:w-17">
-            {avatar(profile.avatarTemplate, profile.username)}
+          <div className="relative shrink-0">
+            <div className={`relative grid h-15 w-15 shrink-0 place-items-center overflow-hidden border border-haze bg-paper/5 ring-2 ring-paper/[0.04] sm:h-17 sm:w-17 ${
+              isSiteAdmin ? 'rounded-[16px]' : 'rounded-full'
+            }`}>
+              {avatar(profile.avatarTemplate, profile.username)}
+            </div>
+            {isSiteAdmin && (
+              <span
+                data-linuxdo-site-admin-badge
+                title="站长"
+                className="absolute -bottom-1 -right-1 flex h-5 w-5 sm:h-6 sm:w-6 items-center justify-center rounded-full bg-[#0088ff] text-white shadow-sm ring-2 ring-ink-raised pointer-events-none"
+                aria-label="站长角标"
+              >
+                <BatteryLow size={12} strokeWidth={2.5} className="shrink-0 sm:hidden" aria-hidden="true" />
+                <BatteryLow size={14} strokeWidth={2.5} className="hidden shrink-0 sm:block" aria-hidden="true" />
+              </span>
+            )}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-2">
-                <h2 className="truncate text-[19px] sm:text-[21px] font-bold tracking-tight text-paper">{profile.name || profile.username}</h2>
+              <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+                <h2 className={`truncate text-[19px] sm:text-[21px] font-bold tracking-tight inline-flex items-center gap-1.5 ${
+                  isSiteAdmin ? 'text-[#0088ff] dark:text-[#38a3ff]' : 'text-paper'
+                }`}>
+                  <span className="truncate">{profile.name || profile.username}</span>
+                  {isSiteAdmin && (
+                    <Shield size={16} className="shrink-0 fill-[#0088ff] text-[#0088ff] dark:fill-[#38a3ff] dark:text-[#38a3ff]" aria-label="站长认证" />
+                  )}
+                </h2>
                 {profile.trustLevel !== undefined ? (
                   <button
                     type="button"
@@ -1149,8 +1218,12 @@ export function UserProfileView({
                       <div className="space-y-1.5">
                         {(users as NonNullable<LinuxDoUserSummary['mostLikedUsers']>).slice(0, 4).map((user) => (
                           <button key={user.id} type="button" onClick={() => onOpenUser(user.username)} className="linuxdo-control flex w-full items-center gap-2 rounded-xl px-1.5 py-1.5 text-left hover:bg-paper/[0.035]">
-                            <span className="grid h-7 w-7 shrink-0 place-items-center overflow-hidden rounded-full bg-paper/5">{avatar(user.avatarTemplate, user.username)}</span>
-                            <span className="min-w-0 flex-1 truncate text-[10.5px] font-medium text-paper">@{user.username}</span>
+                            <span className={`grid h-7 w-7 shrink-0 place-items-center overflow-hidden bg-paper/5 ${
+                              isLinuxDoSiteAdmin(user.username) ? 'rounded-[5px]' : 'rounded-full'
+                            }`}>{avatar(user.avatarTemplate, user.username)}</span>
+                            <span className={`min-w-0 flex-1 truncate text-[10.5px] ${
+                              isLinuxDoSiteAdmin(user.username) ? 'font-bold text-[#0088ff] dark:text-[#38a3ff]' : 'font-medium text-paper'
+                            }`}>@{user.username}</span>
                             <span className="font-mono text-[9px] text-paper-faint">{user.count}</span>
                           </button>
                         ))}

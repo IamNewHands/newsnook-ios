@@ -131,6 +131,7 @@ export function decodePost(post: Json): LinuxDoPost {
     postNumber: Number(post.post_number ?? 0),
     username: String(post.username ?? ''),
     name: typeof post.name === 'string' ? post.name : undefined,
+    userTitle: typeof post.user_title === 'string' && post.user_title.trim() ? post.user_title.trim() : undefined,
     avatarTemplate: decodeLinuxDoAvatar(post.avatar_template),
     createdAt: String(post.created_at ?? ''),
     updatedAt: typeof post.updated_at === 'string' ? post.updated_at : undefined,

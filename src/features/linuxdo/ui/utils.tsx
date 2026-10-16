@@ -27,6 +27,20 @@ export function readableError(error: unknown): string {
   return '加载失败'
 }
 
+export function linuxDoUserHue(username: string): number {
+  let h = 0
+  for (const c of username) h = (h * 31 + c.charCodeAt(0)) % 360
+  return h
+}
+
+export function linuxDoUserColor(username: string): string {
+  return `hsl(${linuxDoUserHue(username)} 55% 42%)`
+}
+
+export function isLinuxDoSiteAdmin(username?: string): boolean {
+  return username?.trim().toLowerCase() === 'neo'
+}
+
 export function LinuxDoAvatar({
   url,
   name,
@@ -36,9 +50,16 @@ export function LinuxDoAvatar({
 }) {
   const [failed, setFailed] = useState(false)
   const initial = (name || '?').trim().slice(0, 1).toUpperCase() || '?'
+  const isSiteAdmin = isLinuxDoSiteAdmin(name)
 
   return (
-    <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full select-none">
+    <span
+      className={
+        isSiteAdmin
+          ? 'flex h-full w-full items-center justify-center overflow-hidden rounded-[7px] select-none bg-ink-deep text-paper-muted font-bold text-[11px] sm:text-[12px]'
+          : 'flex h-full w-full items-center justify-center overflow-hidden rounded-full select-none bg-ink-deep text-paper-muted font-bold text-[11px] sm:text-[12px]'
+      }
+    >
       {url && !failed ? (
         <img
           src={url}
@@ -48,7 +69,7 @@ export function LinuxDoAvatar({
           className="h-full w-full object-cover"
         />
       ) : (
-        <span className="font-semibold text-paper-muted leading-none text-[11px] sm:text-[12px]">{initial}</span>
+        <span className="leading-none">{initial}</span>
       )}
     </span>
   )

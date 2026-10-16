@@ -39,6 +39,15 @@
   flex-shrink: 0;
 }
 
+.reader-prose.linuxdo-post-prose img[data-linuxdo-role='quote-avatar'][data-linuxdo-site-admin='true'] {
+  border-radius: 4px !important;
+}
+
+.reader-prose.linuxdo-post-prose [data-linuxdo-role='quote-username'][data-linuxdo-site-admin='true'] {
+  color: #0088ff !important;
+  font-weight: 700 !important;
+}
+
 .reader-prose.linuxdo-post-prose [data-linuxdo-role='quote-meta'] {
   display: flex;
   flex-direction: column;
