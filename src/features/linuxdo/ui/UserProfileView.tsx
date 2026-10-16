@@ -33,7 +33,6 @@ import {
   CalendarDays,
   ChevronRight,
   Clock3,
-  Eye,
   FileText,
   Loader2,
   MessageCircle,
@@ -925,20 +924,6 @@ export function UserProfileView({
     )
   }
 
-  const summaryMetrics = [
-    { label: '主题', value: summary?.topicCount, icon: FileText },
-    { label: '帖子', value: summary?.postCount, icon: MessageCircle },
-    { label: '获赞', value: summary?.likesReceived, icon: Heart },
-    { label: '送出赞', value: summary?.likesGiven, icon: Sparkles },
-  ]
-
-  const detailMetrics = [
-    { label: '浏览主题', value: summary?.topicsEntered, icon: Eye, format: metric },
-    { label: '阅读帖子', value: summary?.postsReadCount, icon: BookOpen, format: metric },
-    { label: '访问天数', value: summary?.daysVisited, icon: CalendarDays, format: metric },
-    { label: '阅读时长', value: summary?.timeRead, icon: Clock3, format: duration },
-  ]
-
   const currentActivity = activeTab === 'activity' || activeTab === 'topics' || activeTab === 'replies' || activeTab === 'likes' || activeTab === 'responses'
     ? activities[activeTab] ?? emptyActivity()
     : null
@@ -951,7 +936,8 @@ export function UserProfileView({
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain page-x pb-5 pt-3">
       {challenge ? <LinuxDoRequestError error={challenge.error} onVerify={onVerify} onRetry={retryChallenge} /> : null}
-      <section className="overflow-hidden rounded-[24px] border border-haze/60 bg-gradient-to-b from-ink-raised/90 via-ink-raised/70 to-ink-raised/50 p-4.5 sm:p-5.5 shadow-[0_12px_32px_-16px_rgba(0,0,0,0.3)] backdrop-blur-xl">
+      {/* 极客数字工坊主控制台 (Integrated Cyber Terminal Console) */}
+      <section className="linuxdo-terminal-canvas linuxdo-terminal-grid overflow-hidden rounded-[26px] p-4.5 sm:p-5.5">
         <div className="flex items-start gap-3.5 sm:gap-4">
           <div className="relative shrink-0">
             <div className={`relative grid h-15 w-15 shrink-0 place-items-center overflow-hidden border border-haze bg-paper/5 ring-2 ring-paper/[0.04] sm:h-17 sm:w-17 ${
@@ -987,7 +973,7 @@ export function UserProfileView({
                     type="button"
                     disabled={!accountControls?.onTrustLevel}
                     onClick={() => accountControls?.onTrustLevel?.()}
-                    className={'shrink-0 rounded-full border border-[#20c36b]/30 bg-[#20c36b]/10 px-2 py-0.5 font-mono text-[9px] font-semibold text-[#20c36b] transition-all ' + (accountControls?.onTrustLevel ? 'hover:bg-[#20c36b]/20 active:scale-95 cursor-pointer' : '')}
+                    className={'shrink-0 rounded-full border border-[#20c36b]/35 bg-[#20c36b]/10 px-2 py-0.5 font-mono text-[9px] font-semibold text-[#20c36b] transition-all ' + (accountControls?.onTrustLevel ? 'hover:bg-[#20c36b]/20 active:scale-95 cursor-pointer shadow-xs' : '')}
                     title={accountControls?.onTrustLevel ? '点击查看信任等级详情与达成要求' : undefined}
                   >
                     TL{profile.trustLevel}
@@ -998,18 +984,20 @@ export function UserProfileView({
                 ) : null}
               </div>
               {accountControls ? (
-                <button
-                  type="button"
-                  onClick={() => setShowAccountSettings(prev => !prev)}
-                  aria-label="账号与安全设置"
-                  className={'linuxdo-control grid h-8 w-8 shrink-0 place-items-center rounded-full border border-haze text-paper-muted transition-all ' + (showAccountSettings ? 'bg-cinnabar/10 border-cinnabar/30 text-cinnabar' : 'hover:bg-paper/5 hover:text-paper active:scale-95')}
-                >
-                  <Settings size={15} />
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowAccountSettings(prev => !prev)}
+                    aria-label="账号与安全设置"
+                    className={'linuxdo-control grid h-8 w-8 shrink-0 place-items-center rounded-xl border transition-all ' + (showAccountSettings ? 'bg-cinnabar/15 border-cinnabar/40 text-cinnabar shadow-xs' : 'border-haze text-paper-muted hover:bg-paper/5 hover:text-paper active:scale-95')}
+                  >
+                    <Settings size={15} />
+                  </button>
+                </div>
               ) : null}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <span className="text-[11.5px] font-medium text-paper-muted">@{profile.username}</span>
+              <span className="font-mono text-[11.5px] font-medium text-paper-muted">@{profile.username}</span>
               {profile.title ? (
                 <span className="truncate rounded-md border border-paper/10 bg-paper/[0.04] px-1.5 py-0.5 text-[9.5px] font-medium text-paper-muted sm:hidden">{profile.title}</span>
               ) : null}
@@ -1033,33 +1021,88 @@ export function UserProfileView({
         </div>
 
         {profile.bioCooked ? (
-          <div className="linuxdo-post-prose reader-prose mt-3.5 rounded-2xl border border-haze/40 bg-paper/[0.02] p-3 select-text text-[12px] leading-[1.7] text-paper-muted" dangerouslySetInnerHTML={{ __html: profile.bioCooked }} />
+          <div className="linuxdo-post-prose reader-prose mt-3.5 rounded-2xl border-l-2 border-cinnabar/50 bg-paper/[0.025] p-3 select-text text-[12px] leading-[1.7] text-paper-muted" dangerouslySetInnerHTML={{ __html: profile.bioCooked }} />
         ) : null}
 
-        <div className="mt-4 grid grid-cols-4 gap-1.5 sm:gap-2">
-          {summaryMetrics.map(({ label, value, icon: Icon }) => (
-            <div key={label} className="rounded-xl border border-haze/45 bg-paper/[0.03] px-1.5 py-2.5 text-center transition-all hover:bg-paper/[0.05]">
-              <Icon size={12} className="mx-auto mb-1 text-paper-faint" />
-              <div className="font-mono text-[13px] font-bold text-paper">{metric(value)}</div>
-              <div className="mt-0.5 text-[8.5px] text-paper-faint">{label}</div>
+        {/* 核心高光三联看板 (The Highlight Triad) */}
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="linuxdo-metric-card rounded-2xl p-2.5 text-center">
+            <div className="flex items-center justify-center gap-1 text-[9.5px] font-medium text-paper-faint mb-0.5">
+              <Clock3 size={11} className="text-paper-muted" />
+              <span>阅读时长</span>
             </div>
-          ))}
+            <div className="font-mono text-[16px] sm:text-[18px] font-bold tracking-tight text-paper">
+              {duration(summary?.timeRead)}
+            </div>
+          </div>
+
+          <div className="linuxdo-metric-card rounded-2xl p-2.5 text-center">
+            <div className="flex items-center justify-center gap-1 text-[9.5px] font-medium text-cinnabar-soft mb-0.5">
+              <Heart size={11} className="text-cinnabar" />
+              <span>社区获赞</span>
+            </div>
+            <div className="font-mono text-[16px] sm:text-[18px] font-bold tracking-tight text-paper">
+              {metric(summary?.likesReceived)}
+            </div>
+          </div>
+
+          <div className="linuxdo-metric-card rounded-2xl p-2.5 text-center">
+            <div className="flex items-center justify-center gap-1 text-[9.5px] font-medium text-paper-faint mb-0.5">
+              <FileText size={11} className="text-paper-muted" />
+              <span>原创主题</span>
+            </div>
+            <div className="font-mono text-[16px] sm:text-[18px] font-bold tracking-tight text-paper">
+              {metric(summary?.topicCount)}
+            </div>
+          </div>
         </div>
 
-        <div className="mt-3.5 grid grid-cols-2 border-t border-haze/50 pt-2 sm:grid-cols-4">
-          {detailMetrics.map(({ label, value, icon: Icon, format }) => (
-            <div key={label} className="flex items-center gap-2 border-b border-haze/40 px-2.5 py-2 last:border-b-0 odd:border-r sm:border-b-0 sm:border-r sm:last:border-r-0">
-              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-paper/[0.035] text-paper-faint"><Icon size={12} /></span>
-              <span className="min-w-0">
-                <span className="block truncate text-[8.5px] text-paper-faint">{label}</span>
-                <span className="mt-0.5 block truncate font-mono text-[10.5px] font-medium text-paper-muted">{format(value)}</span>
-              </span>
-            </div>
-          ))}
+        {/* 精密次级刻度阵列 (Secondary Precision Telemetry) */}
+        <div className="mt-2 grid grid-cols-4 gap-1.5">
+          <div className="linuxdo-metric-card rounded-xl py-2 px-1 text-center">
+            <span className="block truncate text-[8.5px] text-paper-faint">浏览主题</span>
+            <span className="mt-0.5 block truncate font-mono text-[12px] font-semibold text-paper-muted">{metric(summary?.topicsEntered)}</span>
+          </div>
+          <div className="linuxdo-metric-card rounded-xl py-2 px-1 text-center">
+            <span className="block truncate text-[8.5px] text-paper-faint">阅读帖子</span>
+            <span className="mt-0.5 block truncate font-mono text-[12px] font-semibold text-paper-muted">{metric(summary?.postsReadCount)}</span>
+          </div>
+          <div className="linuxdo-metric-card rounded-xl py-2 px-1 text-center">
+            <span className="block truncate text-[8.5px] text-paper-faint">访问天数</span>
+            <span className="mt-0.5 block truncate font-mono text-[12px] font-semibold text-paper-muted">{metric(summary?.daysVisited)}</span>
+          </div>
+          <div className="linuxdo-metric-card rounded-xl py-2 px-1 text-center">
+            <span className="block truncate text-[8.5px] text-paper-faint">送出赞</span>
+            <span className="mt-0.5 block truncate font-mono text-[12px] font-semibold text-paper-muted">{metric(summary?.likesGiven)}</span>
+          </div>
         </div>
+
+        {/* TL 信任进阶脉冲条 (Trust Level Pulse Micro-Track) */}
+        {profile.trustLevel !== undefined ? (
+          <button
+            type="button"
+            disabled={!accountControls?.onTrustLevel}
+            onClick={() => accountControls?.onTrustLevel?.()}
+            className={'linuxdo-control group mt-3 flex w-full items-center justify-between gap-3 rounded-2xl border border-[#20c36b]/30 bg-[#20c36b]/[0.06] p-3 text-left transition-all hover:bg-[#20c36b]/[0.1] active:scale-[0.985] ' + (accountControls?.onTrustLevel ? 'cursor-pointer' : 'cursor-default')}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-[#20c36b]/15 text-[#20c36b] transition-transform group-hover:scale-105">
+                <BadgeCheck size={18} />
+              </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[12px] font-bold text-paper">信任等级 TL{profile.trustLevel}</span>
+                  <span className="rounded-full bg-[#20c36b]/20 px-2 py-0.2 font-mono text-[8.5px] font-semibold text-[#20c36b]">进阶通道</span>
+                </div>
+                <p className="truncate text-[9.5px] text-paper-faint">查看升级指标、防降级诊断与特权达成要求</p>
+              </div>
+            </div>
+            <ChevronRight size={14} className="shrink-0 text-[#20c36b]/70 transition-transform group-hover:translate-x-0.5" />
+          </button>
+        ) : null}
       </section>
 
-      {/* 快捷功能卡片带 (Quick Tools Hub) - 当处于账号中心模式时渲染 */}
+      {/* 快捷功能按键岛 (Quick Action Island) - 仅在账号中心模式呈现 */}
       {accountControls ? (
         <section className="mt-3 space-y-2">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -1067,14 +1110,14 @@ export function UserProfileView({
               type="button"
               aria-label="打开个人私信"
               onClick={accountControls.onPrivateMessages}
-              className="linuxdo-control group flex items-center gap-2.5 rounded-2xl border border-haze/60 bg-ink-raised/65 p-3 text-left transition-all hover:border-cinnabar/30 hover:bg-ink-raised/90 active:scale-[0.98] shadow-sm"
+              className="linuxdo-control linuxdo-key-card group flex items-center gap-2.5 rounded-2xl p-3 text-left transition-all active:scale-[0.98]"
             >
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-cinnabar/10 text-cinnabar transition-transform group-hover:scale-105">
                 <Mail size={17} />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[11.5px] font-bold text-paper">个人私信</span>
-                <span className="mt-0.5 block truncate text-[9px] text-paper-faint">收件箱与互动</span>
+                <span className="mt-0.5 block truncate text-[9px] text-paper-faint">收发与互动</span>
               </span>
               <ChevronRight size={13} className="shrink-0 text-paper-faint transition-transform group-hover:translate-x-0.5" />
             </button>
@@ -1082,9 +1125,9 @@ export function UserProfileView({
             <button
               type="button"
               onClick={accountControls.onTrustLevel}
-              className="linuxdo-control group flex items-center gap-2.5 rounded-2xl border border-[#20c36b]/20 bg-[#20c36b]/[0.05] p-3 text-left transition-all hover:border-[#20c36b]/40 hover:bg-[#20c36b]/[0.09] active:scale-[0.98] shadow-sm"
+              className="linuxdo-control linuxdo-key-card group flex items-center gap-2.5 rounded-2xl border-[#20c36b]/25 bg-[#20c36b]/[0.05] p-3 text-left transition-all hover:border-[#20c36b]/40 hover:bg-[#20c36b]/[0.09] active:scale-[0.98]"
             >
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#20c36b]/12 text-[#20c36b] transition-transform group-hover:scale-105">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#20c36b]/15 text-[#20c36b] transition-transform group-hover:scale-105">
                 <BadgeCheck size={17} />
               </span>
               <span className="min-w-0 flex-1">
@@ -1108,9 +1151,9 @@ export function UserProfileView({
                   accountControls.onBookmarks?.()
                 }
               }}
-              className="linuxdo-control group flex items-center gap-2.5 rounded-2xl border border-haze/60 bg-ink-raised/65 p-3 text-left transition-all hover:border-[#f5b326]/30 hover:bg-ink-raised/90 active:scale-[0.98] shadow-sm"
+              className="linuxdo-control linuxdo-key-card group flex items-center gap-2.5 rounded-2xl p-3 text-left transition-all hover:border-[#f5b326]/30 active:scale-[0.98]"
             >
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#f5b326]/10 text-[#f5b326] transition-transform group-hover:scale-105">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#f5b326]/12 text-[#f5b326] transition-transform group-hover:scale-105">
                 <Bookmark size={17} />
               </span>
               <span className="min-w-0 flex-1">
@@ -1123,16 +1166,16 @@ export function UserProfileView({
             <button
               type="button"
               onClick={() => setActiveTab('drafts')}
-              className="linuxdo-control group flex items-center gap-2.5 rounded-2xl border border-haze/60 bg-ink-raised/65 p-3 text-left transition-all hover:border-[#7b61ff]/30 hover:bg-ink-raised/90 active:scale-[0.98] shadow-sm"
+              className="linuxdo-control linuxdo-key-card group flex items-center gap-2.5 rounded-2xl p-3 text-left transition-all hover:border-[#7b61ff]/30 active:scale-[0.98]"
             >
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#7b61ff]/10 text-[#7b61ff] transition-transform group-hover:scale-105">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#7b61ff]/12 text-[#7b61ff] transition-transform group-hover:scale-105">
                 <FileText size={17} />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1 truncate text-[11.5px] font-bold text-paper">
                   <span>我的草稿</span>
                   {profile.draftCount ? (
-                    <span className="rounded-full bg-[#7b61ff]/15 px-1.5 py-0.2 font-mono text-[8.5px] font-semibold text-[#7b61ff]">
+                    <span className="rounded-full bg-[#7b61ff]/20 px-1.5 py-0.2 font-mono text-[8.5px] font-semibold text-[#7b61ff]">
                       {profile.draftCount}
                     </span>
                   ) : null}
@@ -1160,7 +1203,7 @@ export function UserProfileView({
         </section>
       ) : null}
 
-      {/* 账号与安全管理面板 (Account & Security Management) */}
+      {/* 账号与安全运维控制台 (Security & Session Deck) */}
       {accountControls ? (
         <section className="mt-3 overflow-hidden rounded-[22px] border border-haze/60 bg-ink-raised/50 p-3.5 sm:p-4 shadow-sm">
           <div className="flex items-start gap-3">
@@ -1170,7 +1213,7 @@ export function UserProfileView({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="text-[12px] font-bold text-paper">第一方安全会话</span>
-                <span className="rounded-full bg-[#20c36b]/10 px-2 py-0.2 font-mono text-[8.5px] font-semibold text-[#20c36b]">设备本地</span>
+                <span className="rounded-full bg-[#20c36b]/15 px-2 py-0.2 font-mono text-[8.5px] font-semibold text-[#20c36b]">设备本地</span>
               </div>
               <p className="mt-0.5 text-[10px] leading-relaxed text-paper-faint">
                 当前会话只保存在设备的 Linux.do 第一方会话中。密码与人机验证全程在官方页面完成，NewsNook 本地零明文存储。
