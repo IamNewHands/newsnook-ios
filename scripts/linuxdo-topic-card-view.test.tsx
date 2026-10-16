@@ -43,4 +43,38 @@ assertMuted(decode({ is_seen: true, last_read_post_number: 0 }), false, 'a seen 
 assertMuted(decode({ last_read_post_number: 4, highest_post_number: 4 }), true, 'confirmed read topic remains muted')
 assertMuted(decode({ last_read_post_number: 1, highest_post_number: 4, notification_level: 2 }), false, 'tracked unread replies keep the title prominent')
 assertMuted(applyLinuxDoReadProgress(decode({ last_read_post_number: null, notification_level: 1 }), 1), true, 'accepted reading progress can mute a regular topic')
+
+// Test onOpenUser in TopicCard
+const aliceTopic = decodeTopics({
+  users: [{ id: 42, username: 'alice', avatar_template: '/letter/a.png' }, { id: 99, username: 'bob', avatar_template: '/letter/b.png' }],
+  topic_list: {
+    topics: [{ id: 2, title: 'Alice Topic', posters: [{ user_id: 42, description: 'Original Poster' }, { user_id: 99, description: 'Most Recent Poster' }] }],
+  },
+})[0]!
+
+const neoTopic = decodeTopics({
+  users: [{ id: 1, username: 'neo', avatar_template: '/letter/n.png' }],
+  topic_list: {
+    topics: [{ id: 3, title: 'Neo Topic', posters: [{ user_id: 1, description: 'Original Poster' }] }],
+  },
+})[0]!
+
+const openedUsers: string[] = []
+const aliceDoc = parseHTML(renderToStaticMarkup(<TopicCard topic={aliceTopic} onOpen={() => {}} onOpenUser={(u) => openedUsers.push(u)} />)).document
+const aliceAvatarBtn = aliceDoc.querySelector('button[aria-label="查看 alice 的个人主页"]')
+assert.ok(aliceAvatarBtn, 'avatar button should exist with proper aria-label when onOpenUser is provided')
+assert.equal(aliceAvatarBtn.hasAttribute('disabled'), false, 'avatar button should be enabled')
+assert.equal(aliceDoc.querySelector('[data-linuxdo-site-admin-badge]'), null, 'normal user should not have site admin badge')
+
+const neoDoc = parseHTML(renderToStaticMarkup(<TopicCard topic={neoTopic} onOpen={() => {}} onOpenUser={(u) => openedUsers.push(u)} />)).document
+const neoAvatarBtn = neoDoc.querySelector('button[aria-label="查看 neo 的个人主页"]')
+assert.ok(neoAvatarBtn, 'neo avatar button should exist with proper aria-label')
+assert.ok(neoDoc.querySelector('[data-linuxdo-site-admin-badge]'), 'neo avatar should have site admin badge')
+assert.match(neoAvatarBtn.querySelector('div')?.className ?? '', /rounded-\[7px\]/, 'neo avatar container should have square rounded-[7px] styling')
+
+const noNavDoc = parseHTML(renderToStaticMarkup(<TopicCard topic={aliceTopic} onOpen={() => {}} />)).document
+const disabledAvatarBtn = noNavDoc.querySelector('button[aria-label="查看 alice 的个人主页"]')
+assert.ok(disabledAvatarBtn?.hasAttribute('disabled'), 'avatar button should be disabled when onOpenUser is not provided')
+
 console.log('linuxdo-topic-card-view: ok')
+

@@ -107,6 +107,7 @@ function FeedView({
   session,
   onMode,
   onOpen,
+  onOpenUser,
   onVerify,
   onOpenScope,
   onCategories,
@@ -122,6 +123,7 @@ function FeedView({
   session: LinuxDoSessionSnapshot
   onMode: (mode: LinuxDoFeedMode) => void
   onOpen: (topic: LinuxDoTopicSummary) => void
+  onOpenUser?: (username: string) => void
   onVerify: LinuxDoVerify
   onOpenScope: (scope: LinuxDoDiscoveryScope) => void
   onCategories: () => void
@@ -472,6 +474,7 @@ function FeedView({
                   topic={topic}
                   category={topic.categoryId ? categoriesById[topic.categoryId] : undefined}
                   onOpen={() => onOpen(topic)}
+                  onOpenUser={onOpenUser}
                   onOpenCategory={(category) => onOpenScope({ kind: 'category', category })}
                   onOpenTag={(name) => onOpenScope({ kind: 'tag', name })}
                 />
@@ -858,6 +861,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher, histo
             cacheRef={feedCacheRef}
             onMode={(mode) => setRoute({ kind: 'feed', mode })}
             onOpen={(topic) => navigate({ kind: 'topic', topic })}
+            onOpenUser={(username) => navigate({ kind: 'user', username })}
             onOpenScope={(scope) => navigate({ kind: 'discover', scope })}
             onVerify={verify}
             onCategories={() => {
@@ -882,7 +886,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher, histo
         ) : route.kind === 'search' ? (
           <SearchView cacheRef={searchCacheRef} key={session.authenticated ? session.currentUser?.id ?? 'member' : 'guest'} authenticated={session.authenticated} categoriesById={workspaceCategories} onVerify={verify} onLogin={() => navigate({ kind: 'account' })} onOpen={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenUser={(username) => navigate({ kind: 'user', username })} onOpenCategory={(category) => navigate({ kind: 'discover', scope: { kind: 'category', category } })} onOpenTag={(name) => navigate({ kind: 'discover', scope: { kind: 'tag', name } })} />
         ) : route.kind === 'discover' ? (
-          <DiscoverView initialScope={route.scope} cacheRef={discoverCacheRef} onVerify={verify} onScopeChange={replaceDiscoverScope} onOpen={(topic) => navigate({ kind: 'topic', topic })} />
+          <DiscoverView initialScope={route.scope} cacheRef={discoverCacheRef} onVerify={verify} onScopeChange={replaceDiscoverScope} onOpen={(topic) => navigate({ kind: 'topic', topic })} onOpenUser={(username) => navigate({ kind: 'user', username })} />
         ) : route.kind === 'notifications' ? (
           <NotificationsView onPrivateError={setWorkspaceError} initialFilter={notificationFilterRef.current} onFilterChange={(filter) => { notificationFilterRef.current = filter }} onVerify={verify} onLogin={() => navigate({ kind: 'account' })} privateMessagesCacheRef={privateMessagesCacheRef} key={`${session.authMode}:${session.currentUser?.id ?? ''}`} session={session} onUnreadChange={applyNotificationUnread} onOpen={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenUser={(username, tab, badgeId) => navigate({ kind: 'user', username, tab, badgeId })} />
         ) : route.kind === 'messages' ? (

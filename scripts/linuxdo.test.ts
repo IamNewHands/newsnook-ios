@@ -1276,6 +1276,60 @@ const missingSummary = await missingSummaryService.summary('private-stats')
 assert.equal(missingSummary.topicCount, undefined, 'missing/hidden stats must not be presented as zero')
 assert.equal(missingSummary.likesReceived, undefined)
 
+// Discourse sideloads related records instead of embedding them in each grant/reply.
+const relatedTopics = [
+  { id: 102, title: 'Reply destination', slug: 'reply-destination' },
+  { id: 103, title: 'Link destination', slug: 'link-destination' },
+  { id: 101, title: 'Second top topic', slug: 'second' },
+  { id: 100, title: 'First top topic', slug: 'first' },
+]
+const relatedBadges = [{ id: 7, name: '自传作者', icon: 'user-pen', image_url: '/badge.png' }]
+const badgeGrant = { id: 70, badge_id: 7, granted_at: '2026-09-01T00:00:00Z', count: 2, is_favorite: true }
+let relatedPayload: any = {
+  topics: relatedTopics,
+  badges: relatedBadges,
+  user_summary: {
+    topic_ids: [100, 101],
+    replies: [{ topic_id: 102, post_number: 7, like_count: 3 }],
+    links: [{ topic_id: 103, post_number: 4, url: 'https://example.com/docs' }],
+    badges: [badgeGrant],
+  },
+}
+const relatedPeople = new LinuxDoPeopleService({ getJson: async () => relatedPayload } as any)
+const relatedSummary = await relatedPeople.summary('reader')
+assert.deepEqual(relatedSummary.topics.map(topic => topic.id), [100, 101], 'use topic_ids order and exclude reply/link-only topics')
+assert.equal(relatedSummary.replies[0]?.topic.title, 'Reply destination')
+assert.equal(relatedSummary.replies[0]?.postNumber, 7)
+assert.equal(relatedSummary.links[0]?.topic?.id, 103)
+assert.equal(relatedSummary.links[0]?.postNumber, 4)
+assert.equal(relatedSummary.badges[0]?.name, '自传作者')
+assert.equal(relatedSummary.badges[0]?.id, 70, 'grant ID and badge definition ID are different')
+assert.equal(relatedSummary.badges[0]?.badgeId, 7)
+
+relatedPayload = { badges: relatedBadges, user_badges: [badgeGrant, { id: 71, badge_id: 7, granted_at: '2026-09-02T00:00:00Z' }] }
+const relatedUserBadges = await relatedPeople.badges('reader')
+assert.equal(relatedUserBadges.length, 1, 'deduplicate grants by badge definition')
+assert.equal(relatedUserBadges[0]?.id, 70)
+assert.equal(relatedUserBadges[0]?.badgeId, 7)
+assert.equal(relatedUserBadges[0]?.name, '自传作者')
+assert.equal(relatedUserBadges[0]?.imageUrl, 'https://linux.do/badge.png')
+assert.equal(relatedUserBadges[0]?.favorite, true)
+assert.equal(relatedUserBadges[0]?.count, 2)
+assert.equal(relatedUserBadges[0]?.grantedAt, '2026-09-02T00:00:00Z')
+
+relatedPayload = { topics: relatedTopics, user_summary: { topic_ids: [], replies: [], badges: [] } }
+assert.deepEqual((await relatedPeople.summary('reader')).topics, [], 'an empty top-topic list must not include sideloaded reply/link topics')
+relatedPayload = { badges: relatedBadges, user_badges: [] }
+assert.deepEqual(await relatedPeople.badges('reader'), [], 'definitions alone do not grant badges to the user')
+relatedPayload = { badges: [{ id: 8, name: '编辑者' }] }
+assert.equal((await relatedPeople.badges('reader'))[0]?.badgeId, 8, 'keep flat badge payload compatibility')
+for (const invalid of [{}, { user_badges: [badgeGrant] }, { user_badges: [{ id: 70, badge_id: 999 }], badges: relatedBadges }]) {
+  relatedPayload = invalid
+  await assert.rejects(relatedPeople.badges('reader'), /徽章.*无法识别/, 'a broken badge response must not claim the user has no badges')
+}
+relatedPayload = { topics: [], user_summary: { topic_ids: [100] } }
+await assert.rejects(relatedPeople.summary('reader'), /话题.*无法识别/, 'missing referenced topics must not become a false empty state')
+
 const searchService = new LinuxDoSearchService({
   getJson: async () => ({
     topics: [],

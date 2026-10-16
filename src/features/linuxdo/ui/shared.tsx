@@ -14,12 +14,14 @@ function getCategoryColor(category?: LinuxDoCategory): string {
 export function TopicCard({
   topic,
   onOpen,
+  onOpenUser,
   category,
   onOpenCategory,
   onOpenTag,
 }: {
   topic: LinuxDoTopicSummary
   onOpen: () => void
+  onOpenUser?: (username: string) => void
   category?: LinuxDoCategory
   onOpenCategory?: (category: LinuxDoCategory) => void
   onOpenTag?: (tag: string) => void
@@ -28,7 +30,9 @@ export function TopicCard({
   const accessibleTitle = titleParts.map((part) => part.kind === 'emoji' ? part.alt : part.text).join('')
   const author = topic.posters[0]
   const last = topic.posters[topic.posters.length - 1]
-  const isSiteAdmin = isLinuxDoSiteAdmin(author?.username)
+  const authorUsername = author?.username
+  const lastUsername = last?.username
+  const isSiteAdmin = isLinuxDoSiteAdmin(authorUsername)
   const readState = linuxDoTopicReadState(topic)
   const isUnread = readState !== 'read'
   // Missing new/unread notifications do not prove that a topic was read.
@@ -65,24 +69,40 @@ export function TopicCard({
       <div className="flex items-start gap-2.5 sm:gap-3">
         {/* 头像 */}
         <div className="relative mt-0.5 shrink-0">
-          <div className={
-            isSiteAdmin
-              ? 'relative flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center overflow-hidden rounded-[7px] ring-1 ring-paper/10 bg-ink-deep shadow-2xs'
-              : 'relative flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-paper/10 bg-ink-deep shadow-2xs'
-          }>
-            {avatar(author?.avatarTemplate, author?.username)}
-          </div>
-          {isSiteAdmin && (
-            <span
-              data-linuxdo-site-admin-badge
-              title="站长"
-              className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 sm:h-4 sm:w-4 items-center justify-center rounded-full bg-[#0088ff] text-white shadow-xs ring-1.5 ring-ink-raised pointer-events-none"
-              aria-label="站长角标"
-            >
-              <BatteryLow size={9} strokeWidth={2.5} className="shrink-0 sm:hidden" aria-hidden="true" />
-              <BatteryLow size={10} strokeWidth={2.5} className="hidden shrink-0 sm:block" aria-hidden="true" />
-            </span>
-          )}
+          <button
+            type="button"
+            disabled={!onOpenUser || !authorUsername}
+            onClick={(event) => {
+              if (authorUsername && onOpenUser) {
+                event.stopPropagation()
+                onOpenUser(authorUsername)
+              }
+            }}
+            aria-label={authorUsername ? `查看 ${authorUsername} 的个人主页` : '用户头像'}
+            className={
+              'group/avatar relative block cursor-pointer transition-transform active:scale-95 disabled:pointer-events-none disabled:cursor-default ' +
+              (isSiteAdmin ? 'rounded-[7px]' : 'rounded-full')
+            }
+          >
+            <div className={
+              isSiteAdmin
+                ? 'relative flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center overflow-hidden rounded-[7px] ring-1 ring-paper/10 bg-ink-deep shadow-2xs'
+                : 'relative flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-paper/10 bg-ink-deep shadow-2xs'
+            }>
+              {avatar(author?.avatarTemplate, authorUsername)}
+            </div>
+            {isSiteAdmin && (
+              <span
+                data-linuxdo-site-admin-badge
+                title="站长"
+                className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 sm:h-4 sm:w-4 items-center justify-center rounded-full bg-[#0088ff] text-white shadow-xs ring-1.5 ring-ink-raised pointer-events-none"
+                aria-label="站长角标"
+              >
+                <BatteryLow size={9} strokeWidth={2.5} className="shrink-0 sm:hidden" aria-hidden="true" />
+                <BatteryLow size={10} strokeWidth={2.5} className="hidden shrink-0 sm:block" aria-hidden="true" />
+              </span>
+            )}
+          </button>
         </div>
 
         {/* 主体内容 */}
@@ -90,16 +110,36 @@ export function TopicCard({
           {/* 顶栏信息：作者、时间、热度微标 */}
           <div className="mb-1 flex items-center justify-between gap-2 text-[11px] leading-tight">
             <div className="flex min-w-0 items-center gap-1.5">
-              <span className={`truncate flex items-center gap-1 transition-colors ${
-                isSiteAdmin
-                  ? 'font-bold text-[#0088ff] dark:text-[#38a3ff]'
-                  : 'font-semibold text-paper/90 group-hover:text-paper'
-              }`}>
-                <span>{author?.username || 'Linux.do'}</span>
-                {isSiteAdmin && (
-                  <Shield size={12} className="shrink-0 fill-[#0088ff] text-[#0088ff] dark:fill-[#38a3ff] dark:text-[#38a3ff]" aria-label="站长认证" />
-                )}
-              </span>
+              {authorUsername && onOpenUser ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onOpenUser(authorUsername)
+                  }}
+                  className={`linuxdo-control truncate flex items-center gap-1 transition-colors hover:underline ${
+                    isSiteAdmin
+                      ? 'font-bold text-[#0088ff] dark:text-[#38a3ff]'
+                      : 'font-semibold text-paper/90 hover:text-paper'
+                  }`}
+                >
+                  <span>{authorUsername}</span>
+                  {isSiteAdmin && (
+                    <Shield size={12} className="shrink-0 fill-[#0088ff] text-[#0088ff] dark:fill-[#38a3ff] dark:text-[#38a3ff]" aria-label="站长认证" />
+                  )}
+                </button>
+              ) : (
+                <span className={`truncate flex items-center gap-1 transition-colors ${
+                  isSiteAdmin
+                    ? 'font-bold text-[#0088ff] dark:text-[#38a3ff]'
+                    : 'font-semibold text-paper/90 group-hover:text-paper'
+                }`}>
+                  <span>{authorUsername || 'Linux.do'}</span>
+                  {isSiteAdmin && (
+                    <Shield size={12} className="shrink-0 fill-[#0088ff] text-[#0088ff] dark:fill-[#38a3ff] dark:text-[#38a3ff]" aria-label="站长认证" />
+                  )}
+                </span>
+              )}
               {isHot ? (
                 <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-cinnabar/12 border border-cinnabar/25 px-1.5 py-0.2 font-mono text-[9px] font-bold text-cinnabar">
                   <Flame size={9.5} className="fill-cinnabar text-cinnabar" />
@@ -192,9 +232,35 @@ export function TopicCard({
           {/* 底部信息：最后回复与互动数据 */}
           <div className="mt-2.5 flex items-center justify-between gap-2 text-[10.5px] text-paper-faint">
             <span className="min-w-0 truncate text-[10px] sm:text-[10.5px]">
-              {last?.username
-                ? `最后回复 @${last.username}`
-                : author?.username || 'Linux.do'}
+              {lastUsername ? (
+                onOpenUser ? (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onOpenUser(lastUsername)
+                    }}
+                    className="linuxdo-control hover:underline hover:text-paper transition-colors"
+                  >
+                    最后回复 @{lastUsername}
+                  </button>
+                ) : (
+                  `最后回复 @${lastUsername}`
+                )
+              ) : authorUsername && onOpenUser ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onOpenUser(authorUsername)
+                  }}
+                  className="linuxdo-control hover:underline hover:text-paper transition-colors"
+                >
+                  {authorUsername}
+                </button>
+              ) : (
+                authorUsername || 'Linux.do'
+              )}
             </span>
 
             <span className="flex shrink-0 items-center gap-2.5 sm:gap-3 font-mono tabular-nums">
