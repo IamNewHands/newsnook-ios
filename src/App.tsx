@@ -3,6 +3,7 @@ import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 
 import { AppShell } from './components/AppShell'
+import { BrowserLauncher } from './features/browser/BrowserLauncher'
 import { WikiSelectionLayer } from './features/wiki/WikiSelectionLayer'
 import { DlnaCastBanner } from './components/DlnaCastBanner'
 import { OpenInAppBanner } from './components/OpenInAppBanner'
@@ -1131,6 +1132,7 @@ export default function App() {
       setSettingsRoute(null)
       setTab('today')
     },
+    onOpenBrowser: () => { window.dispatchEvent(new Event('newsnook:open-browser')) },
     onManage: () => {
       if (activeSiteId) leaveActiveSite()
       setSettingsRoute({ name: 'presets' })
@@ -1896,6 +1898,7 @@ export default function App() {
 
   return (
     <AppShell>
+      <BrowserLauncher />
       <div className="flex h-full w-full flex-row overflow-hidden">
         {!activeSiteId && <DesktopSidebar
           categories={categories}

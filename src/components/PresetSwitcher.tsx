@@ -15,6 +15,7 @@ import {
   Layers3,
   Grid2X2,
   LayoutTemplate,
+  PanelsTopLeft,
   Newspaper,
   PencilLine,
   Plus,
@@ -57,6 +58,7 @@ export interface PresetSwitcherProps {
   onRenamePreset?: (id: string, name: string) => void
   onMovePreset?: (id: string, direction: -1 | 1) => void
   onOpenSettings?: () => void
+  onOpenBrowser?: () => void
   /** 独立站点工作区；与 preset 完全分离，选择时不得调用 onSelect。 */
   siteItems?: SiteSwitcherItem[]
   onSelectSite?: (id: string) => void
@@ -98,6 +100,7 @@ export function PresetSwitcher({
   onRenamePreset,
   onMovePreset,
   onOpenSettings,
+  onOpenBrowser,
   siteItems = [],
   onSelectSite,
   onSites,
@@ -258,7 +261,17 @@ export function PresetSwitcher({
             </div>
           </div>
 
-          <div className="flex min-h-0 flex-1 flex-col">
+            {onOpenBrowser ? (
+              <div className="px-3.5 pt-3 sm:px-5">
+                <button type="button" className="flex w-full items-center gap-3 rounded-xl border border-haze/80 bg-ink px-3.5 py-3 text-left transition-colors hover:border-cinnabar/40 hover:bg-ink-raised"
+                  onClick={() => { setOpen(false); onOpenBrowser() }}>
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-cinnabar/10 text-cinnabar"><PanelsTopLeft size={20} strokeWidth={1.6} /></span>
+                  <span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-paper">网页浏览</span><span className="block text-[11px] text-paper-muted">浏览网页 · 用户脚本</span></span>
+                  <ChevronDown size={15} className="-rotate-90 text-paper-faint" />
+                </button>
+              </div>
+            ) : null}
+            <div className="flex min-h-0 flex-1 flex-col">
             {/* 上半区：布局预设。内置与自定义只在这里切换，社区不参与 preset 状态。 */}
             <div className="shrink-0 px-3.5 pt-2.5 sm:px-5">
               <div
