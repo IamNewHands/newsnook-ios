@@ -20,6 +20,7 @@ import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.URLUtil;
 import android.webkit.WebChromeClient;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
@@ -400,6 +401,25 @@ public class BrowserHostPlugin extends Plugin {
                 if (!embeddedMode && isHttpUrl(address)) recordVisit(tab.title, address);
                 if (current == tab) sendNavigation(address, "end");
                 if (tab.media != null) tab.media.onPageFinished();
+            }
+            @Override public boolean onRenderProcessGone(WebView web, RenderProcessGoneDetail detail) {
+                // A renderer process can terminate independently of the app. Its WebView is invalid.
+                android.util.Log.e("NewsNookBrowser", "Renderer terminated: crashed=" + detail.didCrash()
+                    + " priority=" + detail.rendererPriorityAtExit());
+                if (!tabs.contains(tab)) return true;
+                final boolean affectedCurrent = current == tab;
+                final String lastUrl = tab.url;
+                if (customFullscreen != null) exitFullscreen();
+                closeTab(tab);
+                if (affectedCurrent && !closing && current != null && isHttpUrl(lastUrl)) {
+                    Toast.makeText(getContext(), "网页渲染进程退出，已保留浏览器和其他标签", Toast.LENGTH_LONG).show();
+                    JSObject state = new JSObject();
+                    state.put("type", "renderExit");
+                    state.put("url", lastUrl);
+                    state.put("crashed", detail.didCrash());
+                    notifyListeners("browserError", state);
+                }
+                return true;
             }
             @Override public WebResourceResponse shouldInterceptRequest(WebView web, WebResourceRequest request) {
                 return tab.media == null ? null : tab.media.onRequest(request);
