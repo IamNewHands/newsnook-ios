@@ -18,7 +18,8 @@ export interface UserScript {
 
 const KEY = 'newsnook:userscripts:v1'
 const MARKER = /^\s*\/\/\s*@([^\s]+)\s*(.*)$/
-const CAP = 400_000
+export const MAX_USER_SCRIPT_BYTES = 400_000
+const MAX_LEGACY_SCRIPT_CHARACTERS = 400_000
 function metadata(code: string): Map<string, string[]> {
   const meta = new Map<string, string[]>()
   let active = false
@@ -36,23 +37,40 @@ function metadata(code: string): Map<string, string[]> {
 function single(meta: Map<string, string[]>, key: string, fallback = ''): string {
   return meta.get(key)?.[0] || fallback
 }
-export function installUserScript(source: string, old?: UserScript): UserScript {
-  if (source.length === 0 || source.length > CAP) throw new Error('脚本大小不得超过 400 KB')
+export function installUserScript(source: string, old?: Pick<UserScript, 'id' | 'enabled' | 'createdAt'>): UserScript {
+  if (source.length === 0 || new TextEncoder().encode(source).byteLength > MAX_USER_SCRIPT_BYTES) throw new Error('脚本大小不得超过 400 KB')
+  return parseUserScript(source, old)
+}
+function parseUserScript(source: string, old?: Pick<UserScript, 'id' | 'enabled' | 'createdAt'>): UserScript {
   const meta = metadata(source)
   const name = single(meta, 'name')
   if (!name) throw new Error('脚本缺少 @name')
-  const matches = meta.get('match') ?? []
-  const includes = meta.get('include') ?? []
+  const matches = (meta.get('match') ?? []).filter(Boolean)
+  const includes = (meta.get('include') ?? []).filter(Boolean)
   if (!matches.length && !includes.length) throw new Error('请添加 @match 或 @include 以限定网站')
   const runAt = single(meta, 'run-at', 'document-end')
   const runAtSafe = runAt === 'document-start' || runAt === 'document-end' || runAt === 'document-idle' ? runAt : 'document-end'
   return {
-    id: old?.id ?? `us-${globalThis.crypto?.randomUUID?.() ?? String(Date.now())}`,
+    id: old?.id ?? `us-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
     name, version: single(meta, 'version', '1.0'), source, enabled: old?.enabled ?? true,
     matches, includes, excludes: meta.get('exclude') ?? [], excludeMatches: meta.get('exclude-match') ?? [],
     grants: meta.get('grant') ?? [], connects: meta.get('connect') ?? [], requires: meta.get('require') ?? [],
     runAt: runAtSafe, createdAt: old?.createdAt ?? Date.now(),
   }
+}
+/** Re-imports use the userscript name/namespace identity; explicit edits keep their existing identity. */
+export function prepareUserScriptInstall(source: string, scripts: readonly UserScript[], editing?: UserScript): UserScript {
+  const editedInstallation = editing ? scripts.find(script => script.id === editing.id) : undefined
+  if (source.length > MAX_LEGACY_SCRIPT_CHARACTERS) {
+    throw new Error(editedInstallation ? '已有脚本不能超过 400000 个字符' : '脚本大小不得超过 400 KB')
+  }
+  // Only the installed collection grants the historical character allowance.
+  // An editor for a deleted script must pass the new-install byte limit again.
+  if (editedInstallation) return parseUserScript(source, editedInstallation)
+  const candidate = parseUserScript(source)
+  const namespace = single(metadata(source), 'namespace')
+  const existing = scripts.find(script => script.name === candidate.name && single(metadata(script.source), 'namespace') === namespace)
+  return existing ? parseUserScript(source, existing) : installUserScript(source)
 }
 function wildcard(p: string): RegExp {
   const escaped = p.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')
@@ -88,10 +106,27 @@ export function loadUserScripts(): UserScript[] {
     const raw = localStorage.getItem(KEY)
     const result: unknown = raw && JSON.parse(raw)
     if (!Array.isArray(result)) return []
-    return result.filter((it): it is UserScript => it && typeof it.id === 'string' && typeof it.source === 'string' && typeof it.enabled === 'boolean' && Array.isArray(it.matches) && Array.isArray(it.includes) && it.source.length < CAP)
+    const scripts: UserScript[] = []
+    const seen = new Set<string>()
+    for (const item of result) {
+      if (!item || typeof item.id !== 'string' || !item.id || seen.has(item.id) || typeof item.source !== 'string' || item.source.length > MAX_LEGACY_SCRIPT_CHARACTERS || typeof item.enabled !== 'boolean') continue
+      try {
+        // Earlier versions counted UTF-16 characters. Keep those installed sources readable.
+        const script = parseUserScript(item.source, {
+          id: item.id,
+          enabled: item.enabled,
+          createdAt: typeof item.createdAt === 'number' && Number.isFinite(item.createdAt) ? item.createdAt : 0,
+        })
+        scripts.push(script)
+        seen.add(script.id)
+      } catch { /* Invalid entries are isolated; valid local scripts stay available. */ }
+      if (scripts.length === 128) break
+    }
+    return scripts
   } catch { return [] }
 }
 export function saveUserScripts(items: UserScript[]): void {
   if (items.length > 128) throw new Error('最多安装 128 个脚本')
-  localStorage.setItem(KEY, JSON.stringify(items))
+  try { localStorage.setItem(KEY, JSON.stringify(items)) }
+  catch { throw new Error('脚本保存失败，请检查本机存储空间后重试') }
 }

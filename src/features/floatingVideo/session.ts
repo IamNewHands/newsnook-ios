@@ -39,7 +39,7 @@ export function createVideoSessionManager() {
       if (!session || session.owner !== owner) return
       if (session.mode === 'inline') { close(id); return }
       const { onUnlocked: _unlock, onRefreshSource: _refresh, onPlaybackError: _error,
-        fullscreenHandleRef: _fullscreen, ...props } = session.props
+        fullscreenHandleRef: _fullscreen, overlayContainer: _overlayContainer, ...props } = session.props
       replace(id, { slot: null, props })
     },
     float(id: string) {

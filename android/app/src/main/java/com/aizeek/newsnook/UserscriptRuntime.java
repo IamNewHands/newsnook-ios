@@ -4,11 +4,14 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Base64;
 import android.webkit.CookieManager;
 import android.webkit.WebView;
 import androidx.webkit.JavaScriptExecutionWorld;
 import androidx.webkit.JavaScriptReplyProxy;
+import androidx.webkit.ScriptHandler;
 import androidx.webkit.WebMessageCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
@@ -59,6 +62,10 @@ final class UserscriptRuntime {
     private final SecureRandom random = new SecureRandom();
     private final Map<String, InstalledScript> scripts = new LinkedHashMap<>();
     private final Map<String, Call> activeRequests = new ConcurrentHashMap<>();
+    private final Set<Call> ownedCalls = ConcurrentHashMap.newKeySet();
+    private final List<ScriptHandler> scriptHandlers = new ArrayList<>();
+    private final List<JavaScriptExecutionWorld> listenerWorlds = new ArrayList<>();
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Map<String, DownloadTransfer> downloads = new ConcurrentHashMap<>();
     private final ArrayList<MenuCommand> menus = new ArrayList<>();
     private volatile boolean closed;
@@ -105,10 +112,11 @@ final class UserscriptRuntime {
     }
 
     void prepare(JSONArray requested) throws Exception {
-        if (requested == null || requested.length() == 0) return;
+        if (closed || requested == null || requested.length() == 0) return;
         if (requested.length() > MAX_SCRIPTS) throw new IllegalArgumentException("too many userscripts");
         byte[] randomBytes = new byte[32];
         for (int i = 0; i < requested.length(); i++) {
+            if (closed || Thread.currentThread().isInterrupted()) return;
             JSONObject entry = requested.getJSONObject(i);
             if (!entry.optBoolean("enabled", false)) continue;
             String source = entry.optString("source", "");
@@ -118,11 +126,15 @@ final class UserscriptRuntime {
             random.nextBytes(randomBytes);
             String secret = Base64.encodeToString(randomBytes, Base64.NO_WRAP | Base64.URL_SAFE);
             String resources = loadResources(entry.optJSONArray("requires"));
-            scripts.put(id, new InstalledScript(id, secret, entry, source, resources));
+            synchronized (scripts) {
+                if (closed) return;
+                scripts.put(id, new InstalledScript(id, secret, entry, source, resources));
+            }
         }
     }
 
     boolean install() throws Exception {
+        if (closed) return false;
         if (scripts.isEmpty()) return true;
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
                 && !WebViewFeature.isFeatureSupported(WebViewFeature.JS_INJECTION_IN_FRAME_AND_WORLD)) {
@@ -142,16 +154,16 @@ final class UserscriptRuntime {
             if (!pageOrigins.isEmpty()) registerListener(pageWorld, pageOrigins, "page");
             if (!isolatedOrigins.isEmpty()) registerListener(isolatedWorld, isolatedOrigins, "isolated");
             for (InstalledScript script : scripts.values()) {
-                WebViewCompat.addJavaScriptOnEvent(webView, buildScript(script),
+                scriptHandlers.add(WebViewCompat.addJavaScriptOnEvent(webView, buildScript(script),
                     WebViewCompat.INJECTION_EVENT_DOCUMENT_START, scriptOrigins(script),
-                    runsInPage(script) ? pageWorld : isolatedWorld);
+                    runsInPage(script) ? pageWorld : isolatedWorld));
             }
         } else {
             // Legacy WebView has no isolated world. Never grant native capabilities through page JS.
             for (InstalledScript script : scripts.values()) {
                 if (script.metadata.optJSONArray("grants") != null && script.metadata.optJSONArray("grants").length() > 0)
                     throw new UnsupportedOperationException("此 WebView 版本无法安全运行带 GM 权限的脚本，请更新 Android System WebView");
-                WebViewCompat.addDocumentStartJavaScript(webView, buildScript(script), scriptOrigins(script));
+                scriptHandlers.add(WebViewCompat.addDocumentStartJavaScript(webView, buildScript(script), scriptOrigins(script)));
             }
         }
         return true;
@@ -174,6 +186,7 @@ final class UserscriptRuntime {
                     } catch (Exception ignored) { }
                 }
             });
+        listenerWorlds.add(world);
     }
 
     private static boolean runsInPage(InstalledScript script) {
@@ -221,6 +234,7 @@ final class UserscriptRuntime {
         if (urls.length() > 12) throw new IllegalArgumentException("too many dependencies");
         StringBuilder bundled = new StringBuilder();
         for (int i = 0; i < urls.length(); i++) {
+            if (closed || Thread.currentThread().isInterrupted()) return "";
             String value = urls.getString(i);
             if (!value.startsWith("https://")) throw new IllegalArgumentException("@require must use HTTPS");
             URL uri = new URL(value);
@@ -235,10 +249,12 @@ final class UserscriptRuntime {
                 try (InputStream in = new FileInputStream(target)) { bytes = readBounded(in, MAX_RESOURCE_BYTES); }
             } else {
                 Request request = new Request.Builder().url(uri).build();
-                try (Response response = client.newCall(request).execute()) {
+                Call call = trackedCall(request);
+                try (Response response = call.execute()) {
                     if (!response.isSuccessful() || response.body() == null) throw new IllegalStateException("dependency download failed");
                     bytes = readBounded(response.body().byteStream(), MAX_RESOURCE_BYTES);
-                }
+                } finally { ownedCalls.remove(call); }
+                if (closed) return "";
                 try (FileOutputStream output = new FileOutputStream(target)) { output.write(bytes); }
             }
             bundled.append("\n").append(new String(bytes, StandardCharsets.UTF_8)).append("\n;");
@@ -417,9 +433,17 @@ final class UserscriptRuntime {
         } catch(Exception e){return false;}
     }
 
+    private Call trackedCall(Request request) {
+        Call call = client.newCall(request);
+        ownedCalls.add(call);
+        // Covers close racing with registration, before OkHttp starts executing the call.
+        if (closed) call.cancel();
+        return call;
+    }
+
     private void send(JavaScriptReplyProxy proxy,JSONObject event) {
         if(closed)return;
-        webView.post(()->{ if(!closed)try {proxy.postMessage(event.toString());}catch(Exception ignored){} });
+        mainHandler.post(()->{ if(!closed)try {proxy.postMessage(event.toString());}catch(Exception ignored){} });
     }
 
     private void handleHttp(InstalledScript script,JSONObject payload,JavaScriptReplyProxy proxy) {
@@ -448,7 +472,7 @@ final class UserscriptRuntime {
                     }
                     String cookie=CookieManager.getInstance().getCookie(current);
                     if(cookie!=null)builder.header("Cookie",cookie);
-                    Call call=client.newCall(builder.build()); activeRequests.put(script.id+":"+req,call);
+                    Call call=trackedCall(builder.build()); activeRequests.put(script.id+":"+req,call);
                     try(Response response=call.execute()) {
                         int status=response.code();
                         if(status>=300 && status<400 && response.header("Location")!=null) {
@@ -478,7 +502,7 @@ final class UserscriptRuntime {
                         event.put("data",Base64.encodeToString(collected.toByteArray(),Base64.NO_WRAP));
                         event.put("contentType",response.header("Content-Type","application/octet-stream"));
                         send(proxy,event);return;
-                    } finally {activeRequests.remove(script.id+":"+req);}
+                    } finally {activeRequests.remove(script.id+":"+req, call); ownedCalls.remove(call);}
                 }
                 failHttp(req,"请求重定向次数过多",proxy);
             } catch(Exception e) {failHttp(req,"网络请求失败: "+e.getClass().getSimpleName(),proxy);}
@@ -552,7 +576,8 @@ final class UserscriptRuntime {
                     Request.Builder builder=new Request.Builder().url(current);
                     String cookie=CookieManager.getInstance().getCookie(current);
                     if(cookie!=null)builder.header("Cookie",cookie);
-                    try(Response response=client.newCall(builder.build()).execute()) {
+                    Call call=trackedCall(builder.build());
+                    try(Response response=call.execute()) {
                         if(response.code()>=300 && response.code()<400 && response.header("Location")!=null) {
                             current=new URI(current).resolve(response.header("Location")).toString();
                             continue;
@@ -572,7 +597,7 @@ final class UserscriptRuntime {
                         }
                         completed=true;
                         break;
-                    }
+                    } finally { ownedCalls.remove(call); }
                 }
                 if(!completed)throw new IllegalStateException("重定向次数过多");
                 saveCompletedDownload(tmp,cleanFilename(payload.optString("name","download.bin")));
@@ -611,6 +636,7 @@ final class UserscriptRuntime {
     }
 
     void showMenus() {
+        if (closed) return;
         ArrayList<MenuCommand> available;
         synchronized(menus) {available=new ArrayList<>(menus);}
         if(available.isEmpty()) {new AlertDialog.Builder(webView.getContext()).setMessage("当前页面没有用户脚本菜单").setPositiveButton("确定",null).show();return;}
@@ -627,8 +653,15 @@ final class UserscriptRuntime {
         synchronized(menus){menus.clear();}
     }
 
-    void close() {
+    void close() { close(true); }
+
+    void close(boolean removeWebViewBindings) {
+        if (closed) return;
         closed=true;
+        mainHandler.removeCallbacksAndMessages(null);
+        client.dispatcher().cancelAll();
+        for(Call call:ownedCalls)call.cancel();
+        ownedCalls.clear();
         for(Call call:activeRequests.values())call.cancel();
         activeRequests.clear();
         for(DownloadTransfer transfer:downloads.values()){
@@ -637,5 +670,22 @@ final class UserscriptRuntime {
         }
         downloads.clear();
         executor.shutdownNow();
+        if (removeWebViewBindings) {
+            for (ScriptHandler handler : scriptHandlers) {
+                try { handler.remove(); }
+                catch (RuntimeException error) { android.util.Log.w("NewsNookBrowser", "Script binding already unavailable", error); }
+            }
+            for (JavaScriptExecutionWorld world : listenerWorlds) {
+                try { WebViewCompat.removeWebMessageListener(webView, world, JS_PORT); }
+                catch (RuntimeException error) { android.util.Log.w("NewsNookBrowser", "Script listener already unavailable", error); }
+            }
+        }
+        scriptHandlers.clear();
+        listenerWorlds.clear();
+        synchronized (menus) { menus.clear(); }
+        synchronized (scripts) {
+            for (InstalledScript script : scripts.values()) script.proxy = null;
+            scripts.clear();
+        }
     }
 }

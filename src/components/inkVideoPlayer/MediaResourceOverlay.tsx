@@ -3,7 +3,7 @@
  * 在支持独立媒体页的宿主里，抽屉项目会进入媒体页，而不是直接替换内嵌播放器。
  */
 
-import { createContext, useContext, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, type ReactNode, type Ref } from 'react'
 import { ChevronLeft, ListVideo } from 'lucide-react'
 
 import type { MediaResourceDescriptor } from '../../features/mediaSniffer/types'
@@ -99,6 +99,7 @@ export function MediaResourceOverlay({
   open,
   immersive,
   suppressFab = false,
+  dialogRef,
   layer,
   onToggle,
   onSelect,
@@ -107,6 +108,7 @@ export function MediaResourceOverlay({
   open: boolean
   immersive: boolean
   suppressFab?: boolean
+  dialogRef?: Ref<HTMLDivElement>
   layer?: number
   onToggle: () => void
   onSelect: (resource: MediaResourceDescriptor) => void
@@ -174,11 +176,20 @@ export function MediaResourceOverlay({
           onClick={onToggle}
         >
           <div
+            ref={dialogRef}
+            tabIndex={dialogRef ? -1 : undefined}
+            onKeyDown={event => {
+              if (dialogRef && event.key === 'Escape') {
+                event.preventDefault()
+                event.stopPropagation()
+                onToggle()
+              }
+            }}
             role="dialog"
             aria-modal="true"
             aria-label={`已嗅探到 ${resources.length} 个资源`}
             className="flex max-h-[min(78vh,520px)] w-full max-w-sm flex-col overflow-hidden rounded-t-3xl border border-haze bg-ink-raised shadow-2xl md:rounded-2xl"
-            style={{ paddingBottom: 'calc(var(--sab, 0px) + 12px)' }}
+            style={{ paddingBottom: 'calc(var(--sab, 0px) + 12px)', outline: dialogRef ? 'none' : undefined }}
             onClick={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
           >

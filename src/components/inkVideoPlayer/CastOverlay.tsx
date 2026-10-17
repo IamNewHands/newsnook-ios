@@ -2,7 +2,7 @@
  * DLNA 投屏浮层：设备搜索列表与连接后的电视遥控器（进度/音量/播放暂停）。
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type Ref } from 'react'
 import {
   Cast,
   LoaderCircle,
@@ -26,6 +26,7 @@ import { useHardwareBackLayer } from '../../hooks/useHardwareBackLayer'
 
 export function CastOverlay({
   open,
+  dialogRef,
   devices,
   searching,
   connectingId,
@@ -40,6 +41,7 @@ export function CastOverlay({
   onStop,
 }: {
   open: boolean
+  dialogRef?: Ref<HTMLElement>
   devices: DlnaCastDevice[]
   searching: boolean
   connectingId: string | null
@@ -102,11 +104,20 @@ export function CastOverlay({
       onClick={onClose}
     >
       <section
+        ref={dialogRef}
+        tabIndex={dialogRef ? -1 : undefined}
+        onKeyDown={event => {
+          if (dialogRef && event.key === 'Escape') {
+            event.preventDefault()
+            event.stopPropagation()
+            onClose()
+          }
+        }}
         role="dialog"
         aria-modal="true"
         aria-label={session ? '投屏遥控器' : '选择投屏设备'}
         className="w-full max-w-md overflow-hidden rounded-t-3xl border border-haze bg-ink-raised text-paper shadow-2xl md:rounded-3xl"
-        style={{ paddingBottom: 'calc(var(--sab, 0px) + 12px)' }}
+        style={{ paddingBottom: 'calc(var(--sab, 0px) + 12px)', outline: dialogRef ? 'none' : undefined }}
         onClick={(event) => event.stopPropagation()}
         onPointerDown={(event) => event.stopPropagation()}
       >

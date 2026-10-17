@@ -1,0 +1,41 @@
+.browser-workspace { font-family: var(--font-body); }
+/* Keep the script sheet bounded on WebView versions without dvh or max(). */
+.browser-script-manager {
+  max-height: 93vh;
+  padding-bottom: 1.25rem;
+}
+@supports (height: 100dvh) {
+  .browser-script-manager { max-height: 93dvh; }
+}
+@supports (padding-bottom: max(1px, 0px)) {
+  .browser-script-manager { padding-bottom: max(1.25rem, var(--sab, 0px)); }
+}
+.browser-workspace button { -webkit-tap-highlight-color: transparent; }
+.browser-workspace button:focus-visible,
+.browser-workspace a:focus-visible {
+  outline: 2px solid var(--color-paper-muted);
+  outline-offset: 2px;
+}
+/* Keep Lucide outlines intact under Buer's global accent-badge SVG rule. */
+html[data-scheme='buer'] .browser-workspace svg.lucide[fill='none'] {
+  fill: none !important;
+}
+.browser-icon-button { transition: background-color 140ms ease, opacity 140ms ease; }
+.browser-sheet { animation: browser-sheet-enter 220ms var(--ease-ink) both; }
+.browser-search { animation: browser-panel-enter 150ms ease-out both; }
+.browser-start { animation: browser-panel-enter 180ms ease-out both; }
+@keyframes browser-sheet-enter {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes browser-panel-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .browser-sheet, .browser-search, .browser-start { animation: none; }
+  .browser-workspace * { scroll-behavior: auto; transition-duration: 0ms; }
+}
+[data-eink] .browser-sheet, [data-eink] .browser-search, [data-eink] .browser-start {
+  animation: none;
+}

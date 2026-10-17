@@ -1,5 +1,7 @@
 package com.aizeek.newsnook;
 
+import android.os.Handler;
+import android.os.Looper;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
@@ -10,6 +12,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -32,7 +35,7 @@ final class BrowserMediaCapture {
         final JSONArray networkEvents = new JSONArray();
         final Set<String> seen = new HashSet<>();
         final MediaSnifferPlugin.LiveProbeQueue probes;
-        String url;
+        volatile String url;
         int emitted;
         Page(String url, MediaSnifferPlugin.LiveProbeQueue probes) {
             this.url = url;
@@ -42,19 +45,26 @@ final class BrowserMediaCapture {
 
     private final WebView webView;
     private final Consumer<JSONObject> onObservation;
-    private final Consumer<String> onPage;
+    private final BiConsumer<String, Boolean> onPage;
     private final String nonce = UUID.randomUUID().toString();
     private final String script = MediaSnifferPlugin.buildProbeScript(nonce, true);
     private final ScriptHandler scriptHandler;
     private volatile Page page;
-    private boolean closed;
+    private volatile boolean closed;
     private boolean active;
     private boolean pollScheduled;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Runnable poll = () -> {
+        pollScheduled = false;
+        if (!active || closed) return;
+        pollNow();
+        schedulePoll(POLL_INTERVAL_MS);
+    };
 
-    BrowserMediaCapture(WebView view, String initialUrl, Consumer<JSONObject> observation, Consumer<String> reset) {
+    BrowserMediaCapture(WebView view, String initialUrl, Consumer<JSONObject> observation, BiConsumer<String, Boolean> pageChanged) {
         webView = view;
         onObservation = observation;
-        onPage = reset;
+        onPage = pageChanged;
         page = makePage(initialUrl);
         scriptHandler = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
             ? WebViewCompat.addDocumentStartJavaScript(view, script, Collections.singleton("*"))
@@ -80,7 +90,7 @@ final class BrowserMediaCapture {
         if (closed) return;
         Page previous = page;
         page = makePage(url);
-        onPage.accept(url);
+        onPage.accept(url, true);
         closeProbes(previous);
         if (scriptHandler == null && url.startsWith("http")) webView.evaluateJavascript(script, null);
         schedulePoll(500);
@@ -111,16 +121,25 @@ final class BrowserMediaCapture {
         active = value;
         if (active) {
             Page current = page;
-            if (current != null) onPage.accept(current.url);
+            if (current != null) onPage.accept(current.url, false);
             schedulePoll(150);
+        } else {
+            mainHandler.removeCallbacks(poll);
+            pollScheduled = false;
         }
     }
 
-    void pollNow() {
+    void pollNow() { collect(false); }
+
+    // A user-requested scan can read the live page behind the media sheet. It
+    // neither resumes automatic polling nor changes the WebView's visibility.
+    void scanNow() { collect(true); }
+
+    private void collect(boolean allowInactive) {
         Page current = page;
-        if (closed || !active || current == null) return;
+        if (closed || (!active && !allowInactive) || current == null) return;
         webView.evaluateJavascript(READ_PROBE, result -> {
-            if (closed || page != current || result == null) return;
+            if (closed || (!active && !allowInactive) || page != current || result == null) return;
             try {
                 Object decoded = new JSONTokener(result).nextValue();
                 if (!(decoded instanceof String)) return;
@@ -130,7 +149,7 @@ final class BrowserMediaCapture {
                     current.url = liveUrl;
                     current.seen.clear();
                     current.emitted = 0;
-                    onPage.accept(liveUrl);
+                    onPage.accept(liveUrl, false);
                 }
                 JSONArray jsEvents = payload.optJSONArray("events");
                 JSONArray trusted = MediaSnifferPlugin.browserPageObservations(
@@ -152,7 +171,7 @@ final class BrowserMediaCapture {
 
     private void dispatch(Page window, JSONObject observation) {
         if (closed) return;
-        webView.post(() -> {
+        mainHandler.post(() -> {
             if (closed || page != window) return;
             publish(window, observation);
         });
@@ -172,12 +191,7 @@ final class BrowserMediaCapture {
     private void schedulePoll(long delay) {
         if (pollScheduled || !active || closed) return;
         pollScheduled = true;
-        webView.postDelayed(() -> {
-            pollScheduled = false;
-            if (!active || closed) return;
-            pollNow();
-            schedulePoll(POLL_INTERVAL_MS);
-        }, delay);
+        mainHandler.postDelayed(poll, delay);
     }
 
     private static void closeProbes(Page previous) {
@@ -185,12 +199,22 @@ final class BrowserMediaCapture {
         new Thread(previous.probes::closeAndAwait, "NewsNookBrowserProbeClose").start();
     }
 
-    void close() {
+    void close() { close(true); }
+
+    void close(boolean removeWebViewBindings) {
         if (closed) return;
         closed = true;
         active = false;
-        if (scriptHandler != null) scriptHandler.remove();
-        closeProbes(page);
+        pollScheduled = false;
+        mainHandler.removeCallbacksAndMessages(null);
+        Page previous = page;
         page = null;
+        if (removeWebViewBindings && scriptHandler != null) {
+            try { scriptHandler.remove(); }
+            catch (RuntimeException error) {
+                android.util.Log.w("NewsNookBrowser", "Media binding already unavailable", error);
+            }
+        }
+        closeProbes(previous);
     }
 }

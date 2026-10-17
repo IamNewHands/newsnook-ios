@@ -37,6 +37,7 @@
 @import './styles/settings-paper.css';
 
 @import './styles/history-editorial.css';
+@import './features/browser/browser.css';
 
 @import './styles/buer.css';
 
