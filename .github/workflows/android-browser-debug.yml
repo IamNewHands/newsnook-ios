@@ -1,11 +1,12 @@
 name: Native Browser Debug APK
-run-name: Browser Media Debug | ${{ github.ref_name }} | ${{ github.sha }}
+run-name: Browser Product Debug | ${{ github.ref_name }} | ${{ github.sha }}
 
 on:
   push:
     branches:
       - feat/userscripts-audit-debug-20261017
       - feat/browser-media-sniffer-20261017
+      - feat/browser-unified-ux-20261017-validated
   workflow_dispatch:
 
 permissions:
