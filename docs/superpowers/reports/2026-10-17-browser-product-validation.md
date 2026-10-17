@@ -10,16 +10,16 @@
 
 ## 1. 当前状态与记录范围
 
-**交付状态：Draft。** 实现、自动化与已列出的其他设备验收已完成；私密分享 chooser 的完整设备验收未完成，保留为合并前待办。当前模拟器的基线崩溃与旧设备覆盖限制继续明确保留。
+**本轮功能设备验收已完成，PR #80 保持 Draft 供审阅。** 正式隔离调试包已完成私密图片分享确认、系统 chooser 打开、取消、分层返回与退出清理；当前模拟器的基线崩溃与旧设备覆盖限制继续明确保留。
 
-隐私会话、UA 与常用设置、独立看图以及浏览器界面已有自动化和模拟器验证证据。最后完成的正式前端入口通过；原生测试为 **160 tests / 0 failures / 0 errors / 0 skipped**；全仓 oxlint 为 **0 errors / 26 warnings**，该批次修改范围为 **0 errors / 0 warnings**；视觉证据包含 **44 个常规状态和 3 个非零安全区状态**。
+隐私会话、UA 与常用设置、独立看图以及浏览器界面已有自动化和模拟器验证证据。12:44 功能实施批次的正式前端入口、原生 **160 项**及 **31 个 JS/TS 文件**检查通过；该批次全仓 oxlint 为 **0 errors / 26 warnings**，修改范围为零错误、零警告。随后 CI 暴露的既有问题修正后，完整原生回归增至 **164 tests / 0 failures / 0 errors / 0 skipped**，JS/TS 修改范围增至 **32 个文件**，分批检查均无诊断，详见 5.5。视觉证据仍为 **44 个常规状态和 3 个非零安全区状态**。
 
-当前仍有两类事项需要保留：
+已完成的功能验证与保留边界如下：
 
-- 最终调试包的图片查看器系统栏、已加载图片调整及关闭恢复、原生多标签站点清理已完成设备复验。私密分享的三轮主要设备尝试均未完成 chooser 验收；最新一轮真实点击“分享”后等待确认超时，普通与私密进程仍存活。桌面组件的真实触控诊断通过不替代这项设备验收。
+- 最终调试包的图片查看器、原生多标签站点清理及私密分享完整流程均已完成设备复验。分享通过依据为未开启私密 CDP 的正式 audit 包；早先失败尝试和开启私密 CDP 的独立诊断分别留证。全程没有向外部目标发送图片，系统预览容器出现不扩大为图片像素解码成功。
 - 当前 Android 17 x86_64、16KB 页大小、WebView 150 模拟器出现过主进程 `onTrimMemory` 路径上的 native `SIGILL`。准确基线 `6a9ab5f` 在同环境也复现同一 native 崩溃签名，说明新增私密功能不是必要条件；两轮触发级别不同，根因尚未定位、未修复。
 
-本记录依据工作区源码、测试输出、结构化取证及截图整理。测试结果按完成批次记录；后续代码修改需要有对应结果，不能直接沿用早先批次的通过状态。已完成的包同步、设备结果、最终差异核对和交付材料整理均已记录。本次以 Draft 交付，私密分享 chooser 作为明确的合并前待办保留。
+本记录依据工作区源码、测试输出、结构化取证及截图整理。测试结果按完成批次记录；后续代码修改需要有对应结果，不能直接沿用早先批次的通过状态。实现提交 `24ec7b9` 已推送并建立 PR #80，Draft 状态用于审阅；该提交的浏览器 CI 已完整成功。随后 CI 问题与最后本地回归见 5.5，最终提交的远端状态以 [PR #80 Checks](https://github.com/t59688/newsnook/pull/80/checks) 为准。
 
 需求与边界见 [浏览器隐私、看图与完整体验设计](../specs/2026-10-17-browser-privacy-images-design.md) 和 [实施计划](../plans/2026-10-17-browser-privacy-images.md)。以下未特别标明的路径均相对仓库根目录；证据目录简称 `evidence/browser-privacy-images-20261017/`。
 
@@ -29,7 +29,9 @@
 | --- | --- |
 | 前端工具链 | Windows Node 26.8.2，使用工作区已有依赖 |
 | 前端正式入口与 lint | 2026-10-17 12:44:28.521–12:44:35.121 UTC；完整命令、参数与退出码见 `browser-final-acceptance-results.json` |
-| 原生最后完成批次 | 2026-10-17 12:44 批次；站点清理套件 XML 时间为 12:44:34.145 UTC，31 个测试套件合计 160 项，全部通过，构建 runner 退出码为 0 |
+| 原生功能实施批次 | 2026-10-17 12:44 批次；站点清理套件 XML 时间为 12:44:34.145 UTC，31 个测试套件合计 160 项，全部通过，构建 runner 退出码为 0 |
+| CI 修正后原生回归 | 2026-10-17 13:37:52.885–13:38:20.138 UTC；完整 164 项零失败/错误/跳过，Local Debug Java 编译通过，退出码 0 |
+| 最后 JS/TS 修改范围 | 共 32 文件；12:44 的 31 文件批次与新增 layout-presets 测试的单项 lint 均零错误、零警告 |
 | 浏览器视觉测试 | 真实 React 组件、构建后的 CSS、独立 Chromium 临时配置；320×740 与 390×844 CSS 视口，DPR 2，Buer 浅色/深色 |
 | Android 运行验证 | 隔离调试包，Android 17 x86_64、16KB 页大小的模拟器；设备 UA 记录 WebView `150.0.7871.181` |
 | 旧版本设备覆盖 | API 28 AVD 的系统镜像目录缺失，未能启动；本记录没有实体机或 API 28 运行验收结论 |
@@ -176,25 +178,42 @@ A 再次读取到 B 的标记属于清理完成后的新状态共享，不是保
 
 JSON 记录首次加载时 `initialDisabled: true`。`afterSwitchDisabled: false` 是程序触发 click 后、React 尚未完成该次渲染提交时读取的瞬时值，不能作为切图期间禁用逻辑成功或失败的证据。主图加载完成后可展开调整面板有设备证据；慢加载、错误状态、邻图加载不提前启用等边界由已通过的 `browser-image-chrome.test.tsx` 验证，不从这一瞬时读数扩大结论。
 
-#### 私密分享设备尝试与未完成范围
+#### 私密分享正式包设备验收
 
-确认流程和原生分享实现的自动化通过，完整系统 chooser 的设备验收未完成。保留的三轮主要设备记录如下：
+**正式隔离调试包的完整流程已通过。** `device-private-share.json` 记录 13:27:14.500–13:28:42.210 UTC 的最终轮，`passed: true`。使用的仍为 SHA-256 `b54ee814b45790bb0d968b47f9aab63c853cfb97f318ae176a95588df702d939` 的 `com.aizeek.newsnook.browseraudit.debug`；私密 CDP 保持关闭。
 
-| 记录 | 时间（UTC）与进程 | 实际到达阶段及未完成原因 |
+| 检查 | 最终正式包结果 |
+| --- | --- |
+| 图片与分享入口 | 实际 adb 点击完成私密首页、受控页面、看图、大图与操作菜单；13:28:11.695 点击“分享” |
+| 导出确认 | UiAutomator 可遗漏确认节点，因此使用已由独立 Android 诊断验证的焦点陷阱，通过真实键盘 Tab → Tab → Enter 完成确认；未使用私密 CDP |
+| 系统 chooser | 13:28:15.116 打开 `com.android.intentresolver/.ChooserActivityLauncher` |
+| 取消和返回 | 13:28:20.694 取消 chooser；随后 6 次分层 Back 完成私密退出 |
+| 进程与清理 | 私密 PID 30723 消失，`privatePidAfter: ""`、`ownedAfter: []`；普通 PID 30434 前后保持 |
+| 外部发送 | `externallySent: false`，未选择任何接收目标 |
+
+`previewNodes` 仅证明系统 `content_preview_container` 存在，不证明其中的图片预览像素已经解码，也不证明外部应用收到图片。本轮验证范围是导出确认、系统 chooser 打开、取消、分层返回、私密退出清理和普通进程保持。正式通过记录中的 `startupHarnessRetry` 仍保留启动取证阶段 `Execution context was destroyed` 的重试事实。
+
+#### Android 诊断与早期尝试的解释
+
+`device-private-share-diagnostic.json` 记录 13:24:53.482–13:25:47.693 UTC 的独立诊断包，`passed: true`、`exceptions: []`。该包为读取 DOM / 可访问性树临时开启私密 CDP，不能把它与正式 audit 包的验收混为一轮。
+
+诊断中真实 adb 点击“分享”后，确认框 DOM 存在且可见，z-index 为 90，位置约为 (21.33, 360)，尺寸 384×232；可访问性树里的“继续分享”按钮为 `ignored: false`。同刻 UiAutomator 却只返回 WebView、没有子节点。这证明 UiAutomator 可以遗漏已显示的确认框。随后真实点击“继续分享”、打开 chooser、取消及分层退出清理均通过。正式包最终使用真实键盘完成相同确认流程，其通过依据独立记录在上一节。
+
+早先失败记录完整保留；等待 UiAutomator 节点超时不能单独证明确认未显示，也不把这些原始 `passed: false` 记录倒改为通过：
+
+| 记录 | 时间（UTC）与进程 | 当时实际观察 |
 | --- | --- | --- |
-| `device-private-share-slow-ui-attempt.json` | 13:11:08.181–13:12:23.244；普通 PID 26762、私密 PID 27057 | 完成私密 fixture（初次 prior 为 null）、看图 8 项、进入大图及图片操作；等待“继续分享”超时。失败收尾时普通 PID 已空、私密 PID 仍在，不能归为确定的分享逻辑缺陷。 |
-| `device-private-share-home-readiness-attempt.json` | 13:13:43.650–13:14:14.980；普通 PID 27722、私密 PID 28044 | 8 秒首页等待超时，轮询阶段 `lastUi: []`；随后 `uiAtFailure` 已有隐私首页和搜索按钮，两 PID 仍在。该轮尚未到 chooser，不描述为持续白屏或分享逻辑失败。 |
-| `device-private-share.json` | 13:15:49.819–13:16:57.682；普通 PID 28269、私密 PID 28706 | 首页等待延长至 22 秒后，约 15 秒观察到首页，继续完成 fixture、8 项看图、大图和图片操作菜单。13:16:42.548 真实点击处于 enabled 状态的“分享”，随后等待“继续分享”超时；收尾仍为操作菜单，普通与私密 PID 均存活。 |
+| `device-private-share-slow-ui-attempt.json` | 13:11:08.181–13:12:23.244；普通 PID 26762、私密 PID 27057 | 到达私密 fixture、8 项看图、大图和操作菜单，等待“继续分享”超时；失败收尾时普通 PID 已空 |
+| `device-private-share-home-readiness-attempt.json` | 13:13:43.650–13:14:14.980；普通 PID 27722、私密 PID 28044 | 首页 8 秒等待超时；随后收尾快照已有首页和搜索按钮，两 PID 仍在，尚未到 chooser |
+| `device-private-share-ax-timeout-attempt.json` | 13:15:49.819–13:16:57.682；普通 PID 28269、私密 PID 28706 | 首页等待延长后到达看图和菜单，真实点击“分享”后等待确认节点超时；两 PID 均存活，不能以 owner 消失或已知 SIGILL 解释该轮 |
 
-三轮均为 `passed: false`、`externallySent: false`。最新一轮已越过前一轮首页等待的时序问题；该轮阻塞不能以普通进程消失或已知 `SIGILL` 直接解释，具体原因尚未定位。另外保留 `device-private-share-startup-attempt.json`、`device-private-share-timeout-attempt.json` 两份驱动准备阶段失败记录；它们不是成功的业务验收。更早失败尝试后的会话关闭与隔离目录清理已完成，不另计为新的功能通过项。
+另外保留 `device-private-share-startup-attempt.json`、`device-private-share-timeout-attempt.json` 两份驱动准备失败记录。这些历史记录与最终正式包通过轮共同构成证据，不再以早先节点等待超时认定当前 chooser 流程未验收。
 
-#### 真实触控诊断及边界
+#### 桌面真实触控诊断的范围
 
-`browser-private-share-touch.json` 记录 13:21:00.429–13:21:03.871 UTC 的桌面 Chromium 单场景诊断。427×952 CSS 视口、DPR 3 下，从图片到操作菜单再到“分享”均使用 `Input.dispatchTouchEvent`，没有通过预先 `focus()` 或 DOM `click()` 代替触控。“分享”中心为 CSS 坐标 (213.5, 831)，事件记录中的 pointer、touch 与 click 为 `isTrusted: true`。确认对话框实际出现并获得焦点，层级和命中正确；可访问性树中的“继续分享”按钮为 `ignored: false`。对应前后截图为 `browser-private-share-touch-before.png`、`browser-private-share-touch-after.png`。
+`browser-private-share-touch.json` 及对应 before/after PNG 记录 13:21:00.429–13:21:03.871 UTC 的桌面 Chromium 单场景。427×952 CSS 视口、DPR 3 下，使用 `Input.dispatchTouchEvent` 完成图片、菜单和分享操作；事件为 `isTrusted: true`，确认框出现并获得焦点，命中与可访问性树可见。
 
-该诊断仅覆盖独立 `BrowserImagesPanel` 与 `ImageLightbox` fixture，未包含完整 `BrowserWorkspace` / `FullPage` 的额外对话框层级及 Android 原生宿主。它证明该组件组合可由真实触控打开确认，不能覆盖或推翻 13:15 的 Android 设备失败，也没有执行系统 chooser。
-
-现有证据没有证明 Android 系统 chooser 成功打开、取消后正确返回或外部应用收到图片。**Android 宿主下的 DOM / 可访问性树对照诊断，以及私密分享 chooser 的完整设备验收，均保留为合并前待办**；本轮交付采用 Draft 状态，不因自动化或桌面触控诊断通过而补记设备通过。
+这份证据只覆盖独立 `BrowserImagesPanel` / `ImageLightbox` fixture，不含完整 `BrowserWorkspace` / `FullPage` 层级、Android 原生宿主或系统 chooser。它用于缩小问题范围，正式设备通过结论依据 13:27 的 audit 包记录。
 
 源码依据：`BrowserImagesPanel.tsx`、`browserImages.ts`、`ImageLightbox.tsx`、`BrowserImageCapture.java`、`android/app/src/main/assets/browser-image-probe.js`。
 
@@ -256,9 +275,9 @@ node --experimental-test-module-mocks --import tsx scripts/browser-workspace.tes
 
 图片子入口依次运行 `browser-images.test.ts`、`browser-image-probe.test.ts`、`browser-images-panel.test.tsx`，以及新加入的 `browser-image-chrome.test.tsx`。最后一项以 `--experimental-test-module-mocks --import tsx` 运行，覆盖临时系统栏、恢复当前主题、迟到原生回调及仅主图加载后启用调整。本批次退出码为 **0**。会话生命周期与产品流程内置 3 轮均通过；设置、查找、图片取消、私密启动、恢复及错误标签页、面板与图片验证均通过。偏好模块单独报告 **8 pass / 0 fail / 0 cancelled / 0 skipped**，这个“8”仅属于偏好模块，不是整个浏览器入口总测试数。
 
-完整结果见 `browser-final-package-test.log` 和 `browser-final-acceptance-results.json`。最后执行时间为 **12:44:28.521–12:44:35.121 UTC**，已包含系统栏与主图加载状态补丁。日志末行确认 `Browser image chrome: temporary system bars, current-theme restoration, delayed native replies and loaded-only adjustments OK`。
+完整结果见 `browser-final-package-test.log` 和 `browser-final-acceptance-results.json`。本地正式入口批次时间为 **12:44:28.521–12:44:35.121 UTC**，已包含系统栏与主图加载状态补丁。日志末行确认 `Browser image chrome: temporary system bars, current-theme restoration, delayed native replies and loaded-only adjustments OK`。
 
-### 5.2 原生测试与隔离调试包
+### 5.2 原生测试与隔离调试包（12:44 功能实施批次）
 
 Windows Node 执行 `D:/tmp/newsnook-browser-build-runner.cjs native`，实际原生命令为：
 
@@ -267,7 +286,7 @@ gradlew.bat :app:testCloudDebugUnitTest --console=plain
 && gradlew.bat -I D:/tmp/newsnook-browser-audit.init.gradle :app:assembleCloudDebug --console=plain
 ```
 
-最后完整批次在 12:44 执行，站点清理套件 XML 时间为 12:44:34.145 UTC。`D:/tmp/newsnook-browser-native.exit` 为 0，日志包含构建成功；最新前端资源的 Capacitor 同步也已通过。直接汇总 `android/app/build/test-results/testCloudDebugUnitTest/TEST-*.xml` 得到：
+功能实施批次在 12:44 执行，站点清理套件 XML 时间为 12:44:34.145 UTC。`D:/tmp/newsnook-browser-native.exit` 为 0，日志包含构建成功；该批次前端资源的 Capacitor 同步也已通过。当时直接汇总 `android/app/build/test-results/testCloudDebugUnitTest/TEST-*.xml` 得到下表；该工作目录的 XML 后续已由 5.5 中的 164 项回归更新，以下保留原批次统计：
 
 | 统计项 | 数量 |
 | --- | ---: |
@@ -279,7 +298,7 @@ gradlew.bat :app:testCloudDebugUnitTest --console=plain
 
 其中与本次浏览器主要变更直接相关的测试套件包括 `BrowserHostLifecycleTest`（24）、`BrowserImageCaptureLifecycleTest`（6）、`BrowserSiteDataLifecycleTest`（14）、`PrivateBrowserIsolationTest`（4）、`PrivateSharePluginTest`（3）；总计 160 还包含仓库其他原生回归。
 
-完整日志位于 `D:/tmp/newsnook-browser-native.log`。生成的隔离 APK 位于 `android/app/build/outputs/apk/cloud/debug/app-cloud-debug.apk`，applicationId 为 `com.aizeek.newsnook.browseraudit.debug`。最终设备使用的 APK SHA-256 为 `b54ee814b45790bb0d968b47f9aab63c853cfb97f318ae176a95588df702d939`；查看器和多标签清理已复验，私密分享 chooser 完整设备验收未完成。本次工作环境中的对应 XML、日志和设备尝试记录作为 Draft 交付证据保留。
+完整日志位于 `D:/tmp/newsnook-browser-native.log`。生成的隔离 APK 位于 `android/app/build/outputs/apk/cloud/debug/app-cloud-debug.apk`，applicationId 为 `com.aizeek.newsnook.browseraudit.debug`。最终设备使用的 APK SHA-256 为 `b54ee814b45790bb0d968b47f9aab63c853cfb97f318ae176a95588df702d939`；查看器、多标签清理与私密分享 chooser 完整流程均已完成设备验收。对应 XML、日志、最终通过轮和早先失败记录共同保留；PR #80 仍为 Draft 供审阅。
 
 ### 5.3 构建与视觉脚本
 
@@ -289,20 +308,56 @@ gradlew.bat :app:testCloudDebugUnitTest --console=plain
 
 本记录整理阶段未重复构建或 44 张截图，也未修改产品代码。
 
-### 5.4 全仓与修改范围 lint
+### 5.4 全仓与修改范围 lint（12:44 批次）
 
 | 命令与范围 | 退出码 | errors | warnings |
 | --- | ---: | ---: | ---: |
 | `npm run lint`，全仓 oxlint | 0 | **0** | **26** |
-| `oxlint --deny-warnings`，最终 31 个修改/新增 JS、TS 文件 | 0 | **0** | **0** |
+| `oxlint --deny-warnings`，该批次 31 个修改/新增 JS、TS 文件 | 0 | **0** | **0** |
 
 全仓 26 条现存警告分布在 13 个未修改文件，与该批次修改范围的交集为空。规则分布为：`react(only-export-components)` 9、`react-hooks(exhaustive-deps)` 8、`eslint(no-unused-vars)` 5、`eslint(no-control-regex)` 2、`eslint(no-useless-escape)` 2。
 
 修改范围通过 `git diff --name-only -z HEAD` 与 `git ls-files --others --exclude-standard -z` 合并，再筛选 JS/TS 扩展名生成。Java、XML、CSS 不属于本次 oxlint 的 JS/TS 检查范围。没有为消除警告修改无关产品文件。
 
-证据为 `browser-final-lint-scope.json`、`browser-final-lint-summary.json`、`browser-final-lint-diagnostics.json` 及完整 lint 日志。`browser-final-changed-lint.log` 为空，对应退出码为 0，表示通过且无诊断。最后一轮检查已将 `src/lib/nativeChrome.ts` 与 `scripts/browser-image-chrome.test.tsx` 纳入，总范围为 31 个文件；新范围同样没有诊断。
+证据为 `browser-final-lint-scope.json`、`browser-final-lint-summary.json`、`browser-final-lint-diagnostics.json` 及完整 lint 日志。`browser-final-changed-lint.log` 为空，对应退出码为 0，表示通过且无诊断。本批次已将 `src/lib/nativeChrome.ts` 与 `scripts/browser-image-chrome.test.tsx` 纳入，总范围为 31 个文件且没有诊断。随后将 layout-presets 测试修改纳入后的 32 文件口径见 5.5。
 
-## 6. 未解决问题与待最终验证
+### 5.5 CI 暴露问题与最后回归
+
+实现提交 `24ec7b98101cad19db453fb0456754bade6f1cd3` 的[浏览器 CI 39036507402](https://github.com/t59688/newsnook/actions/runs/39036507402) 已于 13:29:43 UTC 完整成功并产出 APK。随后 Cloud / Video 检查暴露两处既有问题，本次完成了针对性修正和本地回归；最终分支最新提交的远端状态以 [PR #80 Checks](https://github.com/t59688/newsnook/pull/80/checks) 为准。
+
+**Cloud：新闻源断言落后于既有移除。** 提交 `b628dec0f45759f82dfc05386bf885eb76ce3122` 已移除 `cna-intl-zh`，内置非工作区源由 153 变为 152，但 `scripts/layout-presets.test.ts` 仍保留旧数量预期。本次仅修正测试：比较预设分配的完整源 ID 集合与 registry 的非工作区源，并保留唯一性检查；WORLD 预期数调整为 21。没有重新添加已移除的源或改变产品分类。
+
+Windows Node 26.8.2 于 13:33:08.106 UTC 开始执行以下三个目标，均通过，退出码为 0：
+
+```text
+npm run test:layout-presets
+npm run test:custom-sources
+npm run test:webview-css-compat
+```
+
+证据为 `D:/tmp/newsnook-cloud-regression.log` 与 `D:/tmp/newsnook-cloud-regression.exit`。JS/TS 修改范围因补充修改 `scripts/layout-presets.test.ts` 变为 **32 个文件**。这 32 个文件的 lint 证据分为两批：12:44 已检查的 31 个文件为零错误、零警告；主集成随后通过 Windows Node 执行 `node_modules/oxlint/bin/oxlint --deny-warnings scripts/layout-presets.test.ts`，工具成功且无诊断。新增单项依据主集成执行记录，未单独落盘日志；原 31 文件的 JSON 与全仓 26 条警告记录保持原批次口径。
+
+**Video：播放上下文顺序依赖墙钟和续租时间。** [Video CI 39036520580](https://github.com/t59688/newsnook/actions/runs/39036520580) 暴露的既有选择竞态涉及同一毫秒注册、同源回退以及旧上下文续租。修正限定于 `MediaSnifferPlugin.java` 与新增 `PlaybackContextOrderingTest.java`：独立注册序号决定同源回退的新旧顺序，精确请求 URL 优先；读取和续租只更新租期，显式重新注册才更新注册顺序。
+
+新增四项测试覆盖两个 URL 注册方向、默认与指定会话、exact 优先、旧上下文续租及同毫秒显式重注册。先得到真实错误 URL 选择的红灯，再完成目标和完整回归：
+
+| 阶段 | 时间（UTC） | 已核实结果 |
+| --- | --- | --- |
+| RED | 13:36:18.245–13:36:26.440 | 新增 4 项均为错误 `originalUrl` 的断言失败；退出码 1 |
+| 目标 GREEN | 13:37:04.794–13:37:13.677 | 排序、OriginHeaderStore、PlaybackSession、PlaybackRenewal 共 21 项，0 failures / 0 errors / 0 skipped；退出码 0 |
+| 完整原生与 Local Java | 13:37:52.885–13:38:20.138 | **164 tests / 0 failures / 0 errors / 0 skipped**；Local Debug Java 编译成功；退出码 0 |
+
+最后完整命令：
+
+```text
+gradlew.bat --offline :app:testCloudDebugUnitTest :app:compileLocalDebugJavaWithJavac --console=plain --max-workers=2
+```
+
+阶段命令、时间、退出码、逐套件统计与源文件哈希见 `native-playback-order-verification.json`；过程输出为 `native-playback-order-red.log/.exit`、`native-playback-order-green.log/.exit`、`native-playback-order-full.log/.exit`。新增四项的失败和通过 XML 分别为 `native-playback-order-red.xml`、`native-playback-order-green.xml`；通过 XML 的时间为完整回归轮 13:38:11.327 UTC，21 项目标批次以其日志和 verification 索引为准。
+
+**批次边界：** 12:44 的 160 项、31 文件 lint 和 `24ec7b9` / `b54ee814…` 正式包设备流程仍作为原功能实施批次保留；最后增加的原生排序补丁由 164 项完整回归与 Local Java 编译验证。没有将旧 APK 的完整设备流程表述为排序补丁后的重新验收，也没有因本地通过就宣称最终提交的所有远端 CI 已通过。
+
+## 6. 兼容性风险与覆盖限制
 
 ### 6.1 普通进程内存回调崩溃复现
 
@@ -339,13 +394,13 @@ gradlew.bat :app:testCloudDebugUnitTest --console=plain
 
 ### 6.3 最终设备复验与覆盖限制
 
-| 项目 | 当前事实 | 后续验收要求 |
+| 项目 | 当前事实 | 证据与范围 |
 | --- | --- | --- |
 | 模拟器 native 崩溃 | 当前普通模式在 `BACKGROUND`、准确基线在 `COMPLETE` 复现同一顶部 PC/BuildId 签名；新增私密功能不是必要条件，根因未定位 | 仅使用基线真实 PID 26359 的补取 crash 段；保留触发级别与整体堆栈差异，不将对照或功能通过表述为根因确定或崩溃已修复 |
 | 浏览器大图系统栏 | 最终包设备复验完成：light 主题不变，进入查看器使用白色状态栏图标，关闭后恢复黑色 | 证据见 `device-viewer-final` 与 `device-viewer-close` JSON/PNG；迟到回调和主题恢复的其他边界由自动化覆盖 |
 | 主图加载与调整 | 最终包初始禁用、主图加载和调整面板展开已观察；关闭后 12 个可见缩略图恢复 | `afterSwitchDisabled` 是 React 提交前的瞬时读数，不作为成功或失败依据；加载边界依已通过自动化 |
-| 原生多标签站点清理 | 最终包设备复验通过：A/B 旧实例退役，B 重载无旧 Cookie/存储，独立站点 C 保持 | 证据见 `device-site-clear.json`；原生完整 160 项及站点清理套件 14 项也通过 |
-| 私密分享 chooser | 三轮主要设备尝试均未完成；最新一轮真实点击分享后等待确认超时，两 PID 均存活。桌面组件触控可打开确认，DOM / 可访问性树可见 | Android 宿主 DOM / 可访问性树对照诊断与完整 chooser 验收为合并前待办；不记 chooser、取消返回或外部接收通过，不把桌面 fixture 成功扩大到设备，也不以已知崩溃解释最新失败 |
+| 原生多标签站点清理 | 功能实施包设备复验通过：A/B 旧实例退役，B 重载无旧 Cookie/存储，独立站点 C 保持 | 证据见 `device-site-clear.json`；12:44 原生 160 项及站点清理套件 14 项通过，随后 164 项完整回归亦通过 |
+| 私密分享 chooser | 最终正式 audit 包通过：真实点击分享、键盘焦点陷阱确认、chooser 打开与取消、6 次分层 Back 退出清理；普通进程保持 | 正式包私密 CDP 关闭。独立诊断证明 UiAutomator 可遗漏已显示确认，历史超时记录保留；未发送外部目标，未断言预览像素解码成功 |
 | 旧 Android / 实体机 | 旧 API 28 AVD 镜像缺失，未运行；本轮无实体机验收 | 有可用环境后再补运行证据，保留当前覆盖限制 |
 
 `onTrimMemory` 崩溃与私密强制停止脚本的 CDP 上下文失效分别记录。前者是尚未定位的原生异常，后者有取证重试及最终业务检查结果；两者不能合并归因。
@@ -367,19 +422,27 @@ gradlew.bat :app:testCloudDebugUnitTest --console=plain
 | `device-lightbox.json/.png` | 早期实际大图切换至 2/67 |
 | `device-viewer-final.json/.png`、`device-viewer-close.json/.png` | 最终查看器 2/68、已加载主图与调整面板、系统栏进入/退出及主题保持 |
 | `device-site-clear.json` | 最终包真实多标签站点清理通过，同站点退役和独立站点保持 |
-| `device-private-share.json` | 13:15 最新设备轮：完成首页、8 项看图与操作菜单，真实点击分享后等待确认超时，两 PID 均存活；未完成 chooser 验收 |
-| `device-private-share-home-readiness-attempt.json` | 13:13 首页 8 秒等待超时，收尾已出现首页控件；未到 chooser |
-| `device-private-share-slow-ui-attempt.json` | 13:11 已到私密图片操作，等待继续分享超时且普通 PID 已空；未完成 chooser 验收 |
+| `device-private-share.json` | 13:27 最终正式 audit 包通过：私密 CDP 关闭，真实点击与键盘确认、chooser、取消、分层返回、私密退出清理及普通 PID 保持 |
+| `device-private-share-diagnostic.json` | 13:24 独立诊断包开启私密 CDP，确认 DOM/AX 可见但 UiAutomator 无子节点；真实点击及 chooser、退出清理通过 |
+| `device-private-share-ax-timeout-attempt.json` | 13:15 真实点击分享后等待确认节点超时，两 PID 均存活的原失败记录 |
+| `device-private-share-home-readiness-attempt.json` | 13:13 首页 8 秒等待超时，收尾已出现首页控件的原失败记录 |
+| `device-private-share-slow-ui-attempt.json` | 13:11 已到私密图片操作，等待继续分享超时且普通 PID 已空的原失败记录 |
 | `browser-private-share-touch.json`、`browser-private-share-touch-before.png`、`browser-private-share-touch-after.png` | 13:21 桌面独立组件的真实触控诊断，确认框 DOM / 可访问性树可见；不含 Android 宿主或系统 chooser |
 | `device-private-share-startup-attempt.json`、`device-private-share-timeout-attempt.json` | 另外两份驱动准备失败记录，不作为业务通过 |
 | `device-ordinary-trim.json`、`device-ordinary-trim-crash.log` | 当前分支无私密进程时，普通进程在 BACKGROUND 内存回调复现 SIGILL |
 | `device-baseline-trim.json` | 准确 6a9ab5f 的来源、APK hash、安装及步骤元数据；内嵌 crashLog 混入旧 PID，不用于崩溃归因 |
 | `device-baseline-trim-crash.log` | 后补取的真实 baselineaudit PID 26359 / UID 10241 崩溃段；COMPLETE 级别、相同顶部 PC 和 BuildId |
-| `android/app/build/test-results/testCloudDebugUnitTest/` | 原生 160 项测试 XML |
+| `native-playback-order-verification.json` | 最后原生三阶段命令、时间、21 / 164 项结果、逐套件统计及修正源文件哈希 |
+| `native-playback-order-red/green/full.log` 与对应 `.exit` | 排序修正的有效 RED、目标 GREEN 与完整回归输出 |
+| `native-playback-order-red.xml`、`native-playback-order-green.xml` | 新增排序测试 4 项失败 / 4 项通过 XML；通过 XML 来自最后完整回归 |
+| `D:/tmp/newsnook-cloud-regression.log/.exit` | Cloud 旧断言修正后的 layout-presets、custom-sources、webview-css-compat 三目标通过 |
+| `android/app/build/test-results/testCloudDebugUnitTest/` | 当前工作目录为最后原生 164 项 XML；12:44 的 160 项保留为历史批次统计 |
 | `D:/tmp/newsnook-browser-native.log/.exit` | 原生测试与隔离调试包构建 |
 | `D:/tmp/newsnook-browser-private-force.log` | 首次 CDP 上下文失效的原始取证输出 |
 | `D:/tmp/newsnook-browser-api28-emulator.log` | API 28 AVD 镜像缺失的启动失败依据 |
 
-**最终交付结论：Draft。** 产品实现、正式前端入口、31 文件修改范围 lint、完整原生 160 项门禁，以及私密关闭/清理、实际看图和站点清理等已完成设备验收均已记录；最终分支、差异和交付材料已核对。
+**最终交付结论：功能实现、本轮功能设备验收与 CI 问题的本地修正回归已完成，PR #80 保持 Draft 供审阅。** 功能实施批次的前端入口、160 项原生门禁、31 文件 lint，以及私密关闭/清理、实际看图、站点清理和正式 audit 包分享 chooser 完整流程均保留原证据。追加修正后，完整原生为 **164 项零失败/错误/跳过**，Local Debug Java 编译通过，JS/TS 修改范围 **32 文件分批检查无诊断**。最终分支、差异和交付材料已核对。
 
-私密分享 chooser 完整设备验收未完成，Android 宿主下的 DOM / 可访问性树对照诊断与完整流程验收作为合并前待办保留。最新设备轮的两 PID 均存活，桌面组件触控诊断通过不覆盖该轮失败。SIGILL 的当前分支与准确基线独立证据已归档：两轮触发级别不同、顶部 PC/BuildId 签名相同，新增私密功能不是必要条件，根因仍未定位、未修复。API 28 和实体机覆盖限制保持明确。本记录不包含推送或远端 CI 已通过的结论。
+私密分享已验证确认、系统 chooser 打开、取消、分层返回与退出清理，未向外部目标发送图片，也未将系统预览容器出现扩大为预览像素解码成功。此前失败尝试、桌面触控诊断及开启私密 CDP 的 Android 诊断包分别保留，最终通过依据为未开启私密 CDP 的原正式 audit 包。
+
+SIGILL 的当前分支与准确基线独立证据已归档：触发级别不同、顶部 PC/BuildId 签名相同，新增私密功能不是必要条件，根因仍未定位、未修复。API 28 和实体机覆盖限制保持明确。实现提交 `24ec7b9` 的浏览器 CI 已完整成功；其后的最终提交状态以 [PR #80 Checks](https://github.com/t59688/newsnook/pull/80/checks) 为准。正式设备证据对应 `24ec7b9` / `b54ee814…` 功能实施包，早于最后原生排序补丁，未宣称该补丁后重新执行全部设备流程。

@@ -51,25 +51,30 @@ BrowserImagesPanel 复用 ImageLightbox，实现缩放、前后张、缩略图�
 - [x] 页内查找、页面分享、站点信息、按设备能力呈现的站点数据清理，以及独立看图入口已集成。
 - [x] 图片扫描、身份与代次校验、有界加载、重试与取消、灯箱复用、私密导出确认已实现。
 - [x] 浏览器主题/字体/控件层级、当前标签辨识、窄屏图片尺寸、持续隐私标识及非零安全区修正已落地；44 个常规状态和 3 个安全区状态有证据。
-- [x] 正式前端入口与最终原生批次通过；原生为 160 tests / 0 failures / 0 errors / 0 skipped，站点清理套件 14 项（9 项生命周期 + 5 项壳站点保护）。修改范围 31 个 JS/TS 文件 lint 零警告。
+- [x] 12:44 功能实施批次的正式前端入口与原生通过；原生为 160 tests / 0 failures / 0 errors / 0 skipped，站点清理套件 14 项（9 项生命周期 + 5 项壳站点保护）。修改范围 31 个 JS/TS 文件 lint 零警告。
 - [x] Android 17 模拟器已有私密正常关闭、异常终止后再次启动清理、普通数据保持，以及网易实际图片读取和灯箱切图证据。
 - [x] 后续浏览器灯箱系统栏主题作用域、主图加载前调整禁用已补，目标红绿测试、正式前端入口与前端构建通过。
 - [x] 最终灯箱修改和站点清理壳保护的完整自动化门禁、Capacitor 资源同步与隔离调试包构建通过。
 - [x] 最终查看器设备复验完成：light 主题保持，进入白色系统状态栏图标、关闭后恢复黑色；主图 330×248、2/68、调整面板可展开，关闭后 12 个可见缩略图恢复。React 提交前读取的 afterSwitchDisabled 不作为成败依据。
 - [x] 最终包原生多标签站点清理通过：同站点 A/B 旧实例退役、B 重载无旧 Cookie 或存储，独立站点 C 保持，A 再激活使用新实例。证据为 device-site-clear.json。
 - [x] 准确 6a9ab5f 基线与当前普通模式在同一模拟器环境复现相同 native SIGILL 顶部 PC/BuildId 签名；记录触发级别差异及基线真实进程身份，根因仍未定位、未修复。
-- [ ] 合并前待办：Android 宿主下的 DOM / 可访问性树对照诊断与私密分享 chooser 的完整设备验收。最新设备轮分享确认超时且两 PID 存活，不能以自动化或桌面独立组件触控通过代替。
-- [x] 最终差异与交付材料核对完成；以 Draft 交付，保留基线崩溃未定因与旧设备覆盖限制。
+- [x] 私密分享正式 audit 包完整设备验收通过：私密 CDP 关闭，真实点击分享与键盘确认、系统 chooser 打开、取消、分层返回和退出清理完成；独立诊断与旧失败记录保留。
+- [x] CI 既有问题修正完成：Cloud 源 ID 完整覆盖与 WORLD 21，Video 独立注册序号与 exact 优先；新增 4 项有效 RED 后，21 项目标及 164 项完整原生回归通过，Local Debug Java 编译通过。最终 JS/TS 修改范围 32 文件分批 lint 无诊断，原 160 / 31 历史批次不改写。
+- [x] 最终差异与交付材料核对完成；本轮功能设备验收完成，PR #80 保持 Draft 供审阅，保留基线崩溃未定因与旧设备覆盖限制。
 - [x] 代码随此实施计划提交至独立功能分支。
 
 兼容性限制：本轮运行设备为 Android 17 x86_64 / 16KB 页大小 / WebView 150 模拟器；API 28 AVD 镜像缺失，未取得旧系统或实体机运行证据。当前 ordinary-only 在 BACKGROUND 内存回调复现 onTrimMemory 路径 native SIGILL；准确 6a9ab5f 基线在 RUNNING_LOW/CRITICAL/BACKGROUND 后仍存活、COMPLETE 时复现相同顶部 PC0x7827733/0x7828673 与 BuildId68328f9a49348833c7ebe4e41849dca6c2462e4f。该对照说明私密新增不是必要条件，不声称触发级别或完整堆栈完全一致。
 
-基线归因依据是后来补取 device-baseline-trim-crash.log 中明确的 baselineaudit PID26359 / UID10241 段落；原 device-baseline-trim.json 的 crashLog 混入旧 PID25866，不能用于此归因。当前根因仍未定位、未修复，不能据此直接断言引擎缺陷。私密分享 chooser 继续保持未验收。
+基线归因依据是后来补取 device-baseline-trim-crash.log 中明确的 baselineaudit PID26359 / UID10241 段落；原 device-baseline-trim.json 的 crashLog 混入旧 PID25866，不能用于此归因。当前根因仍未定位、未修复，不能据此直接断言引擎缺陷。
 
 ## 最终交付状态
 
-实现、自动化和已列出的其他设备验收已完成，交付状态为 **Draft**。私密分享共有三轮主要设备尝试：13:11 slow UI 轮到达 8 项看图、大图与菜单，等待“继续分享”超时且收尾普通 PID 已空；13:13 轮等待首页 8 秒超时，收尾已有首页控件；13:15 轮将首页等待延长至 22 秒，约 15 秒后成功进入首页并完成 fixture、8 项看图、大图与菜单，13:16:42.548 真实点击 enabled 的“分享”后等待确认超时。第三轮失败时普通 PID 28269 与私密 PID 28706 均存活，不能用 owner 消失或既有 SIGILL 直接解释。
+实现、自动化与本轮功能设备验收已完成；PR #80 保持 **Draft 供审阅**。最终正式 audit 包的 device-private-share.json（13:27:14.500–13:28:42.210 UTC）为 passed: true，仍使用 b54ee814b45790bb0d968b47f9aab63c853cfb97f318ae176a95588df702d939 包，私密 CDP 关闭。实际 adb 点击分享后，通过已验证焦点陷阱的真实键盘 Tab → Tab → Enter 确认；13:28:15.116 系统 ChooserActivityLauncher 打开，13:28:20.694 取消，6 次分层 Back 后私密 PID 30723 消失、ownedAfter 为空，普通 PID 30434 保持。
 
-13:21 桌面 Chromium 单场景真实触控可打开分享确认，焦点、DOM 命中和可访问性树可见；该 fixture 仅覆盖 BrowserImagesPanel / ImageLightbox，未包含完整 Workspace / FullPage 层级及 Android 宿主，未执行系统 chooser。44 状态视觉矩阵采用 focus() + DOM click()，私密导出场景覆盖保存确认与取消，也不替代设备真实触控。
+13:24 独立诊断包开启私密 CDP，真实触控、确认 DOM / 可访问性树读取、chooser、取消和退出清理通过；确认框 visible、z-index 90，AX“继续分享”未被忽略，同刻 UiAutomator 只返回 WebView 无子节点。这解释了为什么不能只依赖 UiAutomator 节点等待判断确认是否显示；诊断包通过与正式 audit 包通过分别留证。
 
-三轮设备记录为 device-private-share-slow-ui-attempt.json、device-private-share-home-readiness-attempt.json、device-private-share.json；桌面诊断为 browser-private-share-touch.json 与对应 before/after PNG。Android DOM / 可访问性树对照诊断、完整 chooser 及取消返回保留为合并前待办，没有外部应用实际接收图片的通过结论。具体阻塞原因尚未定位；该交付状态不声明推送或远端 CI 已经通过。
+13:11、13:13、13:15 的失败尝试依次保留为 device-private-share-slow-ui-attempt.json、device-private-share-home-readiness-attempt.json、device-private-share-ax-timeout-attempt.json，不改写为成功。13:21 桌面真实触控诊断仍仅代表独立图片面板/灯箱；44 状态视觉矩阵使用 focus() + DOM click()，私密导出覆盖保存确认与取消。正式系统 chooser 验收依据最终 audit 包设备记录。
+
+验证范围包括确认、chooser 打开、取消、分层返回和退出清理。previewNodes 仅证明系统 content_preview_container 存在，不声称预览像素已解码或外部应用接收成功；全程未向外部目标发送。实现提交 24ec7b9 已推送并建立 PR #80，其[浏览器 CI 39036507402](https://github.com/t59688/newsnook/actions/runs/39036507402) 已完整成功；最终提交的远端状态见 [PR #80 Checks](https://github.com/t59688/newsnook/pull/80/checks)。基线 SIGILL 未定位、旧设备和实体机覆盖限制继续保留。
+
+随后 CI 暴露的两个既有问题已分别修正：b628dec 移除新闻源留下的过时数量断言改为 ID 完整覆盖与 WORLD 21，Cloud 三个目标通过；播放上下文采用独立注册序号、exact 优先，新增四项先红后绿，最后 13:37:52.885–13:38:20.138 的完整原生 164 项与 Local Debug Java 编译通过。JS/TS 修改范围为 32 个文件，其无诊断证据来自原 31 文件批次与 layout-presets 测试修改的单项 lint。详见验收记录 5.5。正式设备流程属于 24ec7b9 / b54ee814… 功能实施包，早于最后原生排序补丁，不表述为补丁后重跑全部设备流程。
