@@ -144,6 +144,41 @@ public class BrowserHostPlugin extends Plugin {
         });
     }
 
+    @PluginMethod public void tabs(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            JSArray list = new JSArray();
+            for (int i=0; i<tabs.size(); i++) {
+                Tab tab=tabs.get(i);
+                JSObject entry=new JSObject();
+                entry.put("index",i);
+                entry.put("title",tab.title);
+                entry.put("url",tab.url);
+                entry.put("active",tab == current);
+                entry.put("loading",tab.loading || tab.preparing);
+                list.put(entry);
+            }
+            JSObject result=new JSObject();result.put("tabs",list);call.resolve(result);
+        });
+    }
+
+    @PluginMethod public void activateTab(PluginCall call) {
+        int index=call.getInt("index",-1);
+        getActivity().runOnUiThread(() -> {
+            if(index<0 || index>=tabs.size()) {call.reject("标签页不存在");return;}
+            selectTab(tabs.get(index));
+            call.resolve();
+        });
+    }
+
+    @PluginMethod public void removeTab(PluginCall call) {
+        int index=call.getInt("index",-1);
+        getActivity().runOnUiThread(() -> {
+            if(index<0 || index>=tabs.size()) {call.reject("标签页不存在");return;}
+            closeTab(tabs.get(index));
+            call.resolve();
+        });
+    }
+
     @PluginMethod public void close(PluginCall call) {
         getActivity().runOnUiThread(() -> { closeNative(); call.resolve(); });
     }
@@ -351,7 +386,7 @@ public class BrowserHostPlugin extends Plugin {
                 tab.url = address; tab.title = web.getTitle() == null ? address : web.getTitle();
                 tab.loading = false;
                 if (current == tab) updateChrome();
-                if (isHttpUrl(address)) recordVisit(tab.title, address);
+                if (!embeddedMode && isHttpUrl(address)) recordVisit(tab.title, address);
                 if (current == tab) sendNavigation(address, "end");
             }
             @Override public boolean shouldOverrideUrlLoading(WebView web, WebResourceRequest request) {

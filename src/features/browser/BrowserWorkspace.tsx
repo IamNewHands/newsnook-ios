@@ -10,11 +10,15 @@ import { ScriptManager } from './ScriptManager'
 import { loadUserScripts } from './scripts'
 
 export interface BrowserState { url: string | null; back: boolean; forward: boolean; desktop: boolean }
-type BrowserOp = 'back' | 'forward' | 'reload' | 'desktop' | 'url' | 'new' | 'tabs' | 'scriptMenu' | 'new' | 'tabs'
+type BrowserOp = 'back' | 'forward' | 'reload' | 'desktop' | 'url' | 'new' | 'tabs' | 'scriptMenu'
+type NativeTab = {index: number; title: string; url: string; active: boolean; loading: boolean}
 type BrowserNative = {
   open: (args: { url: string; scripts: ReturnType<typeof loadUserScripts>; embedded: true; top: number; bottom: number }) => Promise<void>
   navigate: (args: { action: BrowserOp; url?: string }) => Promise<void>
   state: () => Promise<BrowserState>
+  tabs: () => Promise<{tabs: NativeTab[]}>
+  activateTab: (args: {index: number}) => Promise<void>
+  removeTab: (args: {index: number}) => Promise<void>
   setBounds: (args: { top: number; bottom: number; visible: boolean }) => Promise<void>
   close: () => Promise<void>
   addListener: (event: 'navigation', callback: (event: { url: string; phase: 'start' | 'end' }) => void) => Promise<PluginListenerHandle>
@@ -64,12 +68,14 @@ export function BrowserWorkspace({ onExit }: { onExit: () => void }) {
   const viewport = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const loaded = useRef(false)
+  const busy = useRef(false)
   const [address, setAddress] = useState('')
   const [current, setCurrent] = useState('')
   const [nativeState, setNativeState] = useState<BrowserState>({ url: null, back: false, forward: false, desktop: false })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [panel, setPanel] = useState<'menu' | 'history' | 'bookmarks' | 'settings' | 'scripts' | null>(null)
+  const [panel, setPanel] = useState<'menu' | 'history' | 'bookmarks' | 'settings' | 'scripts' | 'tabs' | null>(null)
+  const [tabs, setTabs] = useState<NativeTab[]>([])
   const [history, setHistory] = useState(() => loadList(HISTORY_KEY))
   const [marks, setMarks] = useState(() => loadList(MARKS_KEY))
   const [search, setSearch] = useState<SearchChoice>(() => {
@@ -92,7 +98,10 @@ export function BrowserWorkspace({ onExit }: { onExit: () => void }) {
     })
   }, [])
   const updateNativeState = useCallback(() => {
-    if (loaded.current) void nativeBrowser.state().then(setNativeState).catch(() => undefined)
+    if (loaded.current) {
+      void nativeBrowser.state().then(setNativeState).catch(() => undefined)
+      void nativeBrowser.tabs().then(result => setTabs(result.tabs)).catch(() => undefined)
+    }
   }, [])
   const getBounds = useCallback(() => {
     const rect = viewport.current?.getBoundingClientRect()
@@ -143,6 +152,8 @@ export function BrowserWorkspace({ onExit }: { onExit: () => void }) {
     const url = resolveAddress(value, search)
     if (!url) { setError('地址无效，请输入网址或关键词'); return }
     if (!isAndroid) { setError('原生网页浏览器目前支持 Android'); return }
+    if (busy.current) return
+    busy.current = true
     setError(''); setPanel(null); setLoading(true)
     setAddress(url)
     try {
@@ -157,6 +168,7 @@ export function BrowserWorkspace({ onExit }: { onExit: () => void }) {
       saveVisit(url)
       updateNativeState()
     } catch (err) { setError(err instanceof Error ? err.message : '页面打开失败'); setLoading(false) }
+    finally { busy.current = false }
   }, [getBounds, isAndroid, saveVisit, search, updateNativeState])
   const action = (name: BrowserOp) => {
     if (!loaded.current) return
@@ -184,14 +196,13 @@ export function BrowserWorkspace({ onExit }: { onExit: () => void }) {
   const clearHistory = () => { localStorage.removeItem(HISTORY_KEY); setHistory([]) }
   const menuItems: { label: string; secondary: string; icon: typeof Bookmark; action: () => void }[] = [
     { label: '新建标签', secondary: '创建独立网页标签', icon: Plus, action: () => {setPanel(null);action('new')} },
-    { label: '切换标签', secondary: '管理已打开的页面', icon: Globe2, action: () => {setPanel(null);action('tabs')} },
+    { label: '切换标签', secondary: '管理已打开的页面', icon: Globe2, action: () => {updateNativeState();setPanel('tabs')} },
     { label: '主页', secondary: '常用网址与搜索', icon: Home, action: goHome },
     { label: marked ? '取消收藏' : '收藏当前页面', secondary: pageTitle || '保存网址', icon: Bookmark, action: toggleMark },
     { label: '浏览历史', secondary: `${history.length} 条记录`, icon: Clock3, action: () => setPanel('history') },
     { label: '书签', secondary: `${marks.length} 个网址`, icon: BookmarkCheck, action: () => setPanel('bookmarks') },
     { label: '用户脚本', secondary: `${scriptCount} 个已启用`, icon: ShieldCheck, action: () => setPanel('scripts') },
-    { label: '脚本菜单', secondary: '执行当前网站的脚本操作', icon: ShieldCheck, action: () => { setPanel(null); action('scriptMenu') } },
-    { label: '网页标签', secondary: '新建、切换和关闭标签', icon: Plus, action: () => { setPanel(null); action('tabs') } },
+    { label: '脚本菜单', secondary: '执行网页中的脚本命令', icon: ShieldCheck, action: () => { setPanel(null); action('scriptMenu') } },
     { label: '浏览器设置', secondary: '搜索引擎与桌面模式', icon: Settings2, action: () => setPanel('settings') },
   ]
 
@@ -205,7 +216,7 @@ export function BrowserWorkspace({ onExit }: { onExit: () => void }) {
           <input ref={input} aria-label="地址或搜索" type="text" enterKeyHint="go" value={address} onChange={event => setAddress(event.target.value)}
             onKeyDown={event => { if (event.key === 'Enter') { input.current?.blur(); void openAddress(address) } }}
             placeholder="搜索或输入网址" autoCapitalize="none" autoCorrect="off" spellCheck={false}
-            className="w-full min-w-0 bg-transparent font-mono text-[12px] text-paper outline-none placeholder:text-paper-faint" />
+            className="w-full min-w-0 bg-transparent text-[14px] text-paper outline-none placeholder:text-paper-faint" />
           {address && <button aria-label="清空地址" type="button" onClick={() => {setAddress('');input.current?.focus()}}><X size={15} className="text-paper-faint" /></button>}
         </div>
         <Button label="前往" onClick={() => void openAddress(address)}><ArrowRight size={20} /></Button>
@@ -235,24 +246,32 @@ export function BrowserWorkspace({ onExit }: { onExit: () => void }) {
       <Button label="后退" disabled={!nativeState.back} onClick={() => action('back')}><ArrowLeft size={19} /></Button>
       <Button label="前进" disabled={!nativeState.forward} onClick={() => action('forward')}><ArrowRight size={19} /></Button>
       <Button label="重新加载" disabled={!active} onClick={() => action('reload')}><RefreshCw size={19} /></Button>
-      <Button label="标签页" onClick={() => active ? action('tabs') : void openAddress('https://www.bing.com/')}><Plus size={19} /></Button>
       <Button label="收藏" disabled={!active} onClick={toggleMark}>{marked ? <BookmarkCheck size={19} className="text-cinnabar"/> : <Bookmark size={19}/>}</Button>
       <Button label="用户脚本" onClick={() => setPanelVisible('scripts')}><ShieldCheck size={19} /></Button>
-      <Button label="历史与书签" onClick={() => setPanelVisible('bookmarks')}><Clock3 size={19} /></Button>
+      <Button label="标签页" onClick={() => {updateNativeState();setPanelVisible('tabs')}}><span className="flex size-[22px] items-center justify-center rounded-md border border-current font-mono text-[12px]">{tabs.length || 1}</span></Button>
     </nav>
 
     {panel === 'menu' && <div className="absolute inset-0 z-30 flex items-end bg-black/60" onClick={() => setPanel(null)} role="presentation">
       <section className="w-full rounded-t-3xl border border-haze bg-ink-raised px-4 pt-5 pb-7 shadow-2xl" onClick={event => event.stopPropagation()} aria-label="浏览器菜单">
         <div className="mb-4 flex items-center justify-between"><h2 className="font-display text-xl text-paper">网页工具</h2><Button label="关闭菜单" onClick={() => setPanel(null)}><X size={19}/></Button></div>
-        <div className="grid grid-cols-2 gap-2">{menuItems.map(item => <button key={item.label} type="button" onClick={item.action} className="flex min-h-20 items-start gap-3 rounded-xl border border-haze bg-ink px-3 py-3 text-left"><item.icon size={17} className="mt-1 shrink-0 text-cinnabar" /><span className="min-w-0"><span className="block text-sm text-paper">{item.label}</span><span className="mt-1 block text-[11px] text-paper-faint">{item.secondary}</span></span></button>)}</div>
+        <div className="grid grid-cols-2 gap-2">{menuItems.map(item => <button key={item.label} type="button" onClick={item.action} className="flex min-h-20 items-start gap-3 rounded-xl border border-haze bg-ink px-3 py-3 text-left"><item.icon size={17} className="mt-1 shrink-0 text-cinnabar" /><span className="min-w-0"><span className="block text-sm text-paper">{item.label}</span><span className="mt-1 block text-[12px] text-paper-faint">{item.secondary}</span></span></button>)}</div>
         <button type="button" disabled={!active} onClick={() => {setPanel(null);action('desktop')}} className="mt-3 flex w-full items-center justify-between rounded-xl border border-haze bg-ink p-3 text-sm text-paper disabled:opacity-40"><span className="flex items-center gap-3">{nativeState.desktop ? <Laptop size={18}/> : <Smartphone size={18}/>}桌面版网页</span><span className="font-mono text-xs text-cinnabar">{nativeState.desktop ? '已启用' : '未启用'}</span></button>
       </section>
+    </div>}
+
+    {panel === 'tabs' && <div className="absolute inset-0 z-30 flex flex-col bg-ink" style={{paddingTop:'var(--sat)',paddingBottom:'var(--sab)'}}>
+      <header className="flex items-center justify-between border-b border-haze bg-ink-raised p-3"><Button label="返回浏览器" onClick={() => setPanel(null)}><ChevronLeft size={22}/></Button><h2 className="font-display text-lg text-paper">网页标签 · {tabs.length}</h2><Button label="关闭" onClick={() => setPanel(null)}><X size={20}/></Button></header>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4"><div className="grid grid-cols-2 gap-3">{tabs.map(tab => <div key={tab.index} className={`flex h-32 flex-col justify-between rounded-2xl border p-3 ${tab.active ? 'border-cinnabar bg-cinnabar/10' : 'border-haze bg-ink-raised'}`}>
+        <div className="flex items-start justify-between gap-2"><Globe2 size={18} className={tab.active?'text-cinnabar':'text-paper-faint'}/><button type="button" aria-label={`关闭标签 ${tab.title}`} onClick={() => {void nativeBrowser.removeTab({index:tab.index}).then(() => {updateNativeState();if(tabs.length<=1)goHome()}).catch(err => setError(String(err)))}} className="text-paper-faint"><X size={16}/></button></div>
+        <button type="button" className="min-w-0 text-left" onClick={() => {void nativeBrowser.activateTab({index:tab.index}).then(() => {updateNativeState();setPanel(null)}).catch(err => setError(String(err)))}}><span className="block truncate text-[13px] font-medium text-paper">{tab.title || titleOf(tab.url)}</span><span className="mt-1 block truncate font-mono text-xs text-paper-faint">{tab.url}</span></button>
+      </div>)}</div></div>
+      <button type="button" disabled={tabs.length>=6} onClick={() => {setPanel(null);action('new')}} className="mx-5 mb-4 flex items-center justify-center gap-2 rounded-xl bg-cinnabar py-3 text-sm font-semibold text-white disabled:opacity-35"><Plus size={18}/>新建标签页</button>
     </div>}
 
     {(panel === 'history' || panel === 'bookmarks') && <div className="absolute inset-0 z-30 flex flex-col bg-ink" style={{paddingTop:'var(--sat)',paddingBottom:'var(--sab)'}}>
       <header className="flex items-center justify-between border-b border-haze bg-ink-raised p-3"><Button label="返回浏览器" onClick={() => setPanel(null)}><ChevronLeft size={22}/></Button><h2 className="font-display text-lg text-paper">{panel === 'history' ? '浏览历史' : '书签'}</h2><Button label="关闭" onClick={() => setPanel(null)}><X size={20}/></Button></header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">{(panel === 'history' ? history : marks).map(item => <div key={item.url} className="flex items-center gap-3 border-b border-haze/55 py-3">
-        <button type="button" className="min-w-0 flex-1 text-left" onClick={() => void openAddress(item.url)}><span className="block truncate text-sm text-paper">{item.title}</span><span className="mt-1 block truncate font-mono text-[11px] text-paper-faint">{item.url}</span></button>
+        <button type="button" className="min-w-0 flex-1 text-left" onClick={() => void openAddress(item.url)}><span className="block truncate text-sm text-paper">{item.title}</span><span className="mt-1 block truncate font-mono text-[12px] text-paper-faint">{item.url}</span></button>
         <button type="button" aria-label="删除" onClick={() => {if(panel==='history'){const next=history.filter(x=>x.url!==item.url);setHistory(next);localStorage.setItem(HISTORY_KEY,JSON.stringify(next))}else{const next=marks.filter(x=>x.url!==item.url);setMarks(next);localStorage.setItem(MARKS_KEY,JSON.stringify(next))}}}><Trash2 size={16} className="text-paper-faint" /></button>
       </div>)}{(panel==='history'?history:marks).length===0 && <p className="pt-12 text-center text-sm text-paper-faint">暂无记录</p>}</div>
       {panel === 'history' && history.length>0 && <button type="button" onClick={() => {if(window.confirm('清空全部浏览历史？')) clearHistory()}} className="mx-5 mb-5 rounded-xl border border-haze py-3 text-sm text-paper-muted">清除全部历史</button>}
