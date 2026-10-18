@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
-import { Check, FileUp, Globe2, LoaderCircle, Plus, ShieldAlert, ShieldCheck, Trash2, X } from 'lucide-react'
+import { Check, FileUp, Globe2, LoaderCircle, Plus, RefreshCw, ShieldAlert, ShieldCheck, Trash2, X } from 'lucide-react'
 import { useHardwareBackLayer } from '../../hooks/useHardwareBackLayer'
 import { useBrowserDialogFocus } from './useBrowserDialogFocus'
-import { loadUserScripts, MAX_USER_SCRIPT_BYTES, prepareUserScriptInstall, saveUserScripts, type UserScript } from './scripts'
+import { loadUserScripts, matchesUserScript, MAX_USER_SCRIPT_BYTES, prepareUserScriptInstall, saveUserScripts, type UserScript } from './scripts'
 
-interface Props { onClose: () => void; onChanged: () => void | Promise<void> }
+interface Props {
+  onClose: () => void
+  onChanged: () => void | Promise<void>
+  pageStatus?: {active: number; matched: number; loading: boolean; url?: string}
+  onReload?: () => Promise<boolean>
+}
 const risky = ['unsafeWindow', 'GM_xmlhttpRequest', 'GM.xmlHttpRequest', 'GM_download', 'GM.download', 'GM_cookie', 'GM.webRequest']
 const primaryButton = 'rounded-xl border border-cinnabar/60 bg-cinnabar/15 px-4 py-3 text-sm font-semibold text-cinnabar-soft transition-colors hover:bg-cinnabar/25 disabled:opacity-40'
 const secondaryButton = 'rounded-xl border border-haze px-4 py-3 text-sm text-paper-muted hover:bg-haze disabled:opacity-40'
 
-export function ScriptManager({ onClose, onChanged }: Props) {
+export function ScriptManager({ onClose, onChanged, pageStatus, onReload }: Props) {
   const [scripts, setScripts] = useState(loadUserScripts)
   const [source, setSource] = useState('')
   const [editing, setEditing] = useState<UserScript | null>(null)
@@ -20,6 +25,7 @@ export function ScriptManager({ onClose, onChanged }: Props) {
   const [importing, setImporting] = useState(false)
   const [message, setMessage] = useState('')
   const [status, setStatus] = useState('')
+  const [reloading, setReloading] = useState(false)
   const file = useRef<HTMLInputElement>(null)
   const importGeneration = useRef(0)
   const syncGeneration = useRef(0)
@@ -68,7 +74,7 @@ export function ScriptManager({ onClose, onChanged }: Props) {
     setStatus(success)
     const generation = ++syncGeneration.current
     const syncFailed = () => {
-      if (generation === syncGeneration.current) setMessage('脚本已保存，但浏览器暂未应用更改。请重新进入浏览器后重试。')
+      if (generation === syncGeneration.current) setMessage('脚本已保存，请刷新网页应用更改。')
     }
     try { void Promise.resolve(onChanged()).catch(syncFailed) }
     catch { syncFailed() }
@@ -154,6 +160,9 @@ export function ScriptManager({ onClose, onChanged }: Props) {
       if (generation === importGeneration.current) { setImporting(false); downloadAbort.current = null }
     }
   }
+  const pageUrl = pageStatus?.url
+  const matchedCount = pageUrl === undefined ? (pageStatus?.matched ?? 0)
+    : scripts.filter(script => script.enabled && matchesUserScript(script, pageUrl)).length
   const replacing = candidate ? scripts.some(script => script.id === candidate.id) : false
   const dangerous = candidate?.grants.filter(grant => risky.includes(grant)) ?? []
   const runAtLabel = candidate?.runAt === 'document-start' ? '网页开始加载时' : candidate?.runAt === 'document-idle' ? '网页空闲时' : '网页加载完成时'
@@ -162,10 +171,22 @@ export function ScriptManager({ onClose, onChanged }: Props) {
     <section ref={managerDialog} tabIndex={-1} role="dialog" aria-modal="true" aria-label="用户脚本管理" onClick={event => event.stopPropagation()}
       className="browser-script-manager relative flex w-full max-w-xl flex-col overflow-hidden rounded-t-3xl border border-haze bg-ink-raised px-4 pt-5 shadow-xl outline-none sm:rounded-2xl sm:px-6">
       <header className="flex items-center justify-between gap-3 border-b border-haze pb-4">
-        <div><h2 className="font-display text-[23px] text-paper">用户脚本</h2><p className="mt-1 text-xs text-paper-muted">保存在本机，按网站规则运行 · {scripts.length}/128</p></div>
+        <div><h2 className="text-[17px] font-semibold leading-6 text-paper">用户脚本</h2><p className="mt-1 text-xs text-paper-muted">保存在本机，按网站规则运行 · {scripts.length}/128</p></div>
         <button aria-label="关闭脚本管理" type="button" onClick={closeTopLayer} className="flex size-11 shrink-0 items-center justify-center rounded-full text-paper-muted hover:bg-haze"><X size={20}/></button>
       </header>
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto py-4" inert={!!candidate || !!deleting}>
+        {pageStatus && <div className="mb-3 flex min-h-[72px] items-center gap-3 rounded-xl bg-haze/50 px-3 py-2">
+          <div className="min-w-0 flex-1" role="status" aria-label="当前页面脚本状态">
+            <p className="text-[14px] font-medium text-paper">此页已运行 {pageStatus.active} 个脚本</p>
+            <p className="mt-1 text-[12px] text-paper-muted">{pageStatus.loading ? '正在加载网页' : '匹配此网页 ' + matchedCount + ' 个'}</p>
+          </div>
+          {onReload && <button type="button" disabled={reloading} onClick={() => {
+            setReloading(true)
+            void onReload().then(ok => {if (!ok) setMessage('刷新失败，请重试')}, () => setMessage('刷新失败，请重试')).finally(() => setReloading(false))
+          }} className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl px-2 text-[13px] font-medium text-paper active:bg-haze disabled:opacity-40">
+            {reloading ? <LoaderCircle size={16} className="animate-spin"/> : <RefreshCw size={16}/>}刷新网页
+          </button>}
+        </div>}
         {scripts.length === 0 && <div className="rounded-2xl border border-dashed border-haze px-4 py-6 text-center"><ShieldCheck size={26} className="mx-auto text-paper-faint"/><p className="mt-3 text-sm text-paper">尚未安装用户脚本</p><p className="mt-1 text-xs text-paper-muted">从网址、文件或源代码安装</p></div>}
         {scripts.map(script => <div key={script.id} className="flex items-center gap-3 rounded-xl border border-haze bg-ink p-3">
           <button type="button" role="switch" aria-checked={script.enabled} aria-label={`${script.enabled ? '停用' : '启用'} ${script.name}`}
@@ -174,8 +195,8 @@ export function ScriptManager({ onClose, onChanged }: Props) {
             <span className={`block h-6 w-11 rounded-full border p-0.5 ${script.enabled ? 'border-cinnabar/60 bg-cinnabar/20' : 'border-haze bg-haze'}`}><span className={`block size-[18px] rounded-full bg-current transition-transform ${script.enabled ? 'translate-x-5' : ''}`}/></span>
           </button>
           <button type="button" className="min-w-0 flex-1 py-1 text-left" onClick={() => edit(script)}>
-            <span className="block truncate text-[13px] font-semibold text-paper">{script.name}</span>
-            <span className="mt-1 block truncate font-mono text-[10px] text-paper-faint">v{script.version} · {script.matches[0] || script.includes[0]}</span>
+            <span className="block truncate text-[15px] font-medium leading-5 text-paper">{script.name}</span>
+            <span className="mt-1 block truncate text-[12px] leading-[18px] text-paper-muted">v{script.version} · {script.matches[0] || script.includes[0]}</span>
           </button>
           <button type="button" aria-label={`删除 ${script.name}`} className="flex size-11 shrink-0 items-center justify-center rounded-xl text-paper-muted hover:bg-haze" onClick={() => { setDeleting(script); setMessage('') }}><Trash2 size={17}/></button>
         </div>)}
@@ -192,7 +213,7 @@ export function ScriptManager({ onClose, onChanged }: Props) {
           {importing && <div role="status" className="mt-3 flex items-center justify-between text-xs text-paper-muted"><span>正在读取脚本…</span><button type="button" onClick={cancelImport} className="px-3 py-2 text-paper">取消读取</button></div>}
           <label htmlFor="userscript-source" className="mt-4 mb-1.5 block text-xs text-paper-muted">.user.js 源代码</label>
           <textarea id="userscript-source" rows={7} value={source} disabled={importing} onChange={event => { setSource(event.target.value); setCandidate(null); setMessage(''); setStatus('') }} spellCheck={false}
-            className="w-full rounded-xl border border-haze bg-ink p-3 font-mono text-[11px] leading-relaxed text-paper outline-none focus:border-cinnabar/60 disabled:opacity-50" placeholder="// ==UserScript=="/>
+            className="w-full rounded-xl border border-haze bg-ink p-3 font-mono text-[12px] leading-relaxed text-paper outline-none focus:border-cinnabar/60 disabled:opacity-50" placeholder="// ==UserScript=="/>
           <input ref={file} type="file" accept=".js,.txt,.user.js,text/javascript,text/plain" hidden onChange={event => {
             const selected = event.target.files?.[0]
             event.target.value = ''

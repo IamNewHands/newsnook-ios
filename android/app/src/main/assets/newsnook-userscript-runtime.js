@@ -11,13 +11,16 @@ function __NN_BOOT(userScript) {
   const values = Object.assign(Object.create(null), cfg.values || {});
   const changeListeners = new Map();
   let seq = 0;
+  let storageEpoch = cfg.storageEpoch || 0;
+  const documentId = String(performance.timeOrigin || performance.timing.navigationStart);
   const nextId = () => cfg.id + ':' + (++seq) + ':' + Date.now().toString(36);
-  const send = (message) => port.postMessage(JSON.stringify({ ...message, id: cfg.id, token: cfg.secret }));
+  const send = (message) => port.postMessage(JSON.stringify({ ...message, id: cfg.id, token: cfg.secret,
+    documentId, documentUrl: location.href, storageEpoch }));
 
   function wildcard(pattern, text) {
     let regex = '^';
     for (const ch of pattern) regex += ch === '*' ? '.*' : /[.+?^${}()|[\]\\]/.test(ch) ? '\\' + ch : ch;
-    try { return new RegExp(regex + '$', 'i').test(text) } catch (_) { return false }
+    try { return new RegExp(regex + '$', 'i').test(text) } catch (error) { void error; return false }
   }
   function matchPattern(pattern, href) {
     const match = /^(\*|https?|file):\/\/([^/]+)(\/.*)$/.exec(pattern);
@@ -30,7 +33,7 @@ function __NN_BOOT(userScript) {
   }
   function includePattern(pattern, href) {
     if (pattern.length > 2 && pattern[0] === '/' && pattern[pattern.length - 1] === '/') {
-      try { return new RegExp(pattern.slice(1, -1)).test(href) } catch (_) { return false }
+      try { return new RegExp(pattern.slice(1, -1)).test(href) } catch (error) { void error; return false }
     }
     return wildcard(pattern, href);
   }
@@ -157,7 +160,15 @@ function __NN_BOOT(userScript) {
   }
   port.addEventListener('message', event => {
     let message;
-    try { message = JSON.parse(event.data) } catch (_) { return }
+    try { message = JSON.parse(event.data) } catch (error) { void error; return }
+    if (message.event === 'storageReset') {
+      if (message.id !== cfg.id || !Number.isSafeInteger(message.storageEpoch) || message.storageEpoch <= storageEpoch) return;
+      if (!message.values || typeof message.values !== 'object' || Array.isArray(message.values)) return;
+      storageEpoch = message.storageEpoch;
+      for (const key of Object.keys(values)) delete values[key];
+      Object.assign(values, message.values);
+      return;
+    }
     if (message.event === 'menuInvoke') {
       menuCallbacks.get(message.key)?.();
       return;
@@ -179,7 +190,7 @@ function __NN_BOOT(userScript) {
           else if (type === 'arraybuffer') response = bytes.buffer;
           else {
             const text = new TextDecoder().decode(bytes);
-            response = type === 'json' ? (() => { try { return JSON.parse(text) } catch (_) { return null } })() : text;
+            response = type === 'json' ? (() => { try { return JSON.parse(text) } catch (error) { void error; return null } })() : text;
           }
           const result = { status: message.status, statusText: '', finalUrl: message.finalUrl,
             response, responseText: typeof response === 'string' ? response : '', readyState: 4 };
@@ -235,6 +246,9 @@ function __NN_BOOT(userScript) {
   function execute() {
     if (started) return;
     started = true;
+    // Count the execution boundary, including a user script whose own body throws.
+    // A detached status port must not stop an otherwise runnable script.
+    try { send({ op: 'started' }); } catch (error) { void error; }
     try {
       userScript(
         granted('GM_addStyle', 'GM.addStyle') ? GM_addStyle : undefined,

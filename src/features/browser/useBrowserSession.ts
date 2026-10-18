@@ -3,7 +3,7 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor
 import { loadUserScripts } from './scripts'
 import { reduceBrowserMedia, type BrowserMediaEvent, type BrowserMediaTab } from './browserMedia'
 import { DEFAULT_BROWSER_PREFERENCES, type BrowserPreferences } from './browserPreferences'
-import type { BrowserContext, BrowserPrivateLaunch } from './browserPrivacy'
+import type { BrowserContext } from './browserPrivacy'
 import type { BrowserImageSnapshot, BrowserImageLoadRequest, BrowserImageData, BrowserImageCancelRequest } from './browserImages'
 
 export interface BrowserState {
@@ -18,6 +18,9 @@ export interface BrowserState {
   error?: string | null
   privateMode?: boolean
   userAgent?: string
+  recordHistory?: boolean
+  activeScriptCount?: number
+  matchedScriptCount?: number
 }
 export interface BrowserTab {
   index: number
@@ -46,8 +49,6 @@ interface NativeBrowser {
   updateScripts(args: {scripts: ReturnType<typeof loadUserScripts>}): Promise<void>
   updateSettings(args: {settings: BrowserPreferences}): Promise<void>
   getBrowserContext(): Promise<BrowserContext>
-  openPrivate(args: BrowserPrivateLaunch): Promise<void>
-  closePrivate(): Promise<void>
   findInPage(args: {query: string; tabId?: number}): Promise<void>
   findNext(args: {forward: boolean; tabId?: number}): Promise<void>
   clearFind(): Promise<void>
@@ -70,8 +71,6 @@ export async function getBrowserContext(): Promise<BrowserContext> {
   if (Capacitor.getPlatform() !== 'android') return {privateMode: false, privacyCapabilities: {privateMode: false, clearSiteData: false}}
   return nativeBrowser.getBrowserContext()
 }
-export function openPrivateBrowser(args: BrowserPrivateLaunch): Promise<void> { return nativeBrowser.openPrivate(args) }
-export function closePrivateBrowser(): Promise<void> { return nativeBrowser.closePrivate() }
 
 export function browserThemePalette(): Record<string, string> {
   const css = getComputedStyle(document.documentElement)
@@ -88,7 +87,7 @@ export function useBrowserSession(
   onVisit: (url: string, title: string) => void,
   bottomAddress: boolean,
   recoverySession?: BrowserRecoverySession,
-  options: {settings?: BrowserPreferences; privateContext?: BrowserContext} = {},
+  options: {settings?: BrowserPreferences} = {},
 ) {
   const [state, setState] = useState<BrowserState>(EMPTY)
   const [tabs, setTabs] = useState<BrowserTab[]>([])
@@ -114,8 +113,6 @@ export function useBrowserSession(
   stateRef.current = state
   const settingsRef = useRef(options.settings ?? DEFAULT_BROWSER_PREFERENCES)
   settingsRef.current = options.settings ?? DEFAULT_BROWSER_PREFERENCES
-  const contextRef = useRef(options.privateContext)
-  contextRef.current = options.privateContext
   const visit = useRef(onVisit)
   visit.current = onVisit
 
@@ -180,7 +177,7 @@ export function useBrowserSession(
           stateRef.current = next
           return next
         })
-        if (!contextRef.current?.privateMode && !event.privateMode && event.url && /^https?:\/\//i.test(event.url) && event.phase === 'end' && !event.error) {
+        if (!settingsRef.current.privateMode && !event.privateMode && event.recordHistory !== false && event.url && /^https?:\/\//i.test(event.url) && event.phase === 'end' && !event.error) {
           visit.current(event.url, event.title || event.url)
         }
         if (opened.current) void refresh().catch(() => undefined)
@@ -266,21 +263,21 @@ export function useBrowserSession(
     const generation = epoch.current
     if (Capacitor.getPlatform() !== 'android') throw new Error('请在 Android 应用中打开网页')
     if (opened.current && !snapshot) {
+      await nativeBrowser.updateScripts({scripts: loadUserScripts().filter(script => script.enabled)})
       await nativeBrowser.navigate({action: 'url', url})
     } else {
-      const context = contextRef.current
       await nativeBrowser.open({
-        url, scripts: context?.privateMode ? context.scripts ?? [] : loadUserScripts().filter(script => script.enabled),
+        url, scripts: loadUserScripts().filter(script => script.enabled),
         settings: settingsRef.current,
-        embedded: true, visible: false, ...getBounds(), palette: context?.palette ?? browserThemePalette(),
-        ...(!context?.privateMode && snapshot ? {recoverySession: snapshot} : {}),
+        embedded: true, visible: false, ...getBounds(), palette: browserThemePalette(),
+        ...(!settingsRef.current.privateMode && snapshot ? {recoverySession: snapshot} : {}),
       })
       if (live.current && !closing.current && generation === epoch.current) opened.current = true
     }
   }, [getBounds])
 
   useEffect(() => {
-    if (!recoverySession || contextRef.current?.privateMode || recoveryStarted.current) return
+    if (!recoverySession || settingsRef.current.privateMode || recoveryStarted.current) return
     void enqueue(async () => {
       if (recoveryStarted.current) return
       recoveryStarted.current = true
@@ -305,6 +302,7 @@ export function useBrowserSession(
     }
     return enqueue(async () => {
       if (action === 'new' && !opened.current) { await ensureOpen('about:blank'); return }
+      if (action === 'reload' && opened.current) await nativeBrowser.updateScripts({scripts: loadUserScripts().filter(script => script.enabled)})
       if (action === 'downloads' || opened.current) await nativeBrowser.navigate({action})
     })
   }, [enqueue, ensureOpen, refresh])
@@ -312,7 +310,7 @@ export function useBrowserSession(
   const activate = useCallback((tab: BrowserTab) => enqueue(() => nativeBrowser.activateTab({index: tab.index})), [enqueue])
   const remove = useCallback((tab: BrowserTab) => enqueue(() => nativeBrowser.removeTab({index: tab.index})), [enqueue])
   const updateScripts = useCallback(() => enqueue(async () => {
-    if (opened.current && !contextRef.current?.privateMode) await nativeBrowser.updateScripts({scripts: loadUserScripts().filter(script => script.enabled)})
+    if (opened.current) await nativeBrowser.updateScripts({scripts: loadUserScripts().filter(script => script.enabled)})
   }), [enqueue])
   const updateSettings = useCallback((settings: BrowserPreferences) => enqueue(async () => {
     await nativeBrowser.updateSettings({settings})

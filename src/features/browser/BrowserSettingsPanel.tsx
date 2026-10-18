@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { Check, Circle, Minus, PanelBottom, PanelTop, Plus, Trash2, type LucideIcon } from 'lucide-react'
+import { Check, ChevronDown, Circle, Minus, PanelBottom, PanelTop, Plus, Trash2, type LucideIcon } from 'lucide-react'
 import { BrowserPageHeader, BrowserPrivateNotice, BrowserStatusBanner } from './BrowserPrimitives'
-import { browserHostLabel, validateBrowserUserAgent, type BrowserPreferences, type BrowserSearchChoice, type BrowserUserAgentMode } from './browserPreferences'
+import { browserHostLabel, normalizeBrowserPreferences, toggleBrowserDesktopMode, validateBrowserUserAgent, type BrowserPreferences, type BrowserSearchChoice, type BrowserMobileUserAgentMode } from './browserPreferences'
+import { BROWSER_SEARCH_PROVIDERS } from './browserSearchCatalog'
 import { ToggleSwitch } from '../../components/ToggleSwitch'
 
 export type { BrowserSearchChoice } from './browserPreferences'
@@ -14,14 +15,14 @@ interface BrowserSettingsPanelProps {
   pending?: boolean
   historyCount: number
   onBack: () => void
-  onSearchChange: (id: BrowserSearchChoice) => void
+  onSearchChange: (id: BrowserSearchChoice) => void | boolean | Promise<boolean>
   onAddressPositionChange: (bottom: boolean) => void
   onDesktopChange: () => void
   onClearHistory: () => void
   preferences?: BrowserPreferences
   onPreferencesChange?: (next: BrowserPreferences) => boolean | Promise<boolean>
   privateMode?: boolean
-  onPrivateModeChange?: (enabled: boolean) => void
+  onPrivateModeChange?: (enabled: boolean) => void | boolean | Promise<boolean>
   currentSite?: string
   onClearSiteData?: () => void
   error?: string
@@ -33,19 +34,14 @@ interface Choice<T extends string> {
   icon?: LucideIcon
 }
 
-const searchChoices: Choice<BrowserSearchChoice>[] = [
-  { id: 'bing', label: 'Bing' },
-  { id: 'google', label: 'Google' },
-  { id: 'baidu', label: '百度' },
-  { id: 'duckduckgo', label: 'DuckDuckGo' },
-]
 const addressChoices: Choice<'top' | 'bottom'>[] = [
   { id: 'top', label: '顶部', icon: PanelTop },
   { id: 'bottom', label: '底部', icon: PanelBottom },
 ]
-const userAgentChoices: Choice<BrowserUserAgentMode>[] = [
+const userAgentChoices: Choice<BrowserMobileUserAgentMode>[] = [
   { id: 'system', label: '系统默认' },
-  { id: 'desktop', label: '桌面版' },
+  { id: 'android', label: 'Android' },
+  { id: 'ios', label: 'iOS' },
   { id: 'custom', label: '自定义' },
 ]
 
@@ -122,6 +118,8 @@ export function BrowserSettingsPanel({
   const userAgentInput = useRef<HTMLTextAreaElement>(null)
   const busy = pending || saving
   const hasPreferences = Boolean(preferences && onPreferencesChange)
+  const effectivePrivateMode = preferences?.privateMode ?? privateMode
+  const desktopEnabled = preferences?.userAgentMode === 'desktop'
   useEffect(() => {
     mounted.current = true
     return () => { mounted.current = false }
@@ -129,15 +127,15 @@ export function BrowserSettingsPanel({
   useEffect(() => { setUserAgentDraft(preferences?.customUserAgent ?? '') }, [preferences?.customUserAgent])
   useEffect(() => { if (customExpanded) userAgentInput.current?.focus() }, [customExpanded])
 
-  async function savePatch(patch: Partial<BrowserPreferences>): Promise<boolean> {
-    if (!preferences || !onPreferencesChange || busy || inFlight.current) return false
+  async function saveAction(action: () => void | boolean | Promise<boolean>): Promise<boolean> {
+    if (busy || inFlight.current) return false
     inFlight.current = true
     setSaving(true)
     setSaveError('')
     try {
-      const saved = await onPreferencesChange({...preferences, ...patch})
-      if (!saved && mounted.current) setSaveError('设置未保存，请重试')
-      return saved
+      const saved = await action()
+      if (saved === false && mounted.current) setSaveError('设置未保存，请重试')
+      return saved !== false
     } catch (cause) {
       if (mounted.current) setSaveError(cause instanceof Error ? cause.message : '设置未保存，请重试')
       return false
@@ -147,7 +145,12 @@ export function BrowserSettingsPanel({
     }
   }
 
-  function chooseUserAgent(mode: BrowserUserAgentMode) {
+  function savePatch(patch: Partial<BrowserPreferences>): Promise<boolean> {
+    if (!preferences || !onPreferencesChange) return Promise.resolve(false)
+    return saveAction(() => onPreferencesChange(normalizeBrowserPreferences({...preferences, ...patch})))
+  }
+
+  function chooseUserAgent(mode: BrowserMobileUserAgentMode) {
     if (mode === 'custom') {
       setCustomExpanded(true)
       if (preferences?.customUserAgent && !validateBrowserUserAgent(preferences.customUserAgent)) {
@@ -173,12 +176,21 @@ export function BrowserSettingsPanel({
     <div className="browser-panel-scroll">
       <div className="browser-settings-content">
         {(error || saveError) && <BrowserStatusBanner error>{error || saveError}</BrowserStatusBanner>}
-        {privateMode && <BrowserPrivateNotice/>}
+        {effectivePrivateMode && <BrowserPrivateNotice/>}
         {saving && <p className="browser-save-status" role="status">正在保存设置…</p>}
 
         <SettingsSection id="browser-settings-search" title="搜索与布局">
-          <p className="browser-setting-caption">默认搜索引擎</p>
-          <ChoiceGroup label="默认搜索引擎" choices={searchChoices} value={search} disabled={busy} onChange={onSearchChange}/>
+          <label className="browser-setting-caption" htmlFor="browser-default-search">默认搜索引擎</label>
+          <div className="browser-setting-select">
+            <select id="browser-default-search" aria-label="默认搜索引擎" value={search} disabled={busy}
+              onChange={event => {const next = event.currentTarget.value as BrowserSearchChoice; if (next !== search) void saveAction(() => onSearchChange(next))}}>
+              {(['搜索', 'AI', '学术'] as const).map(category => <optgroup key={category} label={category}>
+                {BROWSER_SEARCH_PROVIDERS.filter(provider => provider.category === category)
+                  .map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
+              </optgroup>)}
+            </select>
+            <ChevronDown size={18} strokeWidth={1.8} aria-hidden="true"/>
+          </div>
           <p className="browser-setting-caption browser-setting-caption-spaced">地址栏位置</p>
           <ChoiceGroup label="地址栏位置" choices={addressChoices} value={bottomAddress ? 'bottom' : 'top'}
             disabled={busy} onChange={value => onAddressPositionChange(value === 'bottom')}/>
@@ -186,11 +198,20 @@ export function BrowserSettingsPanel({
 
         <SettingsSection id="browser-settings-display" title="网页显示">
           {hasPreferences && preferences ? <>
-            <p className="browser-setting-caption">浏览器标识（UA）</p>
-            <ChoiceGroup label="浏览器标识" choices={userAgentChoices} value={preferences.userAgentMode}
-              columns={3} disabled={busy} onChange={chooseUserAgent}/>
-            <p className="browser-setting-help">更换标识可影响网站提供的版式，浏览内核保持不变。</p>
-            {(customExpanded || preferences.userAgentMode === 'custom') && <form className="browser-user-agent-editor"
+            <div className="browser-setting-group">
+              <SettingsToggle label="桌面版网页" description="请求电脑布局，更改后会重新加载当前网页"
+                checked={desktopEnabled} disabled={busy}
+                onChange={() => {void savePatch(toggleBrowserDesktopMode(preferences))}}/>
+            </div>
+            <p className="browser-setting-caption browser-setting-caption-spaced">浏览器标识（UA）</p>
+            <ChoiceGroup label="浏览器标识" choices={userAgentChoices}
+              value={desktopEnabled ? preferences.lastNonDesktopUserAgentMode : preferences.userAgentMode as BrowserMobileUserAgentMode}
+              disabled={busy || desktopEnabled} onChange={chooseUserAgent}/>
+            <p className="browser-setting-help">{desktopEnabled
+              ? '桌面版使用电脑标识，关闭后恢复所选标识。'
+              : preferences.userAgentMode === 'ios' ? '使用 iPhone 兼容标识，浏览内核保持不变。'
+              : '更改后重新加载当前网页，浏览内核保持不变。'}</p>
+            {!desktopEnabled && (customExpanded || preferences.userAgentMode === 'custom') && <form className="browser-user-agent-editor"
               onSubmit={event => {event.preventDefault(); if (!busy) void applyUserAgent()}}>
               <label htmlFor="browser-custom-user-agent">自定义浏览器标识</label>
               <textarea id="browser-custom-user-agent" ref={userAgentInput} aria-label="自定义浏览器标识"
@@ -230,9 +251,12 @@ export function BrowserSettingsPanel({
 
         {(hasPreferences || onPrivateModeChange) && <SettingsSection id="browser-settings-privacy" title="隐私与权限">
           <div className="browser-setting-group">
-            {onPrivateModeChange && <SettingsToggle label="隐私浏览"
-              description={privateMode ? '关闭后结束此次临时会话' : '打开独立会话，不记录浏览历史'}
-              checked={privateMode} disabled={busy} onChange={() => {if (!busy) onPrivateModeChange(!privateMode)}}/>}
+            {(hasPreferences || onPrivateModeChange) && <SettingsToggle label="隐私浏览"
+              description="开启后不保存搜索和浏览记录"
+              checked={effectivePrivateMode} disabled={busy} onChange={() => {
+                if (onPrivateModeChange) void saveAction(() => onPrivateModeChange(!effectivePrivateMode))
+                else void savePatch({privateMode: !effectivePrivateMode})
+              }}/>}
             {hasPreferences && preferences && <>
               <SettingsToggle label="第三方 Cookie" description="部分跨站登录可能需要开启"
                 checked={preferences.thirdPartyCookiesEnabled} disabled={busy}
@@ -249,11 +273,11 @@ export function BrowserSettingsPanel({
 
         <SettingsSection id="browser-settings-data" title="浏览数据">
           <div className="browser-setting-group">
-            <button type="button" aria-label="清除浏览历史" disabled={historyCount === 0 || busy || privateMode}
+            <button type="button" aria-label="清除浏览历史" disabled={historyCount === 0 || busy}
               onClick={onClearHistory} className="browser-setting-row browser-setting-action">
               <span className="browser-setting-label">
                 <span className="browser-setting-title">清除浏览历史</span>
-                <span>{privateMode ? '隐私会话不保存浏览历史' : historyCount > 0 ? historyCount + ' 条记录' : '暂无浏览历史'}</span>
+                <span>{historyCount > 0 ? historyCount + ' 条记录' : '暂无浏览历史'}</span>
               </span>
               <Trash2 size={19} strokeWidth={1.8} aria-hidden="true"/>
             </button>
@@ -266,7 +290,7 @@ export function BrowserSettingsPanel({
               <Trash2 size={19} strokeWidth={1.8} aria-hidden="true"/>
             </button>}
           </div>
-          {onClearSiteData && !privateMode && <p className="browser-setting-help">清除站点数据会影响此应用内使用同一站点的页面。</p>}
+          {onClearSiteData && <p className="browser-setting-help">清除站点数据会影响此应用内使用同一站点的页面。</p>}
         </SettingsSection>
       </div>
     </div>

@@ -25,7 +25,8 @@ const { BrowserTabsPanel } = await import('../src/features/browser/BrowserTabsPa
 const { BrowserSettingsPanel } = await import('../src/features/browser/BrowserSettingsPanel')
 const { BrowserStartPage } = await import('../src/features/browser/BrowserStartPage')
 const { BrowserSearchPanel } = await import('../src/features/browser/BrowserSearchPanel')
-const { BROWSER_KEYS, loadBrowserPreferences, saveBrowserPreferences } = await import('../src/features/browser/browserPreferences')
+const { BROWSER_KEYS, loadBrowserPreferences, saveBrowserPreferences, resolveBrowserAddress } = await import('../src/features/browser/browserPreferences')
+import type { BrowserSearchChoice } from '../src/features/browser/browserPreferences'
 const root = createRoot(window.document.getElementById('root')!)
 
 function button(label: string) {
@@ -141,7 +142,79 @@ async function enterField(label: string, value: string) {
   })
 }
 
+async function chooseSearchDefault(value: BrowserSearchChoice) {
+  const select = window.document.querySelector('select[aria-label="默认搜索引擎"]') as HTMLSelectElement | null
+  assert.ok(select, '设置提供原生搜索引擎选择器')
+  await act(async () => {
+    // Linkedom incorrectly clears a sibling selection even when selected=false.
+    for (const option of select.querySelectorAll('option')) option.removeAttribute('selected')
+    select.querySelector<HTMLOptionElement>('option[value="' + value + '"]')!.selected = true
+    select.dispatchEvent(new window.Event('change', {bubbles: true, cancelable: true}))
+  })
+}
+
+const engineChanges: BrowserSearchChoice[] = []
+const searchDestinations: string[] = []
+let engineSaveFailure = false
+let delayedEngineSave: Promise<void> | null = null
+let selectedSearchClosed = 0
+function SearchChoiceHarness() {
+  const [engine, setEngine] = React.useState<BrowserSearchChoice>('bing')
+  return <BrowserSearchPanel current="" initialValue="" engine={engine} history={[]} pending={false} error=""
+    onClose={() => {selectedSearchClosed++}} onCopy={() => {}} onOpen={async value => {
+      searchDestinations.push(resolveBrowserAddress(value, engine) ?? '')
+      return true
+    }} onEngineChange={async next => {
+      engineChanges.push(next)
+      if (delayedEngineSave) await delayedEngineSave
+      if (engineSaveFailure) return false
+      setEngine(next)
+      return true
+    }}/>
+}
+
 try {
+  await act(async () => root.render(<SearchChoiceHarness/>))
+  await click(button('Google'))
+  assert.deepEqual(engineChanges, ['google'], 'clicking a provider changes the selected engine')
+  assert.equal(searchDestinations.length, 0, 'an empty query never opens the engine home page')
+  assert.equal(selectedSearchClosed, 0, 'engine selection keeps the search panel open')
+  assert.equal(button('Google').getAttribute('aria-checked'), 'true')
+  await enterField('搜索或输入网址', '保留 query & 内容')
+  await click(button('百度'))
+  await click(button('Bing'))
+  assert.equal(searchDestinations.length, 0, 'engine changes never submit a typed query')
+  assert.equal((window.document.querySelector('input') as HTMLInputElement).value, '保留 query & 内容')
+  engineSaveFailure = true
+  await click(button('Google'))
+  assert.equal(button('Bing').getAttribute('aria-checked'), 'true', 'failed persistence preserves the selected engine')
+  assert.ok(window.document.body.textContent?.includes('搜索引擎未保存'))
+  engineSaveFailure = false
+  await click(button('AI'))
+  await click(button('Perplexity'))
+  assert.equal(searchDestinations.length, 0, 'other search providers use the same selection-only interaction')
+  assert.equal(button('Perplexity').getAttribute('aria-checked'), 'true')
+  await click(button('搜索或打开：保留 query & 内容'))
+  assert.deepEqual(searchDestinations, ['https://www.perplexity.ai/search?q=' + encodeURIComponent('保留 query & 内容')])
+  assert.equal(selectedSearchClosed, 1, 'only explicit submission closes the search panel')
+
+  await act(async () => root.render(<SearchChoiceHarness key="pending-engine"/>))
+  let finishEngineSave!: () => void
+  delayedEngineSave = new Promise<void>(resolve => {finishEngineSave = resolve})
+  await click(button('Google'))
+  assert.equal(button('Bing').getAttribute('aria-checked'), 'true', 'pending saves do not publish the new choice')
+  assert.ok(button('百度').hasAttribute('disabled'))
+  await enterField('搜索或输入网址', '待保存的引擎')
+  assert.ok(window.document.body.textContent?.includes('正在保存搜索引擎'), 'saving an engine does not claim to be opening a page')
+  await click(button('搜索或打开：待保存的引擎'))
+  assert.equal(searchDestinations.length, 1, 'submission waits for the selected engine to be saved')
+  await act(async () => {finishEngineSave(); await delayedEngineSave})
+  delayedEngineSave = null
+  assert.equal(button('Google').getAttribute('aria-checked'), 'true')
+  await pressKey(button('Google'), 'ArrowRight')
+  assert.equal(button('百度').getAttribute('aria-checked'), 'true', 'radio keyboard navigation changes engines without opening a page')
+  assert.equal(searchDestinations.length, 1)
+
   await act(async () => root.render(<BrowserPlacesPanel kind="history" {...placesProps} />))
   assert.equal(window.document.querySelectorAll('header button[aria-label="返回浏览器"]').length, 1)
   assert.equal(window.document.querySelectorAll('time').length, 2, '历史展示每条记录的真实访问时间')
@@ -217,16 +290,11 @@ try {
   assert.equal(calls.newTab, 2, '主页仍可新建标签')
 
   await act(async () => root.render(<BrowserSettingsPanel {...settingsProps} />))
-  assert.equal(window.document.querySelectorAll('[role="radio"]').length, 6)
-  assert.equal(window.document.querySelectorAll('[role="radio"][aria-checked="true"]').length, 2)
-  await click(button('Google'))
+  assert.equal(window.document.querySelectorAll('[role="radio"]').length, 2)
+  assert.equal(window.document.querySelectorAll('[role="radio"][aria-checked="true"]').length, 1)
+  assert.equal(window.document.querySelectorAll('select[aria-label="默认搜索引擎"] option').length, 11, 'all existing search providers are available as defaults')
+  await chooseSearchDefault('google')
   assert.deepEqual(calls.engines, ['google'])
-  await pressKey(button('Bing'), 'ArrowLeft')
-  assert.equal(calls.engines.at(-1), 'duckduckgo', '方向键循环选择搜索引擎')
-  await pressKey(button('Google'), 'Home')
-  assert.equal(calls.engines.at(-1), 'duckduckgo', '已选首项不重复写入')
-  await pressKey(button('Bing'), 'End')
-  assert.equal(calls.engines.at(-1), 'duckduckgo', 'End 键选择最后的搜索引擎')
   await click(button('底部'))
   assert.deepEqual(calls.positions, [true])
   const desktop = window.document.querySelector('[role="switch"]')
@@ -238,7 +306,7 @@ try {
   await click(button('清除浏览历史'))
   assert.equal(calls.clear, 3)
   await act(async () => root.render(<BrowserSettingsPanel {...settingsProps} search="google" bottomAddress hasPage desktop />))
-  assert.equal(button('Google').getAttribute('aria-checked'), 'true')
+  assert.equal((window.document.querySelector('select[aria-label="默认搜索引擎"]') as HTMLSelectElement).value, 'google')
   assert.equal(button('底部').getAttribute('aria-checked'), 'true')
   const activeSwitch = window.document.querySelector('[role="switch"]')!
   assert.equal(activeSwitch.getAttribute('aria-checked'), 'true')
@@ -254,7 +322,9 @@ try {
   await click(button('清除浏览历史'))
   assert.equal(calls.clear, 3, '空历史没有可执行的清除操作')
   await act(async () => root.render(<FullSettingsHarness key="full-settings"/>))
-  assert.equal(window.document.querySelectorAll('[role="radio"]').length, 9)
+  assert.equal(window.document.querySelectorAll('[role="radio"]').length, 6)
+  assert.ok(button('Android'))
+  assert.ok(button('iOS'))
   assert.equal(button('系统默认').getAttribute('aria-checked'), 'true')
   assert.ok(!window.document.querySelector('[aria-label="清除当前站点数据"]'), 'unsupported site-data clearing has no inert control')
   await click(button('自定义'))
@@ -284,6 +354,32 @@ try {
   await act(async () => root.render(<FullSettingsHarness key="reopened-settings"/>))
   assert.equal(button('自定义').getAttribute('aria-checked'), 'true', 'reopening reads the saved UA mode')
   assert.equal((window.document.querySelector('textarea') as HTMLTextAreaElement).value, customAgent)
+  await click(button('桌面版网页'))
+  assert.equal(loadBrowserPreferences().userAgentMode, 'desktop')
+  assert.equal(loadBrowserPreferences().lastNonDesktopUserAgentMode, 'custom')
+  assert.ok(button('自定义').hasAttribute('disabled'), 'desktop mode identifies the active desktop profile instead of silently applying a mobile identity')
+  await act(async () => root.render(<FullSettingsHarness key="reopened-desktop"/>))
+  await click(button('桌面版网页'))
+  assert.equal(loadBrowserPreferences().userAgentMode, 'custom', 'turning desktop off after reopening restores the saved custom identity')
+  assert.equal(loadBrowserPreferences().customUserAgent, customAgent)
+  for (const [label, mode] of [['Android', 'android'], ['iOS', 'ios']] as const) {
+    await click(button(label))
+    assert.equal(loadBrowserPreferences().userAgentMode, mode)
+    assert.equal(loadBrowserPreferences().lastNonDesktopUserAgentMode, mode)
+  }
+  assert.ok(window.document.body.textContent?.includes('iPhone 兼容标识'))
+  await click(button('自定义'))
+  await click(button('隐私浏览'))
+  assert.equal(loadBrowserPreferences().privateMode, true)
+  assert.equal(button('隐私浏览').getAttribute('aria-checked'), 'true')
+  assert.ok(window.document.body.textContent?.includes('开启后不保存搜索和浏览记录'))
+  await click(button('隐私浏览'))
+  assert.equal(loadBrowserPreferences().privateMode, false)
+  preferenceWriteFailure = true
+  await click(button('隐私浏览'))
+  assert.equal(button('隐私浏览').getAttribute('aria-checked'), 'false', 'failed privacy saves do not publish an enabled state')
+  assert.equal(loadBrowserPreferences().privateMode, false)
+  preferenceWriteFailure = false
   await click(button('第三方 Cookie'))
   assert.equal(loadBrowserPreferences().thirdPartyCookiesEnabled, true)
   assert.equal(button('第三方 Cookie').getAttribute('aria-checked'), 'true')
@@ -295,7 +391,7 @@ try {
   assert.equal(window.document.querySelector('output')?.textContent, '100%', 'in-flight values are not published to the UI')
   assert.ok(button('JavaScript').hasAttribute('disabled'))
   assert.ok(window.document.querySelector('textarea')?.hasAttribute('disabled'), 'pending saves cannot replace a newer UA draft')
-  assert.ok(button('Google').hasAttribute('disabled'), 'other settings cannot race the pending write')
+  assert.ok(window.document.querySelector('select[aria-label="默认搜索引擎"]')?.hasAttribute('disabled'), 'other settings cannot race the pending write')
   const writesBeforeDisabled = preferenceWriteCount
   await click(button('JavaScript'))
   assert.equal(preferenceWriteCount, writesBeforeDisabled)
@@ -309,12 +405,11 @@ try {
   assert.equal(loadBrowserPreferences().textZoom, 100)
 
   await act(async () => root.render(<BrowserPlacesPanel key="private-history" kind="history" {...placesProps} privateMode/>))
-  assert.ok(!window.document.body.textContent?.includes(entries[0].title), 'private places do not expose ordinary history')
-  assert.ok(!window.document.querySelector('[aria-label="清空浏览历史"]'))
-  assert.ok(!window.document.querySelector('[aria-label="恢复首页隐藏的网站"]'))
+  assert.ok(window.document.body.textContent?.includes(entries[0].title), 'privacy pauses recording without hiding explicit access to prior history')
+  assert.ok(window.document.querySelector('[aria-label="清空浏览历史"]'))
   await act(async () => root.render(<BrowserSettingsPanel {...settingsProps} privateMode/>))
-  assert.ok(button('清除浏览历史').hasAttribute('disabled'))
-  assert.ok(!window.document.body.textContent?.includes('2 条记录'), 'private settings do not reveal the ordinary history count')
+  assert.ok(!button('清除浏览历史').hasAttribute('disabled'))
+  assert.ok(window.document.body.textContent?.includes('2 条记录'), 'prior records can still be managed while recording is paused')
 
   await act(async () => root.render(<BrowserStartPage privateMode shortcuts={[{name:'MDN', url:entries[0].url}]} recent={entries}
     onSearch={() => {}} onOpen={() => {}} onAddShortcut={() => {}} onShortcutOptions={() => {}}
@@ -322,14 +417,14 @@ try {
   assert.ok(window.document.body.textContent?.includes('隐私浏览'))
   assert.ok(!window.document.body.textContent?.includes('最近访问'))
   assert.ok(!window.document.body.textContent?.includes(entries[0].title))
-  assert.ok(!window.document.querySelector('[aria-label="添加快捷方式"]'))
-  assert.ok(![...window.document.querySelectorAll('button')].some(item => ['历史', '书签', '用户脚本', '管理'].includes(item.textContent?.trim() ?? '')))
+  assert.ok(window.document.querySelector('[aria-label="添加快捷方式"]'))
+  for (const label of ['历史', '书签', '用户脚本']) assert.ok(button(label), 'privacy keeps explicit browser tools available')
   assert.equal(window.document.querySelectorAll('img[src^="https:"]').length, 0, 'private start does not fetch favicons')
 
   let searchClosed = 0
   await act(async () => root.render(<BrowserSearchPanel current="" initialValue="" engine="bing" history={entries}
     privateMode pending={false} error="" onClose={() => {searchClosed++}}
-    onOpen={async () => {throw new Error('网页暂时无法打开')}} onCopy={() => {}}/>))
+    onOpen={async () => {throw new Error('网页暂时无法打开')}} onCopy={() => {}} onEngineChange={() => true}/>))
   assert.ok(!window.document.body.textContent?.includes(entries[0].title))
   assert.equal(window.document.querySelectorAll('img[src^="https:"]').length, 0, 'private provider choices do not fetch favicons')
   await pressKey(button('常用'), 'ArrowLeft')
@@ -339,7 +434,7 @@ try {
   assert.equal(searchClosed, 0)
   assert.equal((window.document.querySelector('input') as HTMLInputElement).value, 'preserve this search')
   assert.ok(window.document.body.textContent?.includes('网页暂时无法打开'), 'rejected navigation retains the draft and shows the failure')
-  console.log('browser product panels: existing controls, saved settings round-trip, invalid UA, save failures, pending races, private history/favicon isolation and search recovery OK')
+  console.log('browser product panels: selection-only search, preserved query, provider defaults, saved UA/desktop/privacy, failure recovery, pending races and explicit history access OK')
 } finally {
   await act(async () => root.unmount())
 }

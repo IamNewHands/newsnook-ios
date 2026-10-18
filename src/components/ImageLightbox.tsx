@@ -868,7 +868,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
                 onClick={() => void runAction('save')}
                 className="flex items-center gap-3 rounded-xl border border-haze bg-ink/50 px-4 py-3.5 text-left text-[14px] text-paper disabled:opacity-50"
               >
-                <Download size={18} strokeWidth={1.6} className="text-cinnabar-soft" />
+                <Download size={18} strokeWidth={1.6} className={browserMode ? undefined : 'text-cinnabar-soft'} />
                 <span className="flex-1">{busy === 'save' ? '正在保存…' : '保存到相册'}</span>
               </button>
               <button
@@ -877,7 +877,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
                 onClick={() => void runAction('share')}
                 className="flex items-center gap-3 rounded-xl border border-haze bg-ink/50 px-4 py-3.5 text-left text-[14px] text-paper disabled:opacity-50"
               >
-                <Share2 size={18} strokeWidth={1.6} className="text-cinnabar-soft" />
+                <Share2 size={18} strokeWidth={1.6} className={browserMode ? undefined : 'text-cinnabar-soft'} />
                 <span className="flex-1">{busy === 'share' ? '正在准备…' : '分享'}</span>
               </button>
               <button

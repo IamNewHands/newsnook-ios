@@ -1,0 +1,29 @@
+{
+  "at": "2026-10-18T01:08:08.757Z",
+  "result": {
+    "ready": "complete",
+    "width": 980,
+    "screenWidth": 427,
+    "viewport": "width=980, user-scalable=yes",
+    "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.181 Safari/537.36",
+    "clientHints": {
+      "brands": [
+        {
+          "brand": "Not;A=Brand",
+          "version": "8"
+        },
+        {
+          "brand": "Chromium",
+          "version": "150"
+        },
+        {
+          "brand": "Google Chrome",
+          "version": "150"
+        }
+      ],
+      "mobile": false,
+      "platform": "Linux"
+    },
+    "desktopLayout": true
+  }
+}

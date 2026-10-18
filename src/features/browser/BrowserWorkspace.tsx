@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bookmark, BookmarkCheck, ChevronRight, Clock3, Copy,
   Download, Film, Globe2, Home, Images, Laptop, LockKeyhole, LogOut, ScanText, Share2, Shield,
@@ -6,10 +6,10 @@ import {
 } from 'lucide-react'
 import { Share } from '@capacitor/share'
 import { useHardwareBackLayer } from '../../hooks/useHardwareBackLayer'
+import { suppressBrowserLogs } from '../../lib/logger'
 import { InkVideoPlayer } from '../../components/InkVideoPlayer'
 import type { MediaResourceDescriptor } from '../mediaSniffer/types'
 import { ScriptManager } from './ScriptManager'
-import { loadUserScripts } from './scripts'
 import {
   addBrowserShortcut, compactRecentSites, moveBrowserShortcut, normalizeBrowserHost,
   normalizeBrowserShortcuts, normalizeBrowserVisits, normalizeHiddenBrowserHosts,
@@ -18,10 +18,10 @@ import {
 import { browserMediaResources, browserResourceTitle } from './browserMedia'
 import {
   BROWSER_ENGINES, BROWSER_KEYS, browserHostLabel, readBrowserList, readBrowserPreference,
-  resolveBrowserAddress, writeBrowserPreference, loadBrowserPreferences, normalizeBrowserPreferences, saveBrowserPreferences, type BrowserPreferences, type BrowserSearchChoice,
+  resolveBrowserAddress, writeBrowserPreference, loadBrowserPreferences, saveBrowserPreferences, toggleBrowserDesktopMode, type BrowserPreferences, type BrowserSearchChoice,
 } from './browserPreferences'
-import { useBrowserSession, getBrowserContext, openPrivateBrowser, browserThemePalette, type BrowserCommand, type BrowserRecoverySession } from './useBrowserSession'
-import { captureBrowserAppearance, type BrowserContext, type BrowserPrivacyCapabilities } from './browserPrivacy'
+import { useBrowserSession, getBrowserContext, type BrowserCommand, type BrowserRecoverySession } from './useBrowserSession'
+import type { BrowserPrivacyCapabilities } from './browserPrivacy'
 import { BrowserFindBar } from './BrowserFindBar'
 import { BrowserImagesPanel } from './BrowserImagesPanel'
 import { useBrowserDialogFocus } from './useBrowserDialogFocus'
@@ -40,8 +40,7 @@ type Notice = {message: string; error?: boolean}
 type Confirmation = {title: string; message: string; confirm: () => boolean | Promise<boolean>; actionLabel?: string; successMessage?: string}
 type BrowserPlayback = {resource: MediaResourceDescriptor; resources: MediaResourceDescriptor[]; title: string; selection: number; tabId?: number}
 
-export function BrowserWorkspace({onExit, recoverySession, privateContext}: {onExit: () => void; recoverySession?: BrowserRecoverySession; privateContext?: BrowserContext}) {
-  const privateMode = privateContext?.privateMode === true
+export function BrowserWorkspace({onExit, recoverySession}: {onExit: () => void; recoverySession?: BrowserRecoverySession}) {
   const workspace = useBrowserDialogFocus<HTMLDivElement>()
   const viewport = useRef<HTMLDivElement>(null)
   const [panel, setPanel] = useState<Panel>(null)
@@ -52,10 +51,31 @@ export function BrowserWorkspace({onExit, recoverySession, privateContext}: {onE
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [findOpen, setFindOpen] = useState(false)
-  const [launchingPrivate, setLaunchingPrivate] = useState(false)
   const imageOverlayCloser = useRef<(() => boolean) | null>(null)
-  const [preferences, setPreferences] = useState(() => privateMode ? normalizeBrowserPreferences(privateContext.settings) : loadBrowserPreferences())
-  const [capabilities, setCapabilities] = useState<BrowserPrivacyCapabilities>(privateContext?.privacyCapabilities ?? {privateMode: false, clearSiteData: false})
+  const [preferences, setPreferences] = useState(loadBrowserPreferences)
+  const privateMode = preferences.privateMode
+  const privateModeRef = useRef(privateMode)
+  const privacyLogRelease = useRef<(() => void) | null>(null)
+  const workspaceLive = useRef(true)
+  const applyPrivacyGuard = useCallback((enabled: boolean) => {
+    privateModeRef.current = enabled
+    if (enabled && workspaceLive.current) {
+      privacyLogRelease.current ??= suppressBrowserLogs()
+    } else {
+      privacyLogRelease.current?.()
+      privacyLogRelease.current = null
+    }
+  }, [])
+  useLayoutEffect(() => {
+    workspaceLive.current = true
+    applyPrivacyGuard(privateMode)
+    return () => {
+      workspaceLive.current = false
+      privacyLogRelease.current?.()
+      privacyLogRelease.current = null
+    }
+  }, [privateMode, applyPrivacyGuard])
+  const [capabilities, setCapabilities] = useState<BrowserPrivacyCapabilities>({privateMode: true, clearSiteData: false, sharedSiteData: true})
   useEffect(() => {
     let live = true
     void getBrowserContext().then(context => {if (live && context.privacyCapabilities) setCapabilities(context.privacyCapabilities)}).catch(() => undefined)
@@ -65,16 +85,15 @@ export function BrowserWorkspace({onExit, recoverySession, privateContext}: {onE
   const [playing, setPlaying] = useState<BrowserPlayback | null>(null)
   const [playError, setPlayError] = useState('')
   const playbackSelection = useRef(0)
-  const [history, setHistory] = useState(() => privateMode ? [] : normalizeBrowserVisits(readBrowserList(BROWSER_KEYS.history)))
-  const [marks, setMarks] = useState(() => privateMode ? [] : normalizeBrowserVisits(readBrowserList(BROWSER_KEYS.bookmarks)))
-  const [hiddenHosts, setHiddenHosts] = useState(() => privateMode ? [] : normalizeHiddenBrowserHosts(readBrowserList(BROWSER_KEYS.hiddenHosts)))
-  const [shortcuts, setShortcuts] = useState(() => privateMode ? [] : normalizeBrowserShortcuts(readBrowserList(BROWSER_KEYS.shortcuts)))
-  const [bottomAddress, setBottomAddress] = useState(() => privateMode ? privateContext.ui?.bottomAddress ?? true : readBrowserPreference(BROWSER_KEYS.addressPosition) !== 'top')
+  const [history, setHistory] = useState(() => normalizeBrowserVisits(readBrowserList(BROWSER_KEYS.history)))
+  const [marks, setMarks] = useState(() => normalizeBrowserVisits(readBrowserList(BROWSER_KEYS.bookmarks)))
+  const [hiddenHosts, setHiddenHosts] = useState(() => normalizeHiddenBrowserHosts(readBrowserList(BROWSER_KEYS.hiddenHosts)))
+  const [shortcuts, setShortcuts] = useState(() => normalizeBrowserShortcuts(readBrowserList(BROWSER_KEYS.shortcuts)))
+  const [bottomAddress, setBottomAddress] = useState(() => readBrowserPreference(BROWSER_KEYS.addressPosition) !== 'top')
   const [search, setSearch] = useState<BrowserSearchChoice>(() => {
-    const saved = privateMode ? privateContext.ui?.search : readBrowserPreference(BROWSER_KEYS.search)
+    const saved = readBrowserPreference(BROWSER_KEYS.search)
     return saved && Object.prototype.hasOwnProperty.call(BROWSER_ENGINES, saved) ? saved as BrowserSearchChoice : 'bing'
   })
-  const [scriptCount, setScriptCount] = useState(() => privateMode ? privateContext.scripts?.length ?? 0 : loadUserScripts().filter(script => script.enabled).length)
   const historyRef = useRef(history)
   const exiting = useRef(false)
   const uiRevision = useRef(0)
@@ -82,24 +101,22 @@ export function BrowserWorkspace({onExit, recoverySession, privateContext}: {onE
 
   const persist = useCallback((key: string, value: unknown, apply: () => void, raw = false): boolean => {
     try {
-      if (!privateMode) writeBrowserPreference(key, value, raw)
+      writeBrowserPreference(key, value, raw)
       apply()
       return true
     } catch (error) {
       setNotice({message: error instanceof Error ? error.message : '保存失败，请重试', error: true})
       return false
     }
-  }, [privateMode])
+  }, [])
   const recordVisit = useCallback((url: string, title: string) => {
-    if (privateMode) return
+    if (privateModeRef.current) return
     const next = saveBrowserVisit(historyRef.current, url, title)
     persist(BROWSER_KEYS.history, next, () => {historyRef.current = next; setHistory(next)})
-  }, [persist, privateMode])
+  }, [persist])
   const covered = Boolean(panel || searchOpen || placeAction || shortcutDraft || confirmation || playing)
-  const session = useBrowserSession(viewport, covered, recordVisit, bottomAddress, recoverySession, {settings: preferences, privateContext})
+  const session = useBrowserSession(viewport, covered, recordVisit, bottomAddress, recoverySession, {settings: preferences})
   const current = session.state.url || ''
-  const lastNonDesktopMode = useRef<BrowserPreferences['userAgentMode']>(preferences.userAgentMode === 'desktop' ? 'system' : preferences.userAgentMode)
-  useEffect(() => {if (preferences.userAgentMode !== 'desktop') lastNonDesktopMode.current = preferences.userAgentMode}, [preferences.userAgentMode])
   const clearPageFind = session.clearFind
   useEffect(() => {setFindOpen(false); clearPageFind()}, [current, session.state.tabId, clearPageFind])
   const active = /^https?:\/\//i.test(current)
@@ -190,11 +207,11 @@ export function BrowserWorkspace({onExit, recoverySession, privateContext}: {onE
       setNotice({message: '网址已复制'})
     } catch {setNotice({message: '复制失败，请重试', error: true})}
   }
-  const saveHistory = (next: BrowserVisit[]) => !privateMode && persist(BROWSER_KEYS.history, next, () => {historyRef.current = next; setHistory(next)})
-  const saveMarks = (next: BrowserVisit[]) => !privateMode && persist(BROWSER_KEYS.bookmarks, next, () => setMarks(next))
-  const saveShortcuts = (next: BrowserShortcut[]) => !privateMode && persist(BROWSER_KEYS.shortcuts, next, () => setShortcuts(next))
+  const saveHistory = (next: BrowserVisit[]) => persist(BROWSER_KEYS.history, next, () => {historyRef.current = next; setHistory(next)})
+  const saveMarks = (next: BrowserVisit[]) => persist(BROWSER_KEYS.bookmarks, next, () => setMarks(next))
+  const saveShortcuts = (next: BrowserShortcut[]) => persist(BROWSER_KEYS.shortcuts, next, () => setShortcuts(next))
   const toggleBookmark = () => {
-    if (!active || privateMode) return
+    if (!active) return
     const next = marked ? marks.filter(item => item.url !== current) : [{url: current, title, time: Date.now()}, ...marks].slice(0, 500)
     if (saveMarks(next)) setNotice({message: marked ? '已移除书签' : '已添加书签'})
   }
@@ -237,13 +254,20 @@ export function BrowserWorkspace({onExit, recoverySession, privateContext}: {onE
 
   const updatePreferences = async (next: BrowserPreferences): Promise<boolean> => {
     const previous = preferences
-    if (!(await session.updateSettings(next))) return false
+    // Stop recording before the asynchronous native acknowledgement; resume only after persistence.
+    applyPrivacyGuard(previous.privateMode || next.privateMode)
+    if (!(await session.updateSettings(next))) {
+      applyPrivacyGuard(previous.privateMode)
+      return false
+    }
     try {
-      const confirmed = privateMode ? normalizeBrowserPreferences(next) : saveBrowserPreferences(next)
+      const confirmed = saveBrowserPreferences(next)
       setPreferences(confirmed)
+      applyPrivacyGuard(confirmed.privateMode)
       return true
     } catch (error) {
       await session.updateSettings(previous)
+      applyPrivacyGuard(previous.privateMode)
       setNotice({message: error instanceof Error ? error.message : '保存失败，请重试', error: true})
       return false
     }
@@ -251,20 +275,12 @@ export function BrowserWorkspace({onExit, recoverySession, privateContext}: {onE
   const toggleDesktop = () => {
     if (session.pending) return
     setPanel(null)
-    const userAgentMode = preferences.userAgentMode === 'desktop' ? lastNonDesktopMode.current : 'desktop'
-    void updatePreferences({...preferences, userAgentMode})
+    void updatePreferences(toggleBrowserDesktopMode(preferences))
   }
-  const enterPrivate = async () => {
-    if (privateMode || launchingPrivate) return
-    setLaunchingPrivate(true)
-    try {
-      await openPrivateBrowser({settings: preferences, scripts: loadUserScripts().filter(script => script.enabled),
-        palette: browserThemePalette(), appearance: captureBrowserAppearance(), ui: {search, bottomAddress}})
-      setPanel(null)
-    } catch (error) {
-      setNotice({message: error instanceof Error ? error.message : '无法开启隐私模式', error: true})
-    } finally {setLaunchingPrivate(false)}
-  }
+  const changePrivateMode = (enabled: boolean): Promise<boolean> | boolean =>
+    session.pending ? false : updatePreferences({...preferences, privateMode: enabled})
+  const saveSearchEngine = (value: BrowserSearchChoice): boolean =>
+    persist(BROWSER_KEYS.search, value, () => setSearch(value), true)
   const sharePage = async () => {
     if (!active) return
     try {
@@ -279,7 +295,7 @@ export function BrowserWorkspace({onExit, recoverySession, privateContext}: {onE
     const confirmedUrl = current
     setConfirmation({
     title:'清除此网站数据',
-    message: capabilities.sharedSiteData && !privateMode
+    message: capabilities.sharedSiteData
       ? '将清除 ' + browserHostLabel(current) + ' 所属站点及子域名的 Cookie 和存储，并退出 NewsNook 内该站点的登录。'
       : '将清除 ' + browserHostLabel(current) + ' 所属站点及子域名的 Cookie 和存储。',
     confirm: () => session.clearSiteData(confirmedUrl), actionLabel:'清除数据', successMessage:'此网站数据已清除',
@@ -292,7 +308,7 @@ export function BrowserWorkspace({onExit, recoverySession, privateContext}: {onE
     {label:'浏览历史', icon:Clock3, action:() => openPanel('history')},
     {label:'下载管理', icon:Download, action:() => runCommand('downloads')},
     {label:'媒体资源', icon:Film, action:() => {openPanel('media'); if (active) void session.command('scanMedia')}, disabled:!active, badge:resources.length ? String(resources.length) : undefined},
-    {label:'用户脚本', icon:ShieldCheck, action:() => openPanel('scripts'), badge:scriptCount ? String(scriptCount) : undefined},
+    {label:'用户脚本', icon:ShieldCheck, action:() => openPanel('scripts'), badge:active ? String(session.state.activeScriptCount ?? 0) : undefined},
     {label:'脚本菜单', icon:Settings2, action:() => runCommand('scriptMenu'), disabled:!active},
     {label:'新建标签', icon:Plus, action:() => runCommand('new'), disabled:session.tabs.length >= 6},
     {label:'桌面网页', icon:Laptop, action:toggleDesktop, disabled:!active || session.pending, selected:preferences.userAgentMode === 'desktop'},
@@ -300,13 +316,10 @@ export function BrowserWorkspace({onExit, recoverySession, privateContext}: {onE
     {label:'看图模式', icon:Images, action:showImages, disabled:!active},
     {label:'页内查找', icon:ScanText, action:openFind, disabled:!active},
     {label:'分享网页', icon:Share2, action:() => {void sharePage()}, disabled:!active},
-    {label:privateMode ? '退出隐私' : '隐私模式', icon:Shield, action:privateMode ? close : () => {void enterPrivate()}, disabled:!privateMode && (!capabilities.privateMode || launchingPrivate), selected:privateMode},
+    {label:'隐私模式', icon:Shield, action:() => {void changePrivateMode(!privateMode)}, disabled:session.pending, selected:privateMode},
     {label:'浏览设置', icon:Settings2, action:() => openPanel('settings')},
-    {label:privateMode ? '结束会话' : '返回有所闻', icon:LogOut, action:close},
+    {label:'返回有所闻', icon:LogOut, action:close},
   ]
-
-  const hiddenPrivateActions = new Set(['添加书签', '已加书签', '书签', '浏览历史', '下载管理', '用户脚本', '添加到主页', '结束会话'])
-  const visibleMenuItems = privateMode ? menuItems.filter(item => !hiddenPrivateActions.has(item.label)) : menuItems
 
   const toolbar = findOpen ? <BrowserFindBar privateMode={privateMode} result={session.findResult} onFind={session.findInPage} onNext={session.findNext} onClose={closeFind}/> : <nav aria-label="浏览器控制" className="browser-toolbar relative z-10 shrink-0 border-y border-haze bg-ink-raised">
     <div className="browser-toolbar-row flex h-14 items-center gap-0.5 px-1.5">
@@ -373,7 +386,7 @@ export function BrowserWorkspace({onExit, recoverySession, privateContext}: {onE
 
     {searchOpen && <BrowserSearchPanel privateMode={privateMode} current={active ? current : ''} initialValue="" engine={search} history={history}
       pending={session.pending} error={session.error} onClose={() => {setSearchOpen(false); session.setError('')}}
-      onOpen={openAddress} onCopy={value => {void copy(value)}}/>}
+      onOpen={openAddress} onEngineChange={saveSearchEngine} onCopy={value => {void copy(value)}}/>}
 
     {panel === 'menu' && <BrowserSheet title="网页工具" onClose={() => setPanel(null)}>
       {active && <p className="mb-2 truncate px-1 text-[13px] text-paper-muted">{browserHostLabel(current)}</p>}
@@ -387,7 +400,7 @@ export function BrowserWorkspace({onExit, recoverySession, privateContext}: {onE
         <button type="button" disabled={!active} onClick={() => {void copy(current)}} className="flex min-h-14 flex-col items-center justify-center gap-1.5 rounded-xl text-[13px] text-paper-muted disabled:opacity-30 active:bg-haze"><Copy size={19}/>复制网址</button>
       </div>
       <div className="browser-tools-grid grid grid-cols-4 gap-x-1 gap-y-1.5">
-        {visibleMenuItems.map(item => <button key={item.label} type="button" disabled={item.disabled || (session.pending && !['返回有所闻', '退出隐私'].includes(item.label))}
+        {menuItems.map(item => <button key={item.label} type="button" disabled={item.disabled || (session.pending && item.label !== '返回有所闻')}
           aria-pressed={item.selected === undefined ? undefined : item.selected} onClick={item.action}
           className={'relative flex min-h-[76px] min-w-0 flex-col items-center justify-center gap-2 rounded-2xl px-1 py-2 text-center transition-colors active:bg-haze disabled:opacity-30 ' + (item.selected ? 'bg-haze text-paper' : 'text-paper')}>
           <span className="relative"><item.icon size={23} strokeWidth={1.65}/>{item.badge && <span className="absolute -top-2 -right-3 flex min-w-4 items-center justify-center rounded-full bg-paper px-1 text-[10px] font-semibold text-ink">{item.badge}</span>}</span>
@@ -408,20 +421,22 @@ export function BrowserWorkspace({onExit, recoverySession, privateContext}: {onE
       onHistoryOptions={entry => setPlaceAction({kind:'history', entry})}/></BrowserFullPage>}
     {panel === 'settings' && <BrowserFullPage title="浏览器设置"><BrowserSettingsPanel search={search} bottomAddress={bottomAddress} desktop={session.state.desktop}
       hasPage={active} pending={session.pending} historyCount={history.length} onBack={() => setPanel(null)}
-      onSearchChange={value => {persist(BROWSER_KEYS.search, value, () => setSearch(value), true)}}
+      onSearchChange={saveSearchEngine}
       onAddressPositionChange={value => {persist(BROWSER_KEYS.addressPosition, value ? 'bottom' : 'top', () => setBottomAddress(value), true)}}
       onDesktopChange={toggleDesktop} onClearHistory={() => confirmClear('history')}
       preferences={preferences} onPreferencesChange={updatePreferences} privateMode={privateMode}
-      onPrivateModeChange={privateMode ? close : capabilities.privateMode ? () => {void enterPrivate()} : undefined}
+      onPrivateModeChange={changePrivateMode}
       currentSite={active ? browserHostLabel(current) : undefined} onClearSiteData={active && capabilities.clearSiteData ? clearSite : undefined}/></BrowserFullPage>}
-    {panel === 'scripts' && <ScriptManager onClose={() => setPanel(null)} onChanged={async () => {
-      setScriptCount(loadUserScripts().filter(script => script.enabled).length)
-      if (!(await session.updateScripts())) throw new Error('浏览器脚本同步失败')
-    }}/>}
+    {panel === 'scripts' && <ScriptManager onClose={() => setPanel(null)}
+      pageStatus={active ? {url:current, active:session.state.activeScriptCount ?? 0, matched:session.state.matchedScriptCount ?? 0, loading:session.state.loading ?? false} : undefined}
+      onReload={active ? async () => {const ok = await session.command('reload'); if (ok) setPanel(null); return ok} : undefined}
+      onChanged={async () => {
+        if (!(await session.updateScripts())) throw new Error('浏览器脚本同步失败')
+      }}/>}
 
     {panel === 'images' && <BrowserFullPage title="看图模式"><BrowserImagesPanel snapshot={session.images}
       scanning={session.scanningImages} error={session.imageError} onScan={() => {void session.scanImages()}} onClose={closeImages}
-      loadImage={session.loadImage} cancelImageRequests={session.cancelImageRequests} privateMode={privateMode} overlayCloserRef={imageOverlayCloser}/></BrowserFullPage>}
+      loadImage={session.loadImage} cancelImageRequests={session.cancelImageRequests} overlayCloserRef={imageOverlayCloser}/></BrowserFullPage>}
 
     {panel === 'site' && <BrowserSheet title="网站信息" onClose={() => setPanel(null)}>
       <div className="flex items-center gap-3 py-3">

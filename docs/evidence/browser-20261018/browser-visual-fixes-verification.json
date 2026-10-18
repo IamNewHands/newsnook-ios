@@ -1,0 +1,17 @@
+{
+  "status": "passed",
+  "startedAt": "2026-10-18T01:10:50.181Z",
+  "finishedAt": "2026-10-18T01:10:59.071Z",
+  "chromium": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "stylesheet": "index-Diayy9_V.css",
+  "port": 5173,
+  "visualStates": 12,
+  "manifest": "browser-visual-fixes-matrix.json",
+  "input": "CDP keyboard for focus/default search; trusted touch for search providers, settings, image actions and explicit private-mode tools",
+  "boundaries": [
+    "Synthetic local image data and browser settings persistence",
+    "Download default prevented after the real export adapter creates its image anchor",
+    "navigator.share stub receives a real File and returns user cancellation",
+    "No Android device, native gallery or external recipient acceptance is claimed"
+  ]
+}

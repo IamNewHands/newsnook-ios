@@ -133,5 +133,57 @@ try {
   assert.equal(scans, 2)
   await click('返回浏览器')
   assert.equal(closes, 1)
-  console.log('Browser image panel: bounded lazy grid, all/content, reusable lightbox, private export confirmation and layered back OK')
+
+  const busySnapshot: BrowserImageSnapshot = {
+    ...snapshot, requestId: 'busy-grid',
+    items: Array.from({ length: 60 }, (_, index) => ({ ...snapshot.items[0], id: 'busy-' + index, alt: '慢速图片 ' + index })),
+  }
+  const busyReads: { request: BrowserImageLoadRequest; resolve: (data: BrowserImageData) => void; reject: (error: Error) => void }[] = []
+  const busyCancelled: unknown[] = []
+  const imageSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect width="800" height="600" fill="#123456"/></svg>'
+  const busyResponse = (request: BrowserImageLoadRequest): BrowserImageData => ({
+    ...request, dataUrl: 'data:image/svg+xml;base64,' + Buffer.from(imageSvg).toString('base64'),
+    mimeType: 'image/svg+xml', byteLength: Buffer.byteLength(imageSvg), width: 800, height: 600, reduced: false,
+  })
+  await act(async () => root.render(<BrowserImagesPanel {...props} snapshot={busySnapshot} privateMode={false}
+    loadImage={request => new Promise((resolve, reject) => busyReads.push({ request, resolve, reject }))}
+    cancelImageRequests={async request => { busyCancelled.push(request) }}/>))
+  await act(async () => { for (const notify of observed.values()) notify(true) })
+  await flush()
+  await act(async () => {
+    for (const read of busyReads.slice(0, 2)) read.resolve(busyResponse(read.request))
+  })
+  await flush()
+  assert.ok(button('查看：慢速图片 0').querySelector('img'), 'a completed thumbnail remains viewable while other grid reads are slow')
+  await click('下一页图片')
+  await act(async () => { for (const notify of observed.values()) notify(true) })
+  await flush()
+  await click('上一页图片')
+  await click('查看：慢速图片 0')
+  await flush()
+  const mainRead = busyReads.find(read => read.request.imageId === 'busy-0' && !read.request.thumbnail)
+  assert.ok(mainRead, 'a real panel selection starts its main-image request even after grid paging filled the queue')
+  assert.ok(busyCancelled.some(request => (request as BrowserImageLoadRequest).thumbnail),
+    'the panel releases obsolete grid requests before displaying the current image')
+  assert.ok(document.querySelector('[data-image-stage]')?.textContent?.includes('图片加载中'))
+  await act(async () => mainRead.resolve(busyResponse(mainRead.request)))
+  await flush()
+  const mainImage = document.querySelector<HTMLImageElement>('[data-image-track] img[alt="慢速图片 0"]')!
+  assert.ok(mainImage.getAttribute('src')?.startsWith('blob:'), 'native response bytes reach the selected image element')
+  Object.defineProperties(mainImage, {
+    naturalWidth: { value: 800, configurable: true }, naturalHeight: { value: 600, configurable: true },
+    complete: { value: true, configurable: true },
+  })
+  await act(async () => mainImage.dispatchEvent(new window.Event('load')))
+  assert.equal(mainImage.style.opacity, '1')
+  assert.equal(button('调整图片').disabled, false, 'only the actual main-image load enables adjustments')
+  assert.ok(!document.querySelector('[data-image-stage]')?.textContent?.includes('图片加载中'))
+  const currentSource = mainImage.getAttribute('src')
+  await act(async () => {
+    for (const read of busyReads.filter(read => read.request.thumbnail)) read.resolve(busyResponse(read.request))
+  })
+  await flush()
+  assert.equal(document.querySelector('[data-image-track] img[alt="慢速图片 0"]')?.getAttribute('src'), currentSource,
+    'late cancelled thumbnail replies cannot replace or invalidate the loaded main image')
+  console.log('Browser image panel: bounded lazy grid, saturated queue recovery, main-image loading, private export confirmation and layered back OK')
 } finally { await act(async () => root.unmount()) }

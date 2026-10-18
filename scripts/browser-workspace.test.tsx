@@ -3,6 +3,7 @@ import { mock } from 'node:test'
 import React, { act, useState } from 'react'
 import { parseHTML } from 'linkedom'
 import type { BrowserRecoverySession, BrowserState, BrowserTab } from '../src/features/browser/useBrowserSession'
+import { installUserScript, saveUserScripts, type UserScript } from '../src/features/browser/scripts'
 import type { MediaResourceDescriptor } from '../src/features/mediaSniffer/types'
 
 const { window } = parseHTML('<html><body><div id="root"></div></body></html>')
@@ -50,6 +51,9 @@ const bounds: Bounds[] = []
 const commands: { action: string; url?: string }[] = []
 let closeCalls = 0
 const appliedSettings: Record<string, unknown>[] = []
+const scriptUpdates: UserScript[][] = []
+const bridgeOrder: string[] = []
+let failScriptUpdate = false
 let privateLaunches = 0
 const findCalls: string[] = []
 const clearedSites: string[] = []
@@ -129,6 +133,7 @@ const native = {
   setBounds: async (value: Bounds) => { bounds.push({ ...value }) },
   navigate: async (command: { action: string; url?: string }) => {
     commands.push({ ...command })
+    bridgeOrder.push(command.action)
     if (command.action === 'downloads') return
     if (command.action === 'new') {
       const gate = nextTabChange
@@ -183,7 +188,11 @@ const native = {
     tabList = []
     listeners.get('closed')?.({})
   },
-  updateScripts: async () => {},
+  updateScripts: async ({scripts}: {scripts: UserScript[]}) => {
+    bridgeOrder.push('scripts')
+    if (failScriptUpdate) throw new Error('脚本配置同步失败')
+    scriptUpdates.push(scripts)
+  },
   getBrowserContext: async () => ({privateMode: false, privacyCapabilities: {privateMode: true, clearSiteData: true, sharedSiteData: true}}),
   updateSettings: async ({settings}: {settings: Record<string, unknown>}) => {appliedSettings.push({...settings})},
   openPrivate: async () => {privateLaunches++},
@@ -215,9 +224,9 @@ const { BrowserWorkspace } = await import('../src/features/browser/BrowserWorksp
 const { BrowserLauncher } = await import('../src/features/browser/BrowserLauncher')
 const { dismissTopHardwareBackLayer } = await import('../src/lib/hardwareBackStack')
 const root = createRoot(document.getElementById('root')!)
-function Harness({ recoverySession, privateMode = false }: { recoverySession?: BrowserRecoverySession; privateMode?: boolean }) {
+function Harness({ recoverySession }: { recoverySession?: BrowserRecoverySession }) {
   const [open, setOpen] = useState(true)
-  return open ? <BrowserWorkspace recoverySession={recoverySession} privateContext={privateMode ? {privateMode: true, scripts: []} : undefined} onExit={() => { exits++; setOpen(false) }}/> : <div data-reader>有所闻</div>
+  return open ? <BrowserWorkspace recoverySession={recoverySession} onExit={() => { exits++; setOpen(false) }}/> : <div data-reader>有所闻</div>
 }
 async function mount(preserveStorage = false, recoverySession?: BrowserRecoverySession, strict = false, privateMode = false) {
   await act(async () => root.render(null))
@@ -236,8 +245,12 @@ async function mount(preserveStorage = false, recoverySession?: BrowserRecoveryS
   bounds.length = 0
   commands.length = 0
   closeCalls = 0
+  scriptUpdates.length = 0
+  bridgeOrder.length = 0
+  failScriptUpdate = false
   exits = 0
-  const content = <Harness key={++fixture} recoverySession={recoverySession} privateMode={privateMode}/>
+  if (privateMode) storage.set('newsnook:browser:preferences:v1', JSON.stringify({privateMode: true}))
+  const content = <Harness key={++fixture} recoverySession={recoverySession}/>
   await act(async () => root.render(strict ? <React.StrictMode>{content}</React.StrictMode> : content))
 }
 const select = (selector: string): Element => {
@@ -307,6 +320,98 @@ async function playFirst() {
 }
 
 try {
+  await mount()
+  await visit('https://public.example/before-private')
+  const publicHistory = storage.get(HISTORY)
+  const sameTab = current.tabId
+  const sameOpenCalls = openCalls.length
+  await menu('隐私模式')
+  assert.equal(privateLaunches, 0, 'privacy is a persistent recording preference, not another native activity')
+  assert.equal(JSON.parse(storage.get('newsnook:browser:preferences:v1') || '{}').privateMode, true, 'privacy switch persists immediately')
+  assert.equal(current.tabId, sameTab, 'privacy switch retains the current tab')
+  assert.equal(openCalls.length, sameOpenCalls, 'privacy switch never recreates the browser')
+  await back()
+  await visit('https://private.example/never-record')
+  assert.equal(storage.get(HISTORY), publicHistory, 'private navigation preserves old history without adding a new visit')
+  await menu('添加书签')
+  assert.ok(JSON.parse(storage.get(MARKS) || '[]').some((item: {url: string}) => item.url.includes('never-record')), 'explicit bookmarks remain available in privacy mode')
+  await mount(true)
+  await visit('https://private.example/after-reopen')
+  assert.equal(storage.get(HISTORY), publicHistory, 'privacy preference remains effective after reopening the browser')
+  await menu('隐私模式')
+  assert.equal(JSON.parse(storage.get('newsnook:browser:preferences:v1') || '{}').privateMode, false)
+  await back()
+  await act(async () => listeners.get('navigation')?.({...current, privateMode: false, recordHistory: false, phase: 'end'}))
+  assert.equal(storage.get(HISTORY), publicHistory, 'a late completion from a private document cannot backfill history after the switch turns off')
+  await visit('https://public.example/after-private')
+  const publicVisits = JSON.parse(storage.get(HISTORY) || '[]') as {url: string}[]
+  assert.ok(publicVisits.some(item => item.url.includes('after-private')), 'new public visits resume after disabling privacy')
+  assert.equal(publicVisits.some(item => item.url.includes('private.example')), false, 'private visits are never written back later')
+  console.log('Persistent privacy: same tab, no new records, explicit bookmarks and restart persistence OK')
+
+  await mount()
+  await visit()
+  const scriptTab = current.tabId
+  const enabledScript = installUserScript('// ==UserScript==\n// @name Reload regression\n// @match https://linux.do/*\n// ==/UserScript==\nvoid 0')
+  const disabledScript = {...installUserScript('// ==UserScript==\n// @name Disabled regression\n// @match https://linux.do/*\n// ==/UserScript==\nvoid 0'), enabled: false}
+  const unrelatedScript = installUserScript('// ==UserScript==\n// @name Other site\n// @match https://example.com/*\n// ==/UserScript==\nvoid 0')
+  saveUserScripts([enabledScript, disabledScript, unrelatedScript])
+  bridgeOrder.length = 0
+  await click(button('刷新'))
+  assert.deepEqual(bridgeOrder, ['scripts', 'reload'], 'refresh sends the latest enabled script snapshot before navigation')
+  assert.deepEqual(scriptUpdates.at(-1)?.map(script => script.id), [enabledScript.id, unrelatedScript.id])
+  assert.equal(current.tabId, scriptTab, 'script refresh retains the existing native tab')
+  await act(async () => {
+    current = {...current, activeScriptCount: 1, matchedScriptCount: 2}
+    emitNavigation('state')
+  })
+  await click(button('网页工具'))
+  assert.equal(button('用户脚本').textContent?.trim(), '1用户脚本', 'the badge reports native execution, not the three installed scripts')
+  await click(button('用户脚本'))
+  assert.match(document.body.textContent ?? '', /此页已运行 1 个脚本/)
+  assert.match(document.body.textContent ?? '', /匹配此网页 1 个/, 'matching uses the latest enabled local scripts for this URL, independently of the native runtime snapshot')
+  await click(button('刷新网页'))
+  assert.equal(document.querySelector('[aria-label="用户脚本管理"]'), null, 'the manager offers a direct refresh back to the current page')
+  assert.equal(current.tabId, scriptTab)
+  failScriptUpdate = true
+  const navigationsBeforeFailure = commands.length
+  await click(button('刷新'))
+  assert.equal(commands.length, navigationsBeforeFailure, 'a failed script sync never silently refreshes with stale bindings')
+  assert.match(document.body.textContent ?? '', /脚本配置同步失败/)
+  failScriptUpdate = false
+  console.log('Script refresh: latest enabled snapshot, same tab, actual execution badge and sync failure boundary OK')
+
+  await mount()
+  await visit()
+  await act(async () => {
+    current = {...current, activeScriptCount: 0, matchedScriptCount: 0}
+    emitNavigation('state')
+  })
+  await menu('用户脚本')
+  const commandsBeforeInstall = commands.length
+  const sourceInput = select('#userscript-source') as HTMLTextAreaElement
+  const sourceSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set
+  const newSource = '// ==UserScript==\n// @name Live match regression\n// @match https://linux.do/*\n// ==/UserScript==\nvoid 0'
+  await act(async () => {
+    if (sourceSetter) sourceSetter.call(sourceInput, newSource)
+    else sourceInput.value = newSource
+    sourceInput.dispatchEvent(new window.Event('input', {bubbles: true, cancelable: true}))
+    sourceInput.dispatchEvent(new window.Event('change', {bubbles: true, cancelable: true}))
+  })
+  await click(button('检查并安装'))
+  await click(button('确认安装'))
+  assert.equal(document.querySelector('[aria-label="脚本权限确认"]'), null)
+  assert.match(document.body.textContent ?? '', /匹配此网页 1 个/, 'a newly installed enabled script is counted before the page is refreshed')
+  assert.match(document.body.textContent ?? '', /此页已运行 0 个脚本/, 'installation does not claim execution before refresh')
+  assert.equal(current.activeScriptCount, 0)
+  assert.equal(current.matchedScriptCount, 0, 'the native runtime snapshot stays unchanged until reload')
+  assert.equal(commands.length, commandsBeforeInstall, 'installing a script never silently refreshes the page')
+  assert.ok(scriptUpdates.at(-1)?.some(script => script.name === 'Live match regression'), 'installation still updates the native script snapshot')
+  await click(button('停用 Live match regression'))
+  assert.match(document.body.textContent ?? '', /匹配此网页 0 个/, 'the live match count also excludes newly disabled scripts')
+  assert.match(document.body.textContent ?? '', /此页已运行 0 个脚本/)
+  console.log('Script matches: installed configuration updates immediately while native execution waits for refresh OK')
+
   for (let iteration = 1; iteration <= 3; iteration++) {
     await mount()
     await click(button('Linux.do'))
@@ -416,6 +521,9 @@ try {
     nextOpen = firstOpen
     await click(button('搜索或输入网址'))
     await click(button('Bing'))
+    assert.equal(openCalls.length, 0, 'selecting a provider with an empty draft never opens a website')
+    await enter('搜索或输入网址', 'browser settings')
+    await submit()
     assert.equal(openCalls[0].visible, false, 'pending initial opens never raise native content over the search panel')
     await click(button('取消', select('[aria-label="搜索与地址"]')))
     await click(button('网页工具'))
@@ -577,7 +685,7 @@ try {
   await mount()
   await visit()
   await menu('浏览设置')
-  await click(button('桌面版'))
+  await click(button('桌面版网页'))
   assert.equal(JSON.parse(storage.get('newsnook:browser:preferences:v1')!).userAgentMode, 'desktop', 'UA choice persists after native application succeeds')
   assert.equal(appliedSettings.at(-1)?.userAgentMode, 'desktop')
   failedStorageKey = 'newsnook:browser:preferences:v1'
@@ -617,16 +725,17 @@ try {
   await back()
   const normalUrlBeforePrivate = current.url
   await menu('隐私模式')
-  assert.equal(privateLaunches, 1)
-  assert.equal(current.url, normalUrlBeforePrivate, 'starting private mode preserves the normal session')
-  console.log('Browser settings, live find toolbar, image cancellation and private launch: OK')
+  assert.equal(privateLaunches, 0)
+  assert.equal(JSON.parse(storage.get('newsnook:browser:preferences:v1')!).privateMode, true)
+  assert.equal(current.url, normalUrlBeforePrivate, 'the recording preference preserves the current page')
+  console.log('Browser settings, live find toolbar, image cancellation and persistent privacy: OK')
 
   await mount(false, undefined, false, true)
   const beforePrivateVisit = [...storage.entries()]
   await visit('https://private.example/account?private_marker=never-persist')
   assert.deepEqual([...storage.entries()], beforePrivateVisit, 'private navigation never writes browsing history or any other storage key')
   await click(button('网页工具'))
-  assert.equal([...document.querySelectorAll('button')].some(item => item.textContent?.trim() === '添加书签'), false, 'private URLs cannot be persisted as bookmarks')
+  assert.ok(button('添加书签'), 'explicit bookmark actions remain available while automatic recording is disabled')
   await back()
   await menu('页内查找')
   assert.ok(document.querySelector('[aria-label="在网页中查找"] [aria-label="隐私模式"]'), 'private indicator remains visible in find mode')

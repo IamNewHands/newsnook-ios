@@ -1,0 +1,30 @@
+{
+  "at": "2026-10-18T01:12:53.513Z",
+  "result": {
+    "first": {
+      "width": 1200,
+      "height": 630,
+      "opacity": "1",
+      "ui": "1 / 8\n调整图片\n\n左右滑动切换\n\n1\n2\n3\n4\n5\n6\n7\n8"
+    },
+    "second": {
+      "width": 1200,
+      "height": 630,
+      "opacity": "1",
+      "ui": "2 / 8\n调整图片\n\n左右滑动切换\n\n1\n2\n3\n4\n5\n6\n7\n8"
+    },
+    "returned": {
+      "width": 1200,
+      "height": 630,
+      "opacity": "1",
+      "ui": "1 / 8\n调整图片\n\n左右滑动切换\n\n1\n2\n3\n4\n5\n6\n7\n8"
+    },
+    "reopened": {
+      "width": 1200,
+      "height": 630,
+      "opacity": "1",
+      "ui": "1 / 8\n调整图片\n\n左右滑动切换\n\n1\n2\n3\n4\n5\n6\n7\n8"
+    },
+    "loadingCleared": true
+  }
+}

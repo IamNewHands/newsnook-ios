@@ -77,8 +77,8 @@ export function BrowserPrivateNotice({compact = false}: {compact?: boolean}) {
   return <div className={'browser-private-notice' + (compact ? ' browser-private-notice-compact' : '')}>
     <ShieldCheck size={compact ? 18 : 22} strokeWidth={1.8} aria-hidden="true"/>
     <div>
-      <p>隐私会话</p>
-      {!compact && <span>本次访问不会写入浏览历史，关闭后清除临时网站数据。</span>}
+      <p>隐私模式</p>
+      {!compact && <span>不保存搜索和浏览记录。</span>}
     </div>
   </div>
 }

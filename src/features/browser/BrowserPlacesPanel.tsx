@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { Bookmark, Clock3, MoreHorizontal, RotateCcw, Search, ShieldCheck, Trash2, X } from 'lucide-react'
+import { Bookmark, Clock3, MoreHorizontal, RotateCcw, Search, Trash2, X } from 'lucide-react'
 import { BrowserEmptyState, BrowserIconButton, BrowserPageHeader, BrowserSiteIcon, BrowserStatusBanner } from './BrowserPrimitives'
 
 interface BrowserPlaceEntry {
@@ -46,11 +46,10 @@ export function BrowserPlacesPanel({
   const isHistory = kind === 'history'
   const title = isHistory ? '浏览历史' : '书签'
   const filtered = useMemo(() => {
-    if (privateMode) return []
     const needle = query.trim().toLocaleLowerCase()
     return entries.filter(entry => !needle || (entry.title || '').toLocaleLowerCase().includes(needle)
       || entry.url.toLocaleLowerCase().includes(needle)).slice().sort((a, b) => b.time - a.time)
-  }, [entries, query, privateMode])
+  }, [entries, query])
   const groups = useMemo(() => {
     const now = new Date()
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -68,10 +67,11 @@ export function BrowserPlacesPanel({
   return <section aria-label={title} aria-busy={pending} className="browser-panel browser-places"
     style={{paddingTop: 'var(--sat)', paddingBottom: 'var(--sab)'}}>
     <BrowserPageHeader title={title} onBack={onBack}>
-      {!privateMode && entries.length > 0 && <button type="button" aria-label={isHistory ? '清空浏览历史' : '清空书签'}
+      {entries.length > 0 && <button type="button" aria-label={isHistory ? '清空浏览历史' : '清空书签'}
         disabled={pending} onClick={onClear} className="browser-text-button">清空</button>}
     </BrowserPageHeader>
-    {!privateMode && <div className="browser-places-filter">
+    <div className="browser-places-filter">
+      {privateMode && isHistory && <p className="browser-results-count browser-recording-notice">已暂停记录新的浏览历史</p>}
       <div className="browser-input-field">
         <Search size={19} strokeWidth={1.8} aria-hidden="true"/>
         <input ref={input} type="search" aria-label={isHistory ? '搜索浏览历史' : '搜索书签'} placeholder="搜索标题或网址"
@@ -81,17 +81,16 @@ export function BrowserPlacesPanel({
       <p role="status" aria-live="polite" className="browser-results-count">
         {hasQuery ? '找到 ' + filtered.length + ' 条' : '共 ' + entries.length + (isHistory ? ' 条记录' : ' 个书签')}
       </p>
-    </div>}
+    </div>
     <div className="browser-panel-scroll">
       <div className="browser-places-content">
         {error && <BrowserStatusBanner error>{error}</BrowserStatusBanner>}
-        {!privateMode && isHistory && hiddenHostCount > 0 && <button type="button" aria-label="恢复首页隐藏的网站"
+        {isHistory && hiddenHostCount > 0 && <button type="button" aria-label="恢复首页隐藏的网站"
           disabled={pending} onClick={onRestoreHidden} className="browser-restore-hidden">
           <RotateCcw size={18} strokeWidth={1.8} aria-hidden="true"/>
           <span>恢复首页隐藏的网站</span><span>{hiddenHostCount} 个</span>
         </button>}
-        {privateMode ? <BrowserEmptyState icon={ShieldCheck}
-          title={isHistory ? '隐私会话不保存浏览记录' : '请在普通浏览中查看书签'} description="返回浏览器继续浏览。"/> : groups.length ? groups.map(group =>
+        {groups.length ? groups.map(group =>
           <section key={group.key} data-date-group={group.key} className="browser-place-group">
             <h3>{group.label}</h3>
             <ul className="browser-place-list">
@@ -103,7 +102,7 @@ export function BrowserPlacesPanel({
                   <button type="button" aria-label={'打开：' + entryTitle} disabled={pending} onClick={() => onOpen(entry.url)}
                     onContextMenu={event => {if (isHistory && !pending) {event.preventDefault(); onHistoryOptions(entry)}}}
                     className={'browser-place-open' + (!isHistory ? ' browser-bookmark-open' : '')}>
-                    {!isHistory && <BrowserSiteIcon url={entry.url} name={entryTitle} size="small"/>}
+                    {!isHistory && <BrowserSiteIcon url={entry.url} name={entryTitle} size="small" allowRemote={!privateMode}/>}
                     <span className="browser-place-copy">
                       <span className="browser-place-title" title={entryTitle}>{entryTitle}</span>
                       <span className="browser-place-meta">
@@ -124,7 +123,7 @@ export function BrowserPlacesPanel({
           </section>
         ) : <BrowserEmptyState icon={isHistory ? Clock3 : Bookmark}
           title={hasQuery ? '没有找到相关记录' : isHistory ? '暂无浏览历史' : '暂无书签'}
-          description={hasQuery ? '试试其他标题或网址。' : isHistory ? '访问过的网页会显示在这里。' : '在网页菜单中添加书签。'}/>}
+          description={hasQuery ? '试试其他标题或网址。' : isHistory ? privateMode ? '已暂停记录新的浏览历史。' : '访问过的网页会显示在这里。' : '在网页菜单中添加书签。'}/>}
       </div>
     </div>
   </section>

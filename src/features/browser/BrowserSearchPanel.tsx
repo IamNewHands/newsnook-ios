@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { ArrowRight, ArrowUpLeft, Check, Clock3, Copy, LoaderCircle, Search, X } from 'lucide-react'
-import { browserSearchDestination, browserSearchProviders, type BrowserSearchCategory } from './browserSearchCatalog'
+import { browserSearchProviders, type BrowserSearchCategory } from './browserSearchCatalog'
 import { BROWSER_ENGINES, browserHostLabel, type BrowserSearchChoice } from './browserPreferences'
 import type { BrowserVisit } from './browserHistory'
 import { BrowserIconButton, BrowserPrivateNotice, BrowserSiteIcon, BrowserStatusBanner } from './BrowserPrimitives'
@@ -9,23 +9,28 @@ import { useBrowserDialogFocus } from './useBrowserDialogFocus'
 const categories = ['常用', '搜索', 'AI', '学术'] as const
 
 export function BrowserSearchPanel({
-  current, initialValue, engine, history, pending, error, onClose, onOpen, onCopy, privateMode = false,
+  current, initialValue, engine, history, pending, error, onClose, onOpen, onCopy, onEngineChange, privateMode = false,
 }: {
   current: string; initialValue: string; engine: BrowserSearchChoice; history: BrowserVisit[]
   pending: boolean; error: string; onClose: () => void
-  onOpen: (value: string) => Promise<boolean>; onCopy: (value: string) => void; privateMode?: boolean
+  onOpen: (value: string) => Promise<boolean>; onCopy: (value: string) => void
+  onEngineChange: (id: BrowserSearchChoice) => boolean | Promise<boolean>; privateMode?: boolean
 }) {
   const section = useBrowserDialogFocus<HTMLElement>()
   const [value, setValue] = useState(initialValue)
   const [category, setCategory] = useState<BrowserSearchCategory>('常用')
   const [opening, setOpening] = useState(false)
+  const [selectingEngine, setSelectingEngine] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const input = useRef<HTMLInputElement>(null)
   const mounted = useRef(false)
   const draftRevision = useRef(0)
   const submitting = useRef(false)
+  const savingEngine = useRef(false)
   const id = useId()
-  const busy = pending || opening
+  const busy = pending || opening || selectingEngine
+  const providers = browserSearchProviders(category)
+  const hasSelectedProvider = providers.some(provider => provider.id === engine)
   useEffect(() => {
     mounted.current = true
     return () => {mounted.current = false}
@@ -47,7 +52,7 @@ export function BrowserSearchPanel({
   }, [initialValue])
 
   const submit = async (destination: string) => {
-    if (pending || submitting.current) return
+    if (pending || submitting.current || savingEngine.current) return
     submitting.current = true
     setOpening(true)
     setSubmitError('')
@@ -64,6 +69,40 @@ export function BrowserSearchPanel({
       submitting.current = false
       if (mounted.current) setOpening(false)
     }
+  }
+
+  async function chooseEngine(next: BrowserSearchChoice, restoreInput = true) {
+    if (busy || savingEngine.current) return
+    if (restoreInput) input.current?.focus({preventScroll: true})
+    if (next === engine) return
+    savingEngine.current = true
+    setSelectingEngine(true)
+    setSubmitError('')
+    try {
+      const saved = await onEngineChange(next)
+      if (!saved && mounted.current) setSubmitError('搜索引擎未保存，请重试')
+    } catch (cause) {
+      if (mounted.current) setSubmitError(cause instanceof Error ? cause.message : '搜索引擎未保存，请重试')
+    } finally {
+      savingEngine.current = false
+      if (mounted.current) {
+        setSelectingEngine(false)
+        if (restoreInput) input.current?.focus({preventScroll: true})
+      }
+    }
+  }
+
+  function moveEngine(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    if (busy) return
+    let next: number
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % providers.length
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + providers.length) % providers.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = providers.length - 1
+    else return
+    event.preventDefault()
+    void chooseEngine(providers[next].id, false)
+    event.currentTarget.closest('[role="radiogroup"]')?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[next]?.focus()
   }
 
   function moveCategory(event: KeyboardEvent<HTMLButtonElement>, index: number) {
@@ -103,7 +142,7 @@ export function BrowserSearchPanel({
         {query && <button type="button" disabled={busy} onClick={() => void submit(value)}
           aria-label={'搜索或打开：' + query} className="browser-search-submit">
           {busy ? <LoaderCircle size={20} className="browser-loading-icon" aria-hidden="true"/> : <Search size={20} strokeWidth={1.8} aria-hidden="true"/>}
-          <span><span className="browser-list-title">{value}</span><span className="browser-list-detail">{busy ? '正在打开…' : '打开网址或使用 ' + BROWSER_ENGINES[engine].name + ' 搜索'}</span></span>
+          <span><span className="browser-list-title">{value}</span><span className="browser-list-detail">{selectingEngine ? '正在保存搜索引擎…' : busy ? '正在打开…' : '打开网址或使用 ' + BROWSER_ENGINES[engine].name + ' 搜索'}</span></span>
           <ArrowRight size={20} strokeWidth={1.8} aria-hidden="true"/>
         </button>}
         <div role="tablist" aria-label="搜索分类" className="browser-search-categories">
@@ -111,15 +150,18 @@ export function BrowserSearchPanel({
             aria-selected={category === item} tabIndex={category === item ? 0 : -1} aria-controls={id + '-providers'}
             onClick={() => setCategory(item)} onKeyDown={event => moveCategory(event, index)}>{item}</button>)}
         </div>
-        <div id={id + '-providers'} role="tabpanel" aria-labelledby={id + '-tab-' + categories.indexOf(category)}
-          className="browser-provider-grid">
-          {browserSearchProviders(category).map(provider => <button key={provider.id} type="button" disabled={busy}
-            onClick={() => void submit(browserSearchDestination(provider, value))}
-            className="browser-provider" data-default={provider.id === engine ? 'true' : undefined}>
-            <BrowserSiteIcon url={provider.home} name={provider.name} size="small" allowRemote={!privateMode}/>
-            <span>{provider.name}</span>
-            {provider.id === engine && <Check size={15} strokeWidth={1.8} aria-label="默认搜索"/>}
-          </button>)}
+        <div id={id + '-providers'} role="tabpanel" aria-labelledby={id + '-tab-' + categories.indexOf(category)}>
+          <div role="radiogroup" aria-label="搜索引擎" className="browser-provider-grid">
+            {providers.map((provider, index) => <button key={provider.id} type="button" role="radio" aria-label={provider.name}
+              aria-checked={provider.id === engine} tabIndex={provider.id === engine || !hasSelectedProvider && index === 0 ? 0 : -1}
+              disabled={busy} onMouseDown={event => event.preventDefault()}
+              onClick={() => {void chooseEngine(provider.id)}} onKeyDown={event => moveEngine(event, index)}
+              className="browser-provider" data-default={provider.id === engine ? 'true' : undefined}>
+              <BrowserSiteIcon url={provider.home} name={provider.name} size="small" allowRemote={!privateMode}/>
+              <span>{provider.name}</span>
+              {provider.id === engine && <Check size={16} strokeWidth={1.8} aria-hidden="true"/>}
+            </button>)}
+          </div>
         </div>
         {results.length > 0 && <section className="browser-search-history" aria-labelledby={id + '-history'}>
           <h3 id={id + '-history'}>{query ? '匹配的历史' : '最近访问'}</h3>

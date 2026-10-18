@@ -1,6 +1,6 @@
 export type BrowserSearchCategory = '常用' | '搜索' | 'AI' | '学术'
 export type BrowserSearchProvider = {
-  id: string
+  id: (typeof BROWSER_SEARCH_PROVIDERS)[number]['id']
   name: string
   category: Exclude<BrowserSearchCategory, '常用'>
   home: string
@@ -8,8 +8,8 @@ export type BrowserSearchProvider = {
   popular?: boolean
 }
 
-/** Actual, navigable query endpoints. Keep this registry independent of the UI. */
-export const BROWSER_SEARCH_PROVIDERS: readonly BrowserSearchProvider[] = [
+/** Search-capable providers. This is the shared source for panel choices and saved defaults. */
+export const BROWSER_SEARCH_PROVIDERS = [
   { id: 'bing', name: 'Bing', category: '搜索', home: 'https://www.bing.com/', queryPrefix: 'https://www.bing.com/search?q=', popular: true },
   { id: 'google', name: 'Google', category: '搜索', home: 'https://www.google.com/', queryPrefix: 'https://www.google.com/search?q=', popular: true },
   { id: 'baidu', name: '百度', category: '搜索', home: 'https://www.baidu.com/', queryPrefix: 'https://www.baidu.com/s?wd=', popular: true },
@@ -21,10 +21,10 @@ export const BROWSER_SEARCH_PROVIDERS: readonly BrowserSearchProvider[] = [
   { id: 'scholar', name: 'Google 学术', category: '学术', home: 'https://scholar.google.com/', queryPrefix: 'https://scholar.google.com/scholar?q=' },
   { id: 'baiduScholar', name: '百度学术', category: '学术', home: 'https://xueshu.baidu.com/', queryPrefix: 'https://xueshu.baidu.com/s?wd=' },
   { id: 'wikipedia', name: '维基百科', category: '学术', home: 'https://zh.wikipedia.org/', queryPrefix: 'https://zh.wikipedia.org/w/index.php?search=' },
-]
+] as const
 
 export function browserSearchProviders(category: BrowserSearchCategory): BrowserSearchProvider[] {
-  return BROWSER_SEARCH_PROVIDERS.filter(provider => category === '常用' ? provider.popular : provider.category === category)
+  return BROWSER_SEARCH_PROVIDERS.filter(provider => category === '常用' ? 'popular' in provider && provider.popular : provider.category === category)
 }
 
 export function browserSearchDestination(provider: BrowserSearchProvider, rawQuery: string): string {

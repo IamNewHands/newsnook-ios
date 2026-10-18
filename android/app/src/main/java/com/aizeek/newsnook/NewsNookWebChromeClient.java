@@ -14,11 +14,11 @@ import com.getcapacitor.BridgeWebChromeClient;
  */
 final class NewsNookWebChromeClient extends BridgeWebChromeClient {
     private final OriginVideoFullscreen fullscreen;
-    private final boolean privateSession;
+    private final android.content.Context context;
 
     NewsNookWebChromeClient(Bridge bridge, androidx.appcompat.app.AppCompatActivity activity) {
         super(bridge);
-        privateSession = activity instanceof PrivateBrowserActivity;
+        context = activity;
         View content = activity.findViewById(android.R.id.content);
         if (!(content instanceof FrameLayout)) {
             throw new IllegalStateException("Activity content must host fullscreen video");
@@ -29,7 +29,7 @@ final class NewsNookWebChromeClient extends BridgeWebChromeClient {
     }
 
     @Override public boolean onConsoleMessage(android.webkit.ConsoleMessage message) {
-        return privateSession || super.onConsoleMessage(message);
+        return BrowserHostPlugin.isPrivacyModeEnabled(context) || super.onConsoleMessage(message);
     }
 
     @Override

@@ -82,4 +82,99 @@ assert.throws(() => prepareUserScriptInstall(editedLegacySource, [], legacy), /4
 assert.throws(() => prepareUserScriptInstall(editedLegacySource.replace('// @version', '// @namespace https://unmatched.example/\n// @version'), [legacyRoundTrip]), /400 KB/, 'an unrelated namespace cannot borrow another script\'s legacy budget')
 assert.throws(() => prepareUserScriptInstall(editedLegacySource.padEnd(400_001, '字'), [legacyRoundTrip], legacyRoundTrip), /400000|400,000/, 'legacy edits remain bounded by the historical character limit')
 assert.throws(() => installUserScript(editedLegacySource, legacy), /400 KB/, 'the new-install API remains byte-limited even when given an old identity')
-console.log('Userscript matching, metadata, updates and storage recovery: OK')
+
+const { readFileSync } = await import('node:fs')
+const { runInNewContext } = await import('node:vm')
+const runtimeSource = readFileSync(new URL('../android/app/src/main/assets/newsnook-userscript-runtime.js', import.meta.url), 'utf8')
+type RuntimeMessage = { op?: string; id?: string; token?: string; documentId?: string; documentUrl?: string; storageEpoch?: number; value?: string }
+function bootRuntime(options: { runAt?: string; url?: string; grants?: string[]; frame?: boolean; body?: (...args: unknown[]) => void } = {}) {
+  const messages: RuntimeMessage[] = []
+  const documentEvents = new Map<string, (() => void)[]>()
+  const windowEvents = new Map<string, (() => void)[]>()
+  const portEvents: ((event: { data: string }) => void)[] = []
+  const timers: (() => void)[] = []
+  let executions = 0
+  const listen = (events: Map<string, (() => void)[]>, type: string, callback: () => void) => {
+    events.set(type, [...events.get(type) ?? [], callback])
+  }
+  const port = { postMessage: (text: string) => messages.push(JSON.parse(text)),
+    addEventListener: (_type: string, callback: (event: { data: string }) => void) => portEvents.push(callback) }
+  const page: Record<string, unknown> = { __NewsNookUserScriptPort: port,
+    addEventListener: (type: string, callback: () => void) => listen(windowEvents, type, callback) }
+  page.top = options.frame ? {} : page
+  const cfg = { id: 'us-runtime', secret: 'verified-script-token', name: 'Runtime specimen', version: '1',
+    matches: ['https://example.com/*'], includes: [], excludes: [], excludeMatches: [],
+    runAt: options.runAt ?? 'document-end', executionWorld: 'isolated', grants: options.grants ?? [],
+    values: { ordinary: 'retained' }, storageEpoch: 0 }
+  runInNewContext(runtimeSource + '\n__NN_BOOT(__testBody);', {
+    __NN_CONFIG: cfg, __testBody: (...args: unknown[]) => { executions++; options.body?.(...args) },
+    window: page, document: { readyState: 'loading',
+      addEventListener: (type: string, callback: () => void) => listen(documentEvents, type, callback) },
+    location: { href: options.url ?? 'https://example.com/article' },
+    performance: { timeOrigin: 1700000000000.25, timing: { navigationStart: 1700000000000 } },
+    setTimeout: (callback: () => void) => { timers.push(callback); return timers.length },
+    console: { error: () => {} }, URL, Blob, TextDecoder, Uint8Array, atob, btoa,
+  })
+  return { messages, executions: () => executions, cfg,
+    documentEvent: (type: string) => documentEvents.get(type)?.forEach(callback => callback()),
+    windowEvent: (type: string) => windowEvents.get(type)?.forEach(callback => callback()),
+    flushTimers: () => timers.forEach(callback => callback()),
+    receive: (message: object) => portEvents.forEach(callback => callback({ data: JSON.stringify(message) })),
+  }
+}
+const pendingEnd = bootRuntime()
+assert.equal(pendingEnd.executions(), 0)
+assert.equal(pendingEnd.messages.length, 0, 'installing or matching a document-end script does not count as execution')
+pendingEnd.documentEvent('DOMContentLoaded')
+assert.equal(pendingEnd.executions(), 1)
+const started = pendingEnd.messages.filter(message => message.op === 'started')
+assert.equal(started.length, 1, 'the actual execute boundary reports one started event through the authenticated port')
+assert.equal(started[0].id, pendingEnd.cfg.id)
+assert.equal(started[0].token, pendingEnd.cfg.secret)
+assert.equal(started[0].documentId, '1700000000000.25')
+assert.equal(started[0].documentUrl, 'https://example.com/article')
+pendingEnd.documentEvent('DOMContentLoaded')
+assert.equal(pendingEnd.messages.filter(message => message.op === 'started').length, 1, 'duplicate readiness cannot count the script twice')
+const pendingIdle = bootRuntime({ runAt: 'document-idle' })
+assert.equal(pendingIdle.messages.length, 0)
+pendingIdle.windowEvent('load')
+pendingIdle.flushTimers()
+assert.equal(pendingIdle.executions(), 1)
+assert.equal(pendingIdle.messages.filter(message => message.op === 'started').length, 1, 'load and idle fallback share one execution')
+for (const options of [{ url: 'https://other.example/article' }, { frame: true }]) {
+  const skipped = bootRuntime({ ...options, runAt: 'document-start' })
+  assert.equal(skipped.executions(), 0)
+  assert.equal(skipped.messages.length, 0, 'unmatched pages and subframes never report a started script')
+}
+const failedBody = bootRuntime({ runAt: 'document-start', body: () => { throw new Error('script body failed') } })
+assert.equal(failedBody.executions(), 1)
+assert.equal(failedBody.messages.filter(message => message.op === 'started').length, 1, 'started means entered the user script, including a body that later throws')
+
+let gmGet!: (key: string, fallback?: unknown) => unknown
+let gmSet!: (key: string, value: unknown) => void
+const valuesRuntime = bootRuntime({ runAt: 'document-start', grants: ['GM_getValue', 'GM_setValue'],
+  body: (...args) => { gmGet = args[1] as typeof gmGet; gmSet = args[2] as typeof gmSet } })
+assert.equal(gmGet('ordinary'), 'retained')
+valuesRuntime.receive({ event: 'storageReset', id: 'different-script', storageEpoch: 1, values: {} })
+assert.equal(gmGet('ordinary'), 'retained', 'a shared world port cannot reset another script storage')
+valuesRuntime.receive({ event: 'storageReset', id: valuesRuntime.cfg.id, storageEpoch: 1, values: {} })
+assert.equal(gmGet('ordinary'), undefined, 'turning on no-record mode removes ordinary values from the live JS view')
+gmSet('private', 'ephemeral')
+assert.equal(valuesRuntime.messages.at(-1)?.storageEpoch, 1, 'writes identify the active storage generation')
+valuesRuntime.receive({ event: 'storageReset', id: valuesRuntime.cfg.id, storageEpoch: 0, values: { stale: true } })
+assert.equal(gmGet('private'), 'ephemeral', 'a late reset cannot restore a previous storage generation')
+valuesRuntime.receive({ event: 'storageReset', id: valuesRuntime.cfg.id, storageEpoch: 2, values: { ordinary: 'retained' } })
+assert.equal(gmGet('private'), undefined)
+assert.equal(gmGet('ordinary'), 'retained')
+let download: ((options: string, name: string) => void) | undefined
+const downloadRuntime = bootRuntime({ runAt: 'document-start', grants: ['GM_download'],
+  body: (...args) => { download = args[5] as typeof download } })
+assert.ok(download)
+download('https://example.com/manual.bin', 'manual.bin')
+assert.equal(downloadRuntime.messages.at(-1)?.op, 'downloadUrl', 'an explicitly granted download stays callable across privacy modes')
+bootRuntime({ runAt: 'document-start', body: (...args) => {
+  assert.equal(args[5], undefined)
+  assert.equal((args[7] as Record<string, unknown>).download, undefined, 'reporting execution does not grant download authority')
+} })
+
+console.log('Userscript matching, actual execution reports, live storage generations and grant boundaries: OK')

@@ -56,8 +56,19 @@ final class UserscriptRuntime {
     private static final String JS_PORT = "__NewsNookUserScriptPort";
     private final WebView webView;
     private final Context context;
-    private final SharedPreferences storage;
-    private final boolean privateMode;
+    private volatile SharedPreferences storage;
+    private final MemoryPreferences temporaryStorage = new MemoryPreferences();
+    private final Object storageLock = new Object();
+    private volatile boolean privateMode;
+    private long storageEpoch;
+    private Runnable stateListener;
+    private long navigationEpoch;
+    private String navigationUrl;
+    private String confirmedDocumentId;
+    private boolean documentReadPending;
+    private final Set<String> activeScriptIds = new LinkedHashSet<>();
+    private final Map<String, Map<String, ScriptStart>> pendingStartedScripts = new LinkedHashMap<>();
+    private boolean legacyListener;
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final OkHttpClient client = new OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).build();
     private final SecureRandom random = new SecureRandom();
@@ -83,6 +94,14 @@ final class UserscriptRuntime {
         InstalledScript(String id, String secret, JSONObject metadata, String source, String resources) {
             this.id = id; this.secret = secret; this.metadata = metadata;
             this.source = source; this.resources = resources;
+        }
+    }
+
+    private static final class ScriptStart {
+        final JavaScriptReplyProxy proxy;
+        final long storageEpoch;
+        ScriptStart(JavaScriptReplyProxy proxy, long storageEpoch) {
+            this.proxy = proxy; this.storageEpoch = storageEpoch;
         }
     }
 
@@ -114,8 +133,116 @@ final class UserscriptRuntime {
     UserscriptRuntime(Context context, WebView webView, boolean privateMode) {
         this.context = context.getApplicationContext(); this.webView = webView;
         this.privateMode = privateMode;
-        this.storage = privateMode ? PrivateBrowserSession.preferences("newsnook-userscript-storage")
+        this.storage = privateMode ? temporaryStorage
             : this.context.getSharedPreferences("newsnook-userscript-storage", Context.MODE_PRIVATE);
+    }
+
+
+    void setStateListener(Runnable listener) { stateListener = listener; }
+
+    int getActiveScriptCount() { return closed ? 0 : activeScriptIds.size(); }
+
+    int getMatchedScriptCount(String url) {
+        if (closed) return 0;
+        int count = 0;
+        synchronized (scripts) {
+            for (InstalledScript script : scripts.values()) if (matchesScript(script, url)) count++;
+        }
+        return count;
+    }
+
+    void setPrivateMode(boolean enabled) {
+        if (closed) return;
+        synchronized (storageLock) {
+            if (privateMode == enabled) return;
+            privateMode = enabled;
+            storageEpoch++;
+            temporaryStorage.edit().clear().apply();
+            storage = enabled ? temporaryStorage
+                : context.getSharedPreferences("newsnook-userscript-storage", Context.MODE_PRIVATE);
+        }
+        synchronized (scripts) {
+            for (InstalledScript script : scripts.values()) resetStorage(script, script.proxy);
+        }
+        // Change only future document-start bindings; the current page stays in place.
+        if (!scriptHandlers.isEmpty()) {
+            try { bindScripts(WebViewFeature.isFeatureSupported(WebViewFeature.JS_INJECTION_IN_FRAME_AND_WORLD)); }
+            catch (Exception failure) { throw new IllegalStateException("脚本存储模式切换失败，请刷新页面后重试", failure); }
+        }
+    }
+
+    private void resetStorage(InstalledScript script, JavaScriptReplyProxy proxy) {
+        if (proxy == null) return;
+        try {
+            JSONObject event = new JSONObject().put("event", "storageReset").put("id", script.id);
+            synchronized (storageLock) {
+                event.put("storageEpoch", storageEpoch).put("values", new JSONObject(storage.getString(script.id, "{}")));
+            }
+            send(proxy, event);
+        } catch (Exception ignored) { }
+    }
+
+    private boolean acceptStarted(InstalledScript script, ScriptStart start) {
+        script.proxy = start.proxy;
+        synchronized (storageLock) {
+            if (start.storageEpoch != storageEpoch) resetStorage(script, start.proxy);
+        }
+        return activeScriptIds.add(script.id);
+    }
+
+    private void notifyState() {
+        if (!closed && stateListener != null) stateListener.run();
+    }
+
+    private static boolean validDocumentId(String id) {
+        if (id.isEmpty() || id.length() > 80) return false;
+        try { return Double.isFinite(Double.parseDouble(id)) && Double.parseDouble(id) > 0; }
+        catch (NumberFormatException ignored) { return false; }
+    }
+
+    private void recordStarted(InstalledScript script, JSONObject payload, JavaScriptReplyProxy proxy) {
+        String documentId = payload.optString("documentId");
+        ScriptStart start = new ScriptStart(proxy, payload.optLong("storageEpoch", -1));
+        if (confirmedDocumentId != null) {
+            if (acceptStarted(script, start)) notifyState();
+            return;
+        }
+        // A same-address navigation may still deliver a retired document's port
+        // message. Keep starts and their reply channels bounded until the committed
+        // main document proves which id owns the current runtime.
+        if (!pendingStartedScripts.containsKey(documentId) && pendingStartedScripts.size() >= 3)
+            pendingStartedScripts.remove(pendingStartedScripts.keySet().iterator().next());
+        pendingStartedScripts.computeIfAbsent(documentId, ignored -> new LinkedHashMap<>()).put(script.id, start);
+    }
+
+    void onDocumentCommitted(String url) {
+        if (closed || navigationUrl == null || !navigationUrl.equals(url)
+            || confirmedDocumentId != null || documentReadPending) return;
+        final long generation = navigationEpoch;
+        documentReadPending = true;
+        try {
+            webView.evaluateJavascript("JSON.stringify({id:String(performance.timeOrigin || performance.timing.navigationStart),url:location.href})", encoded -> {
+                if (closed || generation != navigationEpoch) return;
+                documentReadPending = false;
+                try {
+                    Object value = new org.json.JSONTokener(encoded).nextValue();
+                    if (!(value instanceof String)) return;
+                    JSONObject document = new JSONObject((String) value);
+                    String id = document.optString("id");
+                    String address = document.optString("url");
+                    if (!validDocumentId(id) || !address.equals(webView.getUrl()) || !sameOrigin(address, navigationUrl)) return;
+                    confirmedDocumentId = id;
+                    Map<String, ScriptStart> started = pendingStartedScripts.get(id);
+                    boolean changed = false;
+                    if (started != null) for (Map.Entry<String, ScriptStart> entry : started.entrySet()) {
+                        InstalledScript script = scripts.get(entry.getKey());
+                        if (script != null) changed |= acceptStarted(script, entry.getValue());
+                    }
+                    pendingStartedScripts.clear();
+                    if (changed) notifyState();
+                } catch (Exception ignored) { }
+            });
+        } catch (RuntimeException ignored) { documentReadPending = false; }
     }
 
     void prepare(JSONArray requested) throws Exception {
@@ -155,45 +282,67 @@ final class UserscriptRuntime {
         for (InstalledScript script : scripts.values()) {
             (runsInPage(script) ? pageOrigins : isolatedOrigins).addAll(scriptOrigins(script));
         }
+
         if (modern) {
             JavaScriptExecutionWorld pageWorld = WebViewCompat.getExecutionWorld(webView, JavaScriptExecutionWorld.PAGE_WORLD_NAME);
             JavaScriptExecutionWorld isolatedWorld = WebViewCompat.getExecutionWorld(webView, ISOLATED_WORLD);
             if (!pageOrigins.isEmpty()) registerListener(pageWorld, pageOrigins, "page");
             if (!isolatedOrigins.isEmpty()) registerListener(isolatedWorld, isolatedOrigins, "isolated");
-            for (InstalledScript script : scripts.values()) {
-                scriptHandlers.add(WebViewCompat.addJavaScriptOnEvent(webView, buildScript(script),
-                    WebViewCompat.INJECTION_EVENT_DOCUMENT_START, scriptOrigins(script),
-                    runsInPage(script) ? pageWorld : isolatedWorld));
-            }
         } else {
-            // Legacy WebView has no isolated world. Never grant native capabilities through page JS.
+            // Legacy page-world scripts get only a validated status port. GM
+            // capabilities still require an isolated execution world.
             for (InstalledScript script : scripts.values()) {
-                if (script.metadata.optJSONArray("grants") != null && script.metadata.optJSONArray("grants").length() > 0)
-                    throw new UnsupportedOperationException("此 WebView 版本无法安全运行带 GM 权限的脚本，请更新 Android System WebView");
+                JSONArray grants = script.metadata.optJSONArray("grants");
+                if (grants != null) for (int i = 0; i < grants.length(); i++) {
+                    String grant = grants.optString(i);
+                    if (!"none".equals(grant) && !"unsafeWindow".equals(grant))
+                        throw new UnsupportedOperationException("此 WebView 版本无法安全运行带 GM 权限的脚本，请更新 Android System WebView");
+                }
+            }
+            WebViewCompat.addWebMessageListener(webView, JS_PORT, pageOrigins,
+                (view, message, origin, mainFrame, proxy) -> onWebMessage(view, message, origin, mainFrame, proxy, "page"));
+            legacyListener = true;
+        }
+        bindScripts(modern);
+        return true;
+    }
+
+    private void bindScripts(boolean modern) throws Exception {
+        for (ScriptHandler handler : scriptHandlers) handler.remove();
+        scriptHandlers.clear();
+        for (InstalledScript script : scripts.values()) {
+            if (modern) {
+                JavaScriptExecutionWorld world = WebViewCompat.getExecutionWorld(webView,
+                    runsInPage(script) ? JavaScriptExecutionWorld.PAGE_WORLD_NAME : ISOLATED_WORLD);
+                scriptHandlers.add(WebViewCompat.addJavaScriptOnEvent(webView, buildScript(script),
+                    WebViewCompat.INJECTION_EVENT_DOCUMENT_START, scriptOrigins(script), world));
+            } else {
                 scriptHandlers.add(WebViewCompat.addDocumentStartJavaScript(webView, buildScript(script), scriptOrigins(script)));
             }
         }
-        return true;
     }
 
     private void registerListener(JavaScriptExecutionWorld world, Set<String> origins, String runtimeWorld) {
         WebViewCompat.addWebMessageListener(webView, JS_PORT, origins, world,
-            (view, message, sourceOrigin, isMainFrame, replyProxy) -> {
-                if (closed || view != webView || !isMainFrame || message.getType() != WebMessageCompat.TYPE_STRING) return;
-                String scheme = sourceOrigin.getScheme();
-                if (!"https".equalsIgnoreCase(scheme) && !"http".equalsIgnoreCase(scheme)) return;
-                String text = message.getData();
-                if (text == null || text.length() > 220000) return;
-                try { receive(new JSONObject(text), sourceOrigin.toString(), replyProxy, runtimeWorld); }
-                catch (Exception failed) {
-                    try {
-                        JSONObject payload = new JSONObject(text);
-                        if (payload.optString("op", "").startsWith("download"))
-                            failDownload(payload.optString("req", ""), "保存文件失败", replyProxy);
-                    } catch (Exception ignored) { }
-                }
-            });
+            (view, message, origin, mainFrame, proxy) -> onWebMessage(view, message, origin, mainFrame, proxy, runtimeWorld));
         listenerWorlds.add(world);
+    }
+
+    private void onWebMessage(WebView view, WebMessageCompat message, Uri sourceOrigin,
+                              boolean isMainFrame, JavaScriptReplyProxy replyProxy, String runtimeWorld) {
+        if (closed || view != webView || !isMainFrame || message.getType() != WebMessageCompat.TYPE_STRING) return;
+        String scheme = sourceOrigin.getScheme();
+        if (!"https".equalsIgnoreCase(scheme) && !"http".equalsIgnoreCase(scheme)) return;
+        String text = message.getData();
+        if (text == null || text.length() > 220000) return;
+        try { receive(new JSONObject(text), sourceOrigin.toString(), replyProxy, runtimeWorld); }
+        catch (Exception failed) {
+            try {
+                JSONObject payload = new JSONObject(text);
+                if (payload.optString("op", "").startsWith("download"))
+                    failDownload(payload.optString("req", ""), "保存文件失败", replyProxy);
+            } catch (Exception ignored) { }
+        }
     }
 
     private static boolean runsInPage(InstalledScript script) {
@@ -248,25 +397,34 @@ final class UserscriptRuntime {
             if (uri.getUserInfo() != null) throw new IllegalArgumentException("@require invalid URL");
             byte[] key = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
             StringBuilder name = new StringBuilder(); for (byte b : key) name.append(String.format("%02x", b & 255));
+
             File target = null;
-            if (!privateMode) {
-                File directory = new File(context.getCacheDir(), "userscript-requires");
-                if (!directory.isDirectory() && !directory.mkdirs()) throw new IllegalStateException("resource cache failed");
-                target = new File(directory, name.toString() + ".js");
+            byte[] bytes = null;
+            final long resourceEpoch;
+            synchronized (storageLock) {
+                resourceEpoch = storageEpoch;
+                if (!privateMode) {
+                    File directory = new File(context.getCacheDir(), "userscript-requires");
+                    if (!directory.isDirectory() && !directory.mkdirs()) throw new IllegalStateException("resource cache failed");
+                    target = new File(directory, name.toString() + ".js");
+                }
+                if (target != null && target.isFile() && target.length() < MAX_RESOURCE_BYTES) {
+                    try (InputStream in = new FileInputStream(target)) { bytes = readBounded(in, MAX_RESOURCE_BYTES); }
+                }
             }
-            byte[] bytes;
-            if (target != null && target.isFile() && target.length() < MAX_RESOURCE_BYTES) {
-                try (InputStream in = new FileInputStream(target)) { bytes = readBounded(in, MAX_RESOURCE_BYTES); }
-            } else {
+            if (bytes == null) {
                 Request request = new Request.Builder().url(uri).build();
                 Call call = trackedCall(request);
                 try (Response response = call.execute()) {
                     if (!response.isSuccessful() || response.body() == null) throw new IllegalStateException("dependency download failed");
                     bytes = readBounded(response.body().byteStream(), MAX_RESOURCE_BYTES);
                 } finally { ownedCalls.remove(call); }
-                if (closed) return "";
-                if (target != null)
-                    try (FileOutputStream output = new FileOutputStream(target)) { output.write(bytes); }
+                synchronized (storageLock) {
+                    if (closed) return "";
+                    // A request that crossed either privacy boundary cannot populate disk cache.
+                    if (target != null && !privateMode && resourceEpoch == storageEpoch)
+                        try (FileOutputStream output = new FileOutputStream(target)) { output.write(bytes); }
+                }
             }
             bundled.append("\n").append(new String(bytes, StandardCharsets.UTF_8)).append("\n;");
         }
@@ -296,7 +454,10 @@ final class UserscriptRuntime {
         opts.put("runAt", script.metadata.optString("runAt", "document-end"));
         opts.put("executionWorld", runsInPage(script) ? "page" : "isolated");
         opts.put("grants", script.metadata.optJSONArray("grants") != null ? script.metadata.optJSONArray("grants") : new JSONArray());
-        opts.put("values", new JSONObject(storage.getString(script.id, "{}")));
+        synchronized (storageLock) {
+            opts.put("values", new JSONObject(storage.getString(script.id, "{}")));
+            opts.put("storageEpoch", storageEpoch);
+        }
         String runtime;
         try (InputStream stream = context.getAssets().open("newsnook-userscript-runtime.js")) {
             runtime = new String(readBounded(stream, 300_000), StandardCharsets.UTF_8);
@@ -387,30 +548,40 @@ final class UserscriptRuntime {
     }
 
     private void receive(JSONObject payload, String sourceOrigin, JavaScriptReplyProxy proxy, String runtimeWorld) throws Exception {
+
+        if (closed) return;
         String id=payload.optString("id"), secret=payload.optString("token"), op=payload.optString("op");
         InstalledScript script = scripts.get(id);
         if(script==null || !script.secret.equals(secret) || !matchesScript(script,webView.getUrl())) return;
         if (runsInPage(script) != "page".equals(runtimeWorld)) return;
         if(!sameOrigin(sourceOrigin, webView.getUrl())) return;
-        script.proxy = proxy;
-        if (privateMode && op.startsWith("download")) {
-            failDownload(payload.optString("req", ""), "隐私模式不允许脚本自动保存文件，请退出隐私模式后重试", proxy);
+        String documentId = payload.optString("documentId");
+        if (!validDocumentId(documentId) || !payload.optString("documentUrl").equals(webView.getUrl())) return;
+        if (confirmedDocumentId != null && !confirmedDocumentId.equals(documentId)) return;
+        if ("started".equals(op)) {
+            recordStarted(script, payload, proxy);
             return;
         }
-        if ("set".equals(op) && hasGrant(script,"GM_setValue")) {
-            String key=payload.optString("key");
-            if(key.length()==0 || key.length()>256) return;
-            String serialized=payload.optString("value"); if(serialized.length()>100000) return;
-            JSONObject current=new JSONObject(storage.getString(script.id,"{}"));
-            current.put(key,new org.json.JSONTokener(serialized).nextValue());
-            storage.edit().putString(script.id,current.toString()).apply();
-        } else if ("delete".equals(op) && hasGrant(script,"GM_deleteValue")) {
-            String key=payload.optString("key");
-            if(key.length()==0 || key.length()>256) return;
-            JSONObject current=new JSONObject(storage.getString(script.id,"{}"));
-            current.remove(key);
-            storage.edit().putString(script.id,current.toString()).apply();
-        } else if ("menu".equals(op) && hasGrant(script,"GM_registerMenuCommand")) {
+        if ("set".equals(op) || "delete".equals(op)) {
+            synchronized (storageLock) {
+                if (payload.optLong("storageEpoch", -1) != storageEpoch) return;
+                String key = payload.optString("key");
+                if (key.isEmpty() || key.length() > 256) return;
+                if ("set".equals(op) && hasGrant(script, "GM_setValue")) {
+                    String serialized = payload.optString("value");
+                    if (serialized.length() > 100000) return;
+                    JSONObject current = new JSONObject(storage.getString(script.id, "{}"));
+                    current.put(key, new org.json.JSONTokener(serialized).nextValue());
+                    storage.edit().putString(script.id, current.toString()).apply();
+                } else if ("delete".equals(op) && hasGrant(script, "GM_deleteValue")) {
+                    JSONObject current = new JSONObject(storage.getString(script.id, "{}"));
+                    current.remove(key);
+                    storage.edit().putString(script.id, current.toString()).apply();
+                }
+            }
+            return;
+        }
+        if ("menu".equals(op) && hasGrant(script,"GM_registerMenuCommand")) {
             String key=payload.optString("key"),title=payload.optString("title");
             if(key.length()>64 || title.length()>100 || title.isEmpty()) return;
             synchronized(menus) { menus.removeIf(menu->menu.script==script && menu.key.equals(key)); menus.add(new MenuCommand(script,key,title)); }
@@ -665,7 +836,17 @@ final class UserscriptRuntime {
     }
 
     void onNavigation(String url) {
-        synchronized(menus){menus.clear();}
+        if (closed) return;
+        boolean changed = !activeScriptIds.isEmpty();
+        navigationEpoch++;
+        navigationUrl = url;
+        confirmedDocumentId = null;
+        documentReadPending = false;
+        pendingStartedScripts.clear();
+        activeScriptIds.clear();
+        synchronized (scripts) { for (InstalledScript script : scripts.values()) script.proxy = null; }
+        synchronized (menus) { menus.clear(); }
+        if (changed) notifyState();
     }
 
     void close() { close(true); }
@@ -673,6 +854,11 @@ final class UserscriptRuntime {
     void close(boolean removeWebViewBindings) {
         if (closed) return;
         closed=true;
+        navigationEpoch++;
+        stateListener = null;
+        activeScriptIds.clear();
+        pendingStartedScripts.clear();
+        synchronized (storageLock) { storageEpoch++; temporaryStorage.edit().clear().apply(); }
         mainHandler.removeCallbacksAndMessages(null);
         client.dispatcher().cancelAll();
         for(Call call:ownedCalls)call.cancel();
@@ -695,6 +881,11 @@ final class UserscriptRuntime {
                 catch (RuntimeException error) { if (!privateMode) android.util.Log.w("NewsNookBrowser", "Script listener already unavailable", error); }
             }
         }
+        if (removeWebViewBindings && legacyListener) {
+            try { WebViewCompat.removeWebMessageListener(webView, JS_PORT); }
+            catch (RuntimeException error) { if (!privateMode) android.util.Log.w("NewsNookBrowser", "Script listener already unavailable", error); }
+        }
+        legacyListener = false;
         scriptHandlers.clear();
         listenerWorlds.clear();
         synchronized (menus) { menus.clear(); }

@@ -1,0 +1,218 @@
+[
+  {
+    "file": "browser-private-history-320-light.png",
+    "theme": "light",
+    "viewport": 320,
+    "content": 320,
+    "uiFont": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\", sans-serif",
+    "iconTargets": 11,
+    "undersizedIcons": [],
+    "checks": {
+      "left": 16,
+      "fieldLeft": 16,
+      "right": 304,
+      "fieldRight": 304
+    }
+  },
+  {
+    "file": "browser-private-lightbox-loading-320-light.png",
+    "theme": "light",
+    "viewport": 320,
+    "content": 320,
+    "uiFont": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\", sans-serif",
+    "iconTargets": 0,
+    "undersizedIcons": [],
+    "checks": {
+      "adjustmentDisabled": true,
+      "loadingText": true,
+      "closeTop": 64
+    }
+  },
+  {
+    "file": "browser-private-image-export-320-light.png",
+    "theme": "light",
+    "viewport": 320,
+    "content": 320,
+    "uiFont": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\", sans-serif",
+    "iconTargets": 0,
+    "undersizedIcons": [],
+    "checks": [
+      {
+        "label": "保存到相册",
+        "icon": "rgb(244, 245, 247)",
+        "labelColor": "rgb(244, 245, 247)",
+        "stroke": "rgb(244, 245, 247)",
+        "fill": "none"
+      },
+      {
+        "label": "分享",
+        "icon": "rgb(244, 245, 247)",
+        "labelColor": "rgb(244, 245, 247)",
+        "stroke": "rgb(244, 245, 247)",
+        "fill": "none"
+      }
+    ]
+  },
+  {
+    "file": "browser-private-history-320-dark.png",
+    "theme": "dark",
+    "viewport": 320,
+    "content": 320,
+    "uiFont": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\", sans-serif",
+    "iconTargets": 11,
+    "undersizedIcons": [],
+    "checks": {
+      "left": 16,
+      "fieldLeft": 16,
+      "right": 304,
+      "fieldRight": 304
+    }
+  },
+  {
+    "file": "browser-private-lightbox-loading-320-dark.png",
+    "theme": "dark",
+    "viewport": 320,
+    "content": 320,
+    "uiFont": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\", sans-serif",
+    "iconTargets": 0,
+    "undersizedIcons": [],
+    "checks": {
+      "adjustmentDisabled": true,
+      "loadingText": true,
+      "closeTop": 64
+    }
+  },
+  {
+    "file": "browser-private-image-export-320-dark.png",
+    "theme": "dark",
+    "viewport": 320,
+    "content": 320,
+    "uiFont": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\", sans-serif",
+    "iconTargets": 0,
+    "undersizedIcons": [],
+    "checks": [
+      {
+        "label": "保存到相册",
+        "icon": "rgb(244, 245, 247)",
+        "labelColor": "rgb(244, 245, 247)",
+        "stroke": "rgb(244, 245, 247)",
+        "fill": "none"
+      },
+      {
+        "label": "分享",
+        "icon": "rgb(244, 245, 247)",
+        "labelColor": "rgb(244, 245, 247)",
+        "stroke": "rgb(244, 245, 247)",
+        "fill": "none"
+      }
+    ]
+  },
+  {
+    "file": "browser-private-history-390-light.png",
+    "theme": "light",
+    "viewport": 390,
+    "content": 390,
+    "uiFont": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\", sans-serif",
+    "iconTargets": 11,
+    "undersizedIcons": [],
+    "checks": {
+      "left": 16,
+      "fieldLeft": 16,
+      "right": 374,
+      "fieldRight": 374
+    }
+  },
+  {
+    "file": "browser-private-lightbox-loading-390-light.png",
+    "theme": "light",
+    "viewport": 390,
+    "content": 390,
+    "uiFont": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\", sans-serif",
+    "iconTargets": 0,
+    "undersizedIcons": [],
+    "checks": {
+      "adjustmentDisabled": true,
+      "loadingText": true,
+      "closeTop": 64
+    }
+  },
+  {
+    "file": "browser-private-image-export-390-light.png",
+    "theme": "light",
+    "viewport": 390,
+    "content": 390,
+    "uiFont": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\", sans-serif",
+    "iconTargets": 0,
+    "undersizedIcons": [],
+    "checks": [
+      {
+        "label": "保存到相册",
+        "icon": "rgb(244, 245, 247)",
+        "labelColor": "rgb(244, 245, 247)",
+        "stroke": "rgb(244, 245, 247)",
+        "fill": "none"
+      },
+      {
+        "label": "分享",
+        "icon": "rgb(244, 245, 247)",
+        "labelColor": "rgb(244, 245, 247)",
+        "stroke": "rgb(244, 245, 247)",
+        "fill": "none"
+      }
+    ]
+  },
+  {
+    "file": "browser-private-history-390-dark.png",
+    "theme": "dark",
+    "viewport": 390,
+    "content": 390,
+    "uiFont": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\", sans-serif",
+    "iconTargets": 11,
+    "undersizedIcons": [],
+    "checks": {
+      "left": 16,
+      "fieldLeft": 16,
+      "right": 374,
+      "fieldRight": 374
+    }
+  },
+  {
+    "file": "browser-private-lightbox-loading-390-dark.png",
+    "theme": "dark",
+    "viewport": 390,
+    "content": 390,
+    "uiFont": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\", sans-serif",
+    "iconTargets": 0,
+    "undersizedIcons": [],
+    "checks": {
+      "adjustmentDisabled": true,
+      "loadingText": true,
+      "closeTop": 64
+    }
+  },
+  {
+    "file": "browser-private-image-export-390-dark.png",
+    "theme": "dark",
+    "viewport": 390,
+    "content": 390,
+    "uiFont": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", Arial, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\", sans-serif",
+    "iconTargets": 0,
+    "undersizedIcons": [],
+    "checks": [
+      {
+        "label": "保存到相册",
+        "icon": "rgb(244, 245, 247)",
+        "labelColor": "rgb(244, 245, 247)",
+        "stroke": "rgb(244, 245, 247)",
+        "fill": "none"
+      },
+      {
+        "label": "分享",
+        "icon": "rgb(244, 245, 247)",
+        "labelColor": "rgb(244, 245, 247)",
+        "stroke": "rgb(244, 245, 247)",
+        "fill": "none"
+      }
+    ]
+  }
+]

@@ -227,7 +227,9 @@ export class BrowserImageLoader {
     const keys = new Set(items.map(item => this.key(item, false)))
     this.memory.retainDisplay(keys)
     for (const job of [...this.jobs.values()]) {
-      if (job.request.thumbnail || job.original || keys.has(job.key)) continue
+      // Opening the viewer suspends the grid's outstanding work. A selected
+      // image must not wait behind off-screen thumbnails or their timeouts.
+      if (job.original || (job.request.thumbnail ? items.length === 0 : keys.has(job.key))) continue
       this.queue = this.queue.filter(queued => queued !== job)
       if (job.finish) {
         job.finish()
@@ -237,6 +239,9 @@ export class BrowserImageLoader {
         job.reject(new Error('图片读取已取消'))
       }
     }
+    const current = items[0]
+    const queuedCurrent = current ? this.queue.findIndex(job => job.key === this.key(current, false)) : -1
+    if (queuedCurrent > 0) this.queue.unshift(this.queue.splice(queuedCurrent, 1)[0])
     this.pump()
   }
 
@@ -260,7 +265,11 @@ export class BrowserImageLoader {
     const key = (original ? 'o:' : thumbnail ? 't:' : 'd:') + item.id
     const existing = this.jobs.get(key)
     if (existing) return existing.promise
-    if (this.queue.length >= 32) return Promise.reject(new Error('正在读取其他图片，请稍后重试'))
+    if (this.queue.length >= 32) {
+      const message = '正在读取其他图片，请稍后重试'
+      if (!original) { this.errors.set(key, message); this.changed() }
+      return Promise.reject(new Error(message))
+    }
     const request: BrowserImageLoadRequest = {
       tabId: this.snapshot.tabId, documentId: this.snapshot.documentId,
       imageId: item.id, requestId: 'image-' + Date.now().toString(36) + '-' + (++this.serial).toString(36),
@@ -271,7 +280,12 @@ export class BrowserImageLoader {
     const job = { key, request, original, resolve, reject, promise }
     this.jobs.set(key, job)
     if (thumbnail) this.queue.push(job)
-    else this.queue.unshift(job)
+    else if (original) this.queue.unshift(job)
+    else {
+      // Keep the current/previous/next order ahead of background thumbnails.
+      const firstThumbnail = this.queue.findIndex(queued => queued.request.thumbnail)
+      this.queue.splice(firstThumbnail < 0 ? this.queue.length : firstThumbnail, 0, job)
+    }
     this.pump()
     return promise
   }

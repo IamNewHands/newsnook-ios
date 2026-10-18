@@ -1,9 +1,14 @@
-export type BrowserSearchChoice = 'bing' | 'google' | 'baidu' | 'duckduckgo'
-export type BrowserUserAgentMode = 'system' | 'desktop' | 'custom'
+import { BROWSER_SEARCH_PROVIDERS, type BrowserSearchProvider } from './browserSearchCatalog'
+
+export type BrowserSearchChoice = BrowserSearchProvider['id']
+export type BrowserUserAgentMode = 'system' | 'android' | 'ios' | 'desktop' | 'custom'
+export type BrowserMobileUserAgentMode = Exclude<BrowserUserAgentMode, 'desktop'>
 
 /** Web-page options are separate from the existing search and layout keys. */
 export interface BrowserPreferences {
+  privateMode: boolean
   userAgentMode: BrowserUserAgentMode
+  lastNonDesktopUserAgentMode: BrowserMobileUserAgentMode
   customUserAgent: string
   textZoom: number
   javaScriptEnabled: boolean
@@ -24,7 +29,9 @@ export const BROWSER_KEYS = {
 } as const
 
 export const DEFAULT_BROWSER_PREFERENCES: Readonly<BrowserPreferences> = Object.freeze({
+  privateMode: false,
   userAgentMode: 'system',
+  lastNonDesktopUserAgentMode: 'system',
   customUserAgent: '',
   textZoom: 100,
   javaScriptEnabled: true,
@@ -34,12 +41,9 @@ export const DEFAULT_BROWSER_PREFERENCES: Readonly<BrowserPreferences> = Object.
   confirmExternalApps: true,
 })
 
-export const BROWSER_ENGINES: Record<BrowserSearchChoice, { name: string; url: string }> = {
-  bing: { name: 'Bing', url: 'https://www.bing.com/search?q=' },
-  google: { name: 'Google', url: 'https://www.google.com/search?q=' },
-  baidu: { name: '百度', url: 'https://www.baidu.com/s?wd=' },
-  duckduckgo: { name: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=' },
-}
+export const BROWSER_ENGINES = Object.fromEntries(BROWSER_SEARCH_PROVIDERS.map(provider =>
+  [provider.id, {name: provider.name, url: provider.queryPrefix}],
+)) as Record<BrowserSearchChoice, {name: string; url: string}>
 
 /** Match the native HTTP header boundary; never accept control characters. */
 export function validateBrowserUserAgent(value: string): string | null {
@@ -56,12 +60,17 @@ export function normalizeBrowserPreferences(value: unknown): BrowserPreferences 
   const defaults = DEFAULT_BROWSER_PREFERENCES
   const rawAgent = typeof source.customUserAgent === 'string' ? source.customUserAgent : ''
   const customUserAgent = validateBrowserUserAgent(rawAgent) === null ? rawAgent.trim() : ''
-  const userAgentMode = source.userAgentMode === 'desktop' ? 'desktop'
-    : source.userAgentMode === 'custom' && customUserAgent ? 'custom' : 'system'
+  const mobileMode = (mode: unknown): BrowserMobileUserAgentMode =>
+    mode === 'android' || mode === 'ios' ? mode : mode === 'custom' && customUserAgent ? 'custom' : 'system'
+  const userAgentMode = source.userAgentMode === 'desktop' ? 'desktop' : mobileMode(source.userAgentMode)
+  const lastNonDesktopUserAgentMode = userAgentMode === 'desktop'
+    ? mobileMode(source.lastNonDesktopUserAgentMode) : userAgentMode
   const boolean = (key: keyof BrowserPreferences): boolean =>
     typeof source[key] === 'boolean' ? source[key] as boolean : defaults[key] as boolean
   return {
+    privateMode: boolean('privateMode'),
     userAgentMode,
+    lastNonDesktopUserAgentMode,
     customUserAgent,
     textZoom: typeof source.textZoom === 'number' && Number.isFinite(source.textZoom)
       ? Math.max(75, Math.min(200, Math.round(source.textZoom))) : defaults.textZoom,
@@ -71,6 +80,13 @@ export function normalizeBrowserPreferences(value: unknown): BrowserPreferences 
     mediaPlaybackRequiresUserGesture: boolean('mediaPlaybackRequiresUserGesture'),
     confirmExternalApps: boolean('confirmExternalApps'),
   }
+}
+
+/** The settings page and page-menu shortcut share one reversible desktop transition. */
+export function toggleBrowserDesktopMode(value: BrowserPreferences): BrowserPreferences {
+  const current = normalizeBrowserPreferences(value)
+  return normalizeBrowserPreferences({...current, userAgentMode: current.userAgentMode === 'desktop'
+    ? current.lastNonDesktopUserAgentMode : 'desktop'})
 }
 
 export function loadBrowserPreferences(): BrowserPreferences {

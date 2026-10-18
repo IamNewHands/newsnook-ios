@@ -3,12 +3,12 @@ import { Capacitor } from '@capacitor/core'
 import { createRoot } from 'react-dom/client'
 import { BrowserSheet } from '../src/features/browser/BrowserPrimitives'
 import { BrowserSettingsPanel } from '../src/features/browser/BrowserSettingsPanel'
+import { BrowserSearchPanel } from '../src/features/browser/BrowserSearchPanel'
 import { BrowserTabsPanel } from '../src/features/browser/BrowserTabsPanel'
 import { BrowserWorkspace } from '../src/features/browser/BrowserWorkspace'
 import { BrowserImagesPanel } from '../src/features/browser/BrowserImagesPanel'
 import type { BrowserImageData, BrowserImageLoadRequest, BrowserImageSnapshot } from '../src/features/browser/browserImages'
-import type { BrowserContext } from '../src/features/browser/browserPrivacy'
-import { BROWSER_KEYS, DEFAULT_BROWSER_PREFERENCES, loadBrowserPreferences, saveBrowserPreferences, type BrowserSearchChoice } from '../src/features/browser/browserPreferences'
+import { BROWSER_ENGINES, BROWSER_KEYS, DEFAULT_BROWSER_PREFERENCES, loadBrowserPreferences, resolveBrowserAddress, saveBrowserPreferences, toggleBrowserDesktopMode, type BrowserSearchChoice } from '../src/features/browser/browserPreferences'
 import { useBrowserDialogFocus } from '../src/features/browser/useBrowserDialogFocus'
 import { InkVideoPlayer } from '../src/components/InkVideoPlayer'
 import { FloatingVideoProvider } from '../src/features/floatingVideo/FloatingVideoProvider'
@@ -24,19 +24,28 @@ declare global {
     __desktopChanges: number
     __videoManager: VideoSessionManager | null
     __openCastForTest: () => void
+    __searchSubmissions: string[]
+    __searchCloseCount: number
+    __failSearchSave: boolean
+    __imageExports: {action: 'save' | 'share'; name: string; type: string; bytes: number}[]
+    __imageLoadRequests: {imageId: string; thumbnail: boolean; original: boolean}[]
+    __releaseImageDisplay: () => void
+    __trustedBrowserClicks: string[]
   }
 }
 
-const scenario = new URLSearchParams(location.search).get('case') || 'sheet'
+const fixtureParams = new URLSearchParams(location.search)
+const scenario = fixtureParams.get('case') || 'sheet'
+const preserveStorage = fixtureParams.get('keepStorage') === '1'
 const source = '// ==UserScript==\n// @name Keyboard specimen\n// @version 1.0\n// @match https://example.com/*\n// ==/UserScript==\nvoid 0'
 if (scenario === 'scripts') saveUserScripts([installUserScript(source)])
-if (scenario === 'workspace') {
+if (scenario === 'workspace' && !preserveStorage) {
   localStorage.clear()
   const entries = [{ url: 'https://example.org/retained', title: '保留的文章', time: Date.now() }]
   localStorage.setItem(BROWSER_KEYS.history, JSON.stringify(entries))
   localStorage.setItem(BROWSER_KEYS.bookmarks, JSON.stringify(entries))
 }
-if (scenario.startsWith('theme-')) {
+if (scenario.startsWith('theme-') && !preserveStorage) {
   localStorage.clear()
   const entries = [
     { url: 'https://example.org/field-notes', title: '山野行记：在湖边停留的一个下午', time: Date.now() },
@@ -53,9 +62,45 @@ if (scenario.startsWith('theme-')) {
   ]))
   localStorage.setItem(BROWSER_KEYS.search, 'bing')
   localStorage.setItem(BROWSER_KEYS.addressPosition, 'bottom')
-  saveBrowserPreferences({ ...DEFAULT_BROWSER_PREFERENCES })
+  saveBrowserPreferences({ ...DEFAULT_BROWSER_PREFERENCES, privateMode: scenario.startsWith('theme-private-') })
+  if (scenario === 'theme-scripts') saveUserScripts([
+    installUserScript(source.replace('Keyboard specimen', '网页阅读辅助')),
+    installUserScript(source.replace('Keyboard specimen', '视频播放增强').replace('@version 1.0', '@version 2.1')),
+  ])
 }
 window.__desktopChanges = 0
+window.__searchSubmissions = []
+window.__searchCloseCount = 0
+window.__failSearchSave = false
+window.__imageExports = []
+window.__imageLoadRequests = []
+window.__trustedBrowserClicks = []
+document.addEventListener('click', event => {
+  const control = event.target instanceof Element ? event.target.closest('button') : null
+  if (event.isTrusted && control) window.__trustedBrowserClicks.push(control.getAttribute('aria-label') || control.textContent?.trim() || '')
+}, true)
+// Intercept only the fixture's generated download; real image preparation and
+// the application export adapter still execute, with no external file or recipient.
+if (scenario.includes('images')) {
+  document.addEventListener('click', event => {
+    const anchor = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[download]') : null
+    if (!anchor) return
+    event.preventDefault()
+    window.__imageExports.push({action: 'save', name: anchor.download,
+      type: anchor.href.match(/^data:([^;]+)/)?.[1] || '', bytes: atob(anchor.href.split(',')[1] || '').length})
+  }, true)
+  Object.defineProperty(navigator, 'canShare', {configurable: true, value: (data: ShareData) => Boolean(data.files?.length)})
+  Object.defineProperty(navigator, 'share', {configurable: true, value: async (data: ShareData) => {
+    const file = data.files?.[0]
+    if (!file) throw new Error('Fixture expected an image file')
+    window.__imageExports.push({action: 'share', name: file.name, type: file.type, bytes: file.size})
+    throw new DOMException('Fixture cancelled the share request', 'AbortError')
+  }})
+}
+let releaseImageDisplay: () => void = () => {}
+const imageDisplayGate = fixtureParams.get('holdImages') === '1'
+  ? new Promise<void>(resolve => {releaseImageDisplay = resolve}) : Promise.resolve()
+window.__releaseImageDisplay = () => releaseImageDisplay()
 const sampleVideo = scenario.startsWith('player-') ? await createSampleVideo() : ''
 
 async function createSampleVideo(): Promise<string> {
@@ -116,37 +161,64 @@ function PlayerFixture({onClose}: {onClose: () => void}) {
   </div>
 }
 
-function ThemeSettingsFixture() {
+function savedSearchChoice(): BrowserSearchChoice {
+  const saved = localStorage.getItem(BROWSER_KEYS.search)
+  return saved && Object.prototype.hasOwnProperty.call(BROWSER_ENGINES, saved) ? saved as BrowserSearchChoice : 'bing'
+}
+
+function ThemeSettingsFixture({pending = false}: {pending?: boolean}) {
   const [preferences, setPreferences] = useState(loadBrowserPreferences)
-  const [search, setSearch] = useState<BrowserSearchChoice>('bing')
-  const [bottomAddress, setBottomAddress] = useState(true)
-  const [privateMode, setPrivateMode] = useState(false)
-  const [historyCount, setHistoryCount] = useState(3)
+  const [search, setSearch] = useState<BrowserSearchChoice>(savedSearchChoice)
+  const [bottomAddress, setBottomAddress] = useState(() => localStorage.getItem(BROWSER_KEYS.addressPosition) !== 'top')
+  const [historyCount, setHistoryCount] = useState(() => JSON.parse(localStorage.getItem(BROWSER_KEYS.history) || '[]').length)
   const [hasPage, setHasPage] = useState(true)
-  return <BrowserSettingsPanel search={search} bottomAddress={bottomAddress}
+  return <BrowserSettingsPanel search={search} bottomAddress={bottomAddress} pending={pending}
     desktop={preferences.userAgentMode === 'desktop'} hasPage={hasPage} historyCount={historyCount}
-    preferences={preferences} privateMode={privateMode} currentSite="https://example.org/field-notes"
-    onBack={() => {}} onPrivateModeChange={setPrivateMode}
+    preferences={preferences} privateMode={preferences.privateMode} currentSite="https://example.org/field-notes"
+    onBack={() => {}} onPrivateModeChange={next => {
+      const saved = saveBrowserPreferences({...preferences, privateMode: next})
+      setPreferences(saved)
+      return true
+    }}
     onSearchChange={next => {
       localStorage.setItem(BROWSER_KEYS.search, next)
       setSearch(next)
+      return true
     }}
     onAddressPositionChange={next => {
       localStorage.setItem(BROWSER_KEYS.addressPosition, next ? 'bottom' : 'top')
       setBottomAddress(next)
     }}
     onPreferencesChange={async next => {
-      const saved = privateMode ? { ...next } : saveBrowserPreferences(next)
+      const saved = saveBrowserPreferences(next)
+      if (saved.userAgentMode !== preferences.userAgentMode) window.__desktopChanges++
       setPreferences(saved)
       return true
     }}
-    onDesktopChange={() => {
-      const saved = saveBrowserPreferences({ ...preferences, userAgentMode: preferences.userAgentMode === 'desktop' ? 'system' : 'desktop' })
-      setPreferences(saved)
-    }}
+    onDesktopChange={() => setPreferences(saveBrowserPreferences(toggleBrowserDesktopMode(preferences)))}
     onClearHistory={() => { localStorage.removeItem(BROWSER_KEYS.history); setHistoryCount(0) }}
     onClearSiteData={() => setHasPage(false)}
   />
+}
+
+function ThemeSearchFixture() {
+  const [engine, setEngine] = useState<BrowserSearchChoice>(savedSearchChoice)
+  const [open, setOpen] = useState(true)
+  return open ? <BrowserSearchPanel current="" initialValue="" engine={engine} history={[]}
+    pending={false} error="" privateMode={loadBrowserPreferences().privateMode}
+    onClose={() => {window.__searchCloseCount++; setOpen(false)}} onCopy={() => {}}
+    onEngineChange={next => {
+      if (window.__failSearchSave) return false
+      localStorage.setItem(BROWSER_KEYS.search, next)
+      setEngine(next)
+      return true
+    }}
+    onOpen={async value => {
+      const address = resolveBrowserAddress(value, engine)
+      if (!address) return false
+      window.__searchSubmissions.push(address)
+      return true
+    }}/> : null
 }
 
 // Deterministic in-memory raster specimens exercise the real bounded image loader.
@@ -215,6 +287,8 @@ if (scenario.includes('images')) {
   })
 }
 async function loadSpecimenImage(request: BrowserImageLoadRequest): Promise<BrowserImageData> {
+  window.__imageLoadRequests.push({imageId: request.imageId, thumbnail: request.thumbnail, original: Boolean(request.original)})
+  if (!request.thumbnail && !request.original) await imageDisplayGate
   const data = specimenData.get(request.imageId)
   if (!data) throw new Error('找不到测试图片')
   return { ...data, tabId: request.tabId, documentId: request.documentId,
@@ -222,16 +296,12 @@ async function loadSpecimenImage(request: BrowserImageLoadRequest): Promise<Brow
 }
 function ThemeImagesFixture() {
   const [snapshot, setSnapshot] = useState(imageSnapshot)
+  // Match BrowserWorkspace: a saved recording preference does not create an
+  // isolated image session or add a second confirmation before explicit export.
   return <BrowserImagesPanel snapshot={snapshot} scanning={false} error={null}
-    privateMode={scenario === 'theme-private-images'}
     onScan={() => setSnapshot({ ...imageSnapshot, requestId: 'visual-rescan-' + Date.now() })}
     onClose={() => {}} loadImage={loadSpecimenImage} cancelImageRequests={async () => {}}
   />
-}
-const privateContext: BrowserContext = {
-  privateMode: true, settings: { ...DEFAULT_BROWSER_PREFERENCES },
-  ui: { search: 'bing', bottomAddress: true },
-  privacyCapabilities: { privateMode: true, clearSiteData: false },
 }
 
 export function Fixture() {
@@ -254,8 +324,11 @@ export function Fixture() {
     </div>
     <div className="browser-workspace fixed inset-0 bg-ink text-paper">
       {scenario === 'theme-settings' ? <ThemeSettingsFixture />
+        : scenario === 'theme-search' ? <ThemeSearchFixture />
+        : scenario === 'theme-scripts' ? <ScriptManager onClose={() => {}} onChanged={() => {}}
+          pageStatus={{active: 1, matched: 2, loading: false}} onReload={async () => true}/>
         : scenario === 'theme-home' || scenario === 'theme-private-home'
-          ? <BrowserWorkspace onExit={() => {}} privateContext={scenario === 'theme-private-home' ? privateContext : undefined}/>
+          ? <BrowserWorkspace onExit={() => {}}/>
           : scenario === 'theme-images' || scenario === 'theme-private-images'
             ? <ThemeImagesFixture />
             : <BrowserTabsPanel
@@ -271,11 +344,7 @@ export function Fixture() {
   return <>
     <button id="opener" onClick={() => setOpen(true)}>打开测试弹层</button>
     <button id="background">背景操作</button>
-    {scenario === 'settings' && <BrowserSettingsPanel
-      search="bing" bottomAddress={false} desktop={false} hasPage pending historyCount={0}
-      onBack={() => {}} onSearchChange={() => {}} onAddressPositionChange={() => {}}
-      onDesktopChange={() => { window.__desktopChanges++ }} onClearHistory={() => {}}
-    />}
+    {scenario === 'settings' && <ThemeSettingsFixture pending/>}
     {open && scenario === 'workspace' && <BrowserWorkspace onExit={() => setOpen(false)} />}
     {open && scenario === 'scripts' && <ScriptManager onClose={() => setOpen(false)} onChanged={() => {}} />}
     {open && scenario !== 'scripts' && scenario !== 'settings' && scenario !== 'workspace' && <BrowserSheet title="测试弹层" onClose={() => setOpen(false)}>

@@ -133,6 +133,42 @@ try {
   switching.cancelExports()
   assert.equal(await exportPromise, '图片读取已取消', 'closing a viewer cancels an original-byte request before any export')
   switching.close()
+
+  const busyRequests: { request: BrowserImageLoadRequest; resolve: (data: BrowserImageData) => void }[] = []
+  const busyCancelled: BrowserImageLoadRequest[] = []
+  const crowded = new BrowserImageLoader(snapshot, req => new Promise(resolve => busyRequests.push({ request: req, resolve })),
+    async req => { if ('imageId' in req) busyCancelled.push(req as BrowserImageLoadRequest) }, () => {})
+  const thumbnails = Array.from({ length: 34 }, (_, index) => crowded.load(candidate('grid-' + index), true).catch(error => error.message))
+  await Promise.resolve()
+  assert.equal(busyRequests.length, 2, 'the grid can have two slow thumbnails and a full waiting queue')
+  const chosen = candidate('chosen')
+  crowded.displayWindow([chosen, snapshot.items[0], snapshot.items[1]])
+  const foreground = crowded.load(chosen, false).catch(error => error.message)
+  const previous = crowded.load(snapshot.items[0], false).catch(error => error.message)
+  const next = crowded.load(snapshot.items[1], false).catch(error => error.message)
+  await Promise.resolve()
+  assert.equal(busyRequests[2]?.request.imageId, chosen.id,
+    'opening a main image dispatches it before unresolved grid thumbnails, even when their queue was full')
+  assert.equal(busyCancelled.filter(req => req.thumbnail).length, 2,
+    'leaving the grid cancels its running thumbnail reads instead of waiting for their network timeout')
+  busyRequests[0].resolve(response(busyRequests[0].request))
+  busyRequests[1].resolve(response(busyRequests[1].request))
+  busyRequests[2].resolve(response(busyRequests[2].request))
+  await foreground
+  await Promise.resolve()
+  assert.ok(crowded.cached(chosen, false), 'the selected image gets a display URL while old thumbnail replies are discarded')
+  assert.equal(crowded.cached(candidate('grid-0'), true), undefined)
+  crowded.close()
+  await Promise.all([...thumbnails, previous, next])
+
+  const bounded = new BrowserImageLoader(snapshot, () => new Promise(() => {}), async () => {}, () => {})
+  const queued = Array.from({ length: 34 }, (_, index) => bounded.load(candidate('queued-' + index), true).catch(error => error.message))
+  const refused = candidate('refused')
+  await assert.rejects(bounded.load(refused, false), /请稍后重试/)
+  assert.match(bounded.error(refused, false) ?? '', /请稍后重试/,
+    'a budget rejection must become a visible retryable error, never an empty main-image URL with endless loading')
+  bounded.close()
+  await Promise.all(queued)
 } finally {
   URL.createObjectURL = create
   URL.revokeObjectURL = revoke

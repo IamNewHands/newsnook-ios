@@ -13,47 +13,47 @@ export function BrowserStartPage({
   onPanel: (panel: 'history' | 'bookmarks' | 'scripts') => void; privateMode?: boolean
 }) {
   const [managing, setManaging] = useState(false)
-  const canManage = managing && !privateMode
+  const canManage = managing
   return <div className="browser-start">
     <div className="browser-start-brand">
       <img src="/favicon.svg" alt=""/>
-      <div><h1>{privateMode ? '隐私浏览' : '浏览器'}</h1>{privateMode && <p>关闭后清除本次会话</p>}</div>
+      <div><h1>{privateMode ? '隐私浏览' : '浏览器'}</h1>{privateMode && <p>不保存搜索和浏览记录</p>}</div>
     </div>
     <button type="button" aria-label="首页搜索或输入网址" onClick={onSearch} className="browser-start-search">
       <Search size={21} strokeWidth={1.8} aria-hidden="true"/>
       <span>搜索或输入网址</span>
       <ArrowRight size={20} strokeWidth={1.8} aria-hidden="true"/>
     </button>
-    {!privateMode && <div className="browser-start-navigation">
+    <div className="browser-start-navigation">
       {([{label:'书签',panel:'bookmarks',icon:Bookmark},{label:'历史',panel:'history',icon:Clock3},{label:'用户脚本',panel:'scripts',icon:ShieldCheck}] as const).map(item =>
         <button key={item.panel} type="button" onClick={() => onPanel(item.panel)}>
           <item.icon size={18} strokeWidth={1.8} aria-hidden="true"/><span>{item.label}</span>
         </button>)}
-    </div>}
+    </div>
 
-    {(!privateMode || shortcuts.length > 0) && <section className="browser-start-section" aria-labelledby="browser-shortcuts-title">
+    <section className="browser-start-section" aria-labelledby="browser-shortcuts-title">
       <div className="browser-section-heading">
         <h2 id="browser-shortcuts-title">快捷访问</h2>
-        {!privateMode && <button type="button" aria-pressed={canManage} onClick={() => setManaging(!managing)}
-          className="browser-text-button">{canManage ? '完成' : '管理'}</button>}
+        <button type="button" aria-pressed={canManage} onClick={() => setManaging(!managing)}
+          className="browser-text-button">{canManage ? '完成' : '管理'}</button>
       </div>
       <div className="browser-shortcut-grid">
         {shortcuts.map((shortcut, index) => <button key={shortcut.url} type="button" title={shortcut.name}
           aria-label={canManage ? '管理快捷方式：' + shortcut.name : shortcut.name}
-          onContextMenu={event => {event.preventDefault(); if (!privateMode) onShortcutOptions(index)}}
+          onContextMenu={event => {event.preventDefault(); onShortcutOptions(index)}}
           onClick={() => canManage ? onShortcutOptions(index) : onOpen(shortcut.url)} className="browser-shortcut">
           <BrowserSiteIcon url={shortcut.url} name={shortcut.name} allowRemote={!privateMode}/>
           {canManage && <span className="browser-shortcut-edit" aria-hidden="true"><MoreHorizontal size={14}/></span>}
           <span className="browser-shortcut-label">{shortcut.name}</span>
         </button>)}
-        {!privateMode && shortcuts.length < 8 && <button type="button" aria-label="添加快捷方式" onClick={onAddShortcut}
+        {shortcuts.length < 8 && <button type="button" aria-label="添加快捷方式" onClick={onAddShortcut}
           className="browser-shortcut browser-shortcut-add">
           <span className="browser-shortcut-add-icon"><Plus size={23} strokeWidth={1.7} aria-hidden="true"/></span>
           <span className="browser-shortcut-label">添加</span>
         </button>}
       </div>
       {canManage && <p role="status" className="browser-start-help"><Check size={15} aria-hidden="true"/>点按快捷方式进行编辑或排序</p>}
-    </section>}
+    </section>
 
     {!privateMode && <section className="browser-start-section" aria-labelledby="browser-recent-title">
       <div className="browser-section-heading">

@@ -181,7 +181,7 @@ public class BrowserSiteDataLifecycleTest {
     }
 
     @Test public void appShellHostIsProtectedBeforeDeletionAcrossSchemesAndPorts() throws Exception {
-        appUrls = java.util.Arrays.asList("https://localhost/", null, "https://localhost/#private-browser");
+        appUrls = java.util.Arrays.asList("https://localhost/", null, "https://localhost/#reader");
         WebView page = open("http://localhost:8137/unsafe");
         android.webkit.CookieManager cookies = android.webkit.CookieManager.getInstance();
         cookies.setCookie("https://localhost/", "app_session=preserve; Path=/");
@@ -205,7 +205,7 @@ public class BrowserSiteDataLifecycleTest {
     }
 
     @Test public void separateIpSiteCanBeClearedWhileLocalhostAppStorageIsProtected() throws Exception {
-        appUrls = java.util.Arrays.asList("https://localhost/", "https://localhost/#private-browser");
+        appUrls = java.util.Arrays.asList("https://localhost/", "https://localhost/#reader");
         DeferredSiteDeletion.returnedSite = "127.0.0.1";
         WebView page = open("http://127.0.0.1:8137/clear");
         Call clearing = clear("http://127.0.0.1:8137/clear");

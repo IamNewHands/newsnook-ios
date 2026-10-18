@@ -49,10 +49,17 @@ export interface LogController {
 
 const LOG_STORAGE_KEY = 'newsnook:log'
 
-// This only suppresses diagnostics; native context independently authorizes private browsing.
-// Check the initial fragment before ordinary modules or stored log configuration are loaded.
-function isPrivateBrowserShell(): boolean {
-  return typeof window !== 'undefined' && window.location?.hash === '#private-browser'
+let privateBrowserScopes = 0
+
+/** Suppress page diagnostics while private browser work is active, without changing saved settings. */
+export function suppressBrowserLogs(): () => void {
+  privateBrowserScopes++
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    privateBrowserScopes--
+  }
 }
 
 const LEVEL_RANK: Record<LogLevel, number> = {
@@ -81,7 +88,6 @@ const ALL_NAMESPACES: LogNamespace[] = [
 ]
 
 function defaultLevel(): LogLevel {
-  if (isPrivateBrowserShell()) return 'silent'
   const env = (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env
   return env?.DEV ? 'debug' : 'warn'
 }
@@ -162,7 +168,6 @@ function parseUrlConfig(): Partial<LogConfig> | null {
 
 function loadInitialConfig(): LogConfig {
   const config = defaultConfig()
-  if (isPrivateBrowserShell()) return config
   const stored =
     typeof localStorage !== 'undefined' ? parseStoredConfig(localStorage.getItem(LOG_STORAGE_KEY)) : null
   if (stored?.level) config.level = stored.level
@@ -176,7 +181,7 @@ function loadInitialConfig(): LogConfig {
 let activeConfig: LogConfig = loadInitialConfig()
 
 function persistConfig(config: LogConfig): void {
-  if (isPrivateBrowserShell() || typeof localStorage === 'undefined') return
+  if (typeof localStorage === 'undefined') return
   try {
     localStorage.setItem(LOG_STORAGE_KEY, JSON.stringify(config))
   } catch {
@@ -189,7 +194,7 @@ function namespaceEnabled(config: LogConfig, namespace: LogNamespace): boolean {
 }
 
 function shouldEmit(config: LogConfig, level: LogLevel, namespace: LogNamespace): boolean {
-  if (isPrivateBrowserShell()) return false
+  if (privateBrowserScopes > 0) return false
   if (!namespaceEnabled(config, namespace)) return false
   return LEVEL_RANK[level] <= LEVEL_RANK[config.level]
 }
@@ -253,7 +258,7 @@ export const logController: LogController = {
   },
   reset() {
     activeConfig = defaultConfig()
-    if (!isPrivateBrowserShell() && typeof localStorage !== 'undefined') {
+    if (typeof localStorage !== 'undefined') {
       try {
         localStorage.removeItem(LOG_STORAGE_KEY)
       } catch {

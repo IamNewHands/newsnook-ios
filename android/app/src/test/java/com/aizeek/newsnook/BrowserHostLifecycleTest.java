@@ -108,16 +108,20 @@ public class BrowserHostLifecycleTest {
     @org.robolectric.annotation.Implements(android.webkit.CookieManager.class)
     public static class CookiesWithPerViewPolicy extends org.robolectric.shadows.ShadowCookieManager {
         private static android.webkit.CookieManager instance;
+        static int failOnPolicyCall;
         @org.robolectric.annotation.Implementation
         protected static android.webkit.CookieManager getInstance() {
             if (instance == null) instance = new android.webkit.RoboCookieManager() {
                 private final java.util.Map<WebView, Boolean> policy = new java.util.IdentityHashMap<>();
-                @Override public void setAcceptThirdPartyCookies(WebView view, boolean accept) { policy.put(view, accept); }
+                @Override public void setAcceptThirdPartyCookies(WebView view, boolean accept) {
+                    if (failOnPolicyCall > 0 && --failOnPolicyCall == 0) throw new IllegalStateException("provider policy failure");
+                    policy.put(view, accept);
+                }
                 @Override public boolean acceptThirdPartyCookies(WebView view) { return Boolean.TRUE.equals(policy.get(view)); }
             };
             return instance;
         }
-        @org.robolectric.annotation.Resetter public static void resetPolicy() { instance = null; }
+        @org.robolectric.annotation.Resetter public static void resetPolicy() { instance = null; failOnPolicyCall = 0; }
     }
 
     @Test
@@ -140,15 +144,53 @@ public class BrowserHostLifecycleTest {
         assertTrue(android.webkit.CookieManager.getInstance().acceptThirdPartyCookies(view));
     }
 
-    @Test public void requestingPrivateModeCannotReuseTheOrdinaryProcess() throws Exception {
+    @Test public void privacySettingKeepsThePageAndNeverBackfillsPrivateVisits() throws Exception {
         assertNull(open("https://example.com/ordinary").error);
-        WebView ordinary = currentView();
-        Call privateOpen = new Call("open", new JSObject().put("url", "https://example.com/private")
-            .put("embedded", true).put("privateMode", true));
-        host.open(privateOpen);
-        await(privateOpen);
-        assertNotNull("privacy must require a dedicated native process", privateOpen.error);
-        assertSame("a rejected private request must preserve the ordinary tab", ordinary, currentView());
+        WebView view = currentView();
+        view.getWebViewClient().onPageStarted(view, "https://example.com/ordinary", null);
+        int id = state().getInt("tabId");
+        Call enabled = new Call("updateSettings", new JSObject().put("settings", new JSObject().put("privateMode", true)));
+        host.updateSettings(enabled);
+        await(enabled);
+        assertNull(enabled.error);
+        assertSame("privacy is a recording policy for the current WebView", view, currentView());
+        assertEquals(id, state().getInt("tabId"));
+        assertTrue("privacy persists without creating another Activity", state().getBoolean("privateMode", false));
+        assertTrue(activity.getSharedPreferences("newsnook-native-browser", Context.MODE_PRIVATE).getBoolean("privacy-enabled", false));
+        view.getWebViewClient().onPageStarted(view, "https://example.com/private", null);
+        Call disabled = new Call("updateSettings", new JSObject().put("settings", new JSObject().put("privateMode", false)));
+        host.updateSettings(disabled);
+        await(disabled);
+        view.getWebViewClient().onPageFinished(view, "https://example.com/private");
+        assertFalse("a late private page completion cannot become public history", state().getBoolean("recordHistory", true));
+        host.captureRecoverySession();
+        Call privateRecovery = new Call("takeRecoverySession", new JSObject());
+        host.takeRecoverySession(privateRecovery);
+        assertTrue("private document metadata cannot enter recovery after the switch is off", privateRecovery.result.isNull("session"));
+        view.getWebViewClient().onPageStarted(view, "https://example.com/next-public", null);
+        view.getWebViewClient().onPageFinished(view, "https://example.com/next-public");
+        assertTrue("a new public navigation can be recorded", state().getBoolean("recordHistory", false));
+    }
+
+    @Test public void mobileAgentChoicesAreAcceptedAndHaveConsistentPageSettings() throws Exception {
+        for (String mode : new String[] {"android", "ios", "desktop", "system"}) {
+            Call opening = new Call("open", new JSObject().put("url", "https://example.com/profile")
+                .put("embedded", true).put("settings", new JSObject().put("userAgentMode", mode)));
+            host.open(opening);
+            await(opening);
+            assertNull("the selected browser identity must be supported: " + mode, opening.error);
+            String agent = currentView().getSettings().getUserAgentString();
+            if ("android".equals(mode)) {
+                assertTrue(agent.contains("Android"));
+                assertFalse(agent.contains("; wv"));
+            } else if ("ios".equals(mode)) assertTrue(agent.contains("iPhone"));
+            else if ("desktop".equals(mode)) {
+                assertFalse(agent.contains("Android"));
+                assertFalse(agent.contains(" Mobile "));
+                assertTrue(currentView().getSettings().getUseWideViewPort());
+                assertTrue(currentView().getSettings().getLoadWithOverviewMode());
+            }
+        }
     }
 
     @Test public void invalidCustomAgentCannotReplaceOrMutateTheCurrentSession() throws Exception {
@@ -380,7 +422,71 @@ public class BrowserHostLifecycleTest {
         assertEquals(events, host.events.size());
     }
 
-    @Test public void updatingScriptsKeepsTheWebViewAndClosesThePreviousRuntime() throws Exception {
+    @Test
+    @Config(shadows = CookiesWithPerViewPolicy.class)
+    public void failedPrivacyChangeRestoresAllTabsAndThePersistedPreference() throws Exception {
+        assertNull(open("https://example.com/one").error);
+        WebView first = currentView();
+        Call add = new Call("navigate", new JSObject().put("action", "new"));
+        host.navigate(add);
+        await(add);
+        WebView second = currentView();
+        Call enable = new Call("updateSettings", new JSObject().put("settings", new JSObject().put("privateMode", true)));
+        host.updateSettings(enable);
+        await(enable);
+        assertNull(enable.error);
+        CookiesWithPerViewPolicy.failOnPolicyCall = 2;
+        Call disable = new Call("updateSettings", new JSObject().put("settings", new JSObject().put("privateMode", false)));
+        host.updateSettings(disable);
+        await(disable);
+        assertNotNull("a partial provider failure is reported", disable.error);
+        assertTrue(BrowserHostPlugin.isPrivacyModeEnabled(activity));
+        assertTrue(state().getBoolean("privateMode"));
+        assertFalse(state().getBoolean("recordHistory"));
+        assertSame(second, currentView());
+        assertEquals(android.webkit.WebSettings.LOAD_NO_CACHE, first.getSettings().getCacheMode());
+        assertEquals(android.webkit.WebSettings.LOAD_NO_CACHE, second.getSettings().getCacheMode());
+        Field settings = BrowserHostPlugin.class.getDeclaredField("browserSettings");
+        settings.setAccessible(true);
+        assertTrue(((BrowserHostPlugin.BrowserSettings) settings.get(host)).privateMode);
+        Field allTabs = BrowserHostPlugin.class.getDeclaredField("tabs");
+        allTabs.setAccessible(true);
+        for (Object tab : (List<?>) allTabs.get(host)) {
+            Field runtime = tab.getClass().getDeclaredField("runtime");
+            runtime.setAccessible(true);
+            UserscriptRuntime value = (UserscriptRuntime) runtime.get(tab);
+            if (value == null) continue;
+            Field mode = UserscriptRuntime.class.getDeclaredField("privateMode");
+            mode.setAccessible(true);
+            assertTrue("every existing runtime returns to temporary storage", mode.getBoolean(value));
+        }
+    }
+
+    @org.robolectric.annotation.Implements(value = androidx.webkit.WebViewFeature.class, isInAndroidSdk = false)
+    public static class DocumentStartFeatures {
+        @org.robolectric.annotation.Implementation public static boolean isFeatureSupported(String feature) {
+            return androidx.webkit.WebViewFeature.DOCUMENT_START_SCRIPT.equals(feature)
+                || androidx.webkit.WebViewFeature.WEB_MESSAGE_LISTENER.equals(feature);
+        }
+    }
+
+    @org.robolectric.annotation.Implements(value = androidx.webkit.WebViewCompat.class, isInAndroidSdk = false)
+    public static class DocumentStartBindings {
+        static final List<String> sources = new ArrayList<>();
+        @org.robolectric.annotation.Implementation public static void addWebMessageListener(WebView view, String name,
+                java.util.Set<String> origins, androidx.webkit.WebViewCompat.WebMessageListener listener) { }
+        @org.robolectric.annotation.Implementation public static androidx.webkit.ScriptHandler addDocumentStartJavaScript(
+                WebView view, String source, java.util.Set<String> origins) {
+            sources.add(source);
+            return () -> {};
+        }
+        @org.robolectric.annotation.Implementation public static void removeWebMessageListener(WebView view, String name) { }
+        @org.robolectric.annotation.Resetter public static void resetBindings() { sources.clear(); }
+    }
+
+    @Test
+    @Config(instrumentedPackages = {"androidx.webkit"}, shadows = {DocumentStartFeatures.class, DocumentStartBindings.class})
+    public void updatingScriptsKeepsTheWebViewAndClosesThePreviousRuntime() throws Exception {
         assertNull(open("https://example.com/").error);
         WebView view = currentView();
         Field currentField = BrowserHostPlugin.class.getDeclaredField("current");
@@ -389,9 +495,18 @@ public class BrowserHostLifecycleTest {
         Field runtimeField = tab.getClass().getDeclaredField("runtime");
         runtimeField.setAccessible(true);
         UserscriptRuntime previous = (UserscriptRuntime) runtimeField.get(tab);
-        Call update = new Call("updateScripts", new JSObject().put("scripts", new com.getcapacitor.JSArray()));
+        Call unchanged = new Call("updateScripts", new JSObject().put("scripts", new com.getcapacitor.JSArray()));
+        host.updateScripts(unchanged);
+        assertTrue(unchanged.resolved);
+        assertSame("unchanged snapshots keep the existing page runtime alive", previous, runtimeField.get(tab));
+        com.getcapacitor.JSArray changed = new com.getcapacitor.JSArray();
+        changed.put(new JSObject().put("id", "us-reload-script").put("name", "Reload script").put("enabled", true)
+            .put("source", "void 0").put("matches", new com.getcapacitor.JSArray().put("https://example.com/*"))
+            .put("grants", new com.getcapacitor.JSArray().put("none")));
+        Call update = new Call("updateScripts", new JSObject().put("scripts", changed));
         host.updateScripts(update);
         assertTrue(update.resolved);
+        assertSame("saving a changed script preserves the current document runtime until navigation", previous, runtimeField.get(tab));
         Call navigate = new Call("navigate", new JSObject().put("action", "url").put("url", "https://example.com/updated"));
         host.navigate(navigate);
         long deadline = System.nanoTime() + 5_000_000_000L;
@@ -403,6 +518,34 @@ public class BrowserHostLifecycleTest {
         assertSame("script updates must preserve the WebView's navigation history", view, currentView());
         assertFalse("the previous runtime must not retain privileged callbacks", previous.install());
         assertNotSame(previous, runtimeField.get(tab));
+    }
+
+    @Test
+    @Config(instrumentedPackages = {"androidx.webkit"}, shadows = {DocumentStartFeatures.class, DocumentStartBindings.class})
+    public void newerScriptsDuringPreparationAreInstalledBeforeThePendingDocument() throws Exception {
+        Call opening = new Call("open", new JSObject().put("url", "https://example.com/pending").put("embedded", true));
+        host.open(opening);
+        WebView view = currentView();
+        com.getcapacitor.JSArray latest = new com.getcapacitor.JSArray();
+        latest.put(new JSObject().put("id", "us-latest-script").put("name", "Latest script").put("enabled", true)
+            .put("source", "void 0").put("matches", new com.getcapacitor.JSArray().put("https://example.com/*"))
+            .put("grants", new com.getcapacitor.JSArray().put("none")));
+        Call update = new Call("updateScripts", new JSObject().put("scripts", latest));
+        host.updateScripts(update);
+        await(opening);
+        assertNull(opening.error);
+        assertSame(view, currentView());
+        assertEquals("https://example.com/pending", view.getUrl());
+        assertEquals(1, state().getInt("matchedScriptCount"));
+        assertTrue("the latest body is registered for the pending document", DocumentStartBindings.sources.stream().anyMatch(source -> source.contains("us-latest-script")));
+        Field current = BrowserHostPlugin.class.getDeclaredField("current");
+        current.setAccessible(true);
+        Object tab = current.get(host);
+        Field installed = tab.getClass().getDeclaredField("scriptVersion");
+        installed.setAccessible(true);
+        Field version = BrowserHostPlugin.class.getDeclaredField("scriptVersion");
+        version.setAccessible(true);
+        assertEquals("a stale prepare completion cannot execute a pending load", version.getInt(host), installed.getInt(tab));
     }
 
     @Test public void throwingFullscreenCallbackCannotInterruptBrowserCleanup() throws Exception {

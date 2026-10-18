@@ -69,6 +69,8 @@ public class BrowserHostPlugin extends Plugin {
     static final class BrowserSettings {
         final String userAgentMode;
         final String customUserAgent;
+        final String lastNonDesktopUserAgentMode;
+        final boolean privateMode;
         final int textZoom;
         final boolean javaScriptEnabled;
         final boolean loadsImagesAutomatically;
@@ -79,13 +81,18 @@ public class BrowserHostPlugin extends Plugin {
         BrowserSettings(JSObject requested) {
             JSObject values = requested == null ? new JSObject() : requested;
             String mode = values.optString("userAgentMode", "system");
-            if (!"system".equals(mode) && !"desktop".equals(mode) && !"custom".equals(mode))
+            if (!java.util.Arrays.asList("system", "android", "ios", "desktop", "custom").contains(mode))
                 throw new IllegalArgumentException("无效的浏览器标识模式");
             userAgentMode = mode;
             customUserAgent = values.optString("customUserAgent", "").trim();
             if ("custom".equals(mode) && (customUserAgent.isEmpty() || customUserAgent.length() > 512
                     || !customUserAgent.matches("[\\x20-\\x7e]+")))
                 throw new IllegalArgumentException("自定义浏览器标识须为 1–512 个可见英文字符，不能换行");
+            String previous = values.optString("lastNonDesktopUserAgentMode", "system");
+            if (!java.util.Arrays.asList("system", "android", "ios", "custom").contains(previous)
+                    || ("custom".equals(previous) && customUserAgent.isEmpty())) previous = "system";
+            lastNonDesktopUserAgentMode = "desktop".equals(mode) ? previous : mode;
+            privateMode = values.optBoolean("privateMode", false);
             textZoom = Math.max(75, Math.min(200, values.optInt("textZoom", 100)));
             javaScriptEnabled = values.optBoolean("javaScriptEnabled", true);
             loadsImagesAutomatically = values.optBoolean("loadsImagesAutomatically", true);
@@ -96,6 +103,7 @@ public class BrowserHostPlugin extends Plugin {
 
         JSObject toJson() {
             return new JSObject().put("userAgentMode", userAgentMode).put("customUserAgent", customUserAgent)
+                .put("lastNonDesktopUserAgentMode", lastNonDesktopUserAgentMode).put("privateMode", privateMode)
                 .put("textZoom", textZoom).put("javaScriptEnabled", javaScriptEnabled)
                 .put("loadsImagesAutomatically", loadsImagesAutomatically)
                 .put("thirdPartyCookiesEnabled", thirdPartyCookiesEnabled)
@@ -114,7 +122,6 @@ public class BrowserHostPlugin extends Plugin {
         // A tab outlives its renderer. Clear this reference before releasing callbacks.
         volatile WebView webView;
         final int id;
-        String mobileUserAgent;
         String userAgentMode = "system";
         String findQuery = "";
         int findMatch = -1;
@@ -132,6 +139,10 @@ public class BrowserHostPlugin extends Plugin {
         boolean loading;
         boolean preparing;
         boolean hasLoaded;
+        boolean recordHistory = true;
+        int documentScriptVersion = -1;
+        boolean freshDocumentRequired;
+        BrowserPageProfile pageProfile;
         boolean siteDataClearing;
         boolean recreateAfterSiteClear;
         int progress;
@@ -207,69 +218,36 @@ public class BrowserHostPlugin extends Plugin {
         else mainHandler.post(guarded);
     }
 
-    private boolean privateMode() {
-        // Privacy remains true through teardown; ending a session must never re-enable
-        // history/recovery writes or console forwarding for late renderer callbacks.
-        return getActivity() instanceof PrivateBrowserActivity;
+    public static boolean isPrivacyModeEnabled(Context context) {
+        return context != null && context.getSharedPreferences("newsnook-native-browser", Context.MODE_PRIVATE)
+            .getBoolean("privacy-enabled", false);
+    }
+
+    private boolean privateMode() { return isPrivacyModeEnabled(getContext()); }
+
+    private void savePrivacyPreference(boolean enabled) {
+        SharedPreferences local = getContext().getSharedPreferences("newsnook-native-browser", Context.MODE_PRIVATE);
+        if (local.getBoolean("privacy-enabled", false) != enabled
+                && !local.edit().putBoolean("privacy-enabled", enabled).commit())
+            throw new IllegalStateException("隐私设置保存失败，请重试");
+        if (enabled) {
+            pendingRecoverySession.set(null);
+            // A page which was private at any point must not later enter history/recovery.
+            for (Tab tab : tabs) tab.recordHistory = false;
+        }
     }
 
     private JSObject privacyCapabilities() {
         boolean clear = false;
         try { clear = WebViewFeature.isFeatureSupported(WebViewFeature.DELETE_BROWSING_DATA); }
         catch (RuntimeException ignored) {}
-        JSObject result = new JSObject().put("privateMode", PrivateBrowserSession.supported(getContext()))
-            .put("clearSiteData", clear).put("sharedSiteData", !privateMode());
-        String reason = PrivateBrowserSession.unavailableReason(getContext());
-        if (reason != null) result.put("reason", reason);
-        return result;
+        return new JSObject().put("privateMode", true)
+            .put("clearSiteData", clear).put("sharedSiteData", true);
     }
 
     @PluginMethod public void getBrowserContext(PluginCall call) {
-        onUi(call, () -> {
-            if (getActivity() instanceof PrivateBrowserActivity) {
-                ((PrivateBrowserActivity) getActivity()).browserContext(configuration -> {
-                    configuration.put("privateMode", true).put("privacyCapabilities", privacyCapabilities());
-                    call.resolve(configuration);
-                }, call::reject);
-            } else {
-                call.resolve(new JSObject().put("privateMode", false)
-                    .put("privacyCapabilities", privacyCapabilities()));
-            }
-        });
-    }
-
-    @PluginMethod public void openPrivate(PluginCall call) {
-        if (privateMode()) { call.reject("已在隐私会话中"); return; }
-        JSObject configuration = new JSObject();
-        try {
-            configuration.put("settings", new BrowserSettings(call.getObject("settings")).toJson());
-            for (String key : new String[] {"palette", "appearance", "ui"}) {
-                JSObject value = call.getObject(key);
-                if (value != null) configuration.put(key, value);
-            }
-            JSArray scripts = call.getArray("scripts");
-            if (scripts != null) configuration.put("scripts", scripts);
-            String url = normalizeUrl(call.getString("url", "about:blank"));
-            if (url == null) { call.reject("仅支持 HTTP/HTTPS 网站"); return; }
-            configuration.put("url", url);
-        } catch (IllegalArgumentException error) { call.reject(error.getMessage()); return; }
-        onUi(call, () -> {
-            try {
-                PrivateBrowserSession.launch(getActivity(), configuration);
-                call.resolve(new JSObject().put("opened", true));
-            } catch (Exception error) { call.reject(error.getMessage()); }
-        });
-    }
-
-    @PluginMethod public void closePrivate(PluginCall call) {
-        onUi(call, () -> {
-            if (!(getActivity() instanceof PrivateBrowserActivity)) {
-                call.reject("当前不是隐私会话"); return;
-            }
-            closeNative();
-            call.resolve();
-            ((PrivateBrowserActivity) getActivity()).finishPrivate();
-        });
+        onUi(call, () -> call.resolve(new JSObject().put("privateMode", privateMode())
+            .put("privacyCapabilities", privacyCapabilities())));
     }
 
     @PluginMethod public void updateSettings(PluginCall call) {
@@ -277,14 +255,37 @@ public class BrowserHostPlugin extends Plugin {
         try { requested = new BrowserSettings(call.getObject("settings")); }
         catch (IllegalArgumentException error) { call.reject(error.getMessage()); return; }
         onUi(call, () -> {
-            boolean reload = browserSettings.needsReload(requested);
-            browserSettings = requested;
-            for (Tab tab : tabs) {
-                tab.userAgentMode = requested.userAgentMode;
-                tab.desktop = "desktop".equals(requested.userAgentMode);
-                applySettings(tab);
+            BrowserSettings previous = browserSettings;
+            boolean previousPrivacy = privateMode();
+            boolean reload = previous.needsReload(requested);
+            boolean privacyChanged = previousPrivacy != requested.privateMode;
+            java.util.Map<Tab, String> previousModes = new java.util.IdentityHashMap<>();
+            for (Tab tab : tabs) previousModes.put(tab, tab.userAgentMode);
+            try {
+                savePrivacyPreference(requested.privateMode);
+                browserSettings = requested;
+                for (Tab tab : tabs) {
+                    tab.freshDocumentRequired |= reload || privacyChanged;
+                    tab.userAgentMode = requested.userAgentMode;
+                    tab.desktop = "desktop".equals(requested.userAgentMode);
+                    applySettings(tab);
+                }
+                if (reload && current != null && current.webView != null && current.hasLoaded) reloadTab(current);
+            } catch (RuntimeException failure) {
+                browserSettings = previous;
+                try { savePrivacyPreference(previousPrivacy); }
+                catch (RuntimeException rollback) { failure.addSuppressed(rollback); }
+                for (Tab tab : tabs) {
+                    tab.userAgentMode = previousModes.getOrDefault(tab, previous.userAgentMode);
+                    tab.desktop = "desktop".equals(tab.userAgentMode);
+                    // A rollback can rebuild document-start bindings too; the next refresh must install them.
+                    tab.freshDocumentRequired |= reload || privacyChanged;
+                    try { applySettings(tab); }
+                    catch (RuntimeException rollback) { failure.addSuppressed(rollback); }
+                }
+                if (current != null) sendNavigation(current.url, "state");
+                throw failure;
             }
-            if (reload && current != null && current.webView != null && current.hasLoaded) reloadTab(current);
             if (current != null) sendNavigation(current.url, "state");
             call.resolve(new JSObject().put("settings", requested.toJson()));
         });
@@ -361,7 +362,7 @@ public class BrowserHostPlugin extends Plugin {
                     || siteHasSubdomains(operation.host);
                 for (Tab tab : tabs) deferForSiteClear(tab, tab.url);
                 notifyListeners("siteDataClearing", new JSObject().put("site", operation.providerSite)
-                    .put("sharedSiteData", !privateMode()));
+                    .put("sharedSiteData", true));
             } catch (RuntimeException failure) {
                 failSiteClear(operation);
             }
@@ -485,7 +486,7 @@ public class BrowserHostPlugin extends Plugin {
             }
         }
         operation.call.resolve(new JSObject().put("site", operation.providerSite)
-            .put("sharedSiteData", !privateMode()));
+            .put("sharedSiteData", true));
     }
 
     private void failSiteClear(SiteDataClear operation) {
@@ -547,14 +548,15 @@ public class BrowserHostPlugin extends Plugin {
     }
 
     @PluginMethod public void open(PluginCall call) {
-        if (Boolean.TRUE.equals(call.getBoolean("privateMode", false)) && !privateMode()) {
-            call.reject("隐私模式必须在独立会话中打开"); return;
-        }
         final BrowserSettings requestedSettings;
-        try { requestedSettings = new BrowserSettings(call.getObject("settings")); }
+        try {
+            JSObject values = call.getObject("settings");
+            requestedSettings = new BrowserSettings(values == null
+                ? new JSObject().put("privateMode", privateMode()) : values);
+        }
         catch (IllegalArgumentException error) { call.reject(error.getMessage()); return; }
         JSObject requestedRecovery = call.getObject("recoverySession");
-        if (privateMode() && requestedRecovery != null) { call.reject("隐私会话不恢复之前的标签页"); return; }
+        if (requestedSettings.privateMode && requestedRecovery != null) { call.reject("隐私模式不恢复浏览记录"); return; }
         JSObject recovery = requestedRecovery == null ? null : normalizeRecoverySession(requestedRecovery);
         if (requestedRecovery != null && recovery == null) { call.reject("没有可恢复的有效标签页"); return; }
         String url = normalizeUrl(call.getString("url", HOME));
@@ -566,6 +568,7 @@ public class BrowserHostPlugin extends Plugin {
         float top = call.getFloat("top", 0f);
         float bottom = call.getFloat("bottom", 0f);
         onUi(call, () -> {
+            savePrivacyPreference(requestedSettings.privateMode);
             closeNative();
             try {
                 closing = false;
@@ -573,8 +576,7 @@ public class BrowserHostPlugin extends Plugin {
                 embeddedVisible = visible;
                 scriptSnapshot = scripts;
                 scriptVersion++;
-                preferences = privateMode() ? PrivateBrowserSession.preferences("newsnook-native-browser")
-                    : getContext().getSharedPreferences("newsnook-native-browser", Context.MODE_PRIVATE);
+                preferences = getContext().getSharedPreferences("newsnook-native-browser", Context.MODE_PRIVATE);
                 browserSettings = requestedSettings;
                 updatePalette(palette);
                 if (embed) createEmbedded(top, bottom);
@@ -591,19 +593,23 @@ public class BrowserHostPlugin extends Plugin {
     }
 
     void captureRecoverySession() {
+        pendingRecoverySession.set(null);
         if (privateMode() || tabs.isEmpty()) return;
         JSArray entries = new JSArray();
+        int activeIndex = 0;
         for (Tab tab : tabs) {
+            if (!tab.recordHistory) continue;
+            if (tab == current) activeIndex = entries.length();
             entries.put(new JSObject().put("url", tab.url).put("title", tab.title).put("desktop", tab.desktop));
         }
-        JSObject session = normalizeRecoverySession(new JSObject().put("tabs", entries)
-            .put("activeIndex", Math.max(0, tabs.indexOf(current))));
+        JSObject session = normalizeRecoverySession(new JSObject().put("tabs", entries).put("activeIndex", activeIndex));
         if (session != null) pendingRecoverySession.set(session);
     }
 
     @PluginMethod public void takeRecoverySession(PluginCall call) {
         onUi(call, () -> {
-            JSObject session = privateMode() ? null : pendingRecoverySession.getAndSet(null);
+            JSObject saved = pendingRecoverySession.getAndSet(null);
+            JSObject session = privateMode() ? null : saved;
             call.resolve(new JSObject().put("session", session == null ? JSONObject.NULL : session));
         });
     }
@@ -652,9 +658,13 @@ public class BrowserHostPlugin extends Plugin {
     @PluginMethod public void updateScripts(PluginCall call) {
         JSArray scripts = call.getArray("scripts");
         onUi(call, () -> {
+            String next = scripts == null ? "[]" : scripts.toString();
+            String previous = scriptSnapshot == null ? "[]" : scriptSnapshot.toString();
+            if (next.equals(previous)) { call.resolve(); return; }
             scriptSnapshot = scripts;
             scriptVersion++;
-            for (Tab tab : tabs) if (tab.webView != null) prepareRuntime(tab);
+            // Existing documents keep their running scripts and granted ports until navigation.
+            // runNavigation prepares the latest snapshot before the next document is loaded.
             call.resolve();
         });
     }
@@ -668,6 +678,9 @@ public class BrowserHostPlugin extends Plugin {
         state.put("forward", tab != null && tab.webView != null && tab.webView.canGoForward());
         state.put("desktop", tab != null && tab.desktop);
         state.put("privateMode", privateMode());
+        state.put("recordHistory", tab != null && tab.recordHistory && !privateMode());
+        state.put("activeScriptCount", tab == null || tab.runtime == null ? 0 : tab.runtime.getActiveScriptCount());
+        state.put("matchedScriptCount", tab == null || tab.runtime == null ? 0 : tab.runtime.getMatchedScriptCount(tab.url));
         state.put("userAgentMode", tab == null ? browserSettings.userAgentMode : tab.userAgentMode);
         state.put("userAgent", tab == null || tab.webView == null ? "" : tab.webView.getSettings().getUserAgentString());
         state.put("textZoom", browserSettings.textZoom);
@@ -958,7 +971,7 @@ public class BrowserHostPlugin extends Plugin {
                 view.setImportantForContentCapture(View.IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS);
         }
         tab.webView = view;
-        tab.mobileUserAgent = view.getSettings().getUserAgentString();
+        tab.pageProfile = new BrowserPageProfile(view);
         tab.error = null;
         tab.loading = false;
         tab.progress = 0;
@@ -971,11 +984,6 @@ public class BrowserHostPlugin extends Plugin {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(true);
         CookieManager.getInstance().setAcceptCookie(true);
-        if (privateMode()) {
-            settings.setSaveFormData(false);
-            settings.setDatabaseEnabled(false);
-            settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
-        }
         applySettings(tab);
         view.setFindListener((activeMatchOrdinal, numberOfMatches, isDoneCounting) -> {
             if (!isLive(tab, view) || tab.findQuery.isEmpty()) return;
@@ -987,20 +995,29 @@ public class BrowserHostPlugin extends Plugin {
             @Override public void onPageStarted(WebView web, String address, Bitmap icon) {
                 if (!isLive(tab, web) || deferForSiteClear(tab, address)) return;
                 tab.url = address; tab.loading = true; tab.progress = 0; tab.error = null;
+                tab.recordHistory = !privateMode();
+                tab.documentScriptVersion = tab.scriptVersion;
+                tab.freshDocumentRequired = false;
+                if (tab.pageProfile != null) tab.pageProfile.onPageStarted();
+                if (tab.runtime != null) tab.runtime.onNavigation(address);
                 if (current == tab) updateChrome();
                 if (current == tab) sendNavigation(address, "start");
-                if (tab.runtime != null) tab.runtime.onNavigation(address);
                 if (tab.media != null) tab.media.onPageStarted(address);
                 if (tab.images != null) tab.images.onPageStarted(address);
                 tab.findQuery = ""; tab.findMatch = -1; tab.findCount = 0;
                 sendFindResult(tab, true);
             }
+            @Override public void onPageCommitVisible(WebView web, String address) {
+                if (isLive(tab, web) && tab.runtime != null) tab.runtime.onDocumentCommitted(address);
+            }
             @Override public void onPageFinished(WebView web, String address) {
                 if (!isLive(tab, web) || (tab.loading && !address.equals(tab.url))) return;
+                if (tab.runtime != null) tab.runtime.onDocumentCommitted(address);
                 tab.url = address; tab.title = web.getTitle() == null ? address : web.getTitle();
                 tab.loading = false; tab.progress = 100;
                 if (current == tab) updateChrome();
-                if (!embeddedMode && !privateMode() && isHttpUrl(address)) recordVisit(tab.title, address);
+                if (!embeddedMode && tab.recordHistory && !privateMode() && isHttpUrl(address)) recordVisit(tab.title, address);
+                if (tab.pageProfile != null) tab.pageProfile.onPageFinished();
                 if (current == tab) sendNavigation(address, "end");
                 if (tab.media != null) tab.media.onPageFinished();
             }
@@ -1137,9 +1154,21 @@ public class BrowserHostPlugin extends Plugin {
                     runtime.close(false);
                     return;
                 }
+                if (version != scriptVersion) {
+                    // A newer install can arrive while @require is being fetched.
+                    // Keep the pending navigation, but never load it with the retired snapshot.
+                    runtime.close(false);
+                    tab.preparingRuntime = null;
+                    prepareRuntime(tab);
+                    return;
+                }
                 tab.preparingRuntime = null;
                 if (tab.runtime != null) tab.runtime.close();
                 tab.runtime = runtime;
+                runtime.setPrivateMode(privateMode());
+                runtime.setStateListener(() -> {
+                    if (isLive(tab, view) && tab.runtime == runtime && current == tab) sendNavigation(tab.url, "state");
+                });
                 try { runtime.install(); }
                 catch (Exception error) {
                     runtime.close();
@@ -1193,7 +1222,13 @@ public class BrowserHostPlugin extends Plugin {
         tab.error = null;
         if (tab.webView == null) initializeTab(tab);
         else if (tab.webView.getUrl() == null) loadTabUrl(tab, tab.url);
-        else runNavigation(tab, () -> tab.webView.reload());
+        else runNavigation(tab, () -> {
+            // WebView reload can reuse a document without installing newly added world/port
+            // bindings. A same-URL navigation installs the latest bindings without a new tab.
+            if (tab.freshDocumentRequired || tab.documentScriptVersion != tab.scriptVersion)
+                tab.webView.loadUrl(tab.url);
+            else tab.webView.reload();
+        });
     }
 
     private void stopTab(Tab tab) {
@@ -1316,28 +1351,30 @@ public class BrowserHostPlugin extends Plugin {
         settings.setTextZoom(browserSettings.textZoom);
         settings.setMediaPlaybackRequiresUserGesture(browserSettings.mediaPlaybackRequiresUserGesture);
         CookieManager.getInstance().setAcceptThirdPartyCookies(tab.webView, browserSettings.thirdPartyCookiesEnabled);
+        boolean privacy = privateMode();
+        if (privacy) tab.recordHistory = false;
+        settings.setSaveFormData(!privacy);
+        settings.setCacheMode(privacy ? WebSettings.LOAD_NO_CACHE : WebSettings.LOAD_DEFAULT);
+        tab.webView.setSaveEnabled(!privacy);
+        tab.webView.setSaveFromParentEnabled(!privacy);
+        if (Build.VERSION.SDK_INT >= 26) tab.webView.setImportantForAutofill(privacy
+            ? View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS : View.IMPORTANT_FOR_AUTOFILL_AUTO);
+        if (Build.VERSION.SDK_INT >= 29) tab.webView.setImportantForContentCapture(privacy
+            ? View.IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS : View.IMPORTANT_FOR_CONTENT_CAPTURE_AUTO);
+        if (tab.runtime != null) tab.runtime.setPrivateMode(privacy);
+        if (tab.preparingRuntime != null) tab.preparingRuntime.setPrivateMode(privacy);
         applyAgent(tab);
     }
 
     private void applyAgent(Tab tab) {
-        if (tab.webView == null) return;
-        WebSettings settings = tab.webView.getSettings();
-        if ("custom".equals(tab.userAgentMode)) {
-            settings.setUserAgentString(browserSettings.customUserAgent);
-            settings.setUseWideViewPort(false); settings.setLoadWithOverviewMode(false);
-        } else if (tab.desktop) {
-            settings.setUserAgentString(tab.mobileUserAgent.replaceFirst("\\([^)]*\\)", "(X11; Linux x86_64)")
-                .replace("Version/4.0 ", "").replace(" Mobile ", " "));
-            settings.setUseWideViewPort(true); settings.setLoadWithOverviewMode(true);
-        } else {
-            settings.setUserAgentString(tab.mobileUserAgent);
-            settings.setUseWideViewPort(false); settings.setLoadWithOverviewMode(false);
-        }
+        if (tab.webView != null && tab.pageProfile != null)
+            tab.pageProfile.apply(tab.userAgentMode, browserSettings.customUserAgent);
     }
     private void toggleDesktop() {
         if (current == null) return;
         current.desktop = !current.desktop;
-        current.userAgentMode = current.desktop ? "desktop" : "system";
+        current.userAgentMode = current.desktop ? "desktop" : browserSettings.lastNonDesktopUserAgentMode;
+        current.freshDocumentRequired = true;
         applyAgent(current);
         updateChrome();
         reloadTab(current);
@@ -1420,9 +1457,6 @@ public class BrowserHostPlugin extends Plugin {
         } catch (Exception ignored) { }
     }
     private void bookmarkCurrent() {
-        if (privateMode()) {
-            Toast.makeText(getContext(), "隐私会话不保存书签", Toast.LENGTH_SHORT).show(); return;
-        }
         if (current == null || !isHttpUrl(current.url)) return;
         JSONArray old = readPlaces(BOOKMARKS), next = new JSONArray();
         JSONObject entry = new JSONObject();
@@ -1507,9 +1541,9 @@ public class BrowserHostPlugin extends Plugin {
                 Toast.makeText(getContext(), "没有可打开此链接的应用", Toast.LENGTH_SHORT).show();
             }
         };
-        if (browserSettings.confirmExternalApps || privateMode()) {
+        if (browserSettings.confirmExternalApps) {
             new AlertDialog.Builder(getActivity()).setTitle("打开外部应用")
-                .setMessage(privateMode() ? "此链接将离开隐私会话，外部应用可能保留访问记录。" : "网站请求打开另一个应用。")
+                .setMessage("网站请求打开另一个应用。")
                 .setPositiveButton("继续", (dialog, which) -> launch.run())
                 .setNegativeButton("取消", null).show();
         } else launch.run();
@@ -1526,13 +1560,6 @@ public class BrowserHostPlugin extends Plugin {
 
     private void enqueueDownload(String url, String disposition, String mime) {
         if (!isHttpUrl(url)) return;
-        if (privateMode()) {
-            new AlertDialog.Builder(getActivity()).setTitle("保存文件")
-                .setMessage("下载文件和系统下载记录会保留在设备上，退出隐私会话不会删除它们。")
-                .setPositiveButton("保存", (dialog, which) -> enqueueConfirmedDownload(url, disposition, mime))
-                .setNegativeButton("取消", null).show();
-            return;
-        }
         enqueueConfirmedDownload(url, disposition, mime);
     }
 
@@ -1588,6 +1615,8 @@ public class BrowserHostPlugin extends Plugin {
         tab.media = null;
         if (tab.images != null) tab.images.close(!rendererGone);
         tab.images = null;
+        if (tab.pageProfile != null) tab.pageProfile.close(!rendererGone);
+        tab.pageProfile = null;
         if (view != null) {
             ViewGroup parent = (ViewGroup) view.getParent();
             if (parent != null) parent.removeView(view);

@@ -26,7 +26,7 @@ export function BrowserTabsPanel({tabs, pending, onBack, onSelect, onRemove, onN
   const atLimit = tabs.length >= 6
   return <section aria-label="标签页" aria-busy={pending} className="browser-panel browser-tabs"
     style={{paddingTop: 'var(--sat)', paddingBottom: 'var(--sab)'}}>
-    <BrowserPageHeader title="标签页" subtitle={privateMode ? '隐私会话' : undefined} onBack={onBack}>
+    <BrowserPageHeader title="标签页" subtitle={privateMode ? '不记录浏览' : undefined} onBack={onBack}>
       <span className="browser-count-label" aria-label={'已打开 ' + (tabs.length || 1) + ' 个标签页'}>{tabs.length || 1}</span>
     </BrowserPageHeader>
 
@@ -35,7 +35,7 @@ export function BrowserTabsPanel({tabs, pending, onBack, onSelect, onRemove, onN
         {tabs.length === 0 ? <button type="button" aria-label="返回主页" aria-current="page" disabled={pending} onClick={onBack}
           className="browser-tab-card browser-home-tab">
           <span className="browser-tab-top"><Home size={23} strokeWidth={1.7} aria-hidden="true"/><span className="browser-tab-current">当前</span></span>
-          <span className="browser-tab-title">{privateMode ? '隐私主页' : '主页'}</span>
+          <span className="browser-tab-title">主页</span>
           <span className="browser-list-detail">搜索或输入网址</span>
         </button> : tabs.map(tab => {
           const tabTitle = tab.title || browserHostLabel(tab.url)

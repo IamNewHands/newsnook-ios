@@ -9,6 +9,9 @@ import { createServer } from 'vite'
 // Real Chromium key input verifies both our trap and the browser's default Tab behavior.
 // Uses an isolated temporary profile and the project's existing Vite dependency.
 const root = fileURLToPath(new URL('../', import.meta.url))
+const runStartedAt = new Date().toISOString()
+const evidenceDirectory = process.env.BROWSER_TEST_EVIDENCE_DIR
+const evidence = []
 const candidates = [
   process.env.BROWSER_TEST_CHROME,
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -74,10 +77,32 @@ async function clickText(text) {
   await evaluate('(() => { const target = [...document.querySelectorAll("button")].find(button => button.textContent.trim() === ' + JSON.stringify(text) + '); if (!target) throw new Error("Missing text control"); target.focus(); target.click() })()')
   await pause(25)
 }
+async function tap(selector) {
+  await evaluate('(() => { const target = document.querySelector(' + JSON.stringify(selector) + '); if (!target) throw new Error("Missing touch control: " + ' + JSON.stringify(selector) + '); target.scrollIntoView({block:"center",inline:"center"}) })()')
+  await pause(25)
+  const point = await evaluate('(() => { const target = document.querySelector(' + JSON.stringify(selector) + '); const rect = target.getBoundingClientRect(); const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2; const hit = document.elementFromPoint(x, y); return {x, y, width:rect.width, height:rect.height, hit:target === hit || target.contains(hit), label:target.getAttribute("aria-label") || target.textContent.trim()} })()')
+  assert.ok(point.width > 0 && point.height > 0 && point.hit, 'Touch target must be visible and unobscured: ' + selector + ' / ' + JSON.stringify(point))
+  await send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: [{x: point.x, y: point.y}]}, pageSession)
+  await send('Input.dispatchTouchEvent', {type: 'touchEnd', touchPoints: []}, pageSession)
+  await pause(75)
+}
+async function tapText(text) {
+  await evaluate('(() => { document.querySelector("[data-fixture-touch]")?.removeAttribute("data-fixture-touch"); const target = [...document.querySelectorAll("button")].find(button => button.textContent.trim() === ' + JSON.stringify(text) + '); if (!target) throw new Error("Missing touch text: " + ' + JSON.stringify(text) + '); target.setAttribute("data-fixture-touch", "") })()')
+  await tap('[data-fixture-touch]')
+  await evaluate('document.querySelector("[data-fixture-touch]")?.removeAttribute("data-fixture-touch")')
+}
+async function typeText(text) {
+  await send('Input.insertText', {text}, pageSession)
+  await pause(25)
+}
 async function key(name, shift = false) {
-  const keyCode = name === 'Tab' ? 9 : 27
+  const keyCode = {Tab: 9, Escape: 27, Enter: 13, End: 35, Home: 36, ArrowLeft: 37, ArrowRight: 39, ArrowDown: 40, ArrowUp: 38}[name]
+  assert.ok(keyCode, 'Unsupported fixture key: ' + name)
   const params = { key: name, code: name, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode, modifiers: shift ? 8 : 0 }
-  await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...params }, pageSession)
+  // Enter also needs its character event to invoke the browser's implicit form
+  // submission. rawKeyDown alone only exercises key listeners such as our trap.
+  await send('Input.dispatchKeyEvent', { type: name === 'Enter' ? 'keyDown' : 'rawKeyDown', ...params,
+    ...(name === 'Enter' ? {text: '\r', unmodifiedText: '\r'} : {}) }, pageSession)
   await send('Input.dispatchKeyEvent', { type: 'keyUp', ...params }, pageSession)
   await pause(25)
 }
@@ -93,6 +118,7 @@ async function load(scenario, port) {
 try {
   await server.listen()
   const port = server.httpServer.address().port
+  assert.ok(![8137, 9321].includes(port), 'Fixture uses an independent ephemeral port')
   browser = spawn(executable, [
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
     '--disable-extensions', '--disable-background-networking',
@@ -125,10 +151,9 @@ try {
   pageSession = (await send('Target.attachToTarget', { targetId, flatten: true })).sessionId
   await send('Page.enable', {}, pageSession)
 
-  const evidenceDirectory = process.env.BROWSER_TEST_EVIDENCE_DIR
   if (evidenceDirectory) await mkdir(evidenceDirectory, { recursive: true })
-  const evidence = []
   const safeAreaOnly = process.argv.includes('--safe-area-only')
+  const visualFixesOnly = process.argv.includes('--visual-fixes-only')
   const settle = () => evaluate('document.fonts.ready.then(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))')
   async function waitFor(expression, label) {
     for (let attempt = 0; attempt < 100; attempt++) {
@@ -161,7 +186,7 @@ try {
     evidence.push({ file, theme, viewport, ...layout })
   }
 
-  if (!safeAreaOnly) {
+  if (!safeAreaOnly && !visualFixesOnly) {
     await send('Emulation.setDeviceMetricsOverride', { width: 320, height: 740, deviceScaleFactor: 1, mobile: true }, pageSession)
     await load('player-owner', port)
     await click('#opener')
@@ -375,6 +400,7 @@ try {
     await click('[role="switch"]')
     assert.equal(await evaluate('window.__desktopChanges'), 0, 'Pending desktop changes do not enqueue another toggle')
     // Capture the real local favicon fallback without variable third-party responses.
+    await send('Emulation.setTouchEmulationEnabled', {enabled: true, maxTouchPoints: 1}, pageSession)
     await send('Network.enable', {}, pageSession)
     await send('Network.setBlockedURLs', { urls: ['*/favicon.ico'] }, pageSession)
     await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] }, pageSession)
@@ -390,31 +416,96 @@ try {
           const unselected = choices.find(choice => choice.getAttribute("aria-checked") === "false")
           return {
             choices: choices.length, switches: document.querySelectorAll("[role=switch]").length,
+            engines: document.querySelectorAll('select[aria-label="默认搜索引擎"] option').length,
+            engineTargetHeight: document.querySelector('select[aria-label="默认搜索引擎"]').getBoundingClientRect().height,
             selected: getComputedStyle(selected).backgroundColor, unselected: getComputedStyle(unselected).backgroundColor,
             fills: [...document.querySelectorAll(".browser-workspace svg.lucide")].map(icon => getComputedStyle(icon).fill),
             outsideFill: getComputedStyle(document.querySelector("[data-outside-browser] svg")).fill,
           }
         })()`)
-        assert.equal(settingsAppearance.choices, 9, 'The theme fixture renders the complete preferences panel')
-        assert.equal(settingsAppearance.switches, 6, 'All web and privacy preference switches are present')
+        assert.equal(settingsAppearance.choices, 6, 'Address position and the four mobile UA choices are rendered')
+        assert.equal(settingsAppearance.switches, 7, 'Desktop layout has its own switch alongside the six existing web/privacy switches')
+        assert.equal(settingsAppearance.engines, 11, 'Saved defaults use the same search-provider catalog')
+        assert.ok(settingsAppearance.engineTargetHeight >= 44, 'The native search picker retains a touch-sized target')
         assert.ok(settingsAppearance.fills.every(fill => fill === 'none'), 'Browser line icons retain empty fills in ' + theme)
         assert.notEqual(settingsAppearance.selected, settingsAppearance.unselected, 'Selected choices have distinct backgrounds in ' + theme)
         assert.notEqual(settingsAppearance.outsideFill, 'none', 'The correction must not change other workspaces')
         await capture('browser-settings', viewport, theme)
-        await click('[role="radio"][aria-label="桌面版"]')
+        await evaluate('document.querySelector("select[aria-label=默认搜索引擎]").focus()')
+        await key('End')
+        await key('Enter')
+        await waitFor('localStorage.getItem("newsnook:browser:search:v1") === "wikipedia"', 'keyboard-selected search default')
+        await tap('[role="radio"][aria-label="iOS"]')
+        await waitFor('JSON.parse(localStorage.getItem(' + JSON.stringify(preferencesKey) + ')).userAgentMode === "ios"', 'saved iOS identity')
+        await tap('[role="switch"][aria-label="桌面版网页"]')
         await waitFor('JSON.parse(localStorage.getItem(' + JSON.stringify(preferencesKey) + ')).userAgentMode === "desktop"', 'saved desktop UA')
-        await click('[aria-label="放大网页文字"]')
+        assert.equal(await evaluate('JSON.parse(localStorage.getItem(' + JSON.stringify(preferencesKey) + ')).lastNonDesktopUserAgentMode'), 'ios')
+        await capture('browser-settings-desktop', viewport, theme)
+        await load('theme-settings' + suffix + '&keepStorage=1', port)
+        assert.equal(await evaluate('document.querySelector("[role=switch][aria-label=桌面版网页]").getAttribute("aria-checked")'), 'true', 'Reopening reads the saved desktop preference')
+        await tap('[role="switch"][aria-label="桌面版网页"]')
+        await waitFor('JSON.parse(localStorage.getItem(' + JSON.stringify(preferencesKey) + ')).userAgentMode === "ios"', 'restored iOS identity after reopening')
+        await tap('[aria-label="放大网页文字"]')
         await waitFor('JSON.parse(localStorage.getItem(' + JSON.stringify(preferencesKey) + ')).textZoom === 110', 'saved text zoom')
-        await click('[role="switch"][aria-label="JavaScript"]')
+        await tap('[role="switch"][aria-label="JavaScript"]')
         await waitFor('JSON.parse(localStorage.getItem(' + JSON.stringify(preferencesKey) + ')).javaScriptEnabled === false', 'saved JavaScript preference')
+        await tap('[role="switch"][aria-label="隐私浏览"]')
+        await waitFor('JSON.parse(localStorage.getItem(' + JSON.stringify(preferencesKey) + ')).privateMode === true', 'saved recording preference')
         await evaluate('document.querySelector(".browser-panel-scroll").scrollTop = document.querySelector(".browser-panel-scroll").scrollHeight')
         await capture('browser-settings-permissions', viewport, theme)
-        await click('[role="radio"][aria-label="自定义"]')
-        await click('.browser-user-agent-editor button[type="submit"]')
+        await load('theme-settings' + suffix + '&keepStorage=1', port)
+        assert.equal(await evaluate('document.querySelector("[role=switch][aria-label=隐私浏览]").getAttribute("aria-checked")'), 'true', 'Reopening preserves the privacy recording choice')
+        await tap('[role="switch"][aria-label="隐私浏览"]')
+        await waitFor('JSON.parse(localStorage.getItem(' + JSON.stringify(preferencesKey) + ')).privateMode === false', 'saved recording resume')
+        await tap('[role="radio"][aria-label="自定义"]')
+        await tap('.browser-user-agent-editor button[type="submit"]')
         assert.equal(await evaluate('document.querySelector("#browser-user-agent-error")?.textContent'), '请输入自定义浏览器标识')
-        assert.equal(await evaluate('JSON.parse(localStorage.getItem(' + JSON.stringify(preferencesKey) + ')).userAgentMode'), 'desktop', 'An invalid custom UA does not replace the saved mode')
+        assert.equal(await evaluate('JSON.parse(localStorage.getItem(' + JSON.stringify(preferencesKey) + ')).userAgentMode'), 'ios', 'An invalid custom UA does not replace the saved identity')
         await evaluate('document.querySelector(".browser-user-agent-editor").scrollIntoView({ block: "center" })')
         await capture('browser-settings-custom-error', viewport, theme)
+
+        await load('theme-search' + suffix, port)
+        const query = '湖边散步 & 城市记录'
+        await tap('[role="radio"][aria-label="Google"]')
+        assert.equal(await focused(), '搜索或输入网址', 'Touch-selecting an engine keeps the text input focused')
+        assert.equal(await evaluate('window.__searchSubmissions.length'), 0, 'An empty engine selection never opens its homepage')
+        await typeText(query)
+        await tap('[role="radio"][aria-label="百度"]')
+        await tap('[role="radio"][aria-label="Bing"]')
+        assert.equal(await evaluate('document.querySelector("input").value'), query, 'Engine changes retain the typed query')
+        assert.equal(await focused(), '搜索或输入网址')
+        assert.equal(await evaluate('window.__searchSubmissions.length'), 0, 'Touch-selecting providers never submits a query')
+        await evaluate('window.__failSearchSave = true')
+        await tap('[role="radio"][aria-label="Google"]')
+        assert.equal(await evaluate('document.querySelector("[role=radio][aria-label=Bing]").getAttribute("aria-checked")'), 'true')
+        assert.ok(await evaluate('document.body.textContent.includes("搜索引擎未保存")'))
+        await capture('browser-search-save-error', viewport, theme)
+        await evaluate('window.__failSearchSave = false')
+        await tap('[role="radio"][aria-label="Google"]')
+        assert.equal(await evaluate('localStorage.getItem("newsnook:browser:search:v1")'), 'google')
+        await capture('browser-search-selected', viewport, theme)
+        const providerLabels = `[...document.querySelectorAll('.browser-provider > span:not(.browser-site-icon)')].map(label => ({name:label.textContent, height:label.getBoundingClientRect().height, lineHeight:parseFloat(getComputedStyle(label).lineHeight), fontSize:getComputedStyle(label).fontSize, width:label.clientWidth, content:label.scrollWidth}))`
+        const labelsBefore = await evaluate(providerLabels)
+        assert.ok(labelsBefore.every(label => label.height <= label.lineHeight + 1 && label.content <= label.width && label.fontSize === '14px'), 'Provider names remain complete on one line at the shared 14px size')
+        await tap('[role="radio"][aria-label="DuckDuckGo"]')
+        assert.equal(await evaluate('window.__searchSubmissions.length'), 0)
+        const labelsAfter = await evaluate(providerLabels)
+        assert.ok(labelsAfter.every(label => label.height <= label.lineHeight + 1 && label.content <= label.width && label.fontSize === '14px'), 'The selected marker does not squeeze a long provider name')
+        await capture('browser-search-duckduckgo', viewport, theme)
+        await tap('[role="radio"][aria-label="Google"]')
+        assert.equal(await focused(), '搜索或输入网址', 'Engine selection restores input focus before explicit submit')
+        await key('Enter')
+        await waitFor('window.__searchSubmissions.length === 1', 'explicit keyboard search submit')
+        assert.deepEqual(await evaluate('window.__searchSubmissions'), ['https://www.google.com/search?q=' + encodeURIComponent(query)])
+        assert.equal(await evaluate('window.__searchCloseCount'), 1)
+        const engineTouches = await evaluate('window.__trustedBrowserClicks')
+        assert.ok(['Google', '百度', 'Bing'].every(name => engineTouches.includes(name)), 'Provider checks use trusted touch events, without programmatic click or focus')
+
+        await load('theme-scripts' + suffix, port)
+        await waitFor('Boolean(document.querySelector("[aria-label=当前页面脚本状态]"))', 'script status summary')
+        assert.ok(await evaluate('document.querySelector("[aria-label=当前页面脚本状态]").textContent.includes("此页已运行 1 个脚本")'))
+        assert.equal(await evaluate('document.querySelectorAll("[aria-label=用户脚本管理] [role=switch]").length'), 2, 'Installed scripts retain individual controls beside the page summary')
+        await capture('browser-scripts', viewport, theme)
 
         await load('theme-tabs' + suffix, port)
         const tabsAppearance = await evaluate('(() => { const active = document.querySelector(".browser-tab-card[data-active=true]"); const inactive = document.querySelector(".browser-tab-card:not([data-active])"); return { active: getComputedStyle(active).backgroundColor, inactive: getComputedStyle(inactive).backgroundColor, fills: [...document.querySelectorAll(".browser-tab-close svg")].map(icon => getComputedStyle(icon).fill) } })()')
@@ -445,47 +536,159 @@ try {
           assert.equal(home.privateMode, privateMode)
           assert.equal(home.title, privateMode ? '隐私浏览' : '浏览器')
           assert.equal(home.recent, !privateMode, 'Private home does not render ordinary history')
-          assert.equal(home.shortcuts, !privateMode, 'Private home does not render ordinary shortcuts')
+          assert.equal(home.shortcuts, true, 'Pausing recording keeps explicit shortcuts available')
+          assert.equal(await evaluate('JSON.parse(localStorage.getItem(' + JSON.stringify(preferencesKey) + ')).privateMode'), privateMode, 'Home reads the persisted recording preference')
           assert.ok(home.address.left >= 0 && home.address.right <= viewport.width && home.address.width >= 44, 'Address input remains reachable at ' + viewport.width + 'px')
           if (privateMode) {
             assert.equal(home.remoteImages, 0, 'Private home makes no ordinary favicon requests')
             assert.ok(home.toolbarText.includes('隐私'), 'Private state remains visible in the address bar')
           }
           await capture(privateMode ? 'browser-private-home' : 'browser-home', viewport, theme)
+          if (privateMode) {
+            await tap('[aria-label="添加快捷方式"]')
+            await tap('[aria-label="快捷方式名称"]')
+            await typeText('读图笔记')
+            await tap('[aria-label="快捷方式网址"]')
+            await typeText('https://notes.example.org/new')
+            await tap('[aria-label="添加快捷方式"] button[type="submit"]')
+            await waitFor('JSON.parse(localStorage.getItem("newsnook:browser:shortcuts:v1")).some(shortcut => shortcut.name === "读图笔记")', 'explicit shortcut save while recording is paused')
+            assert.equal(await evaluate('JSON.parse(localStorage.getItem(' + JSON.stringify(preferencesKey) + ')).privateMode'), true)
+            await tap('[aria-label="关闭提示"]')
+            await tapText('历史')
+            await waitFor('Boolean(document.querySelector("section[aria-label=浏览历史]"))', 'explicit private-mode history access')
+            assert.ok(await evaluate('document.querySelector("section[aria-label=浏览历史]").textContent.includes("山野行记")'), 'Existing history remains available through its explicit entry')
+            await capture('browser-private-history', viewport, theme)
+            await tap('section[aria-label="浏览历史"] [aria-label="清空浏览历史"]')
+            await key('Tab', true)
+            assert.equal(await focused(), '确认删除', 'History management keeps its confirmation focus while recording is paused')
+            await key('Escape')
+            assert.equal(await focused(), '清空浏览历史')
+            await tap('section[aria-label="浏览历史"] [aria-label="返回浏览器"]')
+            await tapText('书签')
+            await waitFor('Boolean(document.querySelector("section[aria-label=书签]"))', 'explicit private-mode bookmark access')
+            assert.ok(await evaluate('document.querySelector("section[aria-label=书签]").textContent.includes("山野行记")'), 'Existing bookmarks remain available')
+            await capture('browser-private-bookmarks', viewport, theme)
+          }
 
-          await load((privateMode ? 'theme-private-images' : 'theme-images') + suffix, port)
+          await load((privateMode ? 'theme-private-images' : 'theme-images') + suffix + '&holdImages=1', port)
           await waitFor(`document.querySelectorAll('button[aria-label^="查看："] img').length === 6 && [...document.querySelectorAll('button[aria-label^="查看："] img')].every(image => image.complete && image.naturalWidth > 0)`, 'six thumbnails under StrictMode')
           assert.equal(await evaluate(`document.querySelector('[role="group"][aria-label="图片筛选"] button[aria-pressed="true"]').textContent`), '内容图片 6')
-          if (privateMode) assert.equal(await evaluate('document.querySelector(".browser-page-heading p").textContent'), '隐私会话')
+          assert.equal(await evaluate('JSON.parse(localStorage.getItem(' + JSON.stringify(preferencesKey) + ')).privateMode'), privateMode)
+          assert.equal(await evaluate('document.querySelector(".browser-page-heading").textContent.includes("隐私会话")'), false, 'The recording preference is not presented as an isolated image session')
           const clippedDimensions = await evaluate(`[...document.querySelectorAll('button[aria-label^="查看："] > span:last-child')].filter(span => span.scrollWidth > span.clientWidth).map(span => span.textContent)`)
           assert.deepEqual(clippedDimensions, [], 'Image dimensions remain complete at ' + viewport.width + 'px')
           await capture(privateMode ? 'browser-private-images' : 'browser-images', viewport, theme)
-          await click('button[aria-label="查看：湖畔晨光"]')
+          await tap('button[aria-label="查看：湖畔晨光"]')
+          await waitFor('Boolean(document.querySelector("[aria-label=调整图片]"))', 'viewer loading state')
+          assert.equal(await evaluate('document.querySelector("[aria-label=调整图片]").disabled'), true, 'Image adjustments wait for the selected image to load')
+          await evaluate('window.__releaseImageDisplay()')
           await waitFor(`Boolean(document.querySelector('[data-image-track] > div:not([aria-hidden]) img')?.naturalWidth)`, 'full image under StrictMode')
+          assert.equal(await evaluate('document.querySelector("[aria-label=调整图片]").disabled'), false)
           assert.equal(await evaluate(`document.querySelector('[role="dialog"][aria-label="查看图片"]').getAttribute("data-theme")`), 'dark', 'The immersive image viewer keeps its deliberate dark surface')
-          if (privateMode) assert.ok(await evaluate(`document.querySelector('[role="dialog"][aria-label="查看图片"]').textContent.includes("隐私")`), 'Private state stays visible in the image viewer')
+          assert.equal(await evaluate('JSON.parse(localStorage.getItem(' + JSON.stringify(preferencesKey) + ')).privateMode'), privateMode, 'Image viewing leaves the recording preference intact')
           await capture(privateMode ? 'browser-private-lightbox' : 'browser-lightbox', viewport, theme)
-          if (privateMode) {
-            await click('[aria-label="图片操作"]')
-            await clickText('保存到相册')
-            await waitFor('Boolean(document.querySelector("#browser-image-export-title"))', 'private image export confirmation')
-            assert.equal(await evaluate(`document.querySelector('[role="dialog"][aria-label="查看图片"]').textContent.includes("正在保存")`), false, 'Export waits for confirmation before showing save progress')
-            assert.equal(await inside('[aria-labelledby="browser-image-export-title"]'), true, 'Export confirmation owns focus above the image viewer')
-            await key('Tab', true)
-            assert.equal(await inside('[aria-labelledby="browser-image-export-title"]'), true, 'Export confirmation traps reverse Tab')
-            await capture('browser-private-image-export', viewport, theme)
-            await click('[aria-labelledby="browser-image-export-title"] button')
-            assert.equal(await evaluate('document.querySelector("#browser-image-export-title") === null'), true, 'Canceling export keeps the image inside this fixture')
-            await click('[aria-label="关闭菜单"]')
-          }
-          await click('[role="dialog"][aria-label="查看图片"] [aria-label="关闭"]')
+          await tap('[aria-label="调整图片"]')
+          assert.equal(await evaluate('Boolean(document.querySelector("[role=toolbar][aria-label=图片调整]"))'), true)
+          await tap('[aria-label="收起图片调整"]')
+          await tap('[aria-label="查看第 2 张图片"]')
+          await waitFor('document.querySelector("[aria-label=\\"查看第 2 张图片\\"]").getAttribute("aria-current") === "true"', 'selecting the second image')
+          await waitFor(`Boolean(document.querySelector('[data-image-track] > div:not([aria-hidden]) img')?.naturalWidth)`, 'loaded second image')
+          assert.equal(await evaluate('window.__imageLoadRequests.filter(request => request.original).length'), 0, 'Viewing alone does not request export bytes')
+          await tap('[aria-label="图片操作"]')
+          await tapText('保存到相册')
+          await waitFor('window.__imageExports.some(event => event.action === "save")', 'explicit image save reaches the browser export adapter')
+          assert.equal(await evaluate('document.querySelector("#browser-image-export-title") === null'), true, 'The saved recording preference does not insert an export confirmation')
+          assert.equal(await evaluate('window.__imageLoadRequests.filter(request => request.original).length'), 1)
+          if (privateMode) await capture('browser-private-image-export', viewport, theme)
+          await tapText('分享')
+          await waitFor('window.__imageExports.some(event => event.action === "share")', 'explicit image share reaches the browser file-share adapter')
+          const exported = await evaluate('window.__imageExports')
+          assert.deepEqual(exported.map(event => event.action), ['save', 'share'])
+          assert.ok(exported.every(event => event.type === 'image/png' && event.bytes > 0 && event.name.endsWith('.png')), 'Both explicit exports carry valid fixture image bytes')
+          assert.equal(await evaluate('document.querySelector("#browser-image-export-title") === null'), true)
+          const exportTouches = await evaluate('window.__trustedBrowserClicks')
+          assert.ok(exportTouches.includes('保存到相册') && exportTouches.includes('分享'), 'Image exports are initiated by trusted touch events')
+          await tap('[aria-label="关闭菜单"]')
+          await tap('[role="dialog"][aria-label="查看图片"] [aria-label="关闭"]')
           await waitFor(`document.querySelector('[role="dialog"][aria-label="查看图片"]') === null`, 'closing the image viewer')
+          await waitFor(`document.querySelectorAll('button[aria-label^="查看："] img').length === 6 && [...document.querySelectorAll('button[aria-label^="查看："] img')].every(image => image.complete && image.naturalWidth > 0)`, 'restored grid thumbnails after closing the viewer')
         }
-        console.log('Visual matrix ' + viewport.width + 'px / ' + theme + ': complete settings, private/normal home, tabs, image loader, lightbox and export confirmation OK')
+        console.log('Visual matrix ' + viewport.width + 'px / ' + theme + ': saved privacy/UA/desktop, touch-only engine selection, scripts, explicit history/shortcuts, image loading/adjustments and direct browser export adapters OK')
+      }
+    }
+    const tablet = { width: 768, height: 1024 }
+    await send('Emulation.setDeviceMetricsOverride', { ...tablet, deviceScaleFactor: 2, mobile: true }, pageSession)
+    for (const theme of ['light', 'dark']) {
+      const suffix = '&theme=' + theme
+      await load('theme-settings' + suffix, port)
+      await capture('browser-settings', tablet, theme)
+      await load('theme-search' + suffix, port)
+      await tap('[role="radio"][aria-label="Google"]')
+      await typeText('湖边散步 & 城市记录')
+      assert.equal(await evaluate('window.__searchSubmissions.length'), 0)
+      await capture('browser-search-selected', tablet, theme)
+      await load('theme-scripts' + suffix, port)
+      await waitFor('Boolean(document.querySelector("[aria-label=当前页面脚本状态]"))', 'tablet script summary')
+      await capture('browser-scripts', tablet, theme)
+      await load('theme-images' + suffix, port)
+      await waitFor(`document.querySelectorAll('button[aria-label^="查看："] img').length === 6 && [...document.querySelectorAll('button[aria-label^="查看："] img')].every(image => image.complete && image.naturalWidth > 0)`, 'tablet image grid')
+      await capture('browser-images', tablet, theme)
+      console.log('Tablet visual matrix 768px / ' + theme + ': settings, unsubmitted search, scripts and image grid OK')
+    }
+  }
+
+  if (visualFixesOnly) {
+    await send('Emulation.setTouchEmulationEnabled', {enabled: true, maxTouchPoints: 1}, pageSession)
+    await send('Network.enable', {}, pageSession)
+    await send('Network.setBlockedURLs', {urls: ['*/favicon.ico']}, pageSession)
+    await send('Emulation.setEmulatedMedia', {features: [{name: 'prefers-reduced-motion', value: 'reduce'}]}, pageSession)
+    for (const viewport of [{width: 320, height: 740}, {width: 390, height: 844}]) {
+      await send('Emulation.setDeviceMetricsOverride', {...viewport, deviceScaleFactor: 2, mobile: true}, pageSession)
+      for (const theme of ['light', 'dark']) {
+        const suffix = '&theme=' + theme
+        await load('theme-private-home' + suffix, port)
+        await tapText('历史')
+        await waitFor('Boolean(document.querySelector(".browser-recording-notice"))', 'saved privacy history notice')
+        const notice = await evaluate('(() => { const panel = document.querySelector("section[aria-label=浏览历史]"); const copy = panel.querySelector(".browser-recording-notice").getBoundingClientRect(); const field = panel.querySelector(".browser-input-field").getBoundingClientRect(); return {left:copy.left, fieldLeft:field.left, right:copy.right, fieldRight:field.right} })()')
+        assert.ok(Math.abs(notice.left - notice.fieldLeft) <= 1 && Math.abs(notice.right - notice.fieldRight) <= 1, 'The recording notice shares the history content gutters')
+        assert.equal(notice.left, 16)
+        await capture('browser-private-history', viewport, theme)
+        evidence.at(-1).checks = notice
+
+        await load('theme-private-images' + suffix + '&holdImages=1', port)
+        await evaluate('document.documentElement.style.setProperty("--sat", "52px"); document.documentElement.style.setProperty("--sab", "24px")')
+        await waitFor("document.querySelectorAll('button[aria-label^=\"查看：\"] img').length === 6", 'controlled image thumbnails')
+        await tap('button[aria-label="查看：湖畔晨光"]')
+        await waitFor('Boolean(document.querySelector("[aria-label=调整图片]"))', 'held image loading state')
+        const loading = await evaluate('(() => { const viewer = document.querySelector("[aria-label=查看图片]"); return {adjustmentDisabled:viewer.querySelector("[aria-label=调整图片]").disabled, loadingText:viewer.textContent.includes("图片加载中"), closeTop:viewer.querySelector("[aria-label=关闭]").getBoundingClientRect().top} })()')
+        assert.equal(loading.adjustmentDisabled, true)
+        assert.equal(loading.loadingText, true)
+        assert.ok(loading.closeTop >= 52)
+        await capture('browser-private-lightbox-loading', viewport, theme)
+        evidence.at(-1).checks = loading
+        await evaluate('window.__releaseImageDisplay()')
+        await waitFor("Boolean(document.querySelector('[data-image-track] > div:not([aria-hidden]) img')?.naturalWidth)", 'released image load')
+        assert.equal(await evaluate('document.querySelector("[aria-label=调整图片]").disabled'), false)
+        await tap('[aria-label="图片操作"]')
+        const actions = await evaluate('(() => { const viewer = document.querySelector("[aria-label=查看图片]"); return [...viewer.querySelectorAll("button")].filter(button => ["保存到相册", "分享"].includes(button.textContent.trim())).map(button => ({label:button.textContent.trim(), icon:getComputedStyle(button.querySelector("svg")).color, labelColor:getComputedStyle(button.querySelector("span")).color, stroke:getComputedStyle(button.querySelector("svg")).stroke, fill:getComputedStyle(button.querySelector("svg")).fill})) })()')
+        assert.equal(actions.length, 2)
+        assert.ok(actions.every(action => action.icon === action.labelColor && action.stroke === action.labelColor && action.fill === 'none'), 'Browser image action icons inherit the dark surface foreground with outlined strokes')
+        await tapText('保存到相册')
+        await waitFor('window.__imageExports.some(event => event.action === "save")', 'image export after the surface correction')
+        assert.equal(await evaluate('document.querySelector("#browser-image-export-title") === null'), true)
+        await capture('browser-private-image-export', viewport, theme)
+        evidence.at(-1).checks = actions
+        await tapText('分享')
+        await waitFor('window.__imageExports.some(event => event.action === "share")', 'share adapter after the surface correction')
+        await tap('[aria-label="关闭菜单"]')
+        await tap('[role="dialog"][aria-label="查看图片"] [aria-label="关闭"]')
+        await waitFor("document.querySelector('[role=\"dialog\"][aria-label=\"查看图片\"]') === null", 'closing the corrected image viewer')
+        console.log('Focused visual correction ' + viewport.width + 'px / ' + theme + ': aligned history notice, held loading/disabled controls, inherited action icons and direct exports OK')
       }
     }
   }
 
+  if (!visualFixesOnly) {
   // Android edge-to-edge measurements from the audit device. Absolute full-page
   // overlays must own their safe-area padding; the workspace's padding is not inherited.
   const insetViewport = { width: 320, height: 740 }
@@ -523,10 +726,31 @@ try {
     }
     console.log('Image safe-area ' + theme + ': ' + JSON.stringify(insets))
   }
-  const manifest = safeAreaOnly ? 'browser-safe-area-matrix.json' : 'browser-visual-matrix.json'
-  if (evidenceDirectory) await writeFile(path.join(evidenceDirectory, manifest), JSON.stringify(evidence, null, 2) + '\n')
-  console.log(safeAreaOnly ? 'Browser image safe-area: 3 focused visual states and Android inset bounds OK'
+  }
+  const manifest = visualFixesOnly ? 'browser-visual-fixes-matrix.json' : safeAreaOnly ? 'browser-safe-area-matrix.json' : 'browser-visual-matrix.json'
+  if (evidenceDirectory) {
+    await writeFile(path.join(evidenceDirectory, manifest), JSON.stringify(evidence, null, 2) + '\n')
+    await writeFile(path.join(evidenceDirectory, 'browser-ui-verification.json'), JSON.stringify({
+      status: 'passed', startedAt: runStartedAt, finishedAt: new Date().toISOString(),
+      chromium: executable, stylesheet: compiledStyles, port, visualStates: evidence.length, manifest,
+      input: 'CDP keyboard for focus/default search; trusted touch for search providers, settings, image actions and explicit private-mode tools',
+      boundaries: ['Synthetic local image data and browser settings persistence', 'Download default prevented after the real export adapter creates its image anchor', 'navigator.share stub receives a real File and returns user cancellation', 'No Android device, native gallery or external recipient acceptance is claimed'],
+    }, null, 2) + '\n')
+  }
+  console.log(visualFixesOnly ? 'Browser visual corrections: ' + evidence.length + ' focused states, history gutters, loading controls and image surface contrast OK'
+    : safeAreaOnly ? 'Browser image safe-area: 3 focused visual states and Android inset bounds OK'
     : 'Browser dialogs and themes: existing focus/player coverage plus ' + evidence.length + ' visual states, actual preference saves, StrictMode images and Android inset bounds OK')
+} catch (error) {
+  if (evidenceDirectory) {
+    await mkdir(evidenceDirectory, {recursive: true})
+    if (pageSession && socket?.readyState === WebSocket.OPEN) {
+      const screenshot = await send('Page.captureScreenshot', {format: 'png'}, pageSession).catch(() => null)
+      if (screenshot) await writeFile(path.join(evidenceDirectory, 'browser-ui-failure.png'), Buffer.from(screenshot.data, 'base64'))
+    }
+    await writeFile(path.join(evidenceDirectory, 'browser-ui-verification.json'), JSON.stringify({status: 'failed', startedAt: runStartedAt,
+      finishedAt: new Date().toISOString(), visualStates: evidence.length, error: String(error?.stack || error)}, null, 2) + '\n')
+  }
+  throw error
 } finally {
   if (socket?.readyState === WebSocket.OPEN) await send('Browser.close').catch(() => undefined)
   socket?.close()

@@ -3,7 +3,7 @@ import test from 'node:test'
 import {
   BROWSER_ENGINES, BROWSER_KEYS, DEFAULT_BROWSER_PREFERENCES, browserHostLabel, readBrowserList,
   loadBrowserPreferences, normalizeBrowserPreferences, readBrowserPreference, resolveBrowserAddress,
-  saveBrowserPreferences, validateBrowserUserAgent, writeBrowserPreference,
+  saveBrowserPreferences, toggleBrowserDesktopMode, validateBrowserUserAgent, writeBrowserPreference,
 } from '../src/features/browser/browserPreferences'
 
 const stored = new Map<string, string>()
@@ -92,6 +92,51 @@ test('page preferences normalize old, partial, corrupt and untrusted payloads wi
   assert.deepEqual(loadBrowserPreferences(), DEFAULT_BROWSER_PREFERENCES)
   assert.equal(stored.get(BROWSER_KEYS.search), 'baidu')
   assert.equal(stored.get(BROWSER_KEYS.addressPosition), 'top')
+})
+
+test('privacy is an opt-in saved recording preference and never erases existing browser data', () => {
+  assert.equal(DEFAULT_BROWSER_PREFERENCES.privateMode, false)
+  assert.equal(normalizeBrowserPreferences({privateMode: 'true'}).privateMode, false)
+  const history = JSON.stringify([{url: 'https://example.com/existing', title: '已保存的历史', time: 123}])
+  stored.set(BROWSER_KEYS.history, history)
+  const saved = saveBrowserPreferences({...DEFAULT_BROWSER_PREFERENCES, privateMode: true})
+  assert.equal(loadBrowserPreferences().privateMode, true, 'reopening preserves the recording choice')
+  assert.equal(stored.get(BROWSER_KEYS.history), history, 'enabling privacy does not erase prior history')
+  const before = stored.get(BROWSER_KEYS.preferences)
+  unwritable = true
+  try {
+    assert.throws(() => saveBrowserPreferences({...saved, privateMode: false}), /保存失败/)
+    assert.equal(stored.get(BROWSER_KEYS.preferences), before, 'a failed write keeps the previous privacy choice')
+  } finally { unwritable = false }
+})
+
+test('Android and iOS identities survive normalization and retain the last non-desktop choice', () => {
+  for (const mode of ['android', 'ios', 'system'] as const) {
+    const preferences = normalizeBrowserPreferences({userAgentMode: mode, lastNonDesktopUserAgentMode: 'ios'})
+    assert.equal(preferences.userAgentMode, mode)
+    assert.equal(preferences.lastNonDesktopUserAgentMode, mode, 'the active mobile identity is authoritative')
+    saveBrowserPreferences(preferences)
+    assert.equal(loadBrowserPreferences().userAgentMode, mode)
+  }
+  const oldDesktop = normalizeBrowserPreferences({userAgentMode: 'desktop'})
+  assert.equal(oldDesktop.lastNonDesktopUserAgentMode, 'system', 'old v1 desktop preferences migrate safely')
+  const desktop = normalizeBrowserPreferences({userAgentMode: 'desktop', lastNonDesktopUserAgentMode: 'ios'})
+  assert.equal(desktop.lastNonDesktopUserAgentMode, 'ios')
+  assert.equal(normalizeBrowserPreferences({userAgentMode: 'desktop', lastNonDesktopUserAgentMode: 'desktop'}).lastNonDesktopUserAgentMode, 'system')
+  assert.equal(normalizeBrowserPreferences({userAgentMode: 'desktop', lastNonDesktopUserAgentMode: 'custom', customUserAgent: 'invalid\nheader'}).lastNonDesktopUserAgentMode, 'system')
+})
+
+test('desktop toggles restore the preceding identity after a storage round-trip', () => {
+  for (const mode of ['system', 'android', 'ios', 'custom'] as const) {
+    const original = normalizeBrowserPreferences({userAgentMode: mode, customUserAgent: 'Mozilla/5.0 Example/1.0', privateMode: true})
+    const desktop = saveBrowserPreferences(toggleBrowserDesktopMode(original))
+    assert.equal(desktop.userAgentMode, 'desktop')
+    assert.equal(desktop.lastNonDesktopUserAgentMode, mode)
+    const restored = toggleBrowserDesktopMode(loadBrowserPreferences())
+    assert.equal(restored.userAgentMode, mode)
+    assert.equal(restored.customUserAgent, original.customUserAgent)
+    assert.equal(restored.privateMode, true, 'display changes keep the recording preference')
+  }
 })
 
 test('custom user agents enforce the native header boundary before persistence', () => {
