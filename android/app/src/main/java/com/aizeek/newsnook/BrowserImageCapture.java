@@ -14,6 +14,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -67,6 +68,7 @@ final class BrowserImageCapture {
         final String id = UUID.randomUUID().toString();
         final Map<String, JSONObject> candidates = new LinkedHashMap<>();
         final Map<String, Map<String, String>> headers = Collections.synchronizedMap(new LinkedHashMap<>());
+        final SourceCache sources = new SourceCache();
         final String url;
         Page(String url) { this.url = url; }
     }
@@ -81,10 +83,34 @@ final class BrowserImageCapture {
         }
     }
 
-    private static final class Bytes {
+    static final class Bytes {
         final byte[] value;
         final String mime;
         Bytes(byte[] value, String mime) { this.value = value; this.mime = mime; }
+    }
+
+    /**
+     * Raw source bytes the page's thumbnail requests already paid for. The
+     * viewer's display request reuses them instead of downloading the same URL
+     * a second time; the cache lives and dies with its page document.
+     */
+    static final class SourceCache {
+        private static final int MAX_ENTRIES = 24;
+        private static final int MAX_BYTES = 12 * 1024 * 1024;
+        private final Map<String, Bytes> entries = new LinkedHashMap<>();
+
+        synchronized Bytes get(String url) { return entries.get(url); }
+
+        synchronized void put(String url, Bytes bytes) {
+            entries.put(url, bytes);
+            long total = 0;
+            for (Bytes value : entries.values()) total += value.value.length;
+            Iterator<Map.Entry<String, Bytes>> oldest = entries.entrySet().iterator();
+            while (oldest.hasNext() && (entries.size() > MAX_ENTRIES || total > MAX_BYTES)) {
+                total -= oldest.next().getValue().value.length;
+                oldest.remove();
+            }
+        }
     }
 
     private static final class Encoded {
@@ -271,6 +297,8 @@ final class BrowserImageCapture {
         String originalUrl = request.image.optString("sourceUrl");
         HttpUrl url = HttpUrl.parse(originalUrl);
         if (url == null) throw new IOException("图片网址无效");
+        Bytes cached = request.page.sources.get(originalUrl);
+        if (cached != null) return cached;
         Map<String, String> captured = request.page.headers.get(originalUrl);
         String pageUrl = request.image.optString("pageUrl", request.page.url);
         for (int redirects = 0; redirects <= 4; redirects++) {
@@ -297,7 +325,9 @@ final class BrowserImageCapture {
                 if (response.body().contentLength() > MAX_SOURCE_BYTES) throw new IOException("图片超过 6 MB，请返回网页查看");
                 byte[] body = readBounded(response.body().byteStream(), MAX_SOURCE_BYTES);
                 String mime = response.header("Content-Type", "").split(";")[0].trim().toLowerCase(Locale.ROOT);
-                return new Bytes(body, mime);
+                Bytes result = new Bytes(body, mime);
+                request.page.sources.put(originalUrl, result);
+                return result;
             } finally { request.call = null; }
         }
         throw new IOException("图片跳转过多，请返回网页查看");

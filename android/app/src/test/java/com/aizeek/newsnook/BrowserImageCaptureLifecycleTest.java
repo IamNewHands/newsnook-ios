@@ -174,6 +174,22 @@ public class BrowserImageCaptureLifecycleTest {
         assertFalse("an observed no-referrer image remains no-referrer", noReferrer.containsKey("Referer"));
     }
 
+    @Test public void displayReadsReuseSourceBytesAlreadyDownloadedForThumbnails() {
+        BrowserImageCapture.SourceCache cache = new BrowserImageCapture.SourceCache();
+        cache.put("https://cdn.example/one.jpg", new BrowserImageCapture.Bytes(new byte[5 * 1024 * 1024], "image/jpeg"));
+        cache.put("https://cdn.example/two.jpg", new BrowserImageCapture.Bytes(new byte[5 * 1024 * 1024], "image/jpeg"));
+        assertNotNull("a second read of the same url is served from memory", cache.get("https://cdn.example/one.jpg"));
+        cache.put("https://cdn.example/three.jpg", new BrowserImageCapture.Bytes(new byte[5 * 1024 * 1024], "image/jpeg"));
+        assertNull("the byte budget evicts the oldest source first", cache.get("https://cdn.example/one.jpg"));
+        assertNotNull(cache.get("https://cdn.example/two.jpg"));
+        assertNotNull(cache.get("https://cdn.example/three.jpg"));
+        BrowserImageCapture.SourceCache page = new BrowserImageCapture.SourceCache();
+        for (int index = 0; index < 25; index++)
+            page.put("https://cdn.example/p" + index + ".jpg", new BrowserImageCapture.Bytes(new byte[1024], "image/jpeg"));
+        assertNull("the entry budget evicts the oldest sources first", page.get("https://cdn.example/p0.jpg"));
+        assertNotNull(page.get("https://cdn.example/p24.jpg"));
+    }
+
     @Test public void boundedReaderRejectsAnOversizedStreamBeforeReturningBytes() throws Exception {
         assertArrayEquals(new byte[] {1, 2, 3}, BrowserImageCapture.readBounded(new ByteArrayInputStream(new byte[] {1, 2, 3}), 3));
         try {
