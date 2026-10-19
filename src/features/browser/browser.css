@@ -93,9 +93,9 @@ html[data-scheme='buer'] .browser-workspace svg.lucide[fill='none'] { fill: none
 .browser-private-notice-compact > svg { margin-top: 1px; }
 
 .browser-site-icon { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 14px; background: var(--color-haze); color: var(--color-paper-muted); font-size: 17px; font-weight: 600; }
-.browser-site-icon img { width: 26px; height: 26px; object-fit: contain; }
+.browser-site-icon img, .browser-site-icon svg { width: 26px; height: 26px; object-fit: contain; }
 .browser-site-icon-small { width: 34px; height: 34px; border-radius: 10px; font-size: 15px; }
-.browser-site-icon-small img { width: 21px; height: 21px; }
+.browser-site-icon-small img, .browser-site-icon-small svg { width: 21px; height: 21px; }
 .browser-list-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-paper); font-size: 15px; font-weight: 500; line-height: 1.55; }
 .browser-list-detail { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 3px; color: var(--color-paper-muted); font-size: 13px; line-height: 1.55; }
 .browser-input-field { display: flex; align-items: center; min-width: 0; min-height: 48px; padding-left: 13px; border: 1px solid var(--color-haze); border-radius: 14px; background: var(--color-ink-raised); }

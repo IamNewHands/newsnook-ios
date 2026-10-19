@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { AlertCircle, ArrowLeft, Globe2, ShieldCheck, X, type LucideIcon } from 'lucide-react'
 import { shortcutFaviconUrl } from './browserHistory'
 import { useBrowserDialogFocus } from './useBrowserDialogFocus'
+import { getBrowserBrandIcon } from './browserBrandIcons'
 
 export function BrowserIconButton({label, children, onClick, disabled = false, pressed, className = ''}: {
   label: string; children: ReactNode; onClick: () => void; disabled?: boolean
@@ -17,11 +18,17 @@ export function BrowserSiteIcon({url, name, size = 'normal', allowRemote = true}
   url: string; name?: string; size?: 'small' | 'normal'; allowRemote?: boolean
 }) {
   const [failedSource, setFailedSource] = useState<string | null>(null)
+  const brandIcon = getBrowserBrandIcon(url, name, size)
+  if (brandIcon) {
+    return <span className={'browser-site-icon' + (size === 'small' ? ' browser-site-icon-small' : '')} aria-hidden="true">
+      {brandIcon}
+    </span>
+  }
   const source = allowRemote ? shortcutFaviconUrl(url) : null
   const failed = source !== null && failedSource === source
   return <span className={'browser-site-icon' + (size === 'small' ? ' browser-site-icon-small' : '')} aria-hidden="true">
     {source && !failed
-      ? <img src={source} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailedSource(source)}/>
+      ? <img src={source} alt="" referrerPolicy="no-referrer" onError={() => setFailedSource(source)}/>
       : name ? <span>{Array.from(name)[0]?.toUpperCase()}</span> : <Globe2 size={20} strokeWidth={1.8}/>}
   </span>
 }
