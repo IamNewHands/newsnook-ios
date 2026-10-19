@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ToggleSwitch } from '../../components/ToggleSwitch'
 import { registerHardwareBackLayer } from '../../lib/hardwareBackStack'
-import { BookOpen, Bookmark, Check, ChevronDown, ChevronLeft, Copy, Maximize2, Minimize2, Settings2, X } from 'lucide-react'
+import { BookOpen, Bookmark, Check, ChevronDown, ChevronLeft, Copy, Maximize2, Minimize2, Search, Settings2, X } from 'lucide-react'
 import { readWikiLibrary, rememberWikiEntry, removeWikiBookmark, wikiEntryIdentity } from './library'
 import {
   encyclopediaProviders, getEncyclopediaProvider, loadWikiSettings,
   lookupEncyclopedia, parseWikiSections, sanitizeWikiHtml, saveWikiSettings,
   type WikiEntry, type WikiSettings,
 } from './encyclopedia'
+import { WikiSearchBrowserSheet } from './WikiSearchBrowserSheet'
+import { openBrowserWithUrl } from '../browser/browserOpen'
 import './wiki.css'
 
 interface SelectionInfo { text: string; x: number; y: number }
-type View = 'peek' | 'article' | 'settings'
+type View = 'peek' | 'article' | 'settings' | 'search'
 export function WikiSelectionLayer() {
   const [settings, setSettings] = useState<WikiSettings>(loadWikiSettings)
   const [selected, setSelected] = useState<SelectionInfo | null>(null)
@@ -92,6 +94,19 @@ export function WikiSelectionLayer() {
       if (!controller.signal.aborted) setLoading(false)
     }
   }, [entry])
+  const handleSearch = useCallback((term: string) => {
+    window.getSelection()?.removeAllRanges()
+    requestRef.current?.abort()
+    fullRef.current?.abort()
+    setActiveTerm(term)
+    setExpanded(false)
+    setView('search')
+    setError('')
+    setLoading(false)
+    setFullText(null)
+    setFullLoading(false)
+    setIsFullArticleMode(false)
+  }, [])
   const switchToFullArticle = useCallback(async () => {
     setIsFullArticleMode(true)
     setExpanded(true)
@@ -301,7 +316,7 @@ export function WikiSelectionLayer() {
           role="dialog"
           aria-label="划词操作"
           style={{
-            left: Math.max(12, Math.min(window.innerWidth - 170, selected.x - 85)),
+            left: Math.max(12, Math.min(window.innerWidth - 240, selected.x - 110)),
             top: Math.max(12, selected.y - 48),
           }}
         >
@@ -313,6 +328,16 @@ export function WikiSelectionLayer() {
           >
             <BookOpen size={14} className="shrink-0 text-cinnabar-soft" />
             <span>百科</span>
+          </button>
+          <div className="wiki-popover-divider" aria-hidden="true" />
+          <button
+            type="button"
+            className="wiki-popover-item"
+            onClick={() => handleSearch(selected.text)}
+            title={`在浏览器中搜索“${selected.text}”`}
+          >
+            <Search size={14} className="shrink-0" />
+            <span>搜索</span>
           </button>
           <div className="wiki-popover-divider" aria-hidden="true" />
           <button
@@ -331,7 +356,7 @@ export function WikiSelectionLayer() {
           </button>
         </div>
       )}
-      {view !== 'peek' && (
+      {(view === 'article' || view === 'settings') && (
         <>
           <div className="wiki-sheet-mask" onClick={dismiss} />
           <section className={`wiki-sheet ${expanded ? 'wiki-sheet-expanded' : ''}`} role="dialog" aria-modal="true" aria-label={view === 'settings' ? '百科设置' : '百科词条'}>
@@ -634,6 +659,21 @@ export function WikiSelectionLayer() {
               )
             })()}
           </section>
+        </>
+      )}
+      {view === 'search' && (
+        <>
+          <div className="wiki-sheet-mask" onClick={dismiss} />
+          <WikiSearchBrowserSheet
+            term={activeTerm || selected.text}
+            expanded={expanded}
+            onToggleExpand={() => setExpanded(x => !x)}
+            onClose={dismiss}
+            onOpenInFullBrowser={(url) => {
+              dismiss()
+              openBrowserWithUrl(url)
+            }}
+          />
         </>
       )}
     </div>

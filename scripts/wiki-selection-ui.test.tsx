@@ -83,6 +83,29 @@ try {
   assert.equal(copied, '量子纠缠', '复制按钮使用点击前捕获的选中文字')
   assert.ok(peek() === null, '复制后关闭工具栏')
 
+  await select()
+  const searchBtn = document.querySelector<HTMLButtonElement>('[title="在浏览器中搜索“量子纠缠”"]')
+  assert.ok(searchBtn, '划词工具栏必须包含搜索按钮')
+  await act(async () => searchBtn.click())
+  const searchSheet = document.querySelector('.wiki-sheet-search')
+  assert.ok(searchSheet, '点击搜索按钮弹出内置浏览器搜索半窗')
+  assert.equal(searchSheet.classList.contains('wiki-sheet-expanded'), false, '默认呈半窗状态')
+
+  const expandBtn = searchSheet.querySelector<HTMLButtonElement>('[aria-label="展开为全屏"]')
+  assert.ok(expandBtn, '包含展开按钮')
+  await act(async () => expandBtn.click())
+  assert.ok(searchSheet.classList.contains('wiki-sheet-expanded'), '点击展开按钮展开为全屏')
+
+  const collapseBtn = searchSheet.querySelector<HTMLButtonElement>('[aria-label="收起为半窗"]')
+  assert.ok(collapseBtn, '全屏下包含收起按钮')
+  await act(async () => collapseBtn.click())
+  assert.equal(searchSheet.classList.contains('wiki-sheet-expanded'), false, '收起回半窗')
+
+  const closeSearchBtn = searchSheet.querySelector<HTMLButtonElement>('[aria-label="关闭搜索返回阅读"]')
+  assert.ok(closeSearchBtn, '包含关闭搜索返回阅读按钮')
+  await act(async () => closeSearchBtn.click())
+  assert.equal(document.querySelector('.wiki-sheet-search'), null, '关闭搜索面板返回阅读')
+
   selectionText = '量子纠缠'
   const nativeEvent = new window.Event('newsnook:wiki-selection', { cancelable: true })
   await act(async () => { window.dispatchEvent(nativeEvent) })

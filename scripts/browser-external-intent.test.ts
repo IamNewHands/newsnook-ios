@@ -4,7 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { shareTokenFromAppUrl } from '../src/lib/appDeepLink'
 import { syncRouteFromAppUrl } from '../src/features/sync/nativeNotification'
-import { BROWSER_OPEN_EVENT, openBrowserWithUrl, type BrowserOpenDetail } from '../src/features/browser/browserOpen'
+import { openBrowserWithUrl, type BrowserOpenDetail } from '../src/features/browser/browserOpen'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(__dirname, '..')
