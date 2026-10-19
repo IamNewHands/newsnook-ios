@@ -593,6 +593,8 @@ try {
           await tap('[aria-label="查看第 2 张图片"]')
           await waitFor('document.querySelector("[aria-label=\\"查看第 2 张图片\\"]").getAttribute("aria-current") === "true"', 'selecting the second image')
           await waitFor(`Boolean(document.querySelector('[data-image-track] > div:not([aria-hidden]) img')?.naturalWidth)`, 'loaded second image')
+          await waitFor('document.querySelector("[aria-label=调整图片]").disabled === false && !document.querySelector("[data-image-stage]").textContent.includes("图片加载中")',
+            'decoded second image leaves the loading state')
           assert.equal(await evaluate('window.__imageLoadRequests.filter(request => request.original).length'), 0, 'Viewing alone does not request export bytes')
           await tap('[aria-label="图片操作"]')
           await tapText('保存到相册')

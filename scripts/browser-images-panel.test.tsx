@@ -185,5 +185,19 @@ try {
   await flush()
   assert.equal(document.querySelector('[data-image-track] img[alt="慢速图片 0"]')?.getAttribute('src'), currentSource,
     'late cancelled thumbnail replies cannot replace or invalidate the loaded main image')
+  const adjacentRead = busyReads.find(read => read.request.imageId === 'busy-1' && !read.request.thumbnail)
+  assert.ok(adjacentRead, 'the adjacent display image is prefetched')
+  await act(async () => adjacentRead.resolve(busyResponse(adjacentRead.request)))
+  await flush()
+  const decodedAdjacent = document.querySelector<HTMLImageElement>('[data-image-track] img[src^="blob:"]:not([alt="慢速图片 0"])')!
+  Object.defineProperties(decodedAdjacent, {
+    naturalWidth: { value: 800, configurable: true }, naturalHeight: { value: 600, configurable: true },
+    complete: { value: true, configurable: true },
+  })
+  await click('查看第 2 张图片')
+  assert.equal(decodedAdjacent.style.opacity, '1', 'a prefetched browser image remains visible when selected after decoding')
+  assert.equal(button('调整图片').disabled, false, 'selecting a decoded browser image leaves loaded-only actions enabled')
+  assert.ok(!document.querySelector('[data-image-stage]')?.textContent?.includes('图片加载中'),
+    'selecting a decoded browser image cannot leave the main stage loading')
   console.log('Browser image panel: bounded lazy grid, saturated queue recovery, main-image loading, private export confirmation and layered back OK')
 } finally { await act(async () => root.unmount()) }

@@ -74,6 +74,18 @@ function GallerySlide({ src, alt = '', current, imgRef, stageRef, onLoad, onErro
     img.style.width = `${img.naturalWidth * fit}px`
     img.style.height = `${img.naturalHeight * fit}px`
   }, [stageRef])
+  const settleImage = useCallback((next: 'loaded' | 'error') => {
+    setPhase(next)
+    if (next === 'loaded') {
+      if (!current) fitPreview()
+      else onLoad()
+    } else if (current) onError()
+  }, [current, fitPreview, onError, onLoad])
+  useLayoutEffect(() => {
+    const img = localRef.current
+    if (!src || !img?.complete) return
+    settleImage(img.naturalWidth > 0 ? 'loaded' : 'error')
+  }, [src, settleImage])
   useLayoutEffect(() => {
     const img = localRef.current
     if (!current && img) {
@@ -99,8 +111,8 @@ function GallerySlide({ src, alt = '', current, imgRef, stageRef, onLoad, onErro
     {!current && phase === 'error' ? <span className={'absolute ' + (browserMode ? 'text-[13px] text-paper-muted' : 'text-[12px] text-paper-faint')}>图片暂时无法加载</span> : null}
     <img ref={(img) => { localRef.current = img; if (current) imgRef.current = img }}
       src={src || undefined} alt={current ? alt : ''} draggable={false} referrerPolicy="no-referrer"
-      onLoad={() => { if (!current) fitPreview(); setPhase('loaded'); if (current) onLoad() }}
-      onError={() => { setPhase('error'); if (current) onError() }}
+      onLoad={() => settleImage('loaded')}
+      onError={() => settleImage('error')}
       className="pointer-events-auto shrink-0 select-none object-contain"
       style={{ transformOrigin: 'center center', willChange: 'transform', opacity: phase === 'loaded' ? 1 : 0 }} />
   </>
@@ -210,6 +222,14 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
     img.style.height = `${img.naturalHeight * fit}px`
     return { width: width * fit, height: height * fit }
   }, [])
+
+  const markCurrentImageLoaded = useCallback(() => {
+    fitImage()
+    applyTransform(false)
+    setImageState('loaded')
+  }, [applyTransform, fitImage])
+
+  const markCurrentImageFailed = useCallback(() => setImageState('error'), [])
 
   const clampTranslation = useCallback(() => {
     const stage = stageRef.current
@@ -765,8 +785,7 @@ export function ImageLightbox({ src, actionSrc, alt = '', onClose, onPrevious, o
               className="absolute top-0 flex h-full w-full items-center justify-center overflow-hidden"
               style={{ left: `${position * 100}%` }}>
               {item ? <GallerySlide key={reload?.src === item.src && reload.index === position ? reload.attempt : 0} {...item} current={current} imgRef={imgRef} stageRef={stageRef} browserMode={browserMode}
-                onLoad={() => { fitImage(); applyTransform(false); setImageState('loaded') }}
-                onError={() => setImageState('error')} /> : null}
+                onLoad={markCurrentImageLoaded} onError={markCurrentImageFailed} /> : null}
             </div>
           })}
         </div>
