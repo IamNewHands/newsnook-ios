@@ -47,6 +47,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build shared contracts
+        run: npm run build:contracts
+
       - name: Verify browser product and media lifecycle
         shell: bash
         run: |
@@ -58,6 +61,7 @@ jobs:
           npm run test:media-sniffer
           npm run test:origin-player-live-sniff
           npm run test:browser
+          npx tsx scripts/wiki-selection-ui.test.tsx
 
       - name: Build web assets
         run: npm run build
