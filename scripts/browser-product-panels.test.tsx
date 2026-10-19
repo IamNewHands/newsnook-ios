@@ -295,6 +295,16 @@ try {
   assert.equal(window.document.querySelectorAll('select[aria-label="默认搜索引擎"] option').length, 11, 'all existing search providers are available as defaults')
   await chooseSearchDefault('google')
   assert.deepEqual(calls.engines, ['google'])
+  const searchPickerButton = window.document.querySelector('#browser-default-search-button') as HTMLButtonElement | null
+  assert.ok(searchPickerButton, '提供自定义应用内搜索引擎弹窗触发按钮')
+  assert.equal(window.document.querySelectorAll('.browser-search-picker-sheet').length, 0, '未点击前不展示底部弹窗')
+  await click(searchPickerButton)
+  assert.equal(window.document.querySelectorAll('.browser-search-picker-sheet').length, 1, '点击打开自定义应用内底部弹窗')
+  assert.equal(window.document.querySelectorAll('.browser-search-picker-item').length, 11, '底部弹窗提供全部 11 个搜索引擎')
+  const duckduckgoButton = window.document.querySelector('button[role="option"][aria-selected="false"]') as HTMLButtonElement | null
+  assert.ok(duckduckgoButton)
+  await click(duckduckgoButton)
+  assert.equal(window.document.querySelectorAll('.browser-search-picker-sheet').length, 0, '选中后自动关闭自定义弹层')
   await click(button('底部'))
   assert.deepEqual(calls.positions, [true])
   const desktop = window.document.querySelector('[role="switch"]')

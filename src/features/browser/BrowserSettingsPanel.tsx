@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Check, ChevronDown, Circle, Minus, PanelBottom, PanelTop, Plus, Trash2, type LucideIcon } from 'lucide-react'
-import { BrowserPageHeader, BrowserPrivateNotice, BrowserStatusBanner } from './BrowserPrimitives'
+import { BrowserPageHeader, BrowserPrivateNotice, BrowserSheet, BrowserSiteIcon, BrowserStatusBanner } from './BrowserPrimitives'
 import { browserHostLabel, normalizeBrowserPreferences, toggleBrowserDesktopMode, validateBrowserUserAgent, type BrowserPreferences, type BrowserSearchChoice, type BrowserMobileUserAgentMode } from './browserPreferences'
 import { BROWSER_SEARCH_PROVIDERS } from './browserSearchCatalog'
 import { ToggleSwitch } from '../../components/ToggleSwitch'
+import { useHardwareBackLayer } from '../../hooks/useHardwareBackLayer'
 
 export type { BrowserSearchChoice } from './browserPreferences'
 
@@ -113,6 +114,7 @@ export function BrowserSettingsPanel({
   const [customExpanded, setCustomExpanded] = useState(false)
   const [userAgentDraft, setUserAgentDraft] = useState(preferences?.customUserAgent ?? '')
   const [userAgentError, setUserAgentError] = useState('')
+  const [searchPickerOpen, setSearchPickerOpen] = useState(false)
   const inFlight = useRef(false)
   const mounted = useRef(false)
   const userAgentInput = useRef<HTMLTextAreaElement>(null)
@@ -120,6 +122,12 @@ export function BrowserSettingsPanel({
   const hasPreferences = Boolean(preferences && onPreferencesChange)
   const effectivePrivateMode = preferences?.privateMode ?? privateMode
   const desktopEnabled = preferences?.userAgentMode === 'desktop'
+  const currentProvider = BROWSER_SEARCH_PROVIDERS.find(provider => provider.id === search)
+
+  useHardwareBackLayer(searchPickerOpen, () => {
+    setSearchPickerOpen(false)
+    return true
+  })
   useEffect(() => {
     mounted.current = true
     return () => { mounted.current = false }
@@ -180,16 +188,27 @@ export function BrowserSettingsPanel({
         {saving && <p className="browser-save-status" role="status">正在保存设置…</p>}
 
         <SettingsSection id="browser-settings-search" title="搜索与布局">
-          <label className="browser-setting-caption" htmlFor="browser-default-search">默认搜索引擎</label>
+          <label className="browser-setting-caption" htmlFor="browser-default-search-button">默认搜索引擎</label>
           <div className="browser-setting-select">
+            <button type="button" id="browser-default-search-button"
+              aria-label={'默认搜索引擎：' + (currentProvider?.name || search)}
+              disabled={busy} onClick={() => setSearchPickerOpen(true)}
+              className="browser-setting-select-btn">
+              <div className="browser-setting-select-value">
+                <BrowserSiteIcon url={currentProvider?.home || ''} name={currentProvider?.name} size="small" allowRemote={!effectivePrivateMode}/>
+                <span className="browser-setting-select-name">{currentProvider?.name || search}</span>
+                <span className="browser-setting-select-category">{currentProvider?.category}</span>
+              </div>
+              <ChevronDown size={18} strokeWidth={1.8} aria-hidden="true"/>
+            </button>
             <select id="browser-default-search" aria-label="默认搜索引擎" value={search} disabled={busy}
+              tabIndex={-1} aria-hidden="true" className="browser-setting-hidden-select"
               onChange={event => {const next = event.currentTarget.value as BrowserSearchChoice; if (next !== search) void saveAction(() => onSearchChange(next))}}>
               {(['搜索', 'AI', '学术'] as const).map(category => <optgroup key={category} label={category}>
                 {BROWSER_SEARCH_PROVIDERS.filter(provider => provider.category === category)
                   .map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
               </optgroup>)}
             </select>
-            <ChevronDown size={18} strokeWidth={1.8} aria-hidden="true"/>
           </div>
           <p className="browser-setting-caption browser-setting-caption-spaced">地址栏位置</p>
           <ChoiceGroup label="地址栏位置" choices={addressChoices} value={bottomAddress ? 'bottom' : 'top'}
@@ -294,5 +313,29 @@ export function BrowserSettingsPanel({
         </SettingsSection>
       </div>
     </div>
+    {searchPickerOpen && <BrowserSheet title="选择默认搜索引擎" onClose={() => setSearchPickerOpen(false)}>
+      <div className="browser-search-picker-sheet">
+        {(['搜索', 'AI', '学术'] as const).map(category => <div key={category} className="browser-search-picker-group">
+          <h4 className="browser-search-picker-category">{category}</h4>
+          <div className="browser-search-picker-list">
+            {BROWSER_SEARCH_PROVIDERS.filter(provider => provider.category === category).map(provider => {
+              const selected = provider.id === search
+              return <button key={provider.id} type="button" role="option" aria-selected={selected} disabled={busy}
+                onClick={() => {
+                  setSearchPickerOpen(false)
+                  if (provider.id !== search) void saveAction(() => onSearchChange(provider.id))
+                }}
+                className={'browser-search-picker-item' + (selected ? ' is-selected' : '')}>
+                <div className="browser-search-picker-item-main">
+                  <BrowserSiteIcon url={provider.home} name={provider.name} size="small" allowRemote={!effectivePrivateMode}/>
+                  <span className="browser-search-picker-name">{provider.name}</span>
+                </div>
+                {selected && <Check size={18} strokeWidth={2} className="browser-search-picker-check" aria-hidden="true"/>}
+              </button>
+            })}
+          </div>
+        </div>)}
+      </div>
+    </BrowserSheet>}
   </section>
 }

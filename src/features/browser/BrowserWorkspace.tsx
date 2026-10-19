@@ -543,7 +543,7 @@ export function BrowserWorkspace({
     {confirmation && <BrowserSheet title={confirmation.title} onClose={() => setConfirmation(null)}>
       <p className="py-2 text-[14px] leading-relaxed text-paper-muted">{confirmation.message}</p>
       <div className="mt-4 grid grid-cols-2 gap-3 pb-2">
-        <button type="button" onClick={() => setConfirmation(null)} className="min-h-12 rounded-xl border border-haze text-[14px]">取消</button>
+        <button type="button" onClick={() => setConfirmation(null)} className="min-h-12 rounded-xl border border-haze text-[14px] text-paper-muted transition-colors hover:text-paper">取消</button>
         <button type="button" disabled={confirming} onClick={() => {
           if (confirming) return
           const request = confirmation
@@ -551,7 +551,7 @@ export function BrowserWorkspace({
           void Promise.resolve().then(request.confirm).then(ok => {
             if (ok) {setConfirmation(current => current === request ? null : current); setNotice({message:request.successMessage || '已清除'})}
           }).catch(error => {setNotice({message:error instanceof Error ? error.message : '操作失败，请重试', error:true})}).finally(() => setConfirming(false))
-        }} className="min-h-12 rounded-xl bg-paper text-[14px] font-medium text-ink disabled:opacity-50">{confirming ? '正在处理' : confirmation.actionLabel || '确认删除'}</button>
+        }} className="min-h-12 rounded-xl bg-cinnabar text-[14px] font-semibold text-white shadow-xs transition-opacity hover:opacity-90 active:scale-95 disabled:opacity-50">{confirming ? '正在处理' : confirmation.actionLabel || '确认删除'}</button>
       </div>
     </BrowserSheet>}
 
