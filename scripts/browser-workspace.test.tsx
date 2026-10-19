@@ -832,6 +832,16 @@ try {
 
   await menu('返回有所闻')
   assert.equal(document.querySelector('[aria-label="NewsNook 网页浏览器"]'), null)
+
+  await mount()
+  await visit('https://example.com/toolbar-exit')
+  const toolbarCloseBtn = select('[aria-label="浏览器控制"] button[aria-label="返回有所闻"]')
+  assert.ok(toolbarCloseBtn, 'toolbar has direct 返回有所闻 shortcut button')
+  const closeCallsBeforeToolbarExit = closeCalls
+  await click(toolbarCloseBtn)
+  assert.equal(closeCalls, closeCallsBeforeToolbarExit + 1, 'clicking the toolbar shortcut exits the browser')
+  assert.equal(document.querySelector('[aria-label="NewsNook 网页浏览器"]'), null)
+
   console.log('Browser external intent: cold launch, hot navigation and menu exit OK')
   console.log('Browser recovery: one-time launcher handoff, StrictMode, retained error tabs, manual reload and pending exit OK')
 } finally {

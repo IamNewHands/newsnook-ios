@@ -364,6 +364,7 @@ export function BrowserWorkspace({
 
   const toolbar = findOpen ? <BrowserFindBar privateMode={privateMode} result={session.findResult} onFind={session.findInPage} onNext={session.findNext} onClose={closeFind}/> : <nav aria-label="浏览器控制" className="browser-toolbar relative z-10 shrink-0 border-y border-haze bg-ink-raised">
     <div className="browser-toolbar-row flex h-14 items-center gap-0.5 px-1.5">
+      <BrowserIconButton label="返回有所闻" onClick={close}><LogOut size={20} strokeWidth={1.8}/></BrowserIconButton>
       <BrowserIconButton label="主页" disabled={session.pending} onClick={goHome}><Home size={20} strokeWidth={1.8}/></BrowserIconButton>
       <div className={'browser-address flex h-11 min-w-0 flex-1 items-center rounded-xl bg-haze/60 text-paper ' + (privateMode ? 'ring-1 ring-paper-muted/35' : '')}>
         {active ? <button type="button" aria-label={privateMode ? '隐私模式与网站信息' : '网站信息'} onClick={() => openPanel('site')} className="flex h-11 w-10 shrink-0 items-center justify-center rounded-l-xl text-paper-muted">
