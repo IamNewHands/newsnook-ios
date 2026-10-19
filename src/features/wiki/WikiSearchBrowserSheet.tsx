@@ -34,11 +34,12 @@ import {
   saveBrowserVisit,
 } from '../browser/browserHistory'
 import { useBrowserSession } from '../browser/useBrowserSession'
+import { WikiSheetGrabber } from './WikiSheetGrabber'
 
 export interface WikiSearchBrowserSheetProps {
   term: string
   expanded: boolean
-  onToggleExpand: () => void
+  onExpandedChange: (expanded: boolean) => void
   onClose: () => void
   onOpenInFullBrowser?: (url: string) => void
   onSwitchToWiki?: () => void
@@ -51,13 +52,14 @@ const CANDIDATE_PROVIDERS: BrowserSearchProvider[] = BROWSER_SEARCH_PROVIDERS.fi
 export function WikiSearchBrowserSheet({
   term,
   expanded,
-  onToggleExpand,
+  onExpandedChange,
   onClose,
   onOpenInFullBrowser,
   onSwitchToWiki,
 }: WikiSearchBrowserSheetProps) {
   const [preferences] = useState(loadBrowserPreferences)
   const viewport = useRef<HTMLDivElement>(null)
+  const fullBrowserOpeningRef = useRef(false)
   const pillsContainerRef = useRef<HTMLDivElement>(null)
 
   const [searchEngine, setSearchEngine] = useState<BrowserSearchChoice>(() => {
@@ -148,9 +150,13 @@ export function WikiSearchBrowserSheet({
 
   const isAndroid = Capacitor.getPlatform() === 'android'
 
-  const handleOpenFullBrowser = () => {
+  const handleOpenFullBrowser = async () => {
+    if (!onOpenInFullBrowser || fullBrowserOpeningRef.current) return
+    fullBrowserOpeningRef.current = true
     const currentUrl = session.state.url || currentSearchUrl
-    onOpenInFullBrowser?.(currentUrl)
+    // 两种浏览器共用同一个原生 WebView Host：先完成旧会话关闭，再交给全屏浏览器创建。
+    await session.close()
+    onOpenInFullBrowser(currentUrl)
   }
 
   return (
@@ -161,10 +167,10 @@ export function WikiSearchBrowserSheet({
       aria-label={`搜索“${term}”`}
     >
       <header className="wiki-sheet-header">
-        <div
-          className="wiki-sheet-grabber"
-          onClick={onToggleExpand}
-          title={expanded ? '点击收起为半窗' : '点击展开为全屏'}
+        <WikiSheetGrabber
+          expanded={expanded}
+          onExpandedChange={onExpandedChange}
+          onReachTop={() => { void handleOpenFullBrowser() }}
         />
 
         {/* Row 1: Mode Switcher [百科 | 搜索] + Term Badge + Window Actions */}
@@ -207,7 +213,7 @@ export function WikiSearchBrowserSheet({
               type="button"
               aria-label="在完整浏览器中打开"
               title="在完整浏览器中打开"
-              onClick={handleOpenFullBrowser}
+              onClick={() => { void handleOpenFullBrowser() }}
               className="wiki-nav-btn"
             >
               <ExternalLink size={15} />
@@ -216,7 +222,7 @@ export function WikiSearchBrowserSheet({
               type="button"
               aria-label={expanded ? '收起为半窗' : '展开为全屏'}
               title={expanded ? '收起为半窗' : '展开为全屏'}
-              onClick={onToggleExpand}
+              onClick={() => onExpandedChange(!expanded)}
               className="wiki-nav-btn"
             >
               {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}

@@ -53,12 +53,19 @@
 }
 .wiki-sheet-mask { position: fixed; inset: 0; background: rgba(0,0,0,.42); pointer-events: auto; }
 .wiki-sheet { position: fixed; bottom: 0; left: 0; right: 0; max-width: 760px; margin: auto; height: auto; min-height: 40vh; min-height: min(42dvh, 340px); max-height: 82vh; max-height: 82dvh; background: var(--wiki-bg); border: 1px solid var(--wiki-edge); border-radius: 24px 24px 0 0; pointer-events: auto; box-shadow: 0 -14px 45px rgba(0,0,0,.16); display: flex; flex-direction: column; overflow: hidden; padding-bottom: env(safe-area-inset-bottom); transition: height 240ms cubic-bezier(0.16, 1, 0.3, 1), max-height 240ms cubic-bezier(0.16, 1, 0.3, 1); }
-.wiki-sheet-expanded { height: 96vh; min-height: 96vh; max-height: 96vh; height: 96dvh; min-height: 96dvh; max-height: 96dvh; }
+.wiki-sheet-expanded { height: 100vh; min-height: 100vh; max-height: 100vh; height: 100dvh; min-height: 100dvh; max-height: 100dvh; max-width: none; border-radius: 0; }
 .wiki-sheet-search { height: 60vh; height: 60dvh; min-height: min(60dvh, 460px); max-height: 75vh; max-height: 75dvh; }
-.wiki-sheet-search.wiki-sheet-expanded { height: 96vh; min-height: 96vh; max-height: 96vh; height: 96dvh; min-height: 96dvh; max-height: 96dvh; }
-.wiki-sheet-header { border-bottom: 1px solid var(--wiki-edge); padding: 8px 14px 10px; flex: none; position: relative; }
-.wiki-sheet-grabber { width: 36px; height: 4px; border-radius: 9999px; opacity: .35; background: currentColor; margin: 0 auto 8px; cursor: pointer; transition: opacity 150ms ease; }
-.wiki-sheet-grabber:hover { opacity: .6; }
+.wiki-sheet-search.wiki-sheet-expanded { height: 100vh; min-height: 100vh; max-height: 100vh; height: 100dvh; min-height: 100dvh; max-height: 100dvh; }
+.wiki-sheet-dragging, .wiki-sheet-handoff { transition: none; }
+.wiki-sheet-expanded.wiki-sheet-dragging, .wiki-sheet-expanded.wiki-sheet-manual { max-width: 760px; border-radius: 24px 24px 0 0; }
+.wiki-sheet-handoff { max-width: none; border-radius: 0; }
+.wiki-sheet-header { border-bottom: 1px solid var(--wiki-edge); padding: 0 14px 10px; flex: none; position: relative; }
+.wiki-sheet-expanded .wiki-sheet-header, .wiki-sheet-handoff .wiki-sheet-header { padding-top: var(--sat, env(safe-area-inset-top, 0px)); }
+/* 整行都是抓手热区，仅中央显示细横条；触摸手势不劫持面板内容滚动。 */
+.wiki-lookup-ui .wiki-sheet-grabber { position: relative; display: block; width: 100%; height: 26px; padding: 0; margin: 0 auto 2px; border: 0; border-radius: 0; background: transparent; color: inherit; cursor: ns-resize; touch-action: none; user-select: none; -webkit-user-select: none; }
+.wiki-sheet-grabber::after { content: ''; position: absolute; top: 10px; left: 50%; width: 36px; height: 4px; border-radius: 9999px; background: currentColor; opacity: .35; transform: translateX(-50%); transition: opacity 150ms ease, width 150ms ease; }
+.wiki-sheet-grabber:hover::after, .wiki-sheet-grabber:focus-visible::after { opacity: .65; }
+.wiki-sheet-near-top .wiki-sheet-grabber::after { width: 48px; opacity: .8; }
 .wiki-sheet-header-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .wiki-sheet-header-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
 

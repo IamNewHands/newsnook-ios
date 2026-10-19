@@ -9,6 +9,7 @@ import {
   type WikiEntry, type WikiSettings,
 } from './encyclopedia'
 import { WikiSearchBrowserSheet } from './WikiSearchBrowserSheet'
+import { WikiSheetGrabber } from './WikiSheetGrabber'
 import { openBrowserWithUrl } from '../browser/browserOpen'
 import './wiki.css'
 
@@ -361,7 +362,7 @@ export function WikiSelectionLayer() {
           <div className="wiki-sheet-mask" onClick={dismiss} />
           <section className={`wiki-sheet ${expanded ? 'wiki-sheet-expanded' : ''}`} role="dialog" aria-modal="true" aria-label={view === 'settings' ? '百科设置' : '百科词条'}>
             <header className="wiki-sheet-header">
-              <div className="wiki-sheet-grabber" onClick={() => setExpanded(x => !x)} />
+              <WikiSheetGrabber expanded={expanded} onExpandedChange={setExpanded} />
               <div className="wiki-sheet-header-top">
                 <div className="wiki-mode-capsule" role="tablist" aria-label="查看模式切换">
                   <button
@@ -739,7 +740,7 @@ export function WikiSelectionLayer() {
           <WikiSearchBrowserSheet
             term={activeTerm || selected?.text || ''}
             expanded={expanded}
-            onToggleExpand={() => setExpanded(x => !x)}
+            onExpandedChange={setExpanded}
             onClose={dismiss}
             onOpenInFullBrowser={(url) => {
               dismiss()

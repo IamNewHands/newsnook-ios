@@ -15,7 +15,6 @@ import {
   Layers3,
   Grid2X2,
   LayoutTemplate,
-  PanelsTopLeft,
   Newspaper,
   PencilLine,
   Plus,
@@ -308,7 +307,7 @@ export function PresetSwitcher({
                     }}
                     className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-cinnabar/10 text-cinnabar transition-all hover:bg-cinnabar/20 active:scale-95"
                   >
-                    <PanelsTopLeft size={20} strokeWidth={1.6} />
+                    <Globe size={20} strokeWidth={1.6} />
                   </button>
                   <form
                     onSubmit={(e) => {

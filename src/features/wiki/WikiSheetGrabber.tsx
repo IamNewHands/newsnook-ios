@@ -1,0 +1,190 @@
+import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react'
+
+const DRAG_SLOP_PX = 4
+// 状态栏/挖孔区域不宜成为触顶判定的必经触摸区。
+const FULL_SCREEN_THRESHOLD_PX = 48
+const COLLAPSED_THRESHOLD_PX = 20
+
+type DragState = {
+  pointerId: number
+  originY: number
+  originHeight: number
+  currentHeight: number
+  minHeight: number
+  maxHeight: number
+  initialManualHeight: number | null
+  moved: boolean
+  sheet: HTMLElement
+}
+
+interface WikiSheetGrabberProps {
+  expanded: boolean
+  onExpandedChange: (expanded: boolean) => void
+  /** 搜索面板触顶后切换到完整浏览器；百科面板不传，原位全屏。 */
+  onReachTop?: () => void
+}
+
+const viewportHeight = () => window.innerHeight || document.documentElement.clientHeight
+
+function collapsedFallback(sheet: HTMLElement, height: number): number {
+  return sheet.classList.contains('wiki-sheet-search')
+    ? height * 0.6
+    : Math.min(height * 0.42, 340)
+}
+
+function clearManualHeight(sheet: HTMLElement) {
+  sheet.style.removeProperty('height')
+  sheet.style.removeProperty('min-height')
+  sheet.style.removeProperty('max-height')
+  sheet.classList.remove('wiki-sheet-dragging', 'wiki-sheet-manual', 'wiki-sheet-handoff')
+}
+
+/**
+ * 百科与搜索面板共享的抓手：只从顶部触发，避免正文滚动和 WebView 手势冲突。
+ * 拖动时直接调整 DOM 高度，不让整棵百科正文随每一帧重新渲染。
+ */
+export function WikiSheetGrabber({ expanded, onExpandedChange, onReachTop }: WikiSheetGrabberProps) {
+  const dragRef = useRef<DragState | null>(null)
+  const sheetRef = useRef<HTMLElement | null>(null)
+  const collapsedRef = useRef<number | null>(null)
+  const manualHeightRef = useRef<number | null>(null)
+  const skipNextClickRef = useRef(false)
+  const preserveOnNextExpandChangeRef = useRef(false)
+
+  // 最大化按钮、全文模式等外部动作仍可覆盖手动尺寸。
+  useEffect(() => {
+    if (preserveOnNextExpandChangeRef.current) {
+      preserveOnNextExpandChangeRef.current = false
+      return
+    }
+    const sheet = sheetRef.current
+    if (sheet && !dragRef.current) clearManualHeight(sheet)
+    manualHeightRef.current = null
+  }, [expanded])
+
+  useEffect(() => {
+    const resetOnViewportChange = () => {
+      dragRef.current = null
+      collapsedRef.current = null
+      manualHeightRef.current = null
+      if (sheetRef.current) clearManualHeight(sheetRef.current)
+    }
+    window.addEventListener('resize', resetOnViewportChange)
+    return () => window.removeEventListener('resize', resetOnViewportChange)
+  }, [])
+
+  const onPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0 || dragRef.current) return
+    const sheet = event.currentTarget.closest<HTMLElement>('.wiki-sheet')
+    if (!sheet) return
+    sheetRef.current = sheet
+    skipNextClickRef.current = false
+    const maxHeight = viewportHeight()
+    const measuredHeight = sheet.getBoundingClientRect().height || manualHeightRef.current || collapsedFallback(sheet, maxHeight)
+    if (!expanded && manualHeightRef.current === null) collapsedRef.current = Math.min(maxHeight, measuredHeight)
+    const minHeight = Math.min(maxHeight, collapsedRef.current ?? collapsedFallback(sheet, maxHeight))
+    dragRef.current = {
+      pointerId: event.pointerId,
+      originY: event.clientY,
+      originHeight: measuredHeight,
+      currentHeight: measuredHeight,
+      minHeight,
+      maxHeight,
+      initialManualHeight: manualHeightRef.current,
+      moved: false,
+      sheet,
+    }
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+  }
+
+  const onPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    const delta = event.clientY - drag.originY
+    if (!drag.moved && Math.abs(delta) < DRAG_SLOP_PX) return
+    if (!drag.moved) {
+      drag.moved = true
+      skipNextClickRef.current = true
+      drag.sheet.classList.add('wiki-sheet-dragging')
+    }
+    event.preventDefault()
+    const nextHeight = Math.max(drag.minHeight, Math.min(drag.maxHeight, drag.originHeight - delta))
+    drag.currentHeight = nextHeight
+    drag.sheet.style.height = `${nextHeight}px`
+    drag.sheet.style.minHeight = '0px'
+    drag.sheet.style.maxHeight = `${drag.maxHeight}px`
+    drag.sheet.classList.toggle('wiki-sheet-near-top', drag.maxHeight - nextHeight <= FULL_SCREEN_THRESHOLD_PX)
+  }
+
+  const finish = (event: ReactPointerEvent<HTMLButtonElement>, cancelled: boolean) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    dragRef.current = null
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+    drag.sheet.classList.remove('wiki-sheet-dragging', 'wiki-sheet-near-top')
+    if (!drag.moved) return
+
+    if (cancelled) {
+      manualHeightRef.current = drag.initialManualHeight
+      if (drag.initialManualHeight === null) clearManualHeight(drag.sheet)
+      else {
+        drag.sheet.style.height = `${drag.initialManualHeight}px`
+        drag.sheet.classList.add('wiki-sheet-manual')
+      }
+      return
+    }
+
+    if (drag.maxHeight - drag.currentHeight <= FULL_SCREEN_THRESHOLD_PX) {
+      manualHeightRef.current = null
+      if (onReachTop) {
+        // 保持已拖到顶的画面，直到原生半窗会话释放并打开完整浏览器。
+        drag.sheet.classList.add('wiki-sheet-handoff')
+        onReachTop()
+      } else {
+        clearManualHeight(drag.sheet)
+        onExpandedChange(true)
+      }
+      return
+    }
+
+    if (drag.currentHeight <= drag.minHeight + COLLAPSED_THRESHOLD_PX) {
+      manualHeightRef.current = null
+      clearManualHeight(drag.sheet)
+      onExpandedChange(false)
+      return
+    }
+
+    // 未触顶就停留在松手的位置，后续可继续拖动或点击展开/收起。
+    manualHeightRef.current = drag.currentHeight
+    drag.sheet.classList.add('wiki-sheet-manual')
+    if (expanded) {
+      preserveOnNextExpandChangeRef.current = true
+      onExpandedChange(false)
+    }
+  }
+
+  const onClick = () => {
+    if (skipNextClickRef.current) {
+      skipNextClickRef.current = false
+      return
+    }
+    if (sheetRef.current) clearManualHeight(sheetRef.current)
+    manualHeightRef.current = null
+    onExpandedChange(!expanded)
+  }
+
+  return (
+    <button
+      type="button"
+      className="wiki-sheet-grabber"
+      aria-label={expanded ? '拖动调整面板高度，点击收起' : '拖动调整面板高度，点击展开'}
+      aria-expanded={expanded}
+      title={expanded ? '拖动调整高度或点击收起' : '向上拖动扩大面板或点击展开'}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={event => finish(event, false)}
+      onPointerCancel={event => finish(event, true)}
+      onClick={onClick}
+    />
+  )
+}

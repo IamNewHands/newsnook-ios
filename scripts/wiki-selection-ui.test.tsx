@@ -46,6 +46,23 @@ async function select() {
   await event(document.getElementById('text')!, 'pointerup')
   assert.ok(peek(), '正文选词显示浮动工具栏')
 }
+function mockSheetHeight(sheet: Element, halfHeight: number) {
+  Object.defineProperty(sheet, 'getBoundingClientRect', { configurable: true, value: () => ({
+    height: Number.parseFloat((sheet as HTMLElement).style.height) || (sheet.classList.contains('wiki-sheet-expanded') ? window.innerHeight : halfHeight),
+  }) })
+}
+function pointer(target: EventTarget, type: string, clientY: number, pointerId = 7) {
+  const sample = new window.Event(type, { bubbles: true, cancelable: true })
+  Object.defineProperties(sample, {
+    button: { value: 0 }, pointerId: { value: pointerId }, clientY: { value: clientY },
+  })
+  target.dispatchEvent(sample)
+}
+async function drag(grabber: Element, fromY: number, toY: number, cancelled = false) {
+  await act(async () => pointer(grabber, 'pointerdown', fromY))
+  await act(async () => pointer(grabber, 'pointermove', toY))
+  await act(async () => pointer(grabber, cancelled ? 'pointercancel' : 'pointerup', toY))
+}
 try {
   await act(async () => root.render(<WikiSelectionLayer />))
   await select()
@@ -109,7 +126,22 @@ try {
   const wikiTab = searchSheet.querySelector<HTMLButtonElement>('[title="切换到词条百科"]')
   assert.ok(wikiTab, '搜索半窗包含切换到百科模式标签')
   await act(async () => wikiTab.click())
-  assert.ok(document.querySelector('.wiki-sheet:not(.wiki-sheet-search)'), '点击百科标签切回词条百科模式')
+  const articleSheet = document.querySelector<HTMLElement>('.wiki-sheet:not(.wiki-sheet-search)')!
+  assert.ok(articleSheet, '点击百科标签切回词条百科模式')
+  mockSheetHeight(articleSheet, 340)
+  const articleGrabber = articleSheet.querySelector<HTMLButtonElement>('.wiki-sheet-grabber')!
+  await drag(articleGrabber, 740, 450)
+  assert.equal(articleSheet.style.height, '630px', '百科半窗拖动时逐帧调整高度，松手后保持中间尺寸')
+  assert.equal(articleSheet.classList.contains('wiki-sheet-expanded'), false, '百科尚未触顶时不强制全屏')
+  await drag(articleGrabber, 540, 280)
+  assert.ok(articleSheet.classList.contains('wiki-sheet-expanded'), '百科拖动至屏幕顶部自动转全屏')
+  await act(async () => articleGrabber.click())
+  assert.ok(articleSheet.classList.contains('wiki-sheet-expanded'), '拖动结束产生的 click 不得再次折叠面板')
+  await drag(articleGrabber, 200, 540)
+  assert.equal(articleSheet.classList.contains('wiki-sheet-expanded'), false, '百科全屏允许从横条向下拖动恢复浮层')
+  assert.equal(articleSheet.style.height, '504px', '向下拖动后的中间尺寸保留，不强制跳回半屏')
+  await drag(articleGrabber, 540, 600, true)
+  assert.equal(articleSheet.style.height, '504px', '系统取消指针手势时回滚至拖动前高度')
 
   const searchTab = document.querySelector<HTMLButtonElement>('[title="切换到网页搜索“量子纠缠”"]')
   assert.ok(searchTab, '百科半窗包含切换到搜索模式标签')
@@ -117,10 +149,29 @@ try {
   const activeSearchSheet = document.querySelector<HTMLElement>('.wiki-sheet-search')
   assert.ok(activeSearchSheet, '点击搜索标签切回网页搜索半窗')
 
+  mockSheetHeight(activeSearchSheet, 506)
+  const searchGrabber = activeSearchSheet.querySelector<HTMLButtonElement>('.wiki-sheet-grabber')!
+  await drag(searchGrabber, 650, 520)
+  assert.equal(activeSearchSheet.style.height, '636px', '搜索半窗也支持连续拉高和保持中间尺寸')
+  await drag(searchGrabber, 520, 680)
+  assert.equal(activeSearchSheet.style.height, '', '搜索面板向下拖至最低位置恢复初始高度')
   const closeSearchBtn = activeSearchSheet.querySelector<HTMLButtonElement>('[aria-label="关闭搜索返回阅读"]')
   assert.ok(closeSearchBtn, '包含关闭搜索返回阅读按钮')
   await act(async () => closeSearchBtn.click())
   assert.equal(document.querySelector('.wiki-sheet-search'), null, '关闭搜索面板返回阅读')
+
+  await select()
+  await act(async () => document.querySelector<HTMLButtonElement>('[title="在浏览器中搜索“量子纠缠”"]')!.click())
+  const fullSearchSheet = document.querySelector<HTMLElement>('.wiki-sheet-search')!
+  mockSheetHeight(fullSearchSheet, 506)
+  let promotedUrl = ''
+  const recordFullBrowser = (event: Event) => { promotedUrl = (event as CustomEvent<{url: string}>).detail.url }
+  window.addEventListener('newsnook:open-browser', recordFullBrowser)
+  await drag(fullSearchSheet.querySelector('.wiki-sheet-grabber')!, 650, 300)
+  await act(async () => { await wait() })
+  window.removeEventListener('newsnook:open-browser', recordFullBrowser)
+  assert.ok(promotedUrl.startsWith('https://') && promotedUrl.includes(encodeURIComponent('量子纠缠')), '搜索面板触顶后将当前搜索地址交给完整浏览器')
+  assert.equal(document.querySelector('.wiki-sheet-search'), null, '进入完整浏览器时退出半屏搜索面板')
 
   selectionText = '量子纠缠'
   const nativeEvent = new window.Event('newsnook:wiki-selection', { cancelable: true })
