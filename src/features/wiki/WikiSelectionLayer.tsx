@@ -362,12 +362,84 @@ export function WikiSelectionLayer() {
           <section className={`wiki-sheet ${expanded ? 'wiki-sheet-expanded' : ''}`} role="dialog" aria-modal="true" aria-label={view === 'settings' ? '百科设置' : '百科词条'}>
             <header className="wiki-sheet-header">
               <div className="wiki-sheet-grabber" onClick={() => setExpanded(x => !x)} />
-              <div className="wiki-sheet-header-row">
-                {trail.length > 0 && view === 'article' ? <button type="button" aria-label="返回上一词条" onClick={handleBack}><ChevronLeft size={20}/></button> : null}
-                <h2>{view === 'settings' ? '划词百科设置' : entry?.title || selected.text}</h2>
-                {view === 'article' && <button type="button" aria-label="设置" onClick={openSettingsView}><Settings2 size={18} /></button>}
-                <button type="button" aria-label={expanded ? '收起' : '展开'} onClick={() => setExpanded(x => !x)}>{expanded ? <Minimize2 size={18}/> : <Maximize2 size={18}/>}</button>
-                <button type="button" aria-label="关闭百科" onClick={dismiss}><X size={20}/></button>
+              <div className="wiki-sheet-header-top">
+                <div className="wiki-mode-capsule" role="tablist" aria-label="查看模式切换">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={true}
+                    className="wiki-mode-tab is-active"
+                    title="当前为词条百科"
+                  >
+                    <BookOpen size={12} className="shrink-0" />
+                    <span>百科</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={false}
+                    onClick={() => handleSearch(activeTerm || entry?.title || selected?.text || '')}
+                    className="wiki-mode-tab"
+                    title={`切换到网页搜索“${activeTerm || entry?.title || selected?.text || ''}”`}
+                  >
+                    <Search size={12} className="shrink-0" />
+                    <span>搜索</span>
+                  </button>
+                </div>
+
+                <div className="flex-1 min-w-0 flex items-center justify-center px-1">
+                  <div
+                    className="wiki-term-badge"
+                    title={view === 'settings' ? '划词百科设置' : entry?.title || activeTerm || selected?.text || ''}
+                  >
+                    <span className="truncate max-w-[120px] sm:max-w-[180px]">
+                      {view === 'settings' ? '百科设置' : entry?.title || activeTerm || selected?.text || ''}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  {trail.length > 0 && view === 'article' && (
+                    <button
+                      type="button"
+                      aria-label="返回上一词条"
+                      onClick={handleBack}
+                      className="wiki-nav-btn"
+                      title="返回上一词条"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                  )}
+                  {view === 'article' && (
+                    <button
+                      type="button"
+                      aria-label="设置"
+                      onClick={openSettingsView}
+                      className="wiki-nav-btn"
+                      title="百科设置"
+                    >
+                      <Settings2 size={15} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    aria-label={expanded ? '收起' : '展开'}
+                    onClick={() => setExpanded(x => !x)}
+                    className="wiki-nav-btn"
+                    title={expanded ? '收起' : '展开'}
+                  >
+                    {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="关闭百科"
+                    onClick={dismiss}
+                    className="wiki-nav-btn"
+                    title="关闭百科"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
               </div>
             </header>
             {view === 'settings' ? (
@@ -665,13 +737,17 @@ export function WikiSelectionLayer() {
         <>
           <div className="wiki-sheet-mask" onClick={dismiss} />
           <WikiSearchBrowserSheet
-            term={activeTerm || selected.text}
+            term={activeTerm || selected?.text || ''}
             expanded={expanded}
             onToggleExpand={() => setExpanded(x => !x)}
             onClose={dismiss}
             onOpenInFullBrowser={(url) => {
               dismiss()
               openBrowserWithUrl(url)
+            }}
+            onSwitchToWiki={() => {
+              const query = activeTerm || selected?.text
+              if (query) void lookup(query)
             }}
           />
         </>

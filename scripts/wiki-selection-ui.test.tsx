@@ -101,7 +101,23 @@ try {
   await act(async () => collapseBtn.click())
   assert.equal(searchSheet.classList.contains('wiki-sheet-expanded'), false, '收起回半窗')
 
-  const closeSearchBtn = searchSheet.querySelector<HTMLButtonElement>('[aria-label="关闭搜索返回阅读"]')
+  const baiduPill = searchSheet.querySelector<HTMLButtonElement>('[title="切换为 百度 搜索“量子纠缠”"]')
+  assert.ok(baiduPill, '必须包含百度搜索引擎切换标签')
+  await act(async () => baiduPill.click())
+  assert.ok(baiduPill.classList.contains('is-active'), '切换后百度标签成为激活态')
+
+  const wikiTab = searchSheet.querySelector<HTMLButtonElement>('[title="切换到词条百科"]')
+  assert.ok(wikiTab, '搜索半窗包含切换到百科模式标签')
+  await act(async () => wikiTab.click())
+  assert.ok(document.querySelector('.wiki-sheet:not(.wiki-sheet-search)'), '点击百科标签切回词条百科模式')
+
+  const searchTab = document.querySelector<HTMLButtonElement>('[title="切换到网页搜索“量子纠缠”"]')
+  assert.ok(searchTab, '百科半窗包含切换到搜索模式标签')
+  await act(async () => searchTab.click())
+  const activeSearchSheet = document.querySelector<HTMLElement>('.wiki-sheet-search')
+  assert.ok(activeSearchSheet, '点击搜索标签切回网页搜索半窗')
+
+  const closeSearchBtn = activeSearchSheet.querySelector<HTMLButtonElement>('[aria-label="关闭搜索返回阅读"]')
   assert.ok(closeSearchBtn, '包含关闭搜索返回阅读按钮')
   await act(async () => closeSearchBtn.click())
   assert.equal(document.querySelector('.wiki-sheet-search'), null, '关闭搜索面板返回阅读')

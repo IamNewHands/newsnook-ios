@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
+  BookOpen,
   ExternalLink,
+  Globe,
   Maximize2,
   Minimize2,
   RefreshCw,
@@ -23,6 +25,11 @@ import {
   type BrowserSearchChoice,
 } from '../browser/browserPreferences'
 import {
+  BROWSER_SEARCH_PROVIDERS,
+  type BrowserSearchProvider,
+} from '../browser/browserSearchCatalog'
+import { getBrowserBrandIcon } from '../browser/browserBrandIcons'
+import {
   normalizeBrowserVisits,
   saveBrowserVisit,
 } from '../browser/browserHistory'
@@ -34,7 +41,12 @@ export interface WikiSearchBrowserSheetProps {
   onToggleExpand: () => void
   onClose: () => void
   onOpenInFullBrowser?: (url: string) => void
+  onSwitchToWiki?: () => void
 }
+
+const CANDIDATE_PROVIDERS: BrowserSearchProvider[] = BROWSER_SEARCH_PROVIDERS.filter(
+  p => p.category === '搜索' || p.category === 'AI' || p.id === 'wikipedia',
+)
 
 export function WikiSearchBrowserSheet({
   term,
@@ -42,24 +54,31 @@ export function WikiSearchBrowserSheet({
   onToggleExpand,
   onClose,
   onOpenInFullBrowser,
+  onSwitchToWiki,
 }: WikiSearchBrowserSheetProps) {
   const [preferences] = useState(loadBrowserPreferences)
   const viewport = useRef<HTMLDivElement>(null)
+  const pillsContainerRef = useRef<HTMLDivElement>(null)
 
-  const searchEngine = useMemo(() => {
+  const [searchEngine, setSearchEngine] = useState<BrowserSearchChoice>(() => {
     const saved = readBrowserPreference(BROWSER_KEYS.search)
     return saved && Object.prototype.hasOwnProperty.call(BROWSER_ENGINES, saved)
       ? (saved as BrowserSearchChoice)
       : 'bing'
-  }, [])
+  })
 
-  const engineInfo = BROWSER_ENGINES[searchEngine]
-  const engineLabel = engineInfo?.name || '必应'
+  const currentProvider = useMemo(() => {
+    return (
+      CANDIDATE_PROVIDERS.find(p => p.id === searchEngine) ||
+      BROWSER_SEARCH_PROVIDERS.find(p => p.id === searchEngine) ||
+      CANDIDATE_PROVIDERS[0]
+    )
+  }, [searchEngine])
 
-  const initialSearchUrl = useMemo(() => {
+  const currentSearchUrl = useMemo(() => {
     return (
       resolveBrowserAddress(term, searchEngine) ||
-      `https://cn.bing.com/search?q=${encodeURIComponent(term)}`
+      `https://www.bing.com/search?q=${encodeURIComponent(term)}`
     )
   }, [term, searchEngine])
 
@@ -93,8 +112,28 @@ export function WikiSearchBrowserSheet({
   useEffect(() => {
     if (initialOpenedRef.current) return
     initialOpenedRef.current = true
-    void sessionRef.current.open(initialSearchUrl)
-  }, [initialSearchUrl])
+    void sessionRef.current.open(currentSearchUrl)
+  }, [currentSearchUrl])
+
+  const handleSwitchEngine = useCallback(
+    (providerId: BrowserSearchChoice) => {
+      if (providerId === searchEngine) {
+        void sessionRef.current.command('reload')
+        return
+      }
+      setSearchEngine(providerId)
+      try {
+        writeBrowserPreference(BROWSER_KEYS.search, providerId)
+      } catch {
+        // Ignore storage error
+      }
+      const targetUrl =
+        resolveBrowserAddress(term, providerId) ||
+        `https://www.bing.com/search?q=${encodeURIComponent(term)}`
+      void sessionRef.current.open(targetUrl)
+    },
+    [searchEngine, term],
+  )
 
   useEffect(() => {
     return registerHardwareBackLayer(() => {
@@ -108,13 +147,9 @@ export function WikiSearchBrowserSheet({
   }, [onClose])
 
   const isAndroid = Capacitor.getPlatform() === 'android'
-  const displayTitle =
-    session.state.title && session.state.title !== '网页'
-      ? session.state.title
-      : `搜索“${term}”`
 
   const handleOpenFullBrowser = () => {
-    const currentUrl = session.state.url || initialSearchUrl
+    const currentUrl = session.state.url || currentSearchUrl
     onOpenInFullBrowser?.(currentUrl)
   }
 
@@ -131,67 +166,139 @@ export function WikiSearchBrowserSheet({
           onClick={onToggleExpand}
           title={expanded ? '点击收起为半窗' : '点击展开为全屏'}
         />
-        <div className="wiki-sheet-header-row">
-          <span className="shrink-0 rounded bg-cinnabar-soft/15 px-1.5 py-0.5 font-mono text-[11px] font-medium text-cinnabar-soft">
-            {engineLabel}
-          </span>
-          <h2 className="truncate text-[15px] font-semibold" title={displayTitle}>
-            {displayTitle}
-          </h2>
 
-          <div className="flex items-center gap-0.5 shrink-0">
+        {/* Row 1: Mode Switcher [百科 | 搜索] + Term Badge + Window Actions */}
+        <div className="wiki-sheet-header-top">
+          <div className="wiki-mode-capsule" role="tablist" aria-label="查看模式切换">
+            {onSwitchToWiki && (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={false}
+                onClick={onSwitchToWiki}
+                className="wiki-mode-tab"
+                title="切换到词条百科"
+              >
+                <BookOpen size={12} className="shrink-0" />
+                <span>百科</span>
+              </button>
+            )}
             <button
               type="button"
-              aria-label="后退"
-              disabled={!session.state.back}
-              onClick={() => void session.command('back')}
-              className={session.state.back ? 'text-paper' : 'opacity-35 cursor-not-allowed'}
+              role="tab"
+              aria-selected={true}
+              className="wiki-mode-tab is-active"
+              title="当前为网页搜索"
             >
-              <ArrowLeft size={18} />
+              <Search size={12} className="shrink-0" />
+              <span>搜索</span>
             </button>
-            <button
-              type="button"
-              aria-label="前进"
-              disabled={!session.state.forward}
-              onClick={() => void session.command('forward')}
-              className={session.state.forward ? 'text-paper' : 'opacity-35 cursor-not-allowed'}
-            >
-              <ArrowRight size={18} />
-            </button>
-            <button
-              type="button"
-              aria-label={session.state.loading ? '停止加载' : '刷新'}
-              onClick={() => void session.command(session.state.loading ? 'stop' : 'reload')}
-            >
-              {session.state.loading ? <Square size={16} /> : <RefreshCw size={17} />}
-            </button>
+          </div>
+
+          <div className="flex-1 min-w-0 flex items-center justify-center px-1">
+            <div className="wiki-term-badge" title={`搜索词：“${term}”`}>
+              <Search size={11} className="opacity-50 shrink-0" />
+              <span className="truncate max-w-[120px] sm:max-w-[180px]">{term}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
               aria-label="在完整浏览器中打开"
               title="在完整浏览器中打开"
               onClick={handleOpenFullBrowser}
+              className="wiki-nav-btn"
             >
-              <ExternalLink size={18} />
+              <ExternalLink size={15} />
             </button>
             <button
               type="button"
               aria-label={expanded ? '收起为半窗' : '展开为全屏'}
               title={expanded ? '收起为半窗' : '展开为全屏'}
               onClick={onToggleExpand}
+              className="wiki-nav-btn"
             >
-              {expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+              {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
             </button>
             <button
               type="button"
               aria-label="关闭搜索返回阅读"
               title="关闭搜索返回阅读"
               onClick={onClose}
+              className="wiki-nav-btn"
             >
-              <X size={20} />
+              <X size={16} />
             </button>
           </div>
         </div>
 
+        {/* Row 2: Search Engine Switcher Pills + Web Navigation */}
+        <div className="wiki-sheet-header-toolbar">
+          <div
+            ref={pillsContainerRef}
+            className="wiki-engine-pills-row"
+            role="radiogroup"
+            aria-label="切换搜索引擎"
+          >
+            {CANDIDATE_PROVIDERS.map(provider => {
+              const active = provider.id === searchEngine
+              const brandIcon = getBrowserBrandIcon(provider.home, provider.name, 'small')
+              return (
+                <button
+                  key={provider.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => handleSwitchEngine(provider.id)}
+                  className={`wiki-engine-pill ${active ? 'is-active' : ''}`}
+                  title={`切换为 ${provider.name} 搜索“${term}”`}
+                >
+                  <span className="shrink-0 flex items-center justify-center w-3.5 h-3.5 [&>svg]:w-3.5 [&>svg]:h-3.5">
+                    {brandIcon || <Globe size={13} className="opacity-60" />}
+                  </span>
+                  <span>{provider.name}</span>
+                  {active && <span className="w-1.5 h-1.5 rounded-full bg-cinnabar shrink-0" />}
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="flex items-center gap-0.5 shrink-0 pl-1 border-l border-haze/40">
+            <button
+              type="button"
+              aria-label="后退"
+              disabled={!session.state.back}
+              onClick={() => void session.command('back')}
+              className="wiki-nav-btn"
+            >
+              <ArrowLeft size={15} />
+            </button>
+            <button
+              type="button"
+              aria-label="前进"
+              disabled={!session.state.forward}
+              onClick={() => void session.command('forward')}
+              className="wiki-nav-btn"
+            >
+              <ArrowRight size={15} />
+            </button>
+            <button
+              type="button"
+              aria-label={session.state.loading ? '停止加载' : '刷新'}
+              onClick={() => void session.command(session.state.loading ? 'stop' : 'reload')}
+              className="wiki-nav-btn"
+            >
+              {session.state.loading ? (
+                <Square size={13} className="text-cinnabar" />
+              ) : (
+                <RefreshCw size={14} />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Progress bar */}
         {session.state.loading && (
           <div
             role="progressbar"
@@ -202,28 +309,29 @@ export function WikiSearchBrowserSheet({
             className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-haze/30"
           >
             <div
-              className="h-full bg-cinnabar transition-[width] duration-150"
+              className="h-full bg-gradient-to-r from-cinnabar via-cinnabar-soft to-cinnabar transition-[width] duration-150"
               style={{ width: `${Math.max(6, session.state.progress ?? 6)}%` }}
             />
           </div>
         )}
       </header>
 
+      {/* Content Area */}
       <div className="relative min-h-0 flex-1 overflow-hidden bg-ink">
         {!isAndroid ? (
           <div className="flex h-full w-full flex-col items-center justify-center p-6 text-center text-paper">
-            <div className="mb-3 rounded-full bg-haze/30 p-3 text-cinnabar-soft">
-              <Search size={28} />
+            <div className="mb-3 rounded-full bg-haze/25 p-3 text-cinnabar-soft">
+              <Search size={26} />
             </div>
-            <h3 className="mb-1 text-[16px] font-semibold">Web 开发预览</h3>
-            <p className="mb-4 max-w-xs text-[13px] text-paper-muted">
-              内置浏览器依赖 Android 原生 WebView。在 Android 设备中将以原生浮层呈现。
+            <h3 className="mb-1 text-[15px] font-semibold">Web 开发预览</h3>
+            <p className="mb-4 max-w-xs text-[12.5px] text-paper-muted">
+              当前引擎：<strong className="text-paper">{currentProvider.name}</strong>。在 Android 设备中将以原生 WebView 呈现。
             </p>
             <a
-              href={initialSearchUrl}
+              href={currentSearchUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-xl bg-cinnabar px-4 py-2 text-[13px] font-medium text-white shadow-sm transition hover:opacity-90 active:scale-95"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-cinnabar px-4 py-2 text-[12.5px] font-medium text-white shadow-sm transition hover:opacity-90 active:scale-95"
             >
               <span>在外部浏览器打开搜索</span>
               <ExternalLink size={14} />
