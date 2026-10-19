@@ -4,6 +4,7 @@ import { Capacitor } from '@capacitor/core'
 
 import { AppShell } from './components/AppShell'
 import { BrowserLauncher } from './features/browser/BrowserLauncher'
+import { openBrowserWithUrl } from './features/browser/browserOpen'
 import { WikiSelectionLayer } from './features/wiki/WikiSelectionLayer'
 import { DlnaCastBanner } from './components/DlnaCastBanner'
 import { OpenInAppBanner } from './components/OpenInAppBanner'
@@ -935,33 +936,51 @@ export default function App() {
    * App 唤起深链：Android 的 https App Links 与 `newsnook://` 自定义 scheme
    * 都经 Capacitor 的 launchUrl（冷启动）/ appUrlOpen（运行中）送进来，
    * 与 Web 冷启动共用同一套 token 解码，直接进阅读器。
-   * 同一 URL 只处理一次——冷启动时两个入口可能重复上报。
+   * 同时支持被注册为系统浏览器后，外部应用唤起通用 http/https 链接直接进入内置浏览器。
+   * 防抖：短时间（1500ms 内）相同的 URL 不重复响应，避免冷启动时 launchUrl 与 appUrlOpen 双重触发。
    */
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return
 
     let disposed = false
     let removeListener: (() => Promise<void>) | undefined
-    const handledUrls = new Set<string>()
+    let lastHandledUrl = ''
+    let lastHandledAt = 0
 
     const openFromUrl = (url: string) => {
-      if (!url || handledUrls.has(url)) return
-      handledUrls.add(url)
-      // 同步通知点开后落到「账户与同步」，不是分享深链
-      if (syncRouteFromAppUrl(url)) {
+      const trimmed = url?.trim()
+      if (!trimmed) return
+      const now = Date.now()
+      if (trimmed === lastHandledUrl && now - lastHandledAt < 1500) return
+      lastHandledUrl = trimmed
+      lastHandledAt = now
+
+      // 1. 同步通知点开后落到「账户与同步」，不是分享深链
+      if (syncRouteFromAppUrl(trimmed)) {
         openAccountSync()
         return
       }
-      const token = shareTokenFromAppUrl(url)
-      if (!token) return
-      const payload = decodeShareToken(token)
-      if (!payload) {
-        log.app.warn('app deep link rejected: token corrupted or truncated')
-        setDeepLinkError(true)
+
+      // 2. 站内文章分享短链（news.aizeek.com/a/<token> 或 newsnook://a/<token>）
+      const token = shareTokenFromAppUrl(trimmed)
+      if (token) {
+        const payload = decodeShareToken(token)
+        if (!payload) {
+          log.app.warn('app deep link rejected: token corrupted or truncated')
+          setDeepLinkError(true)
+          return
+        }
+        log.app.info('app deep link opened', payload.sourceId)
+        openArticle(articleFromSharePayload(payload, customSourcesRef.current))
         return
       }
-      log.app.info('app deep link opened', payload.sourceId)
-      openArticle(articleFromSharePayload(payload, customSourcesRef.current))
+
+      // 3. 作为 Android 系统浏览器唤起的外部通用网页链接
+      if (/^https?:\/\//i.test(trimmed)) {
+        log.app.info('external web url opened in browser workspace', trimmed)
+        openBrowserWithUrl(trimmed)
+        return
+      }
     }
 
     void CapacitorApp.getLaunchUrl()
@@ -1132,7 +1151,7 @@ export default function App() {
       setSettingsRoute(null)
       setTab('today')
     },
-    onOpenBrowser: () => { window.dispatchEvent(new Event('newsnook:open-browser')) },
+    onOpenBrowser: () => { openBrowserWithUrl() },
     onManage: () => {
       if (activeSiteId) leaveActiveSite()
       setSettingsRoute({ name: 'presets' })

@@ -222,6 +222,7 @@ mock.module('../src/components/InkVideoPlayer.tsx', { namedExports: {
 const { createRoot } = await import('react-dom/client')
 const { BrowserWorkspace } = await import('../src/features/browser/BrowserWorkspace')
 const { BrowserLauncher } = await import('../src/features/browser/BrowserLauncher')
+const { openBrowserWithUrl } = await import('../src/features/browser/browserOpen')
 const { dismissTopHardwareBackLayer } = await import('../src/lib/hardwareBackStack')
 const root = createRoot(document.getElementById('root')!)
 function Harness({ recoverySession }: { recoverySession?: BrowserRecoverySession }) {
@@ -816,6 +817,22 @@ try {
   await act(async () => root.render(<React.StrictMode><BrowserLauncher/></React.StrictMode>))
   assert.equal(recoveryReads, 1)
   assert.equal(document.querySelector('[aria-label="NewsNook 网页浏览器"]'), null, 'a consumed recovery is not offered again after launcher remount')
+
+  const openCountBeforeExternal = openCalls.length
+  await act(async () => { openBrowserWithUrl('https://example.com/external-target') })
+  assert.ok(document.querySelector('[aria-label="NewsNook 网页浏览器"]'), 'external url launches browser workspace')
+  assert.equal(openCalls.length, openCountBeforeExternal + 1, 'external launch triggers native open')
+  assert.equal(openCalls[openCalls.length - 1].url, 'https://example.com/external-target')
+
+  const commandsBeforeHotOpen = commands.length
+  await act(async () => { openBrowserWithUrl('https://example.com/hot-open') })
+  const urlCommands = commands.slice(commandsBeforeHotOpen).filter(c => c.action === 'url')
+  assert.equal(urlCommands.length, 1, 'hot open triggers native navigate')
+  assert.equal(urlCommands[0].url, 'https://example.com/hot-open')
+
+  await menu('返回有所闻')
+  assert.equal(document.querySelector('[aria-label="NewsNook 网页浏览器"]'), null)
+  console.log('Browser external intent: cold launch, hot navigation and menu exit OK')
   console.log('Browser recovery: one-time launcher handoff, StrictMode, retained error tabs, manual reload and pending exit OK')
 } finally {
   await act(async () => root.unmount())

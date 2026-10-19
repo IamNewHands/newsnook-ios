@@ -31,6 +31,7 @@ import { BrowserSearchPanel } from './BrowserSearchPanel'
 import { BrowserPlacesPanel } from './BrowserPlacesPanel'
 import { BrowserTabsPanel } from './BrowserTabsPanel'
 import { BrowserSettingsPanel } from './BrowserSettingsPanel'
+import { BROWSER_OPEN_EVENT, type BrowserOpenDetail } from './browserOpen'
 
 export type { BrowserState } from './useBrowserSession'
 type Panel = 'menu' | 'history' | 'bookmarks' | 'settings' | 'scripts' | 'tabs' | 'media' | 'images' | 'site' | null
@@ -40,7 +41,15 @@ type Notice = {message: string; error?: boolean}
 type Confirmation = {title: string; message: string; confirm: () => boolean | Promise<boolean>; actionLabel?: string; successMessage?: string}
 type BrowserPlayback = {resource: MediaResourceDescriptor; resources: MediaResourceDescriptor[]; title: string; selection: number; tabId?: number}
 
-export function BrowserWorkspace({onExit, recoverySession}: {onExit: () => void; recoverySession?: BrowserRecoverySession}) {
+export function BrowserWorkspace({
+  onExit,
+  recoverySession,
+  initialUrl,
+}: {
+  onExit: () => void
+  recoverySession?: BrowserRecoverySession
+  initialUrl?: string
+}) {
   const workspace = useBrowserDialogFocus<HTMLDivElement>()
   const viewport = useRef<HTMLDivElement>(null)
   const [panel, setPanel] = useState<Panel>(null)
@@ -186,6 +195,38 @@ export function BrowserWorkspace({onExit, recoverySession}: {onExit: () => void;
     if (opened && revision === uiRevision.current) {setPanel(null); setPlaceAction(null); setNotice(null)}
     return opened
   }
+
+  const openAddressRef = useRef(openAddress)
+  openAddressRef.current = openAddress
+
+  const initialOpenedUrl = useRef<string | null>(null)
+  useEffect(() => {
+    if (!initialUrl || initialOpenedUrl.current === initialUrl || !/^https?:\/\//i.test(initialUrl)) return
+    void openAddressRef.current(initialUrl).then(opened => {
+      if (opened) initialOpenedUrl.current = initialUrl
+    })
+  }, [initialUrl])
+
+  useEffect(() => {
+    const handleOpen = (event: Event) => {
+      const detail = 'detail' in event ? (event as CustomEvent<BrowserOpenDetail>).detail : undefined
+      const url = detail?.url
+      if (url && /^https?:\/\//i.test(url)) {
+        initialOpenedUrl.current = url
+        setFindOpen(false)
+        session.clearFind()
+        setPanel(null)
+        setSearchOpen(false)
+        setPlaceAction(null)
+        setShortcutDraft(null)
+        setConfirmation(null)
+        setPlaying(null)
+        void openAddressRef.current(url)
+      }
+    }
+    window.addEventListener(BROWSER_OPEN_EVENT, handleOpen)
+    return () => window.removeEventListener(BROWSER_OPEN_EVENT, handleOpen)
+  }, [session])
   const showSearch = () => {if (findOpen) closeFind(); setPanel(null); session.setError(''); setSearchOpen(true)}
   const openPanel = (next: Panel) => {setSearchOpen(false); setPanel(next)}
   const runCommand = (command: BrowserCommand) => {

@@ -23,6 +23,30 @@
             </intent-filter>
 
             <!--
+                注册为 Android 系统识别的网页浏览器：
+                1. 声明 DEFAULT + BROWSABLE 处理 http 与 https 链接，以便在外部应用（微信/QQ/邮件/备忘录等）
+                   点击网页链接时，系统弹出「用以下应用打开」候选列表里包含 NewsNook，
+                   且可在 Android 系统设置 -> 应用 -> 默认应用 -> 浏览器应用 中设为默认浏览器。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+            </intent-filter>
+
+            <!--
+                2. 声明 APP_BROWSER 分类，让 Android 10+（API 29+）的 RoleManager 与系统设置
+                   识别为完整的浏览器类别应用。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.APP_BROWSER" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+            <!--
                 分享深链 https://news.aizeek.com/a/<token>：
                 autoVerify 需要站点提供 /.well-known/assetlinks.json（含签名指纹）才会
                 自动接管链接；在此之前系统至少会把 App 列进「用应用打开」的候选，
