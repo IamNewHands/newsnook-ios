@@ -1,0 +1,37 @@
+{
+  "at": "2026-10-18T01:16:37.295Z",
+  "result": {
+    "preferences": {
+      "privateMode": true,
+      "userAgentMode": "android",
+      "lastNonDesktopUserAgentMode": "android",
+      "customUserAgent": "",
+      "textZoom": 100,
+      "javaScriptEnabled": true,
+      "loadsImagesAutomatically": true,
+      "thirdPartyCookiesEnabled": false,
+      "mediaPlaybackRequiresUserGesture": true,
+      "confirmExternalApps": true
+    },
+    "state": {
+      "url": "http://localhost:8137/fixture?session=privacy-after-restart",
+      "tabId": 1,
+      "title": "网页",
+      "back": false,
+      "forward": false,
+      "desktop": false,
+      "privateMode": true,
+      "recordHistory": false,
+      "activeScriptCount": 0,
+      "matchedScriptCount": 1,
+      "userAgentMode": "android",
+      "userAgent": "Mozilla/5.0 (Linux; Android 17; sdk_gphone16k_x86_64 Build/CP31.260623.005) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.181 Mobile Safari/537.36",
+      "textZoom": 100,
+      "loading": false,
+      "progress": 0,
+      "error": null
+    },
+    "history": "[{\"url\":\"http://localhost:8137/fixture?session=corrections\",\"title\":\"浏览器验证\",\"time\":1792285838618},{\"url\":\"https://www.bing.com/\",\"title\":\"搜索 - Microsoft 必应\",\"time\":1792285496306}]",
+    "privateUi": true
+  }
+}

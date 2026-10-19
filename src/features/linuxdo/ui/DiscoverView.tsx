@@ -138,12 +138,14 @@ function TagChip({
 
 export function DiscoverView({
   onOpen,
+  onOpenUser,
   initialScope,
   onScopeChange,
   cacheRef,
   onVerify,
 }: {
   onOpen: (topic: LinuxDoTopicSummary) => void
+  onOpenUser?: (username: string) => void
   initialScope?: LinuxDoDiscoveryScope
   onScopeChange: (scope: LinuxDoDiscoveryScope | null) => void
   cacheRef: MutableRefObject<LinuxDoDiscoveryCache>
@@ -493,6 +495,7 @@ export function DiscoverView({
                   topic={topic}
                   category={topic.categoryId ? categoriesById[topic.categoryId] : undefined}
                   onOpen={() => onOpen(topic)}
+                  onOpenUser={onOpenUser}
                   onOpenCategory={(cat) => changeScope({ kind: 'category', category: cat })}
                   onOpenTag={(name) => changeScope({ kind: 'tag', name })}
                 />

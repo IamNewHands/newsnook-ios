@@ -1,29 +1,43 @@
 import {
   Award,
   BadgeCheck,
+  BatteryLow,
   Bookmark,
   CheckCircle2,
+  Flame,
+  Heart,
+  HeartHandshake,
   History,
   KeyRound,
+  LayoutGrid,
+  Link2,
+  List,
   LogOut,
   Mail,
+  Medal,
+  MessageSquareQuote,
   Pencil,
+  PenTool,
   Settings,
+  Shield,
   ShieldCheck,
+  Sparkles,
+  Star,
+  ThumbsUp,
+  Trophy,
+  UserCheck,
   UserPlus,
   Vote,
+  Zap,
   BookOpen,
   CalendarDays,
   ChevronRight,
   Clock3,
-  Eye,
   FileText,
-  Heart,
   Loader2,
   MessageCircle,
   RefreshCcw,
   Rocket,
-  Sparkles,
   UserRound,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -32,22 +46,24 @@ import {
   linuxDoDiscovery as discovery,
   linuxDoPeople as peopleApi,
 } from '../runtime'
-import type {
-  LinuxDoBoostListItem,
-  LinuxDoUserAction,
-  LinuxDoUserActivity,
-  LinuxDoUserActivityFilter,
-  LinuxDoUserProfile,
-  LinuxDoUserSummary,
-  LinuxDoUserSummaryReply,
-  LinuxDoUserSummaryTopic,
+import {
+  cleanBadgeDescription,
+  type LinuxDoBoostListItem,
+  type LinuxDoUserAction,
+  type LinuxDoUserActivity,
+  type LinuxDoUserActivityFilter,
+  type LinuxDoUserBadge,
+  type LinuxDoUserProfile,
+  type LinuxDoUserSummary,
+  type LinuxDoUserSummaryReply,
+  type LinuxDoUserSummaryTopic,
 } from '../people/service'
 import type { LinuxDoCategory, LinuxDoTopicSummary } from '../types'
 import type { LinuxDoSessionSnapshot } from '../types'
 import type { LinuxDoProfileDraft, LinuxDoProfileSection } from '../people/sections'
 import { ProfileSectionView } from './ProfileSectionView'
 import { BookmarksView } from './CommunityViews'
-import { ago, avatar, compact, readableError, tagGlyph } from './utils'
+import { ago, avatar, compact, isLinuxDoSiteAdmin, readableError, tagGlyph } from './utils'
 import { isLinuxDoVerificationError, LinuxDoRequestError, type LinuxDoVerify } from './VerificationAction'
 
 export interface UserProfileAccountControls {
@@ -199,6 +215,123 @@ function InlineStatus({
   )
 }
 
+function getBadgeIcon(badge: LinuxDoUserBadge) {
+  const iconName = badge.icon?.toLowerCase().replace(/^fa-/, '') || ''
+  const slug = badge.slug?.toLowerCase() || ''
+  const name = badge.name.toLowerCase()
+
+  if (name.includes('欢迎') || slug.includes('welcome')) {
+    return Sparkles
+  }
+  if (name.includes('话题') || slug.includes('topic')) {
+    return ThumbsUp
+  }
+  if (iconName.includes('shield') || slug.includes('trust_level') || slug.includes('leader') || name.includes('信任') || name.includes('领袖') || name.includes('基本用户') || name.includes('活跃用户') || name.includes('成员')) {
+    return ShieldCheck
+  }
+  if (iconName.includes('trophy') || slug.includes('champion') || name.includes('海纳百川') || name.includes('冠军') || name.includes('百日')) {
+    return Trophy
+  }
+  if (iconName.includes('medal') || name.includes('宣导') || name.includes('文化')) {
+    return Medal
+  }
+  if (iconName.includes('flame') || iconName.includes('fire') || slug.includes('streak') || slug.includes('enthusiast') || name.includes('百尺竿头') || name.includes('连续') || name.includes('爱好者')) {
+    return Flame
+  }
+  if (iconName.includes('handshake') || slug.includes('thank') || name.includes('谢') || name.includes('感谢')) {
+    return HeartHandshake
+  }
+  if (iconName.includes('heart') || slug.includes('like') || name.includes('赞') || name.includes('爱心')) {
+    return Heart
+  }
+  if (iconName.includes('quote') || slug.includes('quote') || name.includes('引用')) {
+    return MessageSquareQuote
+  }
+  if (iconName.includes('link') || slug.includes('link') || name.includes('链接')) {
+    return Link2
+  }
+  if (iconName.includes('thumbs') || slug.includes('praise')) {
+    return ThumbsUp
+  }
+  if (iconName.includes('pen') || iconName.includes('edit') || slug.includes('editor') || slug.includes('author') || name.includes('编辑') || name.includes('自传') || name.includes('作者')) {
+    return PenTool
+  }
+  if (iconName.includes('book') || slug.includes('read') || name.includes('阅读') || name.includes('读者') || name.includes('读')) {
+    return BookOpen
+  }
+  if (iconName.includes('calendar') || slug.includes('anniversary') || name.includes('周年') || name.includes('纪念')) {
+    return CalendarDays
+  }
+  if (iconName.includes('check') || slug.includes('solved') || name.includes('解答') || name.includes('解决')) {
+    return CheckCircle2
+  }
+  if (iconName.includes('star') || slug.includes('star')) {
+    return Star
+  }
+  if (iconName.includes('bolt') || iconName.includes('zap')) {
+    return Zap
+  }
+  if (iconName.includes('user') || slug.includes('user') || name.includes('用户')) {
+    return UserCheck
+  }
+  if (badge.badgeTypeId === 1) return Trophy
+  if (badge.badgeTypeId === 2) return Medal
+  return Award
+}
+
+function getBadgeTierMeta(badgeTypeId?: number) {
+  switch (badgeTypeId) {
+    case 1: // Gold
+      return {
+        label: '金牌',
+        tierText: 'text-amber-700 dark:text-amber-400 font-semibold',
+        cardBorder: 'border-haze/60 hover:border-amber-400/40',
+        cardBg: 'bg-ink-raised/60 dark:bg-ink-raised/45',
+        ambientGlow: 'from-amber-400/[0.07] via-amber-400/[0.015] to-transparent',
+        tokenRing: 'ring-1.5 ring-amber-400/80 dark:ring-amber-400/60 shadow-[0_3px_12px_rgba(245,158,11,0.22)]',
+        tokenBg: 'bg-gradient-to-b from-amber-100 via-amber-200 to-amber-300 dark:from-amber-700/70 dark:via-amber-800/80 dark:to-amber-950',
+        tokenIcon: 'text-amber-900 dark:text-amber-100',
+        badgePill: 'bg-amber-500/10 text-amber-800 dark:text-amber-300 border border-amber-500/20',
+      }
+    case 2: // Silver
+      return {
+        label: '银牌',
+        tierText: 'text-slate-700 dark:text-slate-300 font-semibold',
+        cardBorder: 'border-haze/60 hover:border-slate-300/50',
+        cardBg: 'bg-ink-raised/60 dark:bg-ink-raised/45',
+        ambientGlow: 'from-slate-300/[0.08] via-slate-300/[0.015] to-transparent',
+        tokenRing: 'ring-1.5 ring-slate-300/90 dark:ring-slate-400/60 shadow-[0_3px_10px_rgba(148,163,184,0.2)]',
+        tokenBg: 'bg-gradient-to-b from-slate-100 via-slate-200 to-slate-300 dark:from-slate-600/70 dark:via-slate-700/80 dark:to-slate-800',
+        tokenIcon: 'text-slate-800 dark:text-slate-100',
+        badgePill: 'bg-slate-400/10 text-slate-700 dark:text-slate-300 border border-slate-400/20',
+      }
+    case 3: // Bronze
+      return {
+        label: '铜牌',
+        tierText: 'text-amber-900 dark:text-amber-400 font-semibold',
+        cardBorder: 'border-haze/60 hover:border-amber-700/35',
+        cardBg: 'bg-ink-raised/60 dark:bg-ink-raised/45',
+        ambientGlow: 'from-amber-600/[0.07] via-amber-600/[0.015] to-transparent',
+        tokenRing: 'ring-1.5 ring-amber-700/50 dark:ring-amber-600/60 shadow-[0_3px_10px_rgba(180,83,9,0.2)]',
+        tokenBg: 'bg-gradient-to-b from-amber-100 via-orange-100 to-amber-200 dark:from-amber-800/70 dark:via-orange-900/80 dark:to-stone-900',
+        tokenIcon: 'text-amber-950 dark:text-amber-100',
+        badgePill: 'bg-amber-600/10 text-amber-900 dark:text-amber-300 border border-amber-600/20',
+      }
+    default:
+      return {
+        label: '徽章',
+        tierText: 'text-paper-muted',
+        cardBorder: 'border-haze/60 hover:border-haze/90',
+        cardBg: 'bg-ink-raised/60 dark:bg-ink-raised/45',
+        ambientGlow: 'from-paper/[0.02] to-transparent',
+        tokenRing: 'ring-1.5 ring-paper/20 shadow-xs',
+        tokenBg: 'bg-gradient-to-br from-paper/10 to-paper/20',
+        tokenIcon: 'text-paper',
+        badgePill: 'bg-paper/10 text-paper-muted border border-paper/15',
+      }
+  }
+}
+
 function ProfileSkeleton() {
   return (
     <div className="page-x py-4" role="status" aria-label="正在加载用户资料">
@@ -297,6 +430,7 @@ function ActivityCard({
   const actorDriven = tab === 'likes' || tab === 'responses' || (tab === 'activity' && (action.actionType === 1 || action.actionType === 6))
   const actor = actorDriven ? (action.actingUsername || action.username) : action.username
   const actorAvatar = actorDriven ? (action.actingAvatarTemplate || action.avatarTemplate) : action.avatarTemplate
+  const isActorAdmin = isLinuxDoSiteAdmin(actor)
   const semantic = tab === 'activity'
     ? action.actionType === 1
       ? (action.username && action.username !== actor ? '赞了 @' + action.username + ' 的帖子' : '赞了这个帖子')
@@ -318,23 +452,42 @@ function ActivityCard({
   return (
     <article className="rounded-2xl border border-haze/55 bg-ink-raised/35 px-3.5 py-3 shadow-[0_1px_3px_rgba(0,0,0,0.025)]">
       <div className="flex items-start gap-2.5">
-        <button
-          type="button"
-          disabled={!actor}
-          onClick={() => actor && onOpenUser(actor)}
-          className="linuxdo-control grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full border border-haze bg-paper/5 disabled:pointer-events-none"
-        >
-          {avatar(actorAvatar, actor)}
-        </button>
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            disabled={!actor}
+            onClick={() => actor && onOpenUser(actor)}
+            className={`linuxdo-control grid h-8 w-8 shrink-0 place-items-center overflow-hidden border border-haze bg-paper/5 disabled:pointer-events-none transition-transform active:scale-95 ${
+              isActorAdmin ? 'rounded-[7px]' : 'rounded-full'
+            }`}
+          >
+            {avatar(actorAvatar, actor)}
+          </button>
+          {isActorAdmin && (
+            <span
+              data-linuxdo-site-admin-badge
+              title="站长"
+              className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#0088ff] text-white shadow-xs ring-1.5 ring-ink-raised pointer-events-none"
+              aria-label="站长角标"
+            >
+              <BatteryLow size={9} strokeWidth={2.5} className="shrink-0" aria-hidden="true" />
+            </span>
+          )}
+        </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             {actor ? (
               <button
                 type="button"
                 onClick={() => onOpenUser(actor)}
-                className="linuxdo-control max-w-full truncate text-[11.5px] font-semibold text-paper hover:text-cinnabar-soft"
+                className={`linuxdo-control max-w-full truncate text-[11.5px] hover:text-cinnabar-soft inline-flex items-center gap-1 ${
+                  isActorAdmin ? 'font-bold text-[#0088ff] dark:text-[#38a3ff]' : 'font-semibold text-paper'
+                }`}
               >
-                @{actor}
+                <span>@{actor}</span>
+                {isActorAdmin && (
+                  <Shield size={11} className="shrink-0 fill-[#0088ff] text-[#0088ff] dark:fill-[#38a3ff] dark:text-[#38a3ff]" aria-label="站长认证" />
+                )}
               </button>
             ) : null}
             <span className="text-[9.5px] text-paper-faint">{semantic}</span>
@@ -388,17 +541,32 @@ function BoostCard({
 }) {
   const who = item.user?.username || item.post?.username
   const whoAvatar = item.user?.avatarTemplate || item.post?.avatarTemplate
+  const isWhoAdmin = isLinuxDoSiteAdmin(who)
   return (
     <article className="rounded-2xl border border-haze/55 bg-ink-raised/35 px-3.5 py-3">
       <div className="flex items-center gap-2.5">
         {who ? (
-          <button
-            type="button"
-            onClick={() => onOpenUser(who)}
-            className="linuxdo-control grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full border border-haze bg-paper/5"
-          >
-            {avatar(whoAvatar, who)}
-          </button>
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => onOpenUser(who)}
+              className={`linuxdo-control grid h-8 w-8 shrink-0 place-items-center overflow-hidden border border-haze bg-paper/5 transition-transform active:scale-95 ${
+                isWhoAdmin ? 'rounded-[7px]' : 'rounded-full'
+              }`}
+            >
+              {avatar(whoAvatar, who)}
+            </button>
+            {isWhoAdmin && (
+              <span
+                data-linuxdo-site-admin-badge
+                title="站长"
+                className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#0088ff] text-white shadow-xs ring-1.5 ring-ink-raised pointer-events-none"
+                aria-label="站长角标"
+              >
+                <BatteryLow size={9} strokeWidth={2.5} className="shrink-0" aria-hidden="true" />
+              </span>
+            )}
+          </div>
         ) : (
           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-paper/5 text-cinnabar-soft"><Rocket size={13} /></span>
         )}
@@ -413,7 +581,15 @@ function BoostCard({
               {item.post.topicTitle}
             </button>
           ) : <div className="text-[12px] font-medium text-paper">Boost</div>}
-          <div className="mt-0.5 text-[9px] text-paper-faint">{who ? '@' + who : 'Linux.do'}{item.createdAt ? ' · ' + ago(item.createdAt) : ''}</div>
+          <div className="mt-0.5 text-[9px] text-paper-faint flex items-center gap-1">
+            <span className={isWhoAdmin ? 'font-bold text-[#0088ff] dark:text-[#38a3ff]' : ''}>
+              {who ? '@' + who : 'Linux.do'}
+            </span>
+            {isWhoAdmin && (
+              <Shield size={10} className="shrink-0 fill-[#0088ff] text-[#0088ff] dark:fill-[#38a3ff] dark:text-[#38a3ff]" aria-label="站长认证" />
+            )}
+            {item.createdAt ? <span> · {ago(item.createdAt)}</span> : null}
+          </div>
         </div>
         {onOpen ? <button type="button" onClick={onOpen} className="linuxdo-control grid h-8 w-8 place-items-center rounded-full text-paper-faint"><ChevronRight size={14} /></button> : null}
       </div>
@@ -475,6 +651,7 @@ export function UserProfileView({
   const [badgesLoaded, setBadgesLoaded] = useState(false)
   const [badgesLoading, setBadgesLoading] = useState(false)
   const [badgesError, setBadgesError] = useState('')
+  const [badgeViewMode, setBadgeViewMode] = useState<'grid' | 'list'>('grid')
   const [categoriesById, setCategoriesById] = useState<Record<number, LinuxDoCategory>>({})
   const generationRef = useRef(0)
   const targetBadgeRef = useRef<HTMLElement | null>(null)
@@ -747,20 +924,6 @@ export function UserProfileView({
     )
   }
 
-  const summaryMetrics = [
-    { label: '主题', value: summary?.topicCount, icon: FileText },
-    { label: '帖子', value: summary?.postCount, icon: MessageCircle },
-    { label: '获赞', value: summary?.likesReceived, icon: Heart },
-    { label: '送出赞', value: summary?.likesGiven, icon: Sparkles },
-  ]
-
-  const detailMetrics = [
-    { label: '浏览主题', value: summary?.topicsEntered, icon: Eye, format: metric },
-    { label: '阅读帖子', value: summary?.postsReadCount, icon: BookOpen, format: metric },
-    { label: '访问天数', value: summary?.daysVisited, icon: CalendarDays, format: metric },
-    { label: '阅读时长', value: summary?.timeRead, icon: Clock3, format: duration },
-  ]
-
   const currentActivity = activeTab === 'activity' || activeTab === 'topics' || activeTab === 'replies' || activeTab === 'likes' || activeTab === 'responses'
     ? activities[activeTab] ?? emptyActivity()
     : null
@@ -768,24 +931,49 @@ export function UserProfileView({
   const currentBoostLoaded = boostMode === 'received' ? boostReceivedLoaded : boostGivenLoaded
   const currentBoostError = boostMode === 'received' ? boostReceivedError : boostGivenError
 
+  const isSiteAdmin = isLinuxDoSiteAdmin(profile.username)
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain page-x pb-5 pt-3">
       {challenge ? <LinuxDoRequestError error={challenge.error} onVerify={onVerify} onRetry={retryChallenge} /> : null}
-      <section className="overflow-hidden rounded-[24px] border border-haze/60 bg-gradient-to-b from-ink-raised/90 via-ink-raised/70 to-ink-raised/50 p-4.5 sm:p-5.5 shadow-[0_12px_32px_-16px_rgba(0,0,0,0.3)] backdrop-blur-xl">
+      {/* 极客数字工坊主控制台 (Integrated Cyber Terminal Console) */}
+      <section className="linuxdo-terminal-canvas linuxdo-terminal-grid overflow-hidden rounded-[26px] p-4.5 sm:p-5.5">
         <div className="flex items-start gap-3.5 sm:gap-4">
-          <div className="relative grid h-15 w-15 shrink-0 place-items-center overflow-hidden rounded-full border border-haze bg-paper/5 ring-2 ring-paper/[0.04] sm:h-17 sm:w-17">
-            {avatar(profile.avatarTemplate, profile.username)}
+          <div className="relative shrink-0">
+            <div className={`relative grid h-15 w-15 shrink-0 place-items-center overflow-hidden border border-haze bg-paper/5 ring-2 ring-paper/[0.04] sm:h-17 sm:w-17 ${
+              isSiteAdmin ? 'rounded-[16px]' : 'rounded-full'
+            }`}>
+              {avatar(profile.avatarTemplate, profile.username)}
+            </div>
+            {isSiteAdmin && (
+              <span
+                data-linuxdo-site-admin-badge
+                title="站长"
+                className="absolute -bottom-1 -right-1 flex h-5 w-5 sm:h-6 sm:w-6 items-center justify-center rounded-full bg-[#0088ff] text-white shadow-sm ring-2 ring-ink-raised pointer-events-none"
+                aria-label="站长角标"
+              >
+                <BatteryLow size={12} strokeWidth={2.5} className="shrink-0 sm:hidden" aria-hidden="true" />
+                <BatteryLow size={14} strokeWidth={2.5} className="hidden shrink-0 sm:block" aria-hidden="true" />
+              </span>
+            )}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-2">
-                <h2 className="truncate text-[19px] sm:text-[21px] font-bold tracking-tight text-paper">{profile.name || profile.username}</h2>
+              <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+                <h2 className={`truncate text-[19px] sm:text-[21px] font-bold tracking-tight inline-flex items-center gap-1.5 ${
+                  isSiteAdmin ? 'text-[#0088ff] dark:text-[#38a3ff]' : 'text-paper'
+                }`}>
+                  <span className="truncate">{profile.name || profile.username}</span>
+                  {isSiteAdmin && (
+                    <Shield size={16} className="shrink-0 fill-[#0088ff] text-[#0088ff] dark:fill-[#38a3ff] dark:text-[#38a3ff]" aria-label="站长认证" />
+                  )}
+                </h2>
                 {profile.trustLevel !== undefined ? (
                   <button
                     type="button"
                     disabled={!accountControls?.onTrustLevel}
                     onClick={() => accountControls?.onTrustLevel?.()}
-                    className={'shrink-0 rounded-full border border-[#20c36b]/30 bg-[#20c36b]/10 px-2 py-0.5 font-mono text-[9px] font-semibold text-[#20c36b] transition-all ' + (accountControls?.onTrustLevel ? 'hover:bg-[#20c36b]/20 active:scale-95 cursor-pointer' : '')}
+                    className={'shrink-0 rounded-full border border-[#20c36b]/35 bg-[#20c36b]/10 px-2 py-0.5 font-mono text-[9px] font-semibold text-[#20c36b] transition-all ' + (accountControls?.onTrustLevel ? 'hover:bg-[#20c36b]/20 active:scale-95 cursor-pointer shadow-xs' : '')}
                     title={accountControls?.onTrustLevel ? '点击查看信任等级详情与达成要求' : undefined}
                   >
                     TL{profile.trustLevel}
@@ -796,18 +984,20 @@ export function UserProfileView({
                 ) : null}
               </div>
               {accountControls ? (
-                <button
-                  type="button"
-                  onClick={() => setShowAccountSettings(prev => !prev)}
-                  aria-label="账号与安全设置"
-                  className={'linuxdo-control grid h-8 w-8 shrink-0 place-items-center rounded-full border border-haze text-paper-muted transition-all ' + (showAccountSettings ? 'bg-cinnabar/10 border-cinnabar/30 text-cinnabar' : 'hover:bg-paper/5 hover:text-paper active:scale-95')}
-                >
-                  <Settings size={15} />
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowAccountSettings(prev => !prev)}
+                    aria-label="账号与安全设置"
+                    className={'linuxdo-control grid h-8 w-8 shrink-0 place-items-center rounded-xl border transition-all ' + (showAccountSettings ? 'bg-cinnabar/15 border-cinnabar/40 text-cinnabar shadow-xs' : 'border-haze text-paper-muted hover:bg-paper/5 hover:text-paper active:scale-95')}
+                  >
+                    <Settings size={15} />
+                  </button>
+                </div>
               ) : null}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <span className="text-[11.5px] font-medium text-paper-muted">@{profile.username}</span>
+              <span className="font-mono text-[11.5px] font-medium text-paper-muted">@{profile.username}</span>
               {profile.title ? (
                 <span className="truncate rounded-md border border-paper/10 bg-paper/[0.04] px-1.5 py-0.5 text-[9.5px] font-medium text-paper-muted sm:hidden">{profile.title}</span>
               ) : null}
@@ -831,33 +1021,88 @@ export function UserProfileView({
         </div>
 
         {profile.bioCooked ? (
-          <div className="linuxdo-post-prose reader-prose mt-3.5 rounded-2xl border border-haze/40 bg-paper/[0.02] p-3 select-text text-[12px] leading-[1.7] text-paper-muted" dangerouslySetInnerHTML={{ __html: profile.bioCooked }} />
+          <div className="linuxdo-post-prose reader-prose mt-3.5 rounded-2xl border-l-2 border-cinnabar/50 bg-paper/[0.025] p-3 select-text text-[12px] leading-[1.7] text-paper-muted" dangerouslySetInnerHTML={{ __html: profile.bioCooked }} />
         ) : null}
 
-        <div className="mt-4 grid grid-cols-4 gap-1.5 sm:gap-2">
-          {summaryMetrics.map(({ label, value, icon: Icon }) => (
-            <div key={label} className="rounded-xl border border-haze/45 bg-paper/[0.03] px-1.5 py-2.5 text-center transition-all hover:bg-paper/[0.05]">
-              <Icon size={12} className="mx-auto mb-1 text-paper-faint" />
-              <div className="font-mono text-[13px] font-bold text-paper">{metric(value)}</div>
-              <div className="mt-0.5 text-[8.5px] text-paper-faint">{label}</div>
+        {/* 核心高光三联看板 (The Highlight Triad) */}
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="linuxdo-metric-card rounded-2xl p-2.5 text-center">
+            <div className="flex items-center justify-center gap-1 text-[9.5px] font-medium text-paper-faint mb-0.5">
+              <Clock3 size={11} className="text-paper-muted" />
+              <span>阅读时长</span>
             </div>
-          ))}
+            <div className="font-mono text-[16px] sm:text-[18px] font-bold tracking-tight text-paper">
+              {duration(summary?.timeRead)}
+            </div>
+          </div>
+
+          <div className="linuxdo-metric-card rounded-2xl p-2.5 text-center">
+            <div className="flex items-center justify-center gap-1 text-[9.5px] font-medium text-cinnabar-soft mb-0.5">
+              <Heart size={11} className="text-cinnabar" />
+              <span>社区获赞</span>
+            </div>
+            <div className="font-mono text-[16px] sm:text-[18px] font-bold tracking-tight text-paper">
+              {metric(summary?.likesReceived)}
+            </div>
+          </div>
+
+          <div className="linuxdo-metric-card rounded-2xl p-2.5 text-center">
+            <div className="flex items-center justify-center gap-1 text-[9.5px] font-medium text-paper-faint mb-0.5">
+              <FileText size={11} className="text-paper-muted" />
+              <span>原创主题</span>
+            </div>
+            <div className="font-mono text-[16px] sm:text-[18px] font-bold tracking-tight text-paper">
+              {metric(summary?.topicCount)}
+            </div>
+          </div>
         </div>
 
-        <div className="mt-3.5 grid grid-cols-2 border-t border-haze/50 pt-2 sm:grid-cols-4">
-          {detailMetrics.map(({ label, value, icon: Icon, format }) => (
-            <div key={label} className="flex items-center gap-2 border-b border-haze/40 px-2.5 py-2 last:border-b-0 odd:border-r sm:border-b-0 sm:border-r sm:last:border-r-0">
-              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-paper/[0.035] text-paper-faint"><Icon size={12} /></span>
-              <span className="min-w-0">
-                <span className="block truncate text-[8.5px] text-paper-faint">{label}</span>
-                <span className="mt-0.5 block truncate font-mono text-[10.5px] font-medium text-paper-muted">{format(value)}</span>
-              </span>
-            </div>
-          ))}
+        {/* 精密次级刻度阵列 (Secondary Precision Telemetry) */}
+        <div className="mt-2 grid grid-cols-4 gap-1.5">
+          <div className="linuxdo-metric-card rounded-xl py-2 px-1 text-center">
+            <span className="block truncate text-[8.5px] text-paper-faint">浏览主题</span>
+            <span className="mt-0.5 block truncate font-mono text-[12px] font-semibold text-paper-muted">{metric(summary?.topicsEntered)}</span>
+          </div>
+          <div className="linuxdo-metric-card rounded-xl py-2 px-1 text-center">
+            <span className="block truncate text-[8.5px] text-paper-faint">阅读帖子</span>
+            <span className="mt-0.5 block truncate font-mono text-[12px] font-semibold text-paper-muted">{metric(summary?.postsReadCount)}</span>
+          </div>
+          <div className="linuxdo-metric-card rounded-xl py-2 px-1 text-center">
+            <span className="block truncate text-[8.5px] text-paper-faint">访问天数</span>
+            <span className="mt-0.5 block truncate font-mono text-[12px] font-semibold text-paper-muted">{metric(summary?.daysVisited)}</span>
+          </div>
+          <div className="linuxdo-metric-card rounded-xl py-2 px-1 text-center">
+            <span className="block truncate text-[8.5px] text-paper-faint">送出赞</span>
+            <span className="mt-0.5 block truncate font-mono text-[12px] font-semibold text-paper-muted">{metric(summary?.likesGiven)}</span>
+          </div>
         </div>
+
+        {/* TL 信任进阶脉冲条 (Trust Level Pulse Micro-Track) */}
+        {profile.trustLevel !== undefined ? (
+          <button
+            type="button"
+            disabled={!accountControls?.onTrustLevel}
+            onClick={() => accountControls?.onTrustLevel?.()}
+            className={'linuxdo-control group mt-3 flex w-full items-center justify-between gap-3 rounded-2xl border border-[#20c36b]/30 bg-[#20c36b]/[0.06] p-3 text-left transition-all hover:bg-[#20c36b]/[0.1] active:scale-[0.985] ' + (accountControls?.onTrustLevel ? 'cursor-pointer' : 'cursor-default')}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-[#20c36b]/15 text-[#20c36b] transition-transform group-hover:scale-105">
+                <BadgeCheck size={18} />
+              </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[12px] font-bold text-paper">信任等级 TL{profile.trustLevel}</span>
+                  <span className="rounded-full bg-[#20c36b]/20 px-2 py-0.2 font-mono text-[8.5px] font-semibold text-[#20c36b]">进阶通道</span>
+                </div>
+                <p className="truncate text-[9.5px] text-paper-faint">查看升级指标、防降级诊断与特权达成要求</p>
+              </div>
+            </div>
+            <ChevronRight size={14} className="shrink-0 text-[#20c36b]/70 transition-transform group-hover:translate-x-0.5" />
+          </button>
+        ) : null}
       </section>
 
-      {/* 快捷功能卡片带 (Quick Tools Hub) - 当处于账号中心模式时渲染 */}
+      {/* 快捷功能按键岛 (Quick Action Island) - 仅在账号中心模式呈现 */}
       {accountControls ? (
         <section className="mt-3 space-y-2">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -865,14 +1110,14 @@ export function UserProfileView({
               type="button"
               aria-label="打开个人私信"
               onClick={accountControls.onPrivateMessages}
-              className="linuxdo-control group flex items-center gap-2.5 rounded-2xl border border-haze/60 bg-ink-raised/65 p-3 text-left transition-all hover:border-cinnabar/30 hover:bg-ink-raised/90 active:scale-[0.98] shadow-sm"
+              className="linuxdo-control linuxdo-key-card group flex items-center gap-2.5 rounded-2xl p-3 text-left transition-all active:scale-[0.98]"
             >
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-cinnabar/10 text-cinnabar transition-transform group-hover:scale-105">
                 <Mail size={17} />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[11.5px] font-bold text-paper">个人私信</span>
-                <span className="mt-0.5 block truncate text-[9px] text-paper-faint">收件箱与互动</span>
+                <span className="mt-0.5 block truncate text-[9px] text-paper-faint">收发与互动</span>
               </span>
               <ChevronRight size={13} className="shrink-0 text-paper-faint transition-transform group-hover:translate-x-0.5" />
             </button>
@@ -880,9 +1125,9 @@ export function UserProfileView({
             <button
               type="button"
               onClick={accountControls.onTrustLevel}
-              className="linuxdo-control group flex items-center gap-2.5 rounded-2xl border border-[#20c36b]/20 bg-[#20c36b]/[0.05] p-3 text-left transition-all hover:border-[#20c36b]/40 hover:bg-[#20c36b]/[0.09] active:scale-[0.98] shadow-sm"
+              className="linuxdo-control linuxdo-key-card group flex items-center gap-2.5 rounded-2xl border-[#20c36b]/25 bg-[#20c36b]/[0.05] p-3 text-left transition-all hover:border-[#20c36b]/40 hover:bg-[#20c36b]/[0.09] active:scale-[0.98]"
             >
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#20c36b]/12 text-[#20c36b] transition-transform group-hover:scale-105">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#20c36b]/15 text-[#20c36b] transition-transform group-hover:scale-105">
                 <BadgeCheck size={17} />
               </span>
               <span className="min-w-0 flex-1">
@@ -906,9 +1151,9 @@ export function UserProfileView({
                   accountControls.onBookmarks?.()
                 }
               }}
-              className="linuxdo-control group flex items-center gap-2.5 rounded-2xl border border-haze/60 bg-ink-raised/65 p-3 text-left transition-all hover:border-[#f5b326]/30 hover:bg-ink-raised/90 active:scale-[0.98] shadow-sm"
+              className="linuxdo-control linuxdo-key-card group flex items-center gap-2.5 rounded-2xl p-3 text-left transition-all hover:border-[#f5b326]/30 active:scale-[0.98]"
             >
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#f5b326]/10 text-[#f5b326] transition-transform group-hover:scale-105">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#f5b326]/12 text-[#f5b326] transition-transform group-hover:scale-105">
                 <Bookmark size={17} />
               </span>
               <span className="min-w-0 flex-1">
@@ -921,16 +1166,16 @@ export function UserProfileView({
             <button
               type="button"
               onClick={() => setActiveTab('drafts')}
-              className="linuxdo-control group flex items-center gap-2.5 rounded-2xl border border-haze/60 bg-ink-raised/65 p-3 text-left transition-all hover:border-[#7b61ff]/30 hover:bg-ink-raised/90 active:scale-[0.98] shadow-sm"
+              className="linuxdo-control linuxdo-key-card group flex items-center gap-2.5 rounded-2xl p-3 text-left transition-all hover:border-[#7b61ff]/30 active:scale-[0.98]"
             >
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#7b61ff]/10 text-[#7b61ff] transition-transform group-hover:scale-105">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#7b61ff]/12 text-[#7b61ff] transition-transform group-hover:scale-105">
                 <FileText size={17} />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1 truncate text-[11.5px] font-bold text-paper">
                   <span>我的草稿</span>
                   {profile.draftCount ? (
-                    <span className="rounded-full bg-[#7b61ff]/15 px-1.5 py-0.2 font-mono text-[8.5px] font-semibold text-[#7b61ff]">
+                    <span className="rounded-full bg-[#7b61ff]/20 px-1.5 py-0.2 font-mono text-[8.5px] font-semibold text-[#7b61ff]">
                       {profile.draftCount}
                     </span>
                   ) : null}
@@ -958,7 +1203,7 @@ export function UserProfileView({
         </section>
       ) : null}
 
-      {/* 账号与安全管理面板 (Account & Security Management) */}
+      {/* 账号与安全运维控制台 (Security & Session Deck) */}
       {accountControls ? (
         <section className="mt-3 overflow-hidden rounded-[22px] border border-haze/60 bg-ink-raised/50 p-3.5 sm:p-4 shadow-sm">
           <div className="flex items-start gap-3">
@@ -968,7 +1213,7 @@ export function UserProfileView({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="text-[12px] font-bold text-paper">第一方安全会话</span>
-                <span className="rounded-full bg-[#20c36b]/10 px-2 py-0.2 font-mono text-[8.5px] font-semibold text-[#20c36b]">设备本地</span>
+                <span className="rounded-full bg-[#20c36b]/15 px-2 py-0.2 font-mono text-[8.5px] font-semibold text-[#20c36b]">设备本地</span>
               </div>
               <p className="mt-0.5 text-[10px] leading-relaxed text-paper-faint">
                 当前会话只保存在设备的 Linux.do 第一方会话中。密码与人机验证全程在官方页面完成，NewsNook 本地零明文存储。
@@ -1149,8 +1394,12 @@ export function UserProfileView({
                       <div className="space-y-1.5">
                         {(users as NonNullable<LinuxDoUserSummary['mostLikedUsers']>).slice(0, 4).map((user) => (
                           <button key={user.id} type="button" onClick={() => onOpenUser(user.username)} className="linuxdo-control flex w-full items-center gap-2 rounded-xl px-1.5 py-1.5 text-left hover:bg-paper/[0.035]">
-                            <span className="grid h-7 w-7 shrink-0 place-items-center overflow-hidden rounded-full bg-paper/5">{avatar(user.avatarTemplate, user.username)}</span>
-                            <span className="min-w-0 flex-1 truncate text-[10.5px] font-medium text-paper">@{user.username}</span>
+                            <span className={`grid h-7 w-7 shrink-0 place-items-center overflow-hidden bg-paper/5 ${
+                              isLinuxDoSiteAdmin(user.username) ? 'rounded-[5px]' : 'rounded-full'
+                            }`}>{avatar(user.avatarTemplate, user.username)}</span>
+                            <span className={`min-w-0 flex-1 truncate text-[10.5px] ${
+                              isLinuxDoSiteAdmin(user.username) ? 'font-bold text-[#0088ff] dark:text-[#38a3ff]' : 'font-medium text-paper'
+                            }`}>@{user.username}</span>
                             <span className="font-mono text-[9px] text-paper-faint">{user.count}</span>
                           </button>
                         ))}
@@ -1239,59 +1488,207 @@ export function UserProfileView({
           </div>
         ) : activeTab === 'badges' ? (
           <div>
-            <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="mb-3 flex items-center justify-between gap-2">
               <div>
-                <h3 className="text-[12px] font-semibold text-paper">徽章</h3>
+                <h3 className="text-[12.5px] font-semibold text-paper">徽章</h3>
                 <p className="mt-0.5 text-[9px] text-paper-faint">
                   {badgesLoaded ? visibleBadges.length + ' 枚公开徽章' : '正在读取公开徽章'}
                   {profile.featuredUserBadgeIds.length ? ' · ' + profile.featuredUserBadgeIds.length + ' 枚设为展示' : ''}
                 </p>
               </div>
-              <button
-                type="button"
-                disabled={badgesLoading}
-                onClick={() => void loadBadges(true)}
-                className="linuxdo-control grid h-9 w-9 shrink-0 place-items-center rounded-full border border-haze text-paper-faint disabled:opacity-50"
-                aria-label="刷新徽章"
-              >
-                <RefreshCcw size={13} className={badgesLoading ? 'animate-spin' : ''} />
-              </button>
+              <div className="flex items-center gap-1.5">
+                <div className="flex items-center rounded-full border border-haze bg-ink-raised/40 p-0.5 text-paper-muted">
+                  <button
+                    type="button"
+                    onClick={() => setBadgeViewMode('grid')}
+                    className={`grid h-7 w-7 place-items-center rounded-full transition-colors ${
+                      badgeViewMode === 'grid' ? 'bg-paper/15 text-paper font-semibold shadow-xs' : 'text-paper-faint hover:text-paper'
+                    }`}
+                    aria-label="展柜网格视图"
+                    title="展柜网格"
+                  >
+                    <LayoutGrid size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBadgeViewMode('list')}
+                    className={`grid h-7 w-7 place-items-center rounded-full transition-colors ${
+                      badgeViewMode === 'list' ? 'bg-paper/15 text-paper font-semibold shadow-xs' : 'text-paper-faint hover:text-paper'
+                    }`}
+                    aria-label="清单列表视图"
+                    title="清单列表"
+                  >
+                    <List size={13} />
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  disabled={badgesLoading}
+                  onClick={() => void loadBadges(true)}
+                  className="linuxdo-control grid h-8 w-8 shrink-0 place-items-center rounded-full border border-haze text-paper-faint disabled:opacity-50"
+                  aria-label="刷新徽章"
+                >
+                  <RefreshCcw size={12} className={badgesLoading ? 'animate-spin' : ''} />
+                </button>
+              </div>
             </div>
             {badgesLoading && !visibleBadges.length ? (
               <div className="flex items-center justify-center gap-2 py-16 text-[11px] text-paper-faint"><Loader2 size={15} className="animate-spin" />正在加载徽章</div>
             ) : visibleBadges.length ? (
               <>
                 {badgesError ? <div className="mb-2"><InlineStatus message={'完整徽章列表加载失败，已显示摘要数据：' + badgesError} actionLabel="重试" onAction={() => void loadBadges(true)} /></div> : null}
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {visibleBadges.map((badge) => {
-                    const featured = badge.favorite === true || profile.featuredUserBadgeIds.includes(badge.id) || (badge.badgeId ? profile.featuredUserBadgeIds.includes(badge.badgeId) : false)
-                    const notificationTarget = initialBadgeId !== undefined && (badge.badgeId === initialBadgeId || badge.id === initialBadgeId)
-                    return (
-                      <article
-                        key={(badge.badgeId ?? badge.id) + ':' + badge.id}
-                        ref={notificationTarget ? (node) => { targetBadgeRef.current = node } : undefined}
-                        className={'rounded-2xl border p-3.5 ' + (notificationTarget ? 'border-cinnabar bg-cinnabar/[0.09] ring-1 ring-cinnabar/30' : featured ? 'border-cinnabar/35 bg-cinnabar/[0.055]' : 'border-haze/55 bg-ink-raised/35')}
-                      >
-                        <div className="flex items-start gap-3">
-                          <span className={'grid h-10 w-10 shrink-0 place-items-center rounded-xl ' + (notificationTarget || featured ? 'bg-cinnabar/12 text-cinnabar-soft' : 'bg-paper/[0.04] text-paper-muted')}>
-                            {badge.imageUrl ? <img src={badge.imageUrl} alt="" className="h-7 w-7 object-contain" /> : <Award size={19} />}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <h4 className="truncate text-[12.5px] font-semibold text-paper">{badge.name}</h4>
-                              {notificationTarget ? <span className="shrink-0 rounded-full bg-cinnabar/12 px-1.5 py-0.5 text-[8px] font-semibold text-cinnabar-soft">本次获得</span> : featured ? <span className="shrink-0 rounded-full bg-cinnabar/12 px-1.5 py-0.5 text-[8px] font-semibold text-cinnabar-soft">展示中</span> : null}
+                {badgeViewMode === 'grid' ? (
+                  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4">
+                    {visibleBadges.map((badge) => {
+                      const featured = badge.favorite === true || profile.featuredUserBadgeIds.includes(badge.id) || (badge.badgeId ? profile.featuredUserBadgeIds.includes(badge.badgeId) : false)
+                      const notificationTarget = initialBadgeId !== undefined && (badge.badgeId === initialBadgeId || badge.id === initialBadgeId)
+                      const tierMeta = getBadgeTierMeta(badge.badgeTypeId)
+                      const IconComp = getBadgeIcon(badge)
+                      const cleanedDesc = cleanBadgeDescription(badge.description)
+                      return (
+                        <article
+                          key={(badge.badgeId ?? badge.id) + ':' + badge.id}
+                          ref={notificationTarget ? (node) => { targetBadgeRef.current = node } : undefined}
+                          className={
+                            'group relative flex flex-col items-center rounded-2xl border p-3.5 pt-3 pb-3 text-center transition-all duration-200 select-none shadow-xs hover:shadow-md active:scale-[0.985] overflow-hidden ' +
+                            (notificationTarget
+                              ? 'border-cinnabar/80 bg-cinnabar/[0.06] shadow-[0_4px_16px_rgba(224,46,36,0.18)]'
+                              : `${tierMeta.cardBorder} ${tierMeta.cardBg}`)
+                          }
+                        >
+                          {/* 顶部柔光氛围渐变 */}
+                          <div className={`pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b ${tierMeta.ambientGlow}`} />
+
+                          {/* 状态徽标 (右上角绝对定位，极简灵动，绝不喧宾夺主) */}
+                          {notificationTarget ? (
+                            <span className="absolute top-2.5 right-2.5 z-10 inline-flex items-center gap-0.5 rounded-full bg-cinnabar px-1.5 py-0.2 text-[8px] font-bold text-white shadow-xs">
+                              本次获得
+                            </span>
+                          ) : featured ? (
+                            <span className="absolute top-2.5 right-2.5 z-10 inline-flex items-center gap-0.5 rounded-full bg-amber-500/10 border border-amber-500/25 px-1.5 py-0.2 text-[8px] font-semibold text-amber-700 dark:text-amber-300 shadow-xs">
+                              <Sparkles size={8.5} className="shrink-0 text-amber-500" />
+                              展示中
+                            </span>
+                          ) : null}
+
+                          {/* 勋章实体徽盘 (The Medallion Token - 无论是否展示中，永远绽放所属金属阶梯光芒！) */}
+                          <div className="relative mt-1 mb-2">
+                            <div
+                              className={`relative grid h-12 w-12 place-items-center rounded-full transition-transform duration-200 group-hover:scale-108 group-hover:rotate-2 ${tierMeta.tokenRing} ${tierMeta.tokenBg}`}
+                            >
+                              {badge.imageUrl ? (
+                                <img src={badge.imageUrl} alt={badge.name} className="h-7 w-7 object-contain drop-shadow-xs" />
+                              ) : (
+                                <IconComp size={22} strokeWidth={1.9} className={`${tierMeta.tokenIcon} drop-shadow-xs`} />
+                              )}
                             </div>
-                            {badge.description ? <p className="mt-1 line-clamp-3 select-text text-[10.5px] leading-5 text-paper-muted">{badge.description}</p> : null}
-                            <div className="mt-2 flex flex-wrap gap-x-2 text-[9px] text-paper-faint">
-                              {badge.count !== undefined ? <span>获得 {badge.count} 次</span> : null}
-                              {badge.grantedAt ? <span>{dateLabel(badge.grantedAt)}</span> : null}
-                            </div>
+
+                            {/* 多次获得气泡角标 */}
+                            {badge.count && badge.count > 1 ? (
+                              <span className="absolute -bottom-1 -right-1 z-10 flex h-4 min-w-4 items-center justify-center rounded-full bg-paper px-1 font-mono text-[8.5px] font-black text-ink shadow-sm ring-1 ring-black/10 tabular-nums">
+                                ×{badge.count}
+                              </span>
+                            ) : null}
                           </div>
-                        </div>
-                      </article>
-                    )
-                  })}
-                </div>
+
+                          {/* 徽章名称 */}
+                          <h4 className="w-full truncate text-[13px] font-bold tracking-tight text-paper px-1" title={badge.name}>
+                            {badge.name}
+                          </h4>
+
+                          {/* 纯净描述说明 (两行截断，统一最小高度使网格对齐稳定) */}
+                          <p className="mt-1 line-clamp-2 select-text text-[10.5px] leading-[1.4] text-paper-muted min-h-[29px] flex items-center justify-center px-1" title={cleanedDesc}>
+                            {cleanedDesc || '暂无描述'}
+                          </p>
+
+                          {/* 底部信息行：品质与日期合一，居中融合，无冗余重复！ */}
+                          <div className="mt-2 flex items-center justify-center gap-1.5 text-[9.5px]">
+                            <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.2 font-medium ${tierMeta.badgePill}`}>
+                              <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
+                              {tierMeta.label}
+                            </span>
+                            {badge.grantedAt ? (
+                              <span className="text-paper-faint tabular-nums">· {dateLabel(badge.grantedAt)}</span>
+                            ) : null}
+                          </div>
+                        </article>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {visibleBadges.map((badge) => {
+                      const featured = badge.favorite === true || profile.featuredUserBadgeIds.includes(badge.id) || (badge.badgeId ? profile.featuredUserBadgeIds.includes(badge.badgeId) : false)
+                      const notificationTarget = initialBadgeId !== undefined && (badge.badgeId === initialBadgeId || badge.id === initialBadgeId)
+                      const tierMeta = getBadgeTierMeta(badge.badgeTypeId)
+                      const IconComp = getBadgeIcon(badge)
+                      const cleanedDesc = cleanBadgeDescription(badge.description)
+                      return (
+                        <article
+                          key={(badge.badgeId ?? badge.id) + ':' + badge.id}
+                          ref={notificationTarget ? (node) => { targetBadgeRef.current = node } : undefined}
+                          className={
+                            'group relative flex items-center gap-3.5 rounded-2xl border p-3 transition-all duration-150 select-none shadow-xs hover:shadow-md ' +
+                            (notificationTarget
+                              ? 'border-cinnabar/80 bg-cinnabar/[0.06]'
+                              : `${tierMeta.cardBorder} ${tierMeta.cardBg}`)
+                          }
+                        >
+                          {/* 左侧勋章实体 */}
+                          <div className="relative shrink-0">
+                            <div
+                              className={`grid h-11 w-11 place-items-center rounded-full transition-transform duration-200 group-hover:scale-105 ${tierMeta.tokenRing} ${tierMeta.tokenBg}`}
+                            >
+                              {badge.imageUrl ? (
+                                <img src={badge.imageUrl} alt={badge.name} className="h-6 w-6 object-contain drop-shadow-xs" />
+                              ) : (
+                                <IconComp size={20} strokeWidth={1.9} className={`${tierMeta.tokenIcon} drop-shadow-xs`} />
+                              )}
+                            </div>
+                            {badge.count && badge.count > 1 ? (
+                              <span className="absolute -bottom-1 -right-1 z-10 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-paper px-1 font-mono text-[8px] font-black text-ink shadow-xs ring-1 ring-black/10 tabular-nums">
+                                ×{badge.count}
+                              </span>
+                            ) : null}
+                          </div>
+
+                          {/* 右侧信息流 */}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <h4 className="truncate text-[13px] font-bold text-paper" title={badge.name}>
+                                  {badge.name}
+                                </h4>
+                                <span className={`shrink-0 rounded-md px-1.5 py-0.2 text-[8px] font-bold ${tierMeta.badgePill}`}>
+                                  {tierMeta.label}
+                                </span>
+                                {notificationTarget ? (
+                                  <span className="shrink-0 rounded-full bg-cinnabar px-1.5 py-0.2 text-[8px] font-bold text-white">
+                                    本次获得
+                                  </span>
+                                ) : featured ? (
+                                  <span className="shrink-0 inline-flex items-center gap-0.5 rounded-full bg-amber-500/10 border border-amber-500/25 px-1.5 py-0.2 text-[8px] font-semibold text-amber-700 dark:text-amber-300">
+                                    <Sparkles size={8} className="text-amber-500" />展示中
+                                  </span>
+                                ) : null}
+                              </div>
+                              {badge.grantedAt ? (
+                                <span className="shrink-0 text-[9px] text-paper-faint tabular-nums">
+                                  {dateLabel(badge.grantedAt)}
+                                </span>
+                              ) : null}
+                            </div>
+                            {cleanedDesc ? (
+                              <p className="mt-1 line-clamp-2 select-text text-[11px] leading-[1.45] text-paper-muted" title={cleanedDesc}>
+                                {cleanedDesc}
+                              </p>
+                            ) : null}
+                          </div>
+                        </article>
+                      )
+                    })}
+                  </div>
+                )}
               </>
             ) : badgesLoaded ? (
               <InlineStatus message={badgesError || '该用户没有公开徽章'} actionLabel={badgesError ? '重新加载' : undefined} onAction={badgesError ? () => void loadBadges(true) : undefined} />

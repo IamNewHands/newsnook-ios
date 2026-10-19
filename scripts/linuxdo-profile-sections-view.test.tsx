@@ -23,6 +23,54 @@ const click = async (label: string) => {
   assert.ok(button, `missing ${label}`)
   await act(async () => { button.dispatchEvent(new window.Event('click', { bubbles: true })); await flush() })
 }
+// Keep the real people service here: the regression is at the JSON-to-view boundary.
+const originalGetJson = linuxDoApi.getJson
+let brokenBadges = false
+linuxDoApi.getJson = async (url: string) => {
+  const badge = { id: 7, name: '关联徽章', description: '<a href="/badges/7">授予</a>来自独立定义的徽章&amp;特权', badge_type_id: 1 }
+  if (url.includes('/summary.json')) return {
+    topics: [{ id: 42, title: '关联话题', slug: 'top' }, { id: 43, title: '关联回复', slug: 'reply' }],
+    badges: [badge],
+    user_summary: { topic_ids: [42], replies: [{ topic_id: 43, post_number: 7 }], badges: [{ id: 70, badge_id: 7 }] },
+  }
+  if (url.includes('/user-badges/')) return brokenBadges
+    ? { user_badges: [{ id: 70, badge_id: 7 }] }
+    : { badges: [badge], user_badges: [{ id: 70, badge_id: 7, is_favorite: true }] }
+  return { user: { id: 1, username: 'reader', featured_user_badge_ids: [70] } }
+}
+await render(<UserProfileView username="reader" onOpenUser={() => {}} {...props} />)
+assert.ok(host.textContent?.includes('关联话题'), 'sideloaded top topics must be visible')
+assert.ok(host.textContent?.includes('关联回复'), 'sideloaded replies must be visible')
+assert.ok(!host.textContent?.includes('暂无公开的高信号话题'))
+const openSummaryCard = async (title: string) => {
+  const button = Array.from(host.querySelectorAll('button')).find(item => item.textContent?.includes(title))
+  assert.ok(button)
+  await act(async () => { button.dispatchEvent(new window.Event('click', { bubbles: true })); await flush() })
+}
+await openSummaryCard('关联话题')
+assert.deepEqual(opened.at(-1), [42, undefined])
+await openSummaryCard('关联回复')
+assert.deepEqual(opened.at(-1), [43, 7], 'summary reply opens at the referenced floor')
+await click('徽章')
+assert.ok(host.textContent?.includes('1 枚公开徽章'))
+assert.ok(host.textContent?.includes('关联徽章'))
+assert.ok(host.textContent?.includes('展示中'))
+assert.ok(host.textContent?.includes('授予来自独立定义的徽章&特权'))
+assert.ok(!host.textContent?.includes('<a href='))
+assert.ok(host.textContent?.includes('金牌'))
+assert.ok(!host.textContent?.includes('该用户没有公开徽章'))
+await click('清单列表视图')
+assert.ok(host.textContent?.includes('关联徽章'))
+assert.ok(host.textContent?.includes('金牌'))
+await click('展柜网格视图')
+assert.ok(host.textContent?.includes('关联徽章'))
+brokenBadges = true
+await click('刷新徽章')
+assert.ok(host.textContent?.includes('完整徽章列表加载失败'))
+assert.ok(host.textContent?.includes('关联徽章'), 'keep summary badges when the full response is malformed')
+await act(async () => { root.render(null); await flush() })
+linuxDoApi.getJson = originalGetJson
+
 linuxDoPeople.profile = async username => ({ id: 1, username, featuredUserBadgeIds: [], draftCount: 2, pendingPostsCount: 1 })
 linuxDoPeople.summary = async () => ({ topics: [], replies: [], links: [], mostLikedByUsers: [], mostLikedUsers: [], mostRepliedToUsers: [], topCategories: [], badges: [] })
 const originalList = linuxDoProfileSections.list.bind(linuxDoProfileSections)
@@ -99,5 +147,55 @@ assert.equal(saved.at(-1)?.key, 'new_topic_7')
 assert.equal(saved.at(-1)?.sequence, 4)
 assert.deepEqual(saved.at(-1)?.data.tags, ['test'])
 assert.equal(saved.at(-1)?.data.categoryId, 4)
+
+// Test site admin (Neo) ActivityCard and Hero adaptations
+linuxDoPeople.activity = async () => ({
+  actions: [
+    {
+      actionType: 5,
+      username: 'Neo',
+      avatarTemplate: 'https://cdn.linux.do/user_avatar/neo/96/1.png',
+      title: '论坛发帖逻辑不合理',
+      excerpt: '这集神了佬友们...',
+      createdAt: '2026-10-15T00:00:00Z',
+    },
+    {
+      actionType: 5,
+      username: 'normal_user',
+      avatarTemplate: 'https://cdn.linux.do/user_avatar/normal/96/1.png',
+      title: '普通用户的回复',
+      excerpt: '这是普通回复...',
+      createdAt: '2026-10-15T01:00:00Z',
+    },
+  ],
+  topics: [],
+  offset: 0,
+  hasMore: false,
+})
+await render(<UserProfileView username="Neo" initialTab="replies" onOpenUser={() => {}} {...props} />)
+
+// Hero header test
+const heroHeader = host.querySelector('section')
+assert.ok(heroHeader, 'Hero header rendered')
+assert.ok(heroHeader.querySelector('h2')?.className.includes('text-[#0088ff]'), 'Hero username is blue')
+assert.ok(heroHeader.querySelector('svg[aria-label="站长认证"]'), 'Hero has shield certification')
+assert.ok(heroHeader.querySelector('.rounded-\\[16px\\]'), 'Hero avatar container is square rounded-[16px]')
+
+// Activity cards test
+const articles = Array.from(host.querySelectorAll('article'))
+const neoActivity = articles.find(a => a.textContent?.includes('论坛发帖逻辑不合理'))
+assert.ok(neoActivity, 'Neo reply activity rendered')
+assert.ok(neoActivity.querySelector('[data-linuxdo-site-admin-badge]'), 'Neo activity card has battery corner badge')
+assert.ok(neoActivity.querySelector('.rounded-\\[7px\\]'), 'Neo activity avatar container is square rounded-[7px]')
+assert.ok(neoActivity.querySelector('button')?.className.includes('rounded-[7px]'), 'Neo activity button is square')
+assert.ok(neoActivity.querySelector('button[class*="text-[#0088ff]"]'), 'Neo activity username button is blue')
+assert.ok(neoActivity.querySelector('svg[aria-label="站长认证"]'), 'Neo activity card has shield icon')
+
+const normalActivity = articles.find(a => a.textContent?.includes('普通用户的回复'))
+assert.ok(normalActivity, 'Normal reply activity rendered')
+assert.equal(normalActivity.querySelector('[data-linuxdo-site-admin-badge]'), null, 'Normal user has no battery badge')
+assert.ok(normalActivity.querySelector('button')?.className.includes('rounded-full'), 'Normal user avatar button is rounded-full')
+assert.equal(normalActivity.querySelector('svg[aria-label="站长认证"]'), null, 'Normal user has no shield')
+
 await act(async () => { root.unmount(); await flush() })
 console.log('linuxdo-profile-sections-view: ok')

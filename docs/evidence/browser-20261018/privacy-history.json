@@ -1,0 +1,26 @@
+{
+  "at": "2026-10-18T01:12:13.155Z",
+  "result": {
+    "state": {
+      "url": "http://localhost:8137/fixture?session=privacy-never-record",
+      "tabId": 1,
+      "title": "浏览器验证",
+      "back": true,
+      "forward": false,
+      "desktop": false,
+      "privateMode": true,
+      "recordHistory": false,
+      "activeScriptCount": 1,
+      "matchedScriptCount": 1,
+      "userAgentMode": "android",
+      "userAgent": "Mozilla/5.0 (Linux; Android 17; sdk_gphone16k_x86_64 Build/CP31.260623.005) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.181 Mobile Safari/537.36",
+      "textZoom": 100,
+      "loading": false,
+      "progress": 100,
+      "error": null
+    },
+    "historyUnchanged": true,
+    "explicitBookmarkSaved": true,
+    "privatePreference": true
+  }
+}

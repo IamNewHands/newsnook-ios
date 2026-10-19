@@ -6,12 +6,15 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.view.Window;
 import android.webkit.JavascriptInterface;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebView;
 import androidx.core.graphics.Insets;
 import androidx.core.splashscreen.SplashScreen;
@@ -19,18 +22,23 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginHandle;
 import com.getcapacitor.WebViewListener;
 import java.util.Locale;
 
-public class MainActivity extends BridgeActivity {
+public class MainActivity extends BridgeActivity implements BrowserFullscreenHost {
 
     /** 系统开屏一直挂到 WebView 提交首帧，避免撤出后露出默认白底 WebView */
     private volatile boolean webContentReady = false;
     /** Main WebView hosts embedded videos (Linux.do, RSS); keep Capacitor chrome features intact. */
     private NewsNookWebChromeClient mainWebChromeClient;
+    private WebView mainWebView;
+    private boolean mainWebViewRetired;
+    private boolean rendererRecoveryScheduled;
+    private final Handler mainWebViewHandler = new Handler(Looper.getMainLooper());
     /** Restore the user's previous rotation policy after CSS fullscreen fallback. */
     private int previousEmbeddedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
     private boolean embeddedFullscreenFallback;
@@ -71,6 +79,41 @@ public class MainActivity extends BridgeActivity {
         wakeWebViewCompositor(webView, false);
     };
 
+    private final WebViewListener mainWebViewListener = new WebViewListener() {
+        @Override
+        public void onPageStarted(WebView webView) {
+            if (!bindMainWebView(webView)) return;
+            // Apply the native background before the first document frame.
+            webView.setBackgroundColor(0xFF0E0F12);
+            webView.addJavascriptInterface(new NativeThemeBridge(), "NewsNookNative");
+            injectNativeInsets();
+        }
+
+        @Override
+        public void onPageCommitVisible(WebView webView, String url) {
+            if (!bindMainWebView(webView)) return;
+            webView.setBackgroundColor(0xFF0E0F12);
+            webContentReady = true;
+            injectNativeInsets();
+            webView.postOnAnimation(notifyMainWebViewVisible);
+        }
+
+        @Override
+        public boolean onRenderProcessGone(WebView webView, RenderProcessGoneDetail detail) {
+            return recoverMainRenderer(webView);
+        }
+    };
+
+    private final Runnable notifyMainWebViewVisible = () -> {
+        WebView webView = getCapacitorWebView();
+        if (webView == null) return;
+        webView.evaluateJavascript(
+            "window.__newsnookNativeVisible=true;" +
+            "window.dispatchEvent(new Event('newsnook:native-visible'));",
+            null
+        );
+    };
+
     @androidx.annotation.Keep
     public class NativeThemeBridge {
         @androidx.annotation.Keep
@@ -98,6 +141,7 @@ public class MainActivity extends BridgeActivity {
 
     @androidx.annotation.Keep
     private void applySystemTheme(boolean isLight) {
+        if (mainWebViewRetired) return;
         Window window = getWindow();
         if (window == null) return;
         WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, window.getDecorView());
@@ -113,6 +157,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void applyEmbeddedVideoFullscreen(boolean enabled) {
+        if (mainWebViewRetired) return;
         if (embeddedFullscreenFallback == enabled) return;
         embeddedFullscreenFallback = enabled;
         if (enabled) {
@@ -126,7 +171,8 @@ public class MainActivity extends BridgeActivity {
     }
 
     /** Package-visible entry point used by DeviceMediaControlsPlugin. */
-    void setVideoFullscreen(boolean fullScreen) {
+    @Override public void setVideoFullscreen(boolean fullScreen) {
+        if (mainWebViewRetired) return;
         videoFullscreenActive = fullScreen;
         if (fullScreen) {
             hideSystemBarsSticky();
@@ -140,6 +186,7 @@ public class MainActivity extends BridgeActivity {
 
 
     private void scheduleFullscreenReassert() {
+        if (mainWebViewRetired) return;
         cancelFullscreenReassert();
         Window window = getWindow();
         if (window == null) return;
@@ -242,16 +289,17 @@ public class MainActivity extends BridgeActivity {
      * 系统自动隐藏互相打架；窗口失焦时不干预。
      */
     private void scheduleSelfHealHide() {
-        if (reHideScheduled) return;
+        if (mainWebViewRetired || reHideScheduled) return;
         reHideScheduled = true;
         getWindow().getDecorView().postDelayed(() -> {
             reHideScheduled = false;
-            if (!videoFullscreenActive) return;
+            if (mainWebViewRetired || !videoFullscreenActive) return;
             scheduleFullscreenReassert();
         }, 500L);
     }
 
     private void applyKeepScreenOn(boolean keepScreenOn) {
+        if (mainWebViewRetired) return;
         Window window = getWindow();
         if (window == null) return;
         if (keepScreenOn) {
@@ -280,6 +328,14 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
+    protected void load() {
+        // BridgeActivity has now added generated plugins. Register this override
+        // last so the upstream Network plugin cannot replace its safe lifecycle.
+        registerPlugin(NewsNookNetworkPlugin.class);
+        super.load();
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         SplashScreen splashScreen = SplashScreen.installSplashScreen(this);
         splashScreen.setKeepOnScreenCondition(() -> !webContentReady);
@@ -293,38 +349,14 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(VolumePageTurnPlugin.class);
         registerPlugin(ProxiedHttpPlugin.class);
         registerPlugin(EncyclopediaPagePlugin.class);
+        registerPlugin(BrowserHostPlugin.class);
         registerPlugin(MediaSnifferPlugin.class);
         registerPlugin(AppUpdatePlugin.class);
         registerPlugin(SecureStorePlugin.class);
         registerPlugin(ZhihuSessionPlugin.class);
         registerPlugin(LinuxDoSessionPlugin.class);
         registerPlugin(SyncNotificationPlugin.class);
-        bridgeBuilder.addWebViewListener(
-            new WebViewListener() {
-                @Override
-                public void onPageStarted(WebView webView) {
-                    // 越早越好：WebView 默认底是白的，主题色还没画出来前先压住
-                    webView.setBackgroundColor(0xFF0E0F12);
-                    webView.addJavascriptInterface(new NativeThemeBridge(), "NewsNookNative");
-                    injectNativeInsets();
-                }
-
-                @Override
-                public void onPageCommitVisible(WebView webView, String url) {
-                    webView.setBackgroundColor(0xFF0E0F12);
-                    webContentReady = true;
-                    injectNativeInsets();
-                    webView.postOnAnimation(
-                        () ->
-                            webView.evaluateJavascript(
-                                "window.__newsnookNativeVisible=true;" +
-                                "window.dispatchEvent(new Event('newsnook:native-visible'));",
-                                null
-                            )
-                    );
-                }
-            }
-        );
+        bridgeBuilder.addWebViewListener(mainWebViewListener);
         super.onCreate(savedInstanceState);
 
         // BridgeActivity switches to Capacitor's no-action-bar theme and installs
@@ -338,7 +370,7 @@ public class MainActivity extends BridgeActivity {
             // onShowCustomView. Its replacement must STILL extend that class so
             // file pickers, Web permissions, alerts and prompts remain functional.
             WebView mainWebView = bridge.getWebView();
-            if (mainWebView != null) {
+            if (bindMainWebView(mainWebView)) {
                 mainWebChromeClient = new NewsNookWebChromeClient(bridge, this);
                 mainWebView.setWebChromeClient(mainWebChromeClient);
             }
@@ -410,14 +442,16 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onDestroy() {
-        cancelScheduledCompositorWake();
-        if (mainWebChromeClient != null) {
-            mainWebChromeClient.release();
-            mainWebChromeClient = null;
-        }
-        cancelFullscreenReassert();
-        videoFullscreenActive = false;
+        retireMainWebViewWork();
+        releaseMainWebChromeClient();
         super.onDestroy();
+    }
+
+    @Override
+    public void onDetachedFromWindow() {
+        // BridgeActivity destroys its WebView here. Reject queued native work first.
+        retireMainWebViewWork();
+        super.onDetachedFromWindow();
     }
 
     @Override
@@ -470,6 +504,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void updateNativeInsets(WindowInsetsCompat windowInsets) {
+        if (mainWebViewRetired) return;
         float density = getResources().getDisplayMetrics().density;
         if (density <= 0) density = 1.0f;
 
@@ -551,15 +586,86 @@ public class MainActivity extends BridgeActivity {
             nativeVideoRightInsetDp
         );
 
-        webView.post(() -> webView.evaluateJavascript(js, null));
+        mainWebViewHandler.post(() -> {
+            if (webView == getCapacitorWebView()) webView.evaluateJavascript(js, null);
+        });
+    }
+
+    private boolean bindMainWebView(WebView webView) {
+        if (webView == null || mainWebViewRetired || isFinishing() || isDestroyed()) return false;
+        if (mainWebView == null) mainWebView = webView;
+        return mainWebView == webView;
     }
 
     private WebView getCapacitorWebView() {
-        return bridge == null ? null : bridge.getWebView();
+        return mainWebViewRetired || isFinishing() || isDestroyed() ? null : mainWebView;
     }
 
-    private static void wakeWebViewCompositor(WebView webView, boolean syntheticTouch) {
-        if (!webView.isAttachedToWindow()) return;
+    private void retireMainWebViewWork() {
+        mainWebViewRetired = true;
+        mainWebViewHandler.removeCallbacksAndMessages(null);
+        cancelScheduledCompositorWake();
+        cancelFullscreenReassert();
+        videoFullscreenActive = false;
+        reHideScheduled = false;
+        if (mainWebView != null) mainWebView.removeCallbacks(notifyMainWebViewVisible);
+        mainWebView = null;
+    }
+
+    private void releaseMainWebChromeClient() {
+        NewsNookWebChromeClient client = mainWebChromeClient;
+        mainWebChromeClient = null;
+        if (client == null) return;
+        try {
+            client.release();
+        } catch (RuntimeException error) {
+            Log.w("NewsNookMainWebView", "Could not release the retired fullscreen view", error);
+        }
+    }
+
+    private boolean recoverMainRenderer(WebView webView) {
+        if (rendererRecoveryScheduled) return true;
+        if (mainWebView != null && mainWebView != webView) return false;
+        rendererRecoveryScheduled = true;
+        retireMainWebViewWork();
+        webContentReady = true;
+
+        // The old Bridge cannot be reused with a different WebView. In particular,
+        // BridgeActivity.onDetachedFromWindow must not destroy this instance again.
+        Bridge retiredBridge = bridge;
+        if (retiredBridge != null) {
+            try {
+                PluginHandle browserHandle = retiredBridge.getPlugin("NewsNookBrowser");
+                if (browserHandle != null && browserHandle.getInstance() instanceof BrowserHostPlugin browserHost) {
+                    browserHost.captureRecoverySession();
+                }
+            } catch (RuntimeException error) {
+                Log.w("NewsNookMainWebView", "Could not preserve browser tabs before recovery", error);
+            }
+        }
+        bridge = null;
+        releaseMainWebChromeClient();
+        try {
+            if (retiredBridge != null && !isDestroyed()) retiredBridge.onDestroy();
+        } catch (RuntimeException error) {
+            Log.w("NewsNookMainWebView", "Could not fully release the retired Bridge", error);
+        } finally {
+            ViewParent parent = webView.getParent();
+            if (parent instanceof ViewGroup) ((ViewGroup) parent).removeView(webView);
+            webView.destroy();
+        }
+
+        // Recreate the complete Capacitor shell after this callback has returned.
+        // No cache, cookies, WebStorage or preferences are cleared.
+        mainWebViewHandler.post(() -> {
+            if (!isFinishing() && !isDestroyed()) recreate();
+        });
+        Log.w("NewsNookMainWebView", "Main renderer exited; recreating the Activity");
+        return true;
+    }
+
+    private void wakeWebViewCompositor(WebView webView, boolean syntheticTouch) {
+        if (webView != getCapacitorWebView() || !webView.isAttachedToWindow()) return;
 
         webView.resumeTimers();
         webView.requestLayout();

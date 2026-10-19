@@ -78,7 +78,6 @@
 | `dw-top` | feed | DW 中文 RDF `rss-chi-all`；旧配置误接 `rss-en-top` 已修正 |
 | `ftchinese` | feed | FT中文网第一方 `/rss/feed`，`zh-CN` |
 | `voa-zh` | feed | 美国之音中文网 RSS 页面当前“新闻”聚合源 |
-| `cna-intl-zh` | feed | 中央社官方「国际」RSS（FeedBurner 托管） |
 | `zaobao-world` | zaobao | 联合早报无可用第一方 RSS；解析公开 `/news/world` 服务端 HTML，不依赖 RSSHub / FeedX |
 | `bbc-world` `bbc-business` `dw-en` | feed | BBC / DW 英文第一方 RSS |
 | `nytimes-world` `wsj-world` `nikkei-asia` `channelnewsasia-world` | feed | NYT World、WSJ World、Nikkei Asia、Channel NewsAsia World 第一方 RSS |
@@ -87,7 +86,7 @@
 | `npr` `guardian-world` `aljazeera` | feed | 标准 RSS |
 | `france24` | feed | `/en/rss` 已 301 到 HTML 目录页；用仍返回 `application/rss+xml` 的分区源（asia-pacific） |
 | `foreign-affairs` `nyrb` `bloomberg-opinion` `project-syndicate` `sinocism` | feed | 英文评论 / 智库；taxonomy v3 按主题唯一归属到「全球视野·国际评论」「深度人文·海外思想长文」「财经商业·产业评论」「中国资讯·外部观察」 |
-| `theinitium` | feed | 中文深度媒体 RSS，归「全球视野 → 中文报刊通讯」 |
+| `theinitium` | feed | 端传媒官方简体 RSS `/zh-hans/rss/`（根路径 `/rss/` 默认繁体）；`cacheVersion=zh-hans-v1` 淘汰旧繁体列表缓存；归「全球视野 → 中文报刊通讯」 |
 
 ### 1.6 科技深度（group `tech`）
 

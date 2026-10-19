@@ -69,3 +69,65 @@ export function resolveReplyTarget(
     avatarTemplate: target.avatarTemplate,
   }
 }
+
+/** Computes the connected conversation chain (all ancestors and descendants) for a focused post. */
+export function computeConversationChain(
+  targetPostNumber: number,
+  posts: LinuxDoPost[],
+): Set<number> {
+  const chain = new Set<number>([targetPostNumber])
+  const byNumber = new Map<number, LinuxDoPost>()
+  const children = new Map<number, number[]>()
+
+  for (const post of posts) {
+    byNumber.set(post.postNumber, post)
+    const parent = post.replyToPostNumber
+    if (parent && parent > 1 && parent < post.postNumber) {
+      const list = children.get(parent) ?? []
+      list.push(post.postNumber)
+      children.set(parent, list)
+    }
+  }
+
+  // 1. Ancestor branch upwards to root
+  let curr = byNumber.get(targetPostNumber)
+  while (curr?.replyToPostNumber && curr.replyToPostNumber > 1 && byNumber.has(curr.replyToPostNumber)) {
+    chain.add(curr.replyToPostNumber)
+    curr = byNumber.get(curr.replyToPostNumber)
+  }
+
+  // 2. Descendant tree downwards
+  function collectDescendants(parentNum: number) {
+    const directKids = children.get(parentNum) ?? []
+    for (const kidNum of directKids) {
+      chain.add(kidNum)
+      collectDescendants(kidNum)
+    }
+  }
+  collectDescendants(targetPostNumber)
+
+  return chain
+}
+
+/** Extracts a concise single-line preview snippet from post HTML for quote pills. */
+export function extractQuoteSnippet(cookedHtml: string, maxLength = 45): string {
+  if (!cookedHtml) return ''
+  let text = cookedHtml
+    .replace(/<aside[\s\S]*?<\/aside>/gi, '')
+    .replace(/<blockquote[\s\S]*?<\/blockquote>/gi, '')
+    .replace(/<pre[\s\S]*?<\/pre>/gi, ' [代码] ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (text.length > maxLength) {
+    return text.slice(0, maxLength) + '…'
+  }
+  return text
+}
+

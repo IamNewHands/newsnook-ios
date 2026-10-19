@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { createLogger, logController } from '../src/lib/logger.ts'
+import { createLogger, logController, suppressBrowserLogs } from '../src/lib/logger.ts'
 
 function withMockConsole(run: () => void): string[] {
   const lines: string[] = []
@@ -100,5 +100,36 @@ assert.ok(cloudLines.some((line) => line.includes('[sync] allowed')))
 assert.ok(cloudLines.some((line) => line.includes('sync cycle failed')))
 
 logController.reset()
+
+// Private browsing suppresses diagnostics in the shared shell without changing saved log settings.
+const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+const saved = new Map<string, string>()
+Object.defineProperty(globalThis, 'localStorage', {configurable: true, value: {
+  getItem: (key: string) => saved.get(key) ?? null,
+  setItem: (key: string, value: string) => {saved.set(key, value)},
+  removeItem: (key: string) => {saved.delete(key)},
+}})
+try {
+  const releaseFirst = suppressBrowserLogs()
+  const releaseSecond = suppressBrowserLogs()
+  const privateLines = withMockConsole(() => {
+    logController.setLevel('trace')
+    http.error('private URL https://private.example/secret')
+    releaseFirst()
+    releaseFirst()
+    http.warn('another private operation is still active')
+  })
+  assert.deepEqual(privateLines, [], 'private diagnostics cannot emit page URLs, including overlapping work')
+  assert.equal(logController.getConfig().level, 'trace', 'privacy must not rewrite the selected log level')
+  assert.equal(JSON.parse(saved.get('newsnook:log')!).level, 'trace', 'explicit log settings remain persistent')
+  assert.equal([...saved.values()].some(value => value.includes('private.example')), false)
+  releaseSecond()
+  const resumed = withMockConsole(() => http.warn('ordinary diagnostics resume'))
+  assert.equal(resumed.length, 1, 'releasing privacy suppression restores the existing configuration')
+} finally {
+  if (originalStorage) Object.defineProperty(globalThis, 'localStorage', originalStorage)
+  else Reflect.deleteProperty(globalThis, 'localStorage')
+  logController.reset()
+}
 
 console.log('logger: ok')

@@ -12,6 +12,7 @@ Object.assign(globalThis, {
   React,
   IS_REACT_ACT_ENVIRONMENT: true,
 })
+Object.defineProperty(window.document, 'oninput', { configurable: true, value: null })
 
 const { createRoot } = await import('react-dom/client')
 const { PresetSwitcher } = await import('../src/components/PresetSwitcher')
@@ -21,6 +22,8 @@ let manageCalls = 0
 let settingsCalls = 0
 let selected = ''
 let siteSelected = ''
+let browserOpenedUrl: string | undefined = undefined
+let browserOpenCalls = 0
 
 const builtins = [
   { id: 'cn', name: '中国资讯', description: '国内要闻与公共议题', builtin: true, active: true },
@@ -31,7 +34,7 @@ const sites = [
   { id: 'linuxdo', name: 'Linux.do', description: '技术交流与开源分享', active: false },
 ]
 
-async function render(items = builtins, siteItems = sites) {
+async function render(items = builtins, siteItems = sites, withBrowser = false) {
   await act(async () => {
     root.render(
       <PresetSwitcher
@@ -40,6 +43,7 @@ async function render(items = builtins, siteItems = sites) {
         onSelect={(id) => { selected = id }}
         onManage={() => { manageCalls += 1 }}
         onOpenSettings={() => { settingsCalls += 1 }}
+        onOpenBrowser={withBrowser ? (url) => { browserOpenCalls += 1; browserOpenedUrl = url } : undefined}
         siteItems={siteItems}
         onSelectSite={(id) => { siteSelected = id }}
         variant="pill"
@@ -134,6 +138,64 @@ try {
     'active custom preset should open on the custom tab',
   )
   assert.ok(document.body.textContent?.includes('我的晨读'))
+
+  // Browser entry: icon click & search input
+  browserOpenCalls = 0
+  browserOpenedUrl = undefined
+  await render(builtins, sites, true)
+  await click(document.querySelector('button[aria-haspopup="dialog"]') as HTMLButtonElement)
+
+  const browserIconBtn = document.querySelector('button[aria-label="进入网页浏览器"]') as HTMLButtonElement
+  assert.ok(browserIconBtn, 'browser icon button should exist')
+  await click(browserIconBtn)
+  assert.equal(browserOpenCalls, 1, 'clicking browser icon should invoke onOpenBrowser')
+  assert.equal(browserOpenedUrl, undefined, 'clicking icon opens start page without url')
+  assert.equal(document.querySelector('[role="dialog"]'), null, 'clicking browser icon should dismiss switcher')
+
+  // Search input with query
+  browserOpenCalls = 0
+  browserOpenedUrl = undefined
+  await render(builtins, sites, true)
+  await click(document.querySelector('button[aria-haspopup="dialog"]') as HTMLButtonElement)
+
+  const searchInput = document.querySelector('input[aria-label="搜索或输入网址"]') as HTMLInputElement
+  assert.ok(searchInput, 'browser search input should exist')
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(searchInput, '科技资讯')
+    searchInput.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+
+  const clearBtn = document.querySelector('button[aria-label="清空输入"]') as HTMLButtonElement
+  assert.ok(clearBtn, 'clear button should appear when input has query')
+
+  const searchSubmitBtn = document.querySelector('button[aria-label="进入浏览器搜索"]') as HTMLButtonElement
+  assert.ok(searchSubmitBtn, 'search submit button should exist')
+  await click(searchSubmitBtn)
+  assert.equal(browserOpenCalls, 1, 'submitting search query should invoke onOpenBrowser')
+  assert.ok(browserOpenedUrl && browserOpenedUrl.includes('科技资讯') || browserOpenedUrl?.includes(encodeURIComponent('科技资讯')), 'search query should resolve to search engine URL')
+  assert.equal(document.querySelector('[role="dialog"]'), null, 'submitting search should dismiss switcher')
+
+  // Test clear button
+  await render(builtins, sites, true)
+  await click(document.querySelector('button[aria-haspopup="dialog"]') as HTMLButtonElement)
+  const searchInput2 = document.querySelector('input[aria-label="搜索或输入网址"]') as HTMLInputElement
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(searchInput2, '待清空')
+    searchInput2.dispatchEvent(new window.Event('input', { bubbles: true }))
+  })
+  const clearBtn2 = document.querySelector('button[aria-label="清空输入"]') as HTMLButtonElement
+  assert.ok(clearBtn2)
+  await click(clearBtn2)
+  assert.equal(searchInput2.value, '', 'clear button should empty query')
+
+  // Test direct URL form submit
+  const form = document.querySelector('form') as HTMLFormElement
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!.call(searchInput2, 'https://example.com/site')
+    searchInput2.dispatchEvent(new window.Event('input', { bubbles: true }))
+    form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))
+  })
+  assert.equal(browserOpenedUrl, 'https://example.com/site')
 
   console.log('preset-switcher-ui: ok')
 } finally {

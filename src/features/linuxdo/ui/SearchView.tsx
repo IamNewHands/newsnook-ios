@@ -1,10 +1,12 @@
 import {
   ArrowDownWideNarrow,
+  BatteryLow,
   ChevronRight,
   Clock3,
   Hash,
   Loader2,
   Search,
+  Shield,
   SlidersHorizontal,
   X,
 } from 'lucide-react'
@@ -26,7 +28,7 @@ import { LinuxDoApiError } from '../types'
 import { SearchFilters } from './SearchFilters'
 import { LinuxDoVerificationAction } from './VerificationAction'
 import { createLinuxDoSearchCache, type LinuxDoSearchCache, type LinuxDoSearchTab } from './searchCache'
-import { ago, avatar, readableError } from './utils'
+import { ago, avatar, isLinuxDoSiteAdmin, readableError } from './utils'
 
 const tabs = [
   ['posts', '帖子'],
@@ -649,25 +651,47 @@ export function SearchView({
 
           {activeTab === 'users' && users.length ? (
             <div className="linuxdo-group" style={{ '--row-inset': '4.5rem' } as import('react').CSSProperties}>
-              {users.map((user) => (
-                <button
-                  type="button"
-                  key={user.id}
-                  onClick={() => onOpenUser(user.username)}
-                  className="linuxdo-control linuxdo-row group flex min-h-[4.75rem] w-full items-center gap-3.5 px-4 py-3 text-left transition-colors hover:bg-paper/[0.03] active:bg-paper/[0.06]"
-                >
-                  <span className="h-11 w-11 shrink-0 overflow-hidden rounded-full bg-paper/5 ring-1 ring-black/5 dark:ring-white/10 shadow-sm">
-                    {avatar(user.avatarTemplate, user.username)}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[15px] font-semibold text-paper group-hover:text-cinnabar transition-colors">
-                      {user.name || user.username}
+              {users.map((user) => {
+                const isUserAdmin = isLinuxDoSiteAdmin(user.username)
+                return (
+                  <button
+                    type="button"
+                    key={user.id}
+                    onClick={() => onOpenUser(user.username)}
+                    className="linuxdo-control linuxdo-row group flex min-h-[4.75rem] w-full items-center gap-3.5 px-4 py-3 text-left transition-colors hover:bg-paper/[0.03] active:bg-paper/[0.06]"
+                  >
+                    <div className="relative shrink-0">
+                      <span className={`block h-11 w-11 shrink-0 overflow-hidden bg-paper/5 ring-1 ring-black/5 dark:ring-white/10 shadow-sm ${
+                        isUserAdmin ? 'rounded-[9px]' : 'rounded-full'
+                      }`}>
+                        {avatar(user.avatarTemplate, user.username)}
+                      </span>
+                      {isUserAdmin && (
+                        <span
+                          data-linuxdo-site-admin-badge
+                          title="站长"
+                          className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#0088ff] text-white shadow-xs ring-1.5 ring-ink-raised pointer-events-none"
+                          aria-label="站长角标"
+                        >
+                          <BatteryLow size={10} strokeWidth={2.5} className="shrink-0" aria-hidden="true" />
+                        </span>
+                      )}
+                    </div>
+                    <span className="min-w-0 flex-1">
+                      <span className={`block truncate text-[15px] transition-colors inline-flex items-center gap-1 ${
+                        isUserAdmin ? 'font-bold text-[#0088ff] dark:text-[#38a3ff]' : 'font-semibold text-paper group-hover:text-cinnabar'
+                      }`}>
+                        <span>{user.name || user.username}</span>
+                        {isUserAdmin && (
+                          <Shield size={13} className="shrink-0 fill-[#0088ff] text-[#0088ff] dark:fill-[#38a3ff] dark:text-[#38a3ff]" aria-label="站长认证" />
+                        )}
+                      </span>
+                      <span className="mt-0.5 block text-[12px] text-paper-faint">@{user.username}</span>
                     </span>
-                    <span className="mt-0.5 block text-[12px] text-paper-faint">@{user.username}</span>
-                  </span>
-                  <ChevronRight size={16} className="text-paper-faint transition-transform group-hover:translate-x-0.5" />
-                </button>
-              ))}
+                    <ChevronRight size={16} className="text-paper-faint transition-transform group-hover:translate-x-0.5" />
+                  </button>
+                )
+              })}
             </div>
           ) : null}
         </div>
@@ -762,6 +786,8 @@ function SearchResultRow({
 }) {
   const author = post ?? topic?.posters[0]
   const title = topic?.title || post?.topicTitle || '搜索结果'
+  const authorUsername = author?.username || post?.username
+  const isAuthorAdmin = isLinuxDoSiteAdmin(authorUsername)
   const displayName = post?.name || author?.username || '作者信息暂缺'
   return (
     <button
@@ -771,15 +797,36 @@ function SearchResultRow({
       onClick={onOpen}
       className="linuxdo-control linuxdo-row group flex w-full items-start gap-3.5 px-4 py-4 text-left transition-colors hover:bg-paper/[0.03] active:bg-paper/[0.06] disabled:opacity-50"
     >
-      <span className="mt-0.5 h-11 w-11 shrink-0 overflow-hidden rounded-full bg-paper/5 ring-1 ring-black/5 dark:ring-white/10 shadow-sm">
-        {avatar(author?.avatarTemplate, author?.username)}
-      </span>
+      <div className="relative mt-0.5 shrink-0">
+        <span className={`block h-11 w-11 shrink-0 overflow-hidden bg-paper/5 ring-1 ring-black/5 dark:ring-white/10 shadow-sm ${
+          isAuthorAdmin ? 'rounded-[9px]' : 'rounded-full'
+        }`}>
+          {avatar(author?.avatarTemplate, author?.username)}
+        </span>
+        {isAuthorAdmin && (
+          <span
+            data-linuxdo-site-admin-badge
+            title="站长"
+            className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#0088ff] text-white shadow-xs ring-1.5 ring-ink-raised pointer-events-none"
+            aria-label="站长角标"
+          >
+            <BatteryLow size={10} strokeWidth={2.5} className="shrink-0" aria-hidden="true" />
+          </span>
+        )}
+      </div>
       <span className="min-w-0 flex-1">
         <span className="line-clamp-2 text-[15.5px] font-semibold leading-[1.45] tracking-[-0.01em] text-paper group-hover:text-cinnabar transition-colors">
           {title}
         </span>
         <span className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11.5px] text-paper-faint">
-          <span className="max-w-full truncate font-medium text-paper-muted">{displayName}</span>
+          <span className={`max-w-full truncate inline-flex items-center gap-1 ${
+            isAuthorAdmin ? 'font-bold text-[#0088ff] dark:text-[#38a3ff]' : 'font-medium text-paper-muted'
+          }`}>
+            <span>{displayName}</span>
+            {isAuthorAdmin && (
+              <Shield size={11} className="shrink-0 fill-[#0088ff] text-[#0088ff] dark:fill-[#38a3ff] dark:text-[#38a3ff]" aria-label="站长认证" />
+            )}
+          </span>
           {post?.name && post.username !== post.name ? <span>@{post.username}</span> : null}
           <span>· {ago(post?.createdAt || topic?.lastPostedAt || '')}</span>
         </span>

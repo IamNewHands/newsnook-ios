@@ -25,7 +25,7 @@ export const THEME_MODES: { id: ThemeMode; label: string; caption: string }[] = 
 /** 改动这里时，index.html 里防闪脚本的兜底值也要一起改 */
 export const DEFAULT_THEME_MODE: ThemeMode = 'system'
 
-export type ThemeScheme = 'ink' | 'celadon' | 'pearl' | 'amber' | 'forest' | 'dusk' | 'custom'
+export type ThemeScheme = 'ink' | 'celadon' | 'pearl' | 'amber' | 'dusk' | 'buer' | 'custom'
 
 /** 外观设置页预览卡取色：必须与 index.css 中对应方案的 --tone-* 保持一致 */
 export interface ThemeSchemeSwatch {
@@ -58,47 +58,47 @@ export const THEME_SCHEMES: ThemeSchemeMeta[] = [
   },
   {
     id: 'celadon',
-    label: '天青',
-    caption: '汝窑 · 单色青釉',
+    label: '竹青',
+    caption: '晨露竹林 · 碧玉冷翠',
     swatch: {
-      light: { ink: '#E6EBE8', raised: '#F0F4F1', paper: '#1F2426', accent: '#3E6663' },
-      dark: { ink: '#121817', raised: '#1A2220', paper: '#DEE5DF', accent: '#8FB3AE' },
+      light: { ink: '#E8F0EA', raised: '#F3F8F4', paper: '#122019', accent: '#1B734E' },
+      dark: { ink: '#0D1612', raised: '#15221C', paper: '#D7E8DE', accent: '#3BB57E' },
     },
   },
   {
     id: 'pearl',
-    label: '现代优雅',
-    caption: '冷白 · 系统蓝',
+    label: '群青',
+    caption: '工业冷白 · 瑞士大报',
     swatch: {
-      light: { ink: '#FAFAFA', raised: '#FFFFFF', paper: '#111111', accent: '#007AFF' },
-      dark: { ink: '#000000', raised: '#1C1C1E', paper: '#F5F5F7', accent: '#0A84FF' },
+      light: { ink: '#F4F6F9', raised: '#FFFFFF', paper: '#101318', accent: '#1856F3' },
+      dark: { ink: '#0B0E14', raised: '#141822', paper: '#E6ECF5', accent: '#387BFF' },
     },
   },
   {
     id: 'amber',
-    label: '琥珀',
-    caption: '羊皮纸 · 焦糖金',
+    label: '赤霞',
+    caption: '暖砂陶土 · 落日晚霞',
     swatch: {
-      light: { ink: '#F5EFEB', raised: '#FAF6F2', paper: '#221C18', accent: '#9E601C' },
-      dark: { ink: '#141210', raised: '#1C1916', paper: '#ECE4DB', accent: '#D99446' },
-    },
-  },
-  {
-    id: 'forest',
-    label: '松烟',
-    caption: '苍松 · 深林冷翠',
-    swatch: {
-      light: { ink: '#EDF1EE', raised: '#F6FAF7', paper: '#17211C', accent: '#246648' },
-      dark: { ink: '#0F1512', raised: '#16201C', paper: '#DBE6E0', accent: '#64B08A' },
+      light: { ink: '#F6EFEA', raised: '#FCF8F5', paper: '#241814', accent: '#C44820' },
+      dark: { ink: '#14100E', raised: '#1E1815', paper: '#ECE1D8', accent: '#E0653E' },
     },
   },
   {
     id: 'dusk',
-    label: '暮山',
-    caption: '烟霭 · 暮山紫',
+    label: '紫宸',
+    caption: '暮山薄雾 · 丝绒星穹',
     swatch: {
-      light: { ink: '#F4F0F5', raised: '#FAF7FA', paper: '#201925', accent: '#78448E' },
-      dark: { ink: '#131118', raised: '#1C1824', paper: '#E6DFEC', accent: '#B682D4' },
+      light: { ink: '#F3EFF7', raised: '#FAF6FE', paper: '#221628', accent: '#7E3BA8' },
+      dark: { ink: '#120E18', raised: '#1C1625', paper: '#E7DEEE', accent: '#B76EE8' },
+    },
+  },
+  {
+    id: 'buer',
+    label: '不二',
+    caption: '先锋社论 · 极简黑白',
+    swatch: {
+      light: { ink: '#FAFAFC', raised: '#FFFFFF', paper: '#111215', accent: '#C8F008' },
+      dark: { ink: '#090A0C', raised: '#131518', paper: '#F4F5F7', accent: '#C8F008' },
     },
   },
   {
@@ -121,8 +121,8 @@ export function isThemeScheme(value: unknown): value is ThemeScheme {
     value === 'celadon' ||
     value === 'pearl' ||
     value === 'amber' ||
-    value === 'forest' ||
     value === 'dusk' ||
+    value === 'buer' ||
     value === 'custom'
   )
 }
@@ -134,11 +134,11 @@ export function isThemeScheme(value: unknown): value is ThemeScheme {
  */
 export const THEME_SURFACE: Record<Exclude<ThemeScheme, 'custom'>, Record<ResolvedTheme, string>> = {
   ink: { dark: '#0E0F12', light: '#F6F2E9' },
-  celadon: { dark: '#121817', light: '#E6EBE8' },
-  pearl: { dark: '#000000', light: '#FAFAFA' },
-  amber: { dark: '#141210', light: '#F5EFEB' },
-  forest: { dark: '#0F1512', light: '#EDF1EE' },
-  dusk: { dark: '#131118', light: '#F4F0F5' },
+  celadon: { dark: '#0D1612', light: '#E8F0EA' },
+  pearl: { dark: '#0B0E14', light: '#F4F6F9' },
+  amber: { dark: '#14100E', light: '#F6EFEA' },
+  dusk: { dark: '#120E18', light: '#F3EFF7' },
+  buer: { dark: '#090A0C', light: '#FAFAFC' },
 }
 
 /** 运行时自定义配色：由 applyThemeScheme 注入，供 theme-color 等取色 */

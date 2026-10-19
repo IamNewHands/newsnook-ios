@@ -10,7 +10,6 @@ import {
   Pause,
   Play,
   RotateCw,
-  LockOpen,
   SkipBack,
   SkipForward,
   Cast,
@@ -19,6 +18,7 @@ import {
 } from 'lucide-react'
 import { VideoSessionManagerContext, useHasGlobalVideoSurface, useVideoPresentation } from '../features/floatingVideo/context'
 import type { VideoSessionManager } from '../features/floatingVideo/session'
+import { useBrowserDialogFocus } from '../features/browser/useBrowserDialogFocus'
 
 import { subscribeBatteryStatus, type BatteryStatus } from '../lib/batteryStatus'
 import {
@@ -123,6 +123,8 @@ export interface InkVideoPlayerProps {
   mediaPageHost?: boolean
   /** 阅读器浮层（如 AI 速读）打开时隐藏嗅探 FAB */
   suppressResourceFab?: boolean
+  /** Keep this player's overlays within its owning modal; detached sessions release the owner. */
+  overlayContainer?: HTMLElement
 }
 type Props = InkVideoPlayerProps
 
@@ -202,6 +204,7 @@ export function InkVideoPlayerRuntime({
   fullscreenHandleRef,
   mediaPageHost = true,
   suppressResourceFab = false,
+  overlayContainer,
 }: Props) {
   const presentation = useVideoPresentation()
   const [allowed, setAllowed] = useState(!deferLoad)
@@ -325,6 +328,7 @@ export function InkVideoPlayerRuntime({
       fullscreenHandleRef={mediaPageHost ? innerFullscreenRef : fullscreenHandleRef}
       onFullscreenChange={mediaPageHost ? onInnerFullscreenChange : undefined}
       suppressResourceFab={suppressResourceFab}
+      overlayContainer={overlayContainer}
     />
   )
 
@@ -374,9 +378,10 @@ export function InkVideoPlayerRuntime({
             onPlaybackError={onPlaybackError}
             fullscreenHandleRef={innerFullscreenRef}
             suppressResourceFab={suppressResourceFab}
+            overlayContainer={overlayContainer}
           />
         </MediaResourceScreen>,
-        document.body,
+        overlayContainer?.isConnected ? overlayContainer : document.body,
       )}
     </>
   )
@@ -398,6 +403,7 @@ function InkVideoPlayerReady({
   fullscreenHandleRef,
   onFullscreenChange,
   suppressResourceFab = false,
+  overlayContainer,
 }: Props & {
   onSelectResource?: (resource: MediaResourceDescriptor) => void
   onFullscreenChange?: () => void
@@ -582,6 +588,18 @@ function InkVideoPlayerReady({
     exitFullscreen: () => toggleFullscreenRef.current(),
     showPlayerToast,
   })
+  const ownedOverlays = Boolean(overlayContainer?.isConnected)
+  const hideResourceFab = suppressResourceFab || compact || (globalVideoSurface && presentation?.mode === 'inline')
+  const fullscreenFocus = useBrowserDialogFocus<HTMLDivElement>(ownedOverlays && immersive)
+  const resourceFocus = useBrowserDialogFocus<HTMLDivElement>(
+    ownedOverlays && resourceMenuOpen && !immersive && !hideResourceFab && resourceOptions.length > 0,
+  )
+  const castFocus = useBrowserDialogFocus<HTMLElement>(ownedOverlays && castOpen)
+  const bindRoot = useCallback((element: HTMLDivElement | null) => {
+    rootRef.current = element
+    fullscreenFocus.current = element
+  }, [fullscreenFocus])
+
   const dismissOverlay = useEffectEvent(() => {
     if (castOpen) { setCastOpen(false); return true }
     if (resourceMenuOpen) { setResourceMenuOpen(false); return true }
@@ -1922,7 +1940,18 @@ function InkVideoPlayerReady({
   return (
     <>
       <div
-      ref={rootRef}
+      ref={bindRoot}
+      tabIndex={ownedOverlays && immersive ? -1 : undefined}
+      role={ownedOverlays && immersive ? 'dialog' : undefined}
+      aria-modal={ownedOverlays && immersive ? true : undefined}
+      aria-label={ownedOverlays && immersive ? title || '视频播放' : undefined}
+      onKeyDown={event => {
+        if (ownedOverlays && immersive && event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          toggleFullscreenRef.current()
+        }
+      }}
       // 播放器控件叠在画面上，始终按深色配色渲染
       data-theme="dark"
       // 播放器内的横滑属于播放手势，阅读页的滑动返回不应再接管
@@ -1931,7 +1960,7 @@ function InkVideoPlayerReady({
       data-video-fullscreen={immersive ? 'true' : undefined}
       data-video-compact={compact ? 'true' : undefined}
       style={fallbackFullscreen && presentation ? { zIndex: 130 } : undefined}
-      className={`overflow-hidden border border-haze bg-ink-deep ${
+      className={`overflow-hidden border border-haze bg-ink-deep ${ownedOverlays ? 'outline-none' : ''} ${
         fallbackFullscreen ? 'fixed inset-0 z-[100] border-0' : ''
       } ${
         immersive ? 'rounded-none' : 'rounded-2xl'
@@ -2189,6 +2218,7 @@ function InkVideoPlayerReady({
                 </button>
                 <button
                   type="button"
+                  aria-label="后退 15 秒"
                   onClick={() => onSeekCommit(Math.max(0, current - 15))}
                   className="video-extended-control flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-paper/90 transition-colors active:bg-paper/15"
                 >
@@ -2196,33 +2226,11 @@ function InkVideoPlayerReady({
                 </button>
                 <button
                   type="button"
+                  aria-label="前进 15 秒"
                   onClick={() => onSeekCommit(Math.min(duration, current + 15))}
                   className="video-extended-control flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-paper/90 transition-colors active:bg-paper/15"
                 >
                   <SkipForward size={18} strokeWidth={2} />
-                </button>
-
-                <button
-                  type="button"
-                  aria-label="锁定控制"
-                  onClick={() => showPlayerToast('功能开发中')}
-                  className="video-extended-control flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-paper/90 transition-colors active:bg-paper/15"
-                >
-                  <LockOpen size={17} strokeWidth={2} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => showPlayerToast('功能开发中')}
-                  className="video-extended-control hidden px-1 text-[13px] font-medium text-paper/80 sm:inline-block"
-                >
-                  片头
-                </button>
-                <button
-                  type="button"
-                  onClick={() => showPlayerToast('功能开发中')}
-                  className="video-extended-control hidden px-1 text-[13px] font-medium text-paper/80 sm:inline-block"
-                >
-                  片尾
                 </button>
 
                 {/* Rate Menu */}
@@ -2259,21 +2267,6 @@ function InkVideoPlayerReady({
               </div>
 
               <div className="flex items-center gap-1 sm:gap-2 pr-1">
-                <button
-                  type="button"
-                  onClick={() => showPlayerToast('功能开发中')}
-                  className="video-extended-control hidden rounded-full border border-paper/40 px-3 py-1 text-[12px] tracking-wide text-paper/95 whitespace-nowrap sm:inline-block"
-                >
-                  极速播
-                </button>
-                <button
-                  type="button"
-                  onClick={() => showPlayerToast('功能开发中')}
-                  className="video-extended-control hidden whitespace-nowrap px-2 text-[13px] font-medium tracking-wide text-paper/95 sm:inline-block"
-                >
-                  选集
-                </button>
-
                 <button
                   type="button"
                   aria-label={rotationMode ? `旋转模式：${ROTATION_MODE_LABEL[rotationMode]}，点击切换` : '切换横竖屏'}
@@ -2314,7 +2307,8 @@ function InkVideoPlayerReady({
         resources={resourceOptions}
         open={resourceMenuOpen}
         immersive={immersive}
-        suppressFab={suppressResourceFab || compact || (globalVideoSurface && presentation?.mode === 'inline')}
+        suppressFab={hideResourceFab}
+        dialogRef={ownedOverlays ? resourceFocus : undefined}
         layer={presentation ? 140 : undefined}
         onToggle={() => {
           setResourceMenuOpen((open) => !open)
@@ -2326,11 +2320,12 @@ function InkVideoPlayerReady({
           revealControls()
         }}
       />,
-      document.body,
+      ownedOverlays ? overlayContainer! : document.body,
       )}
     {typeof document !== 'undefined' && createPortal(
       <CastOverlay
         open={castOpen}
+        dialogRef={ownedOverlays ? castFocus : undefined}
         devices={castDevices}
         searching={castSearching}
         connectingId={castConnectingId}
@@ -2344,7 +2339,7 @@ function InkVideoPlayerReady({
         onControl={(action, value) => void sendCastControl(action, value)}
         onStop={() => void endCast()}
       />,
-      document.body,
+      ownedOverlays ? overlayContainer! : document.body,
     )}
     </>
   )

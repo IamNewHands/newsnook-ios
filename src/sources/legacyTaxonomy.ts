@@ -76,7 +76,6 @@ export const LEGACY_CATEGORY_DEFINITIONS = [
       "ftchinese",
       "zaobao-world",
       "voa-zh",
-      "cna-intl-zh",
       "theinitium"
     ]
   },

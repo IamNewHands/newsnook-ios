@@ -1,5 +1,5 @@
 import { Browser } from '@capacitor/browser'
-import { ArrowLeft, Bookmark, Check, ChevronDown, GitBranch, Hash, Heart, Link, List, Loader2, MessageCircle, MoreHorizontal, Pencil, Quote, Reply, Rocket, Send, Trash2, TriangleAlert, X } from 'lucide-react'
+import { ArrowLeft, BatteryLow, Bookmark, Check, ChevronDown, GitBranch, Hash, Heart, Link, List, Loader2, MessageCircle, MoreHorizontal, Pencil, Quote, Reply, Rocket, Send, Shield, Trash2, TriangleAlert, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject } from 'react'
 
 import { ImageLightbox } from '../../../components/ImageLightbox'
@@ -27,10 +27,10 @@ import type {
   LinuxDoTopic,
   LinuxDoTopicSummary,
 } from '../types'
-import { decodeTagNames } from '../api/decode'
 import { LinuxDoApiError } from '../types'
-import { ago, avatar, compact, readableError, tagGlyph } from './utils'
-import { buildLinuxDoThreads, resolveReplyTarget } from './threadModel'
+import { decodeTagNames } from '../api/decode'
+import { ago, avatar, compact, isLinuxDoSiteAdmin, readableError, tagGlyph } from './utils'
+import { buildLinuxDoThreads, extractQuoteSnippet, resolveReplyTarget } from './threadModel'
 import { boostText, reactionGlyph, reactionTotal } from './engagementModel'
 import { ComposerEditor, type ComposerEditorHandle, type ComposerUploadVisualItem } from '../editor/ComposerEditor'
 import { CategoryPickerSheet, InsertMenuSheet, TagPickerSheet, TemplatePickerSheet } from '../editor/ComposerSheets'
@@ -115,6 +115,40 @@ function LinuxDoPostBody({ html, onClick }: { html: string; onClick: (event: Rea
         dot.style.backgroundColor = color
       }
     })
+    root.querySelectorAll<HTMLPreElement>('pre').forEach((pre) => {
+      if (pre.dataset.linuxdoEnhanced === 'true') return
+      pre.dataset.linuxdoEnhanced = 'true'
+      const code = pre.querySelector('code')
+      const rawText = (code || pre).textContent || ''
+      const lineCount = rawText.split('\n').length
+      const langClass = Array.from(code?.classList || []).find((c) => c.startsWith('lang-') || c.startsWith('language-'))
+      const lang = langClass ? langClass.replace(/^(lang-|language-)/, '') : '代码'
+
+      const header = document.createElement('div')
+      header.className = 'linuxdo-code-bar'
+      const info = document.createElement('span')
+      info.className = 'linuxdo-code-info'
+      info.textContent = `${lang} · ${lineCount} 行`
+      const copyBtn = document.createElement('button')
+      copyBtn.type = 'button'
+      copyBtn.className = 'linuxdo-code-copy'
+      copyBtn.textContent = '复制'
+      copyBtn.setAttribute('aria-label', '复制代码')
+      copyBtn.onclick = (event) => {
+        event.stopPropagation()
+        void navigator.clipboard?.writeText(rawText).then(() => {
+          copyBtn.textContent = '已复制'
+          copyBtn.classList.add('is-copied')
+          setTimeout(() => {
+            copyBtn.textContent = '复制'
+            copyBtn.classList.remove('is-copied')
+          }, 1200)
+        }).catch(() => undefined)
+      }
+      header.appendChild(info)
+      header.appendChild(copyBtn)
+      pre.parentElement?.insertBefore(header, pre)
+    })
   }, [html])
 
   return (
@@ -168,23 +202,30 @@ function BoostCloud({ boosts, onOpenUser }: { boosts: LinuxDoBoost[]; onOpenUser
   return (
     <div className="linuxdo-boost-cloud mt-3 pt-1" aria-label={items.length + ' 条社区回应'}>
       <div className="flex flex-wrap items-center gap-1.5">
-        {visible.map(({ boost, text }) => (
-          <button
-            key={boost.id}
-            type="button"
-            disabled={!boost.user.username}
-            onClick={() => boost.user.username && onOpenUser(boost.user.username)}
-            className="linuxdo-boost-chip linuxdo-control inline-flex max-w-full items-center gap-1.5 rounded-full py-0.5 pl-1 pr-2.5 text-left disabled:pointer-events-none"
-            title={boost.user.name ? `${boost.user.name} (@${boost.user.username})` : boost.user.username}
-          >
-            <span className="flex h-4.5 w-4.5 shrink-0 items-center justify-center overflow-hidden rounded-full bg-ink-deep ring-1 ring-black/10 dark:ring-white/10">
-              {avatar(boost.user.avatarTemplate, boost.user.username || 'boost')}
-            </span>
-            <span className="max-w-[16rem] truncate text-[11px] font-normal leading-tight text-paper/90">
-              {text}
-            </span>
-          </button>
-        ))}
+        {visible.map(({ boost, text }) => {
+          const isBoostAdmin = isLinuxDoSiteAdmin(boost.user.username)
+          return (
+            <button
+              key={boost.id}
+              type="button"
+              disabled={!boost.user.username}
+              onClick={() => boost.user.username && onOpenUser(boost.user.username)}
+              className="linuxdo-boost-chip linuxdo-control inline-flex max-w-full items-center gap-1.5 rounded-full py-0.5 pl-1 pr-2.5 text-left disabled:pointer-events-none"
+              title={boost.user.name ? `${boost.user.name} (@${boost.user.username})` : boost.user.username}
+            >
+              <span className={`flex h-4.5 w-4.5 shrink-0 items-center justify-center overflow-hidden bg-ink-deep ring-1 ring-black/10 dark:ring-white/10 ${
+                isBoostAdmin ? 'rounded-[3px]' : 'rounded-full'
+              }`}>
+                {avatar(boost.user.avatarTemplate, boost.user.username || 'boost')}
+              </span>
+              <span className={`max-w-[16rem] truncate text-[11px] leading-tight ${
+                isBoostAdmin ? 'font-semibold text-[#0088ff] dark:text-[#38a3ff]' : 'font-normal text-paper/90'
+              }`}>
+                {text}
+              </span>
+            </button>
+          )
+        })}
         {remaining > 0 && !showAll ? (
           <button
             type="button"
@@ -839,6 +880,8 @@ export function LinuxDoTopicView({
   const visiblePosts = useMemo(() => readingMode === 'threaded'
     ? threadRows.filter(row => row.depth === 0 || !collapsedThreads.has(row.rootPostNumber)).map(row => row.post)
     : posts, [collapsedThreads, posts, readingMode, threadRows])
+  const [flashingPostNumber, setFlashingPostNumber] = useState<number | null>(null)
+  const [quotedPostNumbers, setQuotedPostNumbers] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
   const [failedJumpPost, setFailedJumpPost] = useState<number | undefined>()
@@ -1217,6 +1260,10 @@ export function LinuxDoTopicView({
       if (request !== loadRequestRef.current) return
       topicScrollerRef.current?.querySelector<HTMLElement>('#linuxdo-post-' + postNumber)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       setJumpingPostNumber(undefined)
+      setFlashingPostNumber(postNumber)
+      window.setTimeout(() => {
+        setFlashingPostNumber((current) => current === postNumber ? null : current)
+      }, 1200)
     }, 80)
   }, [posts, summary.id, summary.slug])
 
@@ -1435,77 +1482,165 @@ export function LinuxDoTopicView({
                 const row = rowsByNumber.get(post.postNumber)!
                 const like = post.actions.find((action) => action.id === 2)
                 const replyTarget = resolveReplyTarget(post, posts)
+                const parentPost = post.replyToPostNumber ? posts.find(p => p.postNumber === post.replyToPostNumber) : undefined
                 const readByServerCursor = post.read === undefined && typeof topic.lastReadPostNumber === 'number' && post.postNumber <= topic.lastReadPostNumber
                 const unreadAtOpen = openingUnreadFloorRef.current !== undefined && post.postNumber > openingUnreadFloorRef.current
                 const showUnreadDot = session.authenticated && !readPostNumbers.has(post.postNumber) && (unreadAtOpen || (post.read !== true && !readByServerCursor))
                 const isTopicOwner = ownerUsername === post.username || post.postNumber === 1
+                const rootRow = rowsByNumber.get(row.rootPostNumber)
+                const rootAuthor = rootRow?.post.username || posts.find((p) => p.postNumber === row.rootPostNumber)?.username
+                const isFloorOwner = readingMode === 'threaded' &&
+                  !isTopicOwner &&
+                  row.rootPostNumber > 1 &&
+                  Boolean(rootAuthor && post.username === rootAuthor && (row.replyCount > 0 || row.depth > 0))
+                const isSiteAdmin = isLinuxDoSiteAdmin(post.username)
+                const isReplyTargetAdmin = isLinuxDoSiteAdmin(replyTarget?.username)
+                const isFlashing = flashingPostNumber === post.postNumber
+                const isQuoteOpen = quotedPostNumbers.has(post.postNumber) || (readingMode === 'floors' && Boolean(parentPost))
+
                 return (
                   <article key={post.id} id={'linuxdo-post-' + post.postNumber} data-linuxdo-post-number={post.postNumber} data-linuxdo-read={showUnreadDot ? 'false' : 'true'}
                     data-linuxdo-thread-depth={readingMode === 'threaded' ? row.depth : undefined}
                     data-linuxdo-thread-first={readingMode === 'threaded' && row.firstReply ? '' : undefined}
                     data-linuxdo-thread-last={readingMode === 'threaded' && row.lastReply ? '' : undefined}
                     data-linuxdo-thread-root={readingMode === 'threaded' && row.replyCount > 0 && !collapsedThreads.has(row.rootPostNumber) ? '' : undefined}
-                    className="group rounded-xl sm:rounded-2xl border border-haze/45 bg-ink-raised/85 p-3 sm:p-4 shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-150 hover:border-paper/[0.12]">
-                    <header className="linuxdo-control flex items-start gap-2.5 sm:gap-3 select-none">
-                      <button type="button" onClick={() => onOpenUser(post.username)} className="relative mt-0.5 flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-black/5 dark:ring-white/10 bg-ink-deep transition-transform active:scale-95">
-                        {avatar(post.avatarTemplate, post.username)}
-                      </button>
-                      <div className="min-w-0 flex-1">
-                        <div className="linuxdo-post-author flex items-center gap-1.5">
-                          <button type="button" onClick={() => onOpenUser(post.username)} className="truncate text-[13.5px] font-semibold text-paper hover:underline">
-                            {post.name || post.username}
-                          </button>
-                          {isTopicOwner && (
-                            <span className="shrink-0 rounded-[5px] bg-cinnabar/12 px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-wider text-cinnabar dark:bg-cinnabar/20 dark:text-cinnabar-soft">
-                              楼主
-                            </span>
-                          )}
-                          {readingMode === 'threaded' && post.replyToPostNumber && post.replyToPostNumber > 1 ? (
-                            <button type="button" data-linuxdo-parent-link
-                              className="linuxdo-control linuxdo-thread-relation" onClick={() => void jumpToPost(post.replyToPostNumber!, post.postNumber)}
-                              aria-label={`跳转到 ${replyTarget?.username || '被回复'} 的帖子 #${post.replyToPostNumber}`}>
-                              <Reply size={12} aria-hidden="true" />
-                              <span>回复 {replyTarget?.name || replyTarget?.username || '此楼'}</span>
-                              <span className="linuxdo-thread-parent-number">#{post.replyToPostNumber}</span>
-                            </button>
-                          ) : null}
-                        </div>
-                        <div className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-paper-faint">
-                          <span className="truncate">{'@' + post.username}</span>
-                          <span aria-hidden="true">·</span>
-                          <span className="shrink-0">{ago(post.createdAt)}</span>
-                          {session.authenticated ? (
-                            <span
-                              data-linuxdo-unread-dot
-                              className={'h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400 ring-1 ring-sky-400/20 transition-[opacity,transform] duration-300 ease-out ' + (showUnreadDot ? 'scale-100 opacity-100' : 'scale-75 opacity-0')}
-                              role={showUnreadDot ? 'status' : undefined}
-                              aria-label={showUnreadDot ? '帖子 #' + post.postNumber + ' 未读' : undefined}
-                              aria-hidden={showUnreadDot ? undefined : true}
-                            />
-                          ) : null}
-                        </div>
+                    className={`linuxdo-post-item group relative rounded-xl sm:rounded-2xl border border-haze/45 bg-ink-raised/85 p-3 sm:p-4 shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-150 select-text ${
+                      isFlashing ? 'is-flashing' : ''
+                    }`}
+                  >
+                    {readingMode === 'threaded' && row.depth > 0 ? (
+                      <span className="linuxdo-branch-connector" aria-hidden="true" />
+                    ) : null}
+                    <header className="linuxdo-control flex items-center gap-2.5 select-none">
+                      <div className="relative shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => onOpenUser(post.username)}
+                          className={`relative flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center overflow-hidden ring-1 ring-black/5 dark:ring-white/10 bg-ink-deep transition-transform active:scale-95 ${
+                            isSiteAdmin ? 'rounded-[7px]' : 'rounded-full'
+                          }`}
+                          title={`查看 @${post.username} 的主页`}
+                        >
+                          {avatar(post.avatarTemplate, post.username)}
+                        </button>
+                        {isSiteAdmin && (
+                          <span
+                            data-linuxdo-site-admin-badge
+                            title="站长"
+                            className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 sm:h-4 sm:w-4 items-center justify-center rounded-full bg-[#0088ff] text-white shadow-xs ring-1.5 ring-ink-raised pointer-events-none"
+                            aria-label="站长角标"
+                          >
+                            <BatteryLow size={9} strokeWidth={2.5} className="shrink-0 sm:hidden" aria-hidden="true" />
+                            <BatteryLow size={10} strokeWidth={2.5} className="hidden shrink-0 sm:block" aria-hidden="true" />
+                          </span>
+                        )}
                       </div>
-                      <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
-                        {post.replyToPostNumber && replyTarget ? (
+                      <div className="min-w-0 flex-1 flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => onOpenUser(post.username)}
+                          className={`max-w-[55%] truncate text-[13.5px] hover:underline inline-flex items-center gap-1 ${
+                            isSiteAdmin ? 'font-bold text-[#0088ff] dark:text-[#38a3ff]' : 'font-semibold text-paper'
+                          }`}
+                          title={post.name ? `${post.name} (@${post.username})` : `@${post.username}`}
+                        >
+                          <span className="truncate">{post.name || post.username}</span>
+                          {isSiteAdmin && (
+                            <Shield
+                              size={13}
+                              className="shrink-0 fill-[#0088ff] text-[#0088ff] dark:fill-[#38a3ff] dark:text-[#38a3ff]"
+                              aria-label="站长认证"
+                            />
+                          )}
+                        </button>
+                        {post.userTitle && (
+                          <span className="truncate text-[11px] text-paper-faint" title={post.userTitle}>
+                            {post.userTitle}
+                          </span>
+                        )}
+                        {isTopicOwner && (
+                          <span className="shrink-0 rounded-[4px] bg-cinnabar/12 px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-wider text-cinnabar dark:bg-cinnabar/20 dark:text-cinnabar-soft">
+                            楼主
+                          </span>
+                        )}
+                        {isFloorOwner && (
+                          <span
+                            data-linuxdo-floor-owner
+                            title="层主"
+                            className="shrink-0 rounded-[4px] bg-sky-500/15 px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-wider text-sky-600 dark:bg-sky-400/20 dark:text-sky-300"
+                          >
+                            层主
+                          </span>
+                        )}
+                        {post.replyToPostNumber && post.replyToPostNumber > 1 ? (
                           <button
                             type="button"
-                            onClick={() => void jumpToPost(post.replyToPostNumber!, post.postNumber)}
-                            className="linuxdo-floor-relation linuxdo-control inline-flex max-w-28 sm:max-w-32 items-center gap-1 rounded-full border border-haze/60 bg-paper/[0.03] py-0.5 pl-1 pr-2 text-[10px] text-paper-muted transition-colors hover:border-cinnabar/30 hover:text-cinnabar"
-                            aria-label={'跳转到 ' + replyTarget.username + ' 的帖子 #' + post.replyToPostNumber}
+                            data-linuxdo-parent-link
+                            title={'跳转到 ' + (replyTarget?.name || replyTarget?.username || '此楼') + ' 的帖子 #' + post.replyToPostNumber}
+                            aria-label={'跳转到 ' + (replyTarget?.username || '被回复') + ' 的帖子 #' + post.replyToPostNumber}
+                            className="linuxdo-control linuxdo-to-capsule inline-flex items-center gap-1.5 rounded-full border border-haze/60 bg-paper/[0.04] px-2 py-0.5 text-[11px] font-medium text-paper transition-all hover:border-cinnabar/30 hover:bg-paper/[0.08] active:scale-95"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setQuotedPostNumbers((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(post.postNumber)) next.delete(post.postNumber)
+                                else next.add(post.postNumber)
+                                return next
+                              })
+                              void jumpToPost(post.replyToPostNumber!, post.postNumber)
+                            }}
                           >
-                            <Reply size={11} className="shrink-0 text-cinnabar-soft" />
-                            <span className="flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-full bg-ink-deep">
-                              {avatar(replyTarget.avatarTemplate, replyTarget.username)}
+                            <Reply size={11} className="shrink-0 text-cinnabar-soft" aria-hidden="true" />
+                            <span className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-hidden bg-ink-deep ring-1 ring-black/5 dark:ring-white/10 ${
+                              isReplyTargetAdmin ? 'rounded-[3px]' : 'rounded-full'
+                            }`}>
+                              {avatar(replyTarget?.avatarTemplate, replyTarget?.username)}
                             </span>
-                            <span className="truncate">{replyTarget.name || replyTarget.username}</span>
-                            <span className="font-mono text-[9px] text-paper-faint">#{post.replyToPostNumber}</span>
+                            <b className={`max-w-[120px] truncate ${
+                              isReplyTargetAdmin ? 'font-bold text-[#0088ff] dark:text-[#38a3ff]' : 'font-semibold text-paper'
+                            }`}>
+                              {'回复 ' + (replyTarget?.name || replyTarget?.username || '此楼')}
+                            </b>
+                            <span className="linuxdo-thread-parent-number font-mono text-[10px] text-paper-muted">
+                              {'#' + post.replyToPostNumber}
+                            </span>
                           </button>
+                        ) : null}
+                      </div>
+                      <div className="ml-auto shrink-0 flex items-center gap-1.5">
+                        {session.authenticated ? (
+                          <span
+                            data-linuxdo-unread-dot
+                            className={'h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400 ring-1 ring-sky-400/20 transition-[opacity,transform] duration-300 ease-out ' + (showUnreadDot ? 'scale-100 opacity-100' : 'scale-75 opacity-0')}
+                            role={showUnreadDot ? 'status' : undefined}
+                            aria-label={showUnreadDot ? '帖子 #' + post.postNumber + ' 未读' : undefined}
+                            aria-hidden={showUnreadDot ? undefined : true}
+                          />
                         ) : null}
                         <span className="linuxdo-post-number font-mono text-[11px] font-medium text-paper-faint/70 tracking-tight">
                           {'#' + post.postNumber}
                         </span>
                       </div>
                     </header>
+                    {post.replyToPostNumber && post.replyToPostNumber > 1 && parentPost && isQuoteOpen ? (
+                      <div
+                        className="linuxdo-inline-quote mt-2 rounded-r-lg border-l-[3px] border-cinnabar/40 bg-paper/[0.035] py-1.5 pl-3 pr-2.5 text-[12px] leading-relaxed text-paper-muted cursor-pointer transition-all hover:border-cinnabar/60 hover:bg-paper/[0.07] active:scale-[0.99]"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void jumpToPost(parentPost.postNumber, post.postNumber)
+                        }}
+                        title={`跳转到 #${parentPost.postNumber}`}
+                      >
+                        <b className={`font-semibold mr-1.5 ${
+                          isLinuxDoSiteAdmin(parentPost.username)
+                            ? 'text-[#0088ff] dark:text-[#38a3ff]'
+                            : 'text-paper'
+                        }`}>
+                          @{parentPost.name || parentPost.username}
+                        </b>
+                        <span>{extractQuoteSnippet(parentPost.cooked, 48)}</span>
+                      </div>
+                    ) : null}
                     <LinuxDoPostBody html={post.cooked} onClick={(event) => {
                       const target = event.target as HTMLElement
                       const imageRole = target instanceof HTMLImageElement ? target.dataset.linuxdoRole : undefined
@@ -1631,17 +1766,20 @@ export function LinuxDoTopicView({
                     }} />
                     <PostDevice device={post.device} postNumber={post.postNumber} />
                     <BoostCloud boosts={post.boosts ?? []} onOpenUser={onOpenUser} />
-                    <footer className="linuxdo-control mt-3 sm:mt-3.5 flex items-center justify-between gap-1.5 sm:gap-2 border-t border-haze/40 pt-2 sm:pt-2.5 select-none">
-                      <button
-                        type="button"
-                        disabled={!session.authenticated || pendingPostIds.has(post.id)}
-                        aria-busy={pendingPostIds.has(post.id)}
-                        onClick={() => void toggleLike(post)}
-                        aria-label={(post.reactionUsersCount ?? like?.count ?? 0) + ' 个回应'}
-                        className={'linuxdo-reaction-button inline-flex min-h-[30px] items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all ' + (like?.acted || post.currentUserReaction ? 'is-active' : 'text-paper-muted hover:text-paper')}
-                      >
-                        <ReactionSummary reactions={post.reactions ?? []} fallbackCount={like?.count ?? 0} />
-                      </button>
+                    <footer className="linuxdo-control mt-3 sm:mt-3.5 flex items-center justify-between gap-1.5 sm:gap-2 border-t border-haze/30 pt-2 sm:pt-2.5 select-none">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[11px] text-paper-faint">{ago(post.createdAt)}</span>
+                        <button
+                          type="button"
+                          disabled={!session.authenticated || pendingPostIds.has(post.id)}
+                          aria-busy={pendingPostIds.has(post.id)}
+                          onClick={() => void toggleLike(post)}
+                          aria-label={(post.reactionUsersCount ?? like?.count ?? 0) + ' 个回应'}
+                          className={'linuxdo-reaction-button inline-flex min-h-[26px] items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium transition-all ' + (like?.acted || post.currentUserReaction ? 'is-active' : 'text-paper-muted hover:text-paper')}
+                        >
+                          <ReactionSummary reactions={post.reactions ?? []} fallbackCount={like?.count ?? 0} />
+                        </button>
+                      </div>
                       <div className="flex items-center gap-0.5 sm:gap-1">
                         <button
                           type="button"

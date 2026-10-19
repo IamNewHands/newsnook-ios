@@ -85,7 +85,10 @@ try {
   assert.match(host.textContent ?? '', /已加载 9 \/ 11/)
   assert.ok(host.querySelector('[data-linuxdo-post-number="9"] [data-linuxdo-parent-link]'), 'missing parent has a usable jump target without a username')
   assert.match(host.querySelector('[data-linuxdo-post-number="4"] [data-linuxdo-parent-link]')?.textContent ?? '', /回复 user2#2/, 'relationship identifies the parent floor even when an author posts repeatedly')
-  console.log('PASS mode switch retains viewport and media; partial threads expose missing parents')
+  assert.equal(host.querySelector('[data-linuxdo-post-number="2"] [data-linuxdo-floor-owner]')?.textContent, '层主', 'floor author with replies has floor owner badge')
+  assert.equal(host.querySelector('[data-linuxdo-post-number="1"] [data-linuxdo-floor-owner]'), null, 'topic owner displays 楼主 rather than 层主')
+  assert.equal(host.querySelector('[data-linuxdo-post-number="4"] [data-linuxdo-floor-owner]'), null, 'replier who is not floor author has no floor owner badge')
+  console.log('PASS mode switch retains viewport and media; partial threads expose missing parents and floor owners')
 
   await click('[data-linuxdo-thread-toggle="2"]')
   assert.deepEqual(numbers(), [1, 2, 3, 6, 9, 10])
@@ -111,10 +114,12 @@ try {
   assert.equal(host.querySelector('[data-linuxdo-post-number="9"]')?.getAttribute('data-linuxdo-thread-depth'), '2')
   console.log('PASS failed batches can retry and loaded parents merge existing branches')
 
-  await render({ postMutation: { ...makePost(12, 5), topicId: 100 } })
+  await render({ postMutation: { ...makePost(12, 5), username: 'user2', topicId: 100 } })
   assert.ok(numbers().includes(12), 'newly posted replies join their branch')
+  assert.equal(host.querySelector('[data-linuxdo-post-number="12"] [data-linuxdo-floor-owner]')?.textContent, '层主', 'floor owner replying in their sub-thread is marked as 层主')
   await click('[data-linuxdo-reading-mode="floors"]')
   assert.deepEqual(numbers(), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+  assert.equal(host.querySelector('[data-linuxdo-post-number="2"] [data-linuxdo-floor-owner]'), null, 'floor owner badge is not shown in floors mode')
   failStorage = true
   await click('[data-linuxdo-reading-mode="threaded"]')
   assert.match(host.textContent ?? '', /阅读方式未能保存/)
@@ -149,6 +154,49 @@ try {
   assert.equal(captureLinuxDoTopicPosition(scroller())?.postNumber, 2,
     'a post hidden behind the compact toolbar must not become the mode-switch anchor')
   console.log('PASS explicit floor alignment accounts for the sticky reading toolbar')
+
+  // Test site admin (Neo) hallmark features and exclusive adaptation
+  await render({
+    session: { authenticated: true, authMode: 'browser-session', currentUser: { id: 9, username: 'reader' } },
+    postMutation: {
+      ...makePost(13),
+      username: 'Neo',
+      name: 'Neo',
+      userTitle: '岂日无衣？ 🍭',
+      topicId: 100,
+    },
+  })
+  const neoPost = host.querySelector('[data-linuxdo-post-number="13"]')
+  assert.ok(neoPost, 'Neo post is rendered')
+  assert.ok(neoPost.querySelector('[data-linuxdo-site-admin-badge]'), 'Neo has the corner battery badge')
+  assert.ok(neoPost.querySelector('button[title*="查看 @Neo"]')?.className.includes('rounded-[7px]'), 'Neo has unique square avatar')
+  assert.ok(neoPost.querySelector('button[title*="(@Neo)"]')?.className.includes('text-[#0088ff]'), 'Neo name is blue')
+  assert.ok(neoPost.querySelector('svg[aria-label="站长认证"]'), 'Neo has blue shield certification')
+  assert.match(neoPost.textContent ?? '', /岂日无衣？ 🍭/, 'Neo flair/userTitle is displayed')
+
+  const regularPost = host.querySelector('[data-linuxdo-post-number="2"]')
+  assert.ok(regularPost, 'regular post is rendered')
+  assert.equal(regularPost.querySelector('[data-linuxdo-site-admin-badge]'), null, 'regular user has no corner battery badge')
+  assert.ok(regularPost.querySelector('button[title*="查看 @user2"]')?.className.includes('rounded-full'), 'regular user has rounded avatar')
+  assert.equal(regularPost.querySelector('svg[aria-label="站长认证"]'), null, 'regular user has no shield icon')
+
+  // Test reply capsule to Neo has square mini avatar and blue text
+  await render({
+    session: { authenticated: true, authMode: 'browser-session', currentUser: { id: 9, username: 'reader' } },
+    postMutation: {
+      ...makePost(14, 13),
+      username: 'user_replying_to_neo',
+      topicId: 100,
+    },
+  })
+  const replyToNeoPost = host.querySelector('[data-linuxdo-post-number="14"]')
+  assert.ok(replyToNeoPost, 'post replying to Neo is rendered')
+  const capsule = replyToNeoPost.querySelector('[data-linuxdo-parent-link]')
+  assert.ok(capsule, 'reply capsule is present')
+  assert.ok(capsule.querySelector('span.overflow-hidden')?.className.includes('rounded-[3px]'), 'capsule avatar for Neo is square')
+  assert.ok(capsule.querySelector('b')?.className.includes('text-[#0088ff]'), 'capsule reply text to Neo is blue')
+
+  console.log('PASS site admin (Neo) exclusive badge, square avatar, blue name and shield adaptation')
 } finally {
   failStorage = false
   await act(async () => { root.unmount(); await flush() })

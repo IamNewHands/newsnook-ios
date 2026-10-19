@@ -199,7 +199,7 @@ export function SchemeOnboardingPrompt({
           <ul aria-label="选择外观风格" className="mt-3 grid grid-cols-3 gap-2">
             {options.map((item) => {
               const checked = item.id === selected
-              const isNew = item.id === 'amber' || item.id === 'forest' || item.id === 'dusk'
+              const isNew = item.id === 'amber' || item.id === 'dusk' || item.id === 'buer'
               return (
                 <li key={item.id}>
                   <button

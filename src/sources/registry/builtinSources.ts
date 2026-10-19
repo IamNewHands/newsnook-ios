@@ -363,7 +363,6 @@ export const SOURCES: NewsSource[] = [
   { id: 'dw-top', name: 'DW 中文', label: 'DW中文', group: 'intl', kind: 'feed', url: 'https://rss.dw.com/rdf/rss-chi-all', enabled: true },
   { id: 'ftchinese', name: 'FT中文网', label: 'FT中文', group: 'intl', kind: 'feed', url: 'https://www.ftchinese.com/rss/feed', enabled: false },
   { id: 'voa-zh', name: '美国之音中文网', label: 'VOA中文', group: 'intl', kind: 'feed', url: 'https://www.voachinese.com/api/zm_yqebbyi', enabled: false },
-  { id: 'cna-intl-zh', name: '中央社 · 国际', label: '中央社国际', group: 'intl', kind: 'feed', url: 'https://feeds.feedburner.com/rsscna/intworld', enabled: false },
   {
     id: 'zaobao-world',
     name: '联合早报 · 国际',
@@ -724,7 +723,10 @@ export const SOURCES: NewsSource[] = [
     label: '端传媒',
     group: 'intl',
     kind: 'feed',
-    url: 'https://theinitium.com/rss/',
+    // 根路径 /rss/ 默认繁体；官方简体频道在 /zh-hans/rss/
+    url: 'https://theinitium.com/zh-hans/rss/',
+    siteUrl: 'https://theinitium.com/zh-hans/',
+    cacheVersion: 'zh-hans-v1',
     enabled: false,
   },
   {

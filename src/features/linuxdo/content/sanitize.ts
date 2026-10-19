@@ -345,12 +345,17 @@ function formatDiscourseQuote(quote: Element): void {
   } else {
     const userSpan = doc.createElement('span')
     userSpan.setAttribute('data-linuxdo-role', 'quote-username')
-    const rawUsername = quote.getAttribute('data-linuxdo-username')
+    const rawUsername = quote.getAttribute('data-linuxdo-username') || quote.getAttribute('data-username')
     let userText = rawUsername ? `${rawUsername}:` : ''
     if (!userText) {
       const clonedTitle = titleEl.cloneNode(true) as Element
       clonedTitle.querySelectorAll('.quote-controls, img, .badge-category__wrapper').forEach((el) => el.remove())
       userText = clonedTitle.textContent?.trim() || ''
+    }
+    const isNeo = Boolean(rawUsername && rawUsername.trim().toLowerCase() === 'neo') || /^@?neo:/i.test(userText.trim())
+    if (isNeo) {
+      avatarNode?.setAttribute('data-linuxdo-site-admin', 'true')
+      userSpan.setAttribute('data-linuxdo-site-admin', 'true')
     }
     userSpan.textContent = userText
     titleContentNode = userSpan

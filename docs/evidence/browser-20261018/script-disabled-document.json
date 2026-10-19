@@ -1,0 +1,11 @@
+{
+  "at": "2026-10-18T01:07:27.611Z",
+  "result": {
+    "url": "http://localhost:8137/fixture?session=corrections",
+    "ready": "complete",
+    "port": "undefined",
+    "marker": null,
+    "title": "浏览器验证",
+    "text": "浏览器验证\n\n页内查找：春山，春山。下方保留网站自己的图片操作。"
+  }
+}

@@ -1,11 +1,12 @@
-import { Bell, Heart, Link, Loader2, Mail, MessageCircle, Quote, AtSign, Award, UserPlus, Rocket } from 'lucide-react'
+import { Bell, Heart, Link, Loader2, Mail, MessageCircle, Quote, AtSign, Award, BatteryLow, Shield, UserPlus, Rocket } from 'lucide-react'
 import type { LinuxDoNotification } from '../types'
 import { linuxDoNotificationActor, linuxDoNotificationLabel, linuxDoNotificationTitle } from '../notification/model'
 import { cleanArticleTitleText } from '../../../lib/articleTitle'
-import { ago, avatar } from './utils'
+import { ago, avatar, isLinuxDoSiteAdmin } from './utils'
 
 export function NotificationRow({ item, marking, onOpen }: { item: LinuxDoNotification; marking: boolean; onOpen: () => void }) {
   const actor = linuxDoNotificationActor(item)
+  const isActorAdmin = isLinuxDoSiteAdmin(actor.username)
   const title = cleanArticleTitleText(linuxDoNotificationTitle(item))
   const label = linuxDoNotificationLabel(item.notificationType)
 
@@ -62,7 +63,9 @@ export function NotificationRow({ item, marking, onOpen }: { item: LinuxDoNotifi
       }
     >
       <span className="relative mt-0.5 h-11 w-11 shrink-0">
-        <span className="block h-full w-full overflow-hidden rounded-full bg-paper/5 ring-1 ring-black/5 dark:ring-white/10 shadow-sm">
+        <span className={`block h-full w-full overflow-hidden bg-paper/5 ring-1 ring-black/5 dark:ring-white/10 shadow-sm ${
+          isActorAdmin ? 'rounded-[9px]' : 'rounded-full'
+        }`}>
           {actor.username || item.actingUserAvatarTemplate ? (
             avatar(item.actingUserAvatarTemplate, actor.username || actor.name)
           ) : (
@@ -71,21 +74,37 @@ export function NotificationRow({ item, marking, onOpen }: { item: LinuxDoNotifi
             </span>
           )}
         </span>
-        <span
-          className={
-            'linuxdo-type-badge absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full ring-2 ring-ink-raised transition-transform group-hover:scale-110 ' +
-            badgeColor
-          }
-        >
-          <Icon size={11} aria-hidden="true" />
-        </span>
+        {isActorAdmin ? (
+          <span
+            data-linuxdo-site-admin-badge
+            title="站长"
+            className="absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-[#0088ff] text-white shadow-xs ring-2 ring-ink-raised pointer-events-none"
+            aria-label="站长角标"
+          >
+            <BatteryLow size={10} strokeWidth={2.5} className="shrink-0" aria-hidden="true" />
+          </span>
+        ) : (
+          <span
+            className={
+              'linuxdo-type-badge absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full ring-2 ring-ink-raised transition-transform group-hover:scale-110 ' +
+              badgeColor
+            }
+          >
+            <Icon size={11} aria-hidden="true" />
+          </span>
+        )}
       </span>
 
       <span className="min-w-0 flex-1">
         <span className="flex items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-[14px] font-semibold tracking-[-0.01em] text-paper group-hover:text-cinnabar transition-colors">
-              {actor.name || actor.username || '系统通知'}
+            <span className={`truncate text-[14px] tracking-[-0.01em] transition-colors inline-flex items-center gap-1 ${
+              isActorAdmin ? 'font-bold text-[#0088ff] dark:text-[#38a3ff]' : 'font-semibold text-paper group-hover:text-cinnabar'
+            }`}>
+              <span>{actor.name || actor.username || '系统通知'}</span>
+              {isActorAdmin && (
+                <Shield size={13} className="shrink-0 fill-[#0088ff] text-[#0088ff] dark:fill-[#38a3ff] dark:text-[#38a3ff]" aria-label="站长认证" />
+              )}
             </span>
             {actor.name && actor.username && actor.name !== actor.username ? (
               <span className="hidden truncate text-[11px] text-paper-faint sm:inline">@{actor.username}</span>

@@ -1,0 +1,242 @@
+/*
+ * NewsNook 风格方案视觉重构系统 (Oil UI Architecture)
+ * 为每个主题方案赋予独特的设计北极星、材质触感、几何控件语法与层级秩序。
+ *
+ * 覆盖方案 (6个鲜明、典雅、真正互不雷同的主题)：
+ * 01 - 不二 (buer)    : 先锋奢牌社论 · 极简冷黑极白 · 电光绿珠宝级点睛 (详见 buer.css)
+ * 02 - 墨问 (ink)     : 东方文人书斋 · 14px 宣纸金石 · 朱砂印泥与徽墨古卷
+ * 03 - 群青 (pearl)   : 瑞士国际大报 · 8px 精密工业工差 · 包豪斯群青蓝
+ * 04 - 赤霞 (amber)   : 暮光红陶落霞 · 14px 托斯卡纳暖砂 · 落日珊瑚赤橙
+ * 05 - 竹青 (celadon) : 晨露冷竹出岫 · 20px 碧玉圆融玉骨 · 幽竹冷翠
+ * 06 - 紫宸 (dusk)    : 暮山薄雾星穹 · 16px 舒展流线柔弧 · 典雅罗兰星紫
+ */
+
+
+/* ==========================================================================
+   02 — 墨问 (Ink) — 东方文人书斋 · 宣纸墨韵与金石朱印
+   ========================================================================== */
+
+/* 14px 文人古典倒角，温和宣纸微漫反射 */
+html[data-scheme='ink'] .paper-settings-panel,
+html[data-scheme='ink'] .paper-settings-section-content,
+html[data-scheme='ink'] .paper-settings-shortcut {
+  border-radius: 14px !important;
+  border: 1px solid rgba(180, 61, 38, 0.12) !important;
+  box-shadow: 0 4px 16px -8px rgba(72, 58, 38, 0.08) !important;
+}
+html[data-scheme='ink'][data-theme='dark'] .paper-settings-panel,
+html[data-scheme='ink'][data-theme='dark'] .paper-settings-section-content,
+html[data-scheme='ink'][data-theme='dark'] .paper-settings-shortcut {
+  border: 1px solid rgba(196, 92, 74, 0.14) !important;
+  box-shadow: 0 4px 16px -8px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* 图标：熟宣暖底座 + 朱砂朱印 */
+html[data-scheme='ink'] .paper-settings-icon {
+  border-radius: 8px !important;
+  background: #EFE8DC !important;
+  color: #B43D26 !important;
+  border: 1px solid rgba(180, 61, 38, 0.12) !important;
+}
+html[data-scheme='ink'][data-theme='dark'] .paper-settings-icon {
+  background: #201E1A !important;
+  color: #C45C4A !important;
+  border: 1px solid rgba(196, 92, 74, 0.14) !important;
+}
+
+html[data-scheme='ink'] .paper-settings-brand-dot {
+  background: #B43D26 !important;
+  box-shadow: 0 0 6px rgba(180, 61, 38, 0.4) !important;
+}
+html[data-scheme='ink'][data-theme='dark'] .paper-settings-brand-dot {
+  background: #C45C4A !important;
+  box-shadow: 0 0 6px rgba(196, 92, 74, 0.5) !important;
+}
+
+
+/* ==========================================================================
+   03 — 群青 (Pearl) — 瑞士国际主义大报 · 工业工差与包豪斯群青
+   ========================================================================== */
+
+/* 8px 紧致工业几何，严谨工差与纯净留白 */
+html[data-scheme='pearl'] .paper-settings-panel,
+html[data-scheme='pearl'] .paper-settings-section-content,
+html[data-scheme='pearl'] .paper-settings-shortcut {
+  border-radius: 8px !important;
+  border: 1px solid rgba(24, 86, 243, 0.1) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03), 0 6px 18px -8px rgba(24, 86, 243, 0.06) !important;
+}
+html[data-scheme='pearl'][data-theme='dark'] .paper-settings-panel,
+html[data-scheme='pearl'][data-theme='dark'] .paper-settings-section-content,
+html[data-scheme='pearl'][data-theme='dark'] .paper-settings-shortcut {
+  border: 1px solid rgba(56, 123, 255, 0.12) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 6px 18px -8px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* 图标：6px 微圆角冷钛灰底座 + 包豪斯群青 */
+html[data-scheme='pearl'] .paper-settings-icon {
+  border-radius: 6px !important;
+  background: #E8EEF8 !important;
+  color: #1856F3 !important;
+  border: 1px solid rgba(24, 86, 243, 0.12) !important;
+}
+html[data-scheme='pearl'][data-theme='dark'] .paper-settings-icon {
+  background: #151C2A !important;
+  color: #387BFF !important;
+  border: 1px solid rgba(56, 123, 255, 0.15) !important;
+}
+
+/* 标题与分组：精密无衬线，客观现代 */
+html[data-scheme='pearl'] .paper-settings-header h1 {
+  font-weight: 750 !important;
+  letter-spacing: -0.03em !important;
+}
+html[data-scheme='pearl'] .paper-settings-group-title,
+html[data-scheme='pearl'] .paper-settings-section-title {
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  font-size: 11.5px !important;
+  color: var(--tone-paper-muted) !important;
+}
+html[data-scheme='pearl'] .paper-settings-brand-dot {
+  background: #1856F3 !important;
+  box-shadow: 0 0 6px rgba(24, 86, 243, 0.5) !important;
+}
+html[data-scheme='pearl'][data-theme='dark'] .paper-settings-brand-dot {
+  background: #387BFF !important;
+  box-shadow: 0 0 6px rgba(56, 123, 255, 0.6) !important;
+}
+
+
+/* ==========================================================================
+   04 — 赤霞 (Amber) — 暮光红陶落霞 · 托斯卡纳暖砂与晚霞赤橙
+   ========================================================================== */
+
+/* 14px 经典陶土温润倒角，暖调羊皮与陶砂质感 */
+html[data-scheme='amber'] .paper-settings-panel,
+html[data-scheme='amber'] .paper-settings-section-content,
+html[data-scheme='amber'] .paper-settings-shortcut {
+  border-radius: 14px !important;
+  border: 1px solid rgba(196, 72, 32, 0.14) !important;
+  box-shadow: 0 6px 20px -8px rgba(196, 72, 32, 0.08) !important;
+}
+html[data-scheme='amber'][data-theme='dark'] .paper-settings-panel,
+html[data-scheme='amber'][data-theme='dark'] .paper-settings-section-content,
+html[data-scheme='amber'][data-theme='dark'] .paper-settings-shortcut {
+  border: 1px solid rgba(224, 101, 62, 0.16) !important;
+  box-shadow: 0 6px 20px -8px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* 图标：落霞陶砂印角 (9px)，暖褐底 + 晚霞赤橙 */
+html[data-scheme='amber'] .paper-settings-icon {
+  border-radius: 9px !important;
+  background: #F4E8E1 !important;
+  color: #C44820 !important;
+  border: 1px solid rgba(196, 72, 32, 0.15) !important;
+}
+html[data-scheme='amber'][data-theme='dark'] .paper-settings-icon {
+  background: #251B17 !important;
+  color: #E0653E !important;
+  border: 1px solid rgba(224, 101, 62, 0.18) !important;
+}
+
+html[data-scheme='amber'] .paper-settings-brand-dot {
+  background: #C44820 !important;
+  box-shadow: 0 0 6px rgba(196, 72, 32, 0.4) !important;
+}
+html[data-scheme='amber'][data-theme='dark'] .paper-settings-brand-dot {
+  background: #E0653E !important;
+  box-shadow: 0 0 6px rgba(224, 101, 62, 0.5) !important;
+}
+
+
+/* ==========================================================================
+   05 — 竹青 (Celadon) — 晨露竹林 · 碧玉冷翠与青瓷胎骨
+   ========================================================================== */
+
+/* 20px 饱满玉润圆弧，如青瓷胎骨般柔和清凉 */
+html[data-scheme='celadon'] .paper-settings-panel,
+html[data-scheme='celadon'] .paper-settings-section-content,
+html[data-scheme='celadon'] .paper-settings-shortcut {
+  border-radius: 20px !important;
+  border: 1px solid rgba(27, 115, 78, 0.14) !important;
+  box-shadow: 0 8px 24px -12px rgba(27, 115, 78, 0.08) !important;
+}
+html[data-scheme='celadon'][data-theme='dark'] .paper-settings-panel,
+html[data-scheme='celadon'][data-theme='dark'] .paper-settings-section-content,
+html[data-scheme='celadon'][data-theme='dark'] .paper-settings-shortcut {
+  border: 1px solid rgba(59, 181, 126, 0.16) !important;
+  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.45) !important;
+}
+
+/* 图标：温润卵石形 (12px)，清露竹青底 + 碧玉冷翠 */
+html[data-scheme='celadon'] .paper-settings-icon {
+  border-radius: 12px !important;
+  background: #DCEBE1 !important;
+  color: #1B734E !important;
+  border: 1px solid rgba(27, 115, 78, 0.12) !important;
+}
+html[data-scheme='celadon'][data-theme='dark'] .paper-settings-icon {
+  background: #16241D !important;
+  color: #3BB57E !important;
+  border: 1px solid rgba(59, 181, 126, 0.15) !important;
+}
+
+/* 标题与分组：青竹点染 */
+html[data-scheme='celadon'] .paper-settings-group-title,
+html[data-scheme='celadon'] .paper-settings-section-title {
+  color: var(--tone-paper) !important;
+  font-weight: 650 !important;
+  letter-spacing: 0.02em !important;
+}
+html[data-scheme='celadon'] .paper-settings-brand-dot {
+  background: #1B734E !important;
+  box-shadow: 0 0 6px rgba(27, 115, 78, 0.4) !important;
+}
+html[data-scheme='celadon'][data-theme='dark'] .paper-settings-brand-dot {
+  background: #3BB57E !important;
+  box-shadow: 0 0 6px rgba(59, 181, 126, 0.6) !important;
+}
+
+
+/* ==========================================================================
+   06 — 紫宸 (Dusk) — 暮山薄雾 · 丝绒星穹与罗兰夜露
+   ========================================================================== */
+
+/* 16px 优雅舒展流线，如丝绒微光弥散 */
+html[data-scheme='dusk'] .paper-settings-panel,
+html[data-scheme='dusk'] .paper-settings-section-content,
+html[data-scheme='dusk'] .paper-settings-shortcut {
+  border-radius: 16px !important;
+  border: 1px solid rgba(126, 59, 168, 0.14) !important;
+  box-shadow: 0 8px 24px -10px rgba(126, 59, 168, 0.08) !important;
+}
+html[data-scheme='dusk'][data-theme='dark'] .paper-settings-panel,
+html[data-scheme='dusk'][data-theme='dark'] .paper-settings-section-content,
+html[data-scheme='dusk'][data-theme='dark'] .paper-settings-shortcut {
+  border: 1px solid rgba(183, 110, 232, 0.16) !important;
+  box-shadow: 0 8px 24px -10px rgba(0, 0, 0, 0.45) !important;
+}
+
+/* 图标：暮霞冷紫石印 (10px) */
+html[data-scheme='dusk'] .paper-settings-icon {
+  border-radius: 10px !important;
+  background: #EFE6F7 !important;
+  color: #7E3BA8 !important;
+  border: 1px solid rgba(126, 59, 168, 0.14) !important;
+}
+html[data-scheme='dusk'][data-theme='dark'] .paper-settings-icon {
+  background: #23192E !important;
+  color: #B76EE8 !important;
+  border: 1px solid rgba(183, 110, 232, 0.16) !important;
+}
+
+html[data-scheme='dusk'] .paper-settings-brand-dot {
+  background: #7E3BA8 !important;
+  box-shadow: 0 0 6px rgba(126, 59, 168, 0.4) !important;
+}
+html[data-scheme='dusk'][data-theme='dark'] .paper-settings-brand-dot {
+  background: #B76EE8 !important;
+  box-shadow: 0 0 6px rgba(183, 110, 232, 0.6) !important;
+}

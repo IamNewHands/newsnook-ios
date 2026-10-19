@@ -157,6 +157,57 @@ function CommentMedia({
   )
 }
 
+function CommentInlineHtml({ html }: { html: string }) {
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  // Likes and reply-state changes must not replace the emoji DOM or restart image loading.
+  const stableHtml = useMemo(() => ({ __html: html }), [html])
+
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+    let disposed = false
+    const ownedUrls = new Set<string>()
+    const listeners: Array<() => void> = []
+
+    for (const image of root.querySelectorAll<HTMLImageElement>('img[data-reader-role="zhihu-comment-emoji"]')) {
+      const original = image.getAttribute('src') ?? ''
+      const recover = () => {
+        image.removeEventListener('error', recover)
+        void resolvePlayableImageSrc(original, {
+          forceNative: true,
+          referer: 'https://www.zhihu.com/',
+        }).then((resolved) => {
+          if (disposed) {
+            revokeBlobUrl(resolved)
+            return
+          }
+          if (resolved === original) return
+          if (resolved.startsWith('blob:')) ownedUrls.add(resolved)
+          image.src = resolved
+        }, () => {
+          // Keep the sanitized alt text when the upstream image cannot be retrieved.
+        })
+      }
+      image.addEventListener('error', recover)
+      listeners.push(() => image.removeEventListener('error', recover))
+    }
+
+    return () => {
+      disposed = true
+      for (const remove of listeners) remove()
+      for (const url of ownedUrls) revokeBlobUrl(url)
+    }
+  }, [html])
+
+  return (
+    <div
+      ref={rootRef}
+      className="zhihu-comment-body mt-1.5 text-[13.5px] leading-[1.55] text-paper-muted"
+      dangerouslySetInnerHTML={stableHtml}
+    />
+  )
+}
+
 function mergeComments(current: ZhihuCommentNode[], incoming: ZhihuCommentNode[]): ZhihuCommentNode[] {
   const seen = new Set(current.map((item) => item.id))
   return [...current, ...incoming.filter((item) => !seen.has(item.id))]
@@ -382,12 +433,7 @@ function CommentItem({
             )}
           </div>
 
-          {comment.contentHtml && (
-            <div
-              className="zhihu-comment-body mt-1.5 text-[13.5px] leading-[1.55] text-paper-muted"
-              dangerouslySetInnerHTML={{ __html: comment.contentHtml }}
-            />
-          )}
+          {comment.contentHtml && <CommentInlineHtml html={comment.contentHtml} />}
 
           {comment.media.length > 0 && (
             <div className="mt-2 flex max-w-full flex-wrap items-start gap-2">

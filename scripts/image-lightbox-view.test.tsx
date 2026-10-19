@@ -115,6 +115,18 @@ try {
   assert.match(incoming.style.transform, /scale\(2, 2\)/, 'pinch zoom retains its scale during a pan')
   assert.match(incoming.style.transform, /translate3d\(-155px/, 'the current image ref receives the bounded zoomed pan')
   assert.equal(closed, false)
+  await act(async () => root.render(<Fixture key="decoded-neighbour" />))
+  const decodedNeighbour = document.querySelector<HTMLImageElement>('[data-image-track] img[src="https://example.com/3.jpg"]')!
+  Object.defineProperties(decodedNeighbour, {
+    naturalWidth: { value: 1200, configurable: true },
+    naturalHeight: { value: 800, configurable: true },
+    complete: { value: true, configurable: true },
+  })
+  await act(async () => (document.querySelector('[aria-label="查看第 3 张图片"]') as HTMLButtonElement).click())
+  assert.equal(decodedNeighbour.style.opacity, '1', 'a decoded neighbour becomes visible even when its load event already passed')
+  assert.equal(document.querySelector('[role="status"]'), null, 'a decoded neighbour does not leave the main stage loading')
+  assert.equal((document.querySelector('[aria-label="调整图片"]') as HTMLButtonElement).disabled, false,
+    'a decoded neighbour enables loaded-only actions after selection')
   await act(async () => root.render(<Fixture key="single" single />))
   assert.equal(document.querySelector('[aria-label="图片缩略图"]'), null, 'single image has no filmstrip')
   await act(async () => root.render(<Fixture key="fallback" />))
