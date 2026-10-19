@@ -1,4 +1,5 @@
-import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react'
+import { haptics } from '../../lib/haptics'
 
 const DRAG_SLOP_PX = 4
 // 状态栏/挖孔区域不宜成为触顶判定的必经触摸区。
@@ -15,6 +16,10 @@ type DragState = {
   initialManualHeight: number | null
   moved: boolean
   sheet: HTMLElement
+  frame: number | null
+  timeoutFrame: boolean
+  lastAppliedHeight: number
+  snapFeedbackSent: boolean
 }
 
 interface WikiSheetGrabberProps {
@@ -36,7 +41,21 @@ function clearManualHeight(sheet: HTMLElement) {
   sheet.style.removeProperty('height')
   sheet.style.removeProperty('min-height')
   sheet.style.removeProperty('max-height')
-  sheet.classList.remove('wiki-sheet-dragging', 'wiki-sheet-manual', 'wiki-sheet-handoff')
+  sheet.classList.remove('wiki-sheet-dragging', 'wiki-sheet-manual', 'wiki-sheet-handoff', 'wiki-sheet-near-top')
+}
+
+function cancelDragFrame(drag: DragState) {
+  if (drag.frame === null) return
+  if (drag.timeoutFrame) window.clearTimeout(drag.frame)
+  else cancelAnimationFrame(drag.frame)
+  drag.frame = null
+}
+
+function applyDragHeight(drag: DragState) {
+  if (drag.lastAppliedHeight === drag.currentHeight) return
+  drag.sheet.style.height = `${drag.currentHeight}px`
+  drag.lastAppliedHeight = drag.currentHeight
+  drag.sheet.classList.toggle('wiki-sheet-near-top', drag.maxHeight - drag.currentHeight <= FULL_SCREEN_THRESHOLD_PX)
 }
 
 /**
@@ -51,8 +70,8 @@ export function WikiSheetGrabber({ expanded, onExpandedChange, onReachTop }: Wik
   const skipNextClickRef = useRef(false)
   const preserveOnNextExpandChangeRef = useRef(false)
 
-  // 最大化按钮、全文模式等外部动作仍可覆盖手动尺寸。
-  useEffect(() => {
+  // 等 React 把 expanded 类名提交到 DOM 后再清理手动尺寸，避免在半屏/全屏之间闪回。
+  useLayoutEffect(() => {
     if (preserveOnNextExpandChangeRef.current) {
       preserveOnNextExpandChangeRef.current = false
       return
@@ -64,13 +83,17 @@ export function WikiSheetGrabber({ expanded, onExpandedChange, onReachTop }: Wik
 
   useEffect(() => {
     const resetOnViewportChange = () => {
+      if (dragRef.current) cancelDragFrame(dragRef.current)
       dragRef.current = null
       collapsedRef.current = null
       manualHeightRef.current = null
       if (sheetRef.current) clearManualHeight(sheetRef.current)
     }
     window.addEventListener('resize', resetOnViewportChange)
-    return () => window.removeEventListener('resize', resetOnViewportChange)
+    return () => {
+      window.removeEventListener('resize', resetOnViewportChange)
+      if (dragRef.current) cancelDragFrame(dragRef.current)
+    }
   }, [])
 
   const onPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -93,6 +116,10 @@ export function WikiSheetGrabber({ expanded, onExpandedChange, onReachTop }: Wik
       initialManualHeight: manualHeightRef.current,
       moved: false,
       sheet,
+      frame: null,
+      timeoutFrame: false,
+      lastAppliedHeight: measuredHeight,
+      snapFeedbackSent: false,
     }
     event.currentTarget.setPointerCapture?.(event.pointerId)
   }
@@ -110,16 +137,27 @@ export function WikiSheetGrabber({ expanded, onExpandedChange, onReachTop }: Wik
     event.preventDefault()
     const nextHeight = Math.max(drag.minHeight, Math.min(drag.maxHeight, drag.originHeight - delta))
     drag.currentHeight = nextHeight
-    drag.sheet.style.height = `${nextHeight}px`
-    drag.sheet.style.minHeight = '0px'
-    drag.sheet.style.maxHeight = `${drag.maxHeight}px`
-    drag.sheet.classList.toggle('wiki-sheet-near-top', drag.maxHeight - nextHeight <= FULL_SCREEN_THRESHOLD_PX)
+    // 进入全屏触发带时立即给一次卡扣触感。同一手势来回跨越阈值也不重复震动。
+    if (!expanded && !drag.snapFeedbackSent && drag.maxHeight - nextHeight <= FULL_SCREEN_THRESHOLD_PX) {
+      drag.snapFeedbackSent = true
+      void haptics.snap()
+    }
+    // touchmove 可能高于屏幕刷新率；每帧只写一次高度，避免抢占布局和原生 WebView 的时间片。
+    if (drag.frame === null) {
+      drag.timeoutFrame = typeof requestAnimationFrame !== 'function'
+      drag.frame = drag.timeoutFrame
+        ? window.setTimeout(() => { drag.frame = null; applyDragHeight(drag) }, 16)
+        : requestAnimationFrame(() => { drag.frame = null; applyDragHeight(drag) })
+    }
   }
 
   const finish = (event: ReactPointerEvent<HTMLButtonElement>, cancelled: boolean) => {
     const drag = dragRef.current
     if (!drag || drag.pointerId !== event.pointerId) return
     dragRef.current = null
+    cancelDragFrame(drag)
+    // 松手前把最后一个指针位置写入 DOM，避免 rAF 还没执行就用过期尺寸做吸顶判定。
+    if (drag.moved) applyDragHeight(drag)
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
     drag.sheet.classList.remove('wiki-sheet-dragging', 'wiki-sheet-near-top')
     if (!drag.moved) return
@@ -139,9 +177,10 @@ export function WikiSheetGrabber({ expanded, onExpandedChange, onReachTop }: Wik
       if (onReachTop) {
         // 保持已拖到顶的画面，直到原生半窗会话释放并打开完整浏览器。
         drag.sheet.classList.add('wiki-sheet-handoff')
+        drag.sheet.style.height = `${drag.maxHeight}px`
         onReachTop()
       } else {
-        clearManualHeight(drag.sheet)
+        // 先切换状态，下一次 layout effect 再清除 inline height，衔接最后一帧的拖拽位置。
         onExpandedChange(true)
       }
       return
@@ -149,8 +188,8 @@ export function WikiSheetGrabber({ expanded, onExpandedChange, onReachTop }: Wik
 
     if (drag.currentHeight <= drag.minHeight + COLLAPSED_THRESHOLD_PX) {
       manualHeightRef.current = null
-      clearManualHeight(drag.sheet)
-      onExpandedChange(false)
+      if (expanded) onExpandedChange(false)
+      else clearManualHeight(drag.sheet)
       return
     }
 
@@ -168,8 +207,7 @@ export function WikiSheetGrabber({ expanded, onExpandedChange, onReachTop }: Wik
       skipNextClickRef.current = false
       return
     }
-    if (sheetRef.current) clearManualHeight(sheetRef.current)
-    manualHeightRef.current = null
+    // 点击时也不提前移除 inline 高度：等目标类名提交后再交给 CSS 完成平滑过渡。
     onExpandedChange(!expanded)
   }
 

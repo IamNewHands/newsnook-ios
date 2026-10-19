@@ -13,6 +13,21 @@ Object.assign(globalThis, { window, document: window.document, Node: window.Node
   HTMLElement: window.HTMLElement, React, IS_REACT_ACT_ENVIRONMENT: true,
   localStorage: { getItem: (key: string) => memory.get(key) ?? null, setItem: (key: string, value: string) => memory.set(key, value) } })
 Object.assign(window, { innerWidth: 390, innerHeight: 844 })
+const frameCallbacks = new Map<number, FrameRequestCallback>()
+let nextFrameId = 0
+Object.assign(globalThis, {
+  requestAnimationFrame: (callback: FrameRequestCallback) => {
+    const id = ++nextFrameId
+    frameCallbacks.set(id, callback)
+    return id
+  },
+  cancelAnimationFrame: (id: number) => { frameCallbacks.delete(id) },
+})
+function paintFrame() {
+  const batch = [...frameCallbacks.values()]
+  frameCallbacks.clear()
+  batch.forEach(callback => callback(0))
+}
 let selectionText = '量子纠缠'
 let anchor = document.getElementById('text')!.firstChild!
 const selection = {
@@ -25,6 +40,9 @@ const selection = {
 Object.assign(window, { getSelection: () => selection })
 const { createRoot } = await import('react-dom/client')
 const { WikiSelectionLayer } = await import('../src/features/wiki/WikiSelectionLayer')
+const { haptics } = await import('../src/lib/haptics')
+let snapCount = 0
+haptics.snap = async () => { snapCount++ }
 const { registerEncyclopediaProvider } = await import('../src/features/wiki/encyclopedia')
 const { dismissTopHardwareBackLayer } = await import('../src/lib/hardwareBackStack')
 registerEncyclopediaProvider({ id: 'test', name: '测试百科', language: 'zh', async lookup(term) {
@@ -133,11 +151,31 @@ try {
   await drag(articleGrabber, 740, 450)
   assert.equal(articleSheet.style.height, '630px', '百科半窗拖动时逐帧调整高度，松手后保持中间尺寸')
   assert.equal(articleSheet.classList.contains('wiki-sheet-expanded'), false, '百科尚未触顶时不强制全屏')
-  await drag(articleGrabber, 540, 280)
+  assert.equal(snapCount, 0, '未触顶的手势不触发马达')
+
+  await act(async () => pointer(articleGrabber, 'pointerdown', 540))
+  await act(async () => {
+    pointer(articleGrabber, 'pointermove', 510)
+    pointer(articleGrabber, 'pointermove', 490)
+    pointer(articleGrabber, 'pointermove', 470)
+  })
+  assert.equal(frameCallbacks.size, 1, '同一刷新帧内的多次手指移动只排入一次布局写入')
+  assert.equal(articleSheet.style.height, '630px', 'rAF 提交前保留上帧位置，不同步强迫浏览器重布局')
+  await act(async () => paintFrame())
+  assert.equal(articleSheet.style.height, '700px', '下一次绘制采用最新指针位置，跳过过时位置')
+  assert.equal(snapCount, 0, '距吸顶区域尚远时无振动')
+  await act(async () => pointer(articleGrabber, 'pointermove', 350))
+  assert.equal(snapCount, 1, '进入吸顶阈值时立刻发出一次触觉反馈，不等待松手')
+  await act(async () => pointer(articleGrabber, 'pointermove', 400))
+  await act(async () => pointer(articleGrabber, 'pointermove', 280))
+  assert.equal(snapCount, 1, '同一手势重复跨入吸顶阈值不重复震动')
+  await act(async () => pointer(articleGrabber, 'pointerup', 280))
+  assert.equal(frameCallbacks.size, 0, '抬手时取消尚未执行的拖拽帧')
   assert.ok(articleSheet.classList.contains('wiki-sheet-expanded'), '百科拖动至屏幕顶部自动转全屏')
   await act(async () => articleGrabber.click())
   assert.ok(articleSheet.classList.contains('wiki-sheet-expanded'), '拖动结束产生的 click 不得再次折叠面板')
   await drag(articleGrabber, 200, 540)
+  assert.equal(snapCount, 1, '从全屏向下拉不会触发吸顶马达')
   assert.equal(articleSheet.classList.contains('wiki-sheet-expanded'), false, '百科全屏允许从横条向下拖动恢复浮层')
   assert.equal(articleSheet.style.height, '504px', '向下拖动后的中间尺寸保留，不强制跳回半屏')
   await drag(articleGrabber, 540, 600, true)
@@ -168,6 +206,7 @@ try {
   const recordFullBrowser = (event: Event) => { promotedUrl = (event as CustomEvent<{url: string}>).detail.url }
   window.addEventListener('newsnook:open-browser', recordFullBrowser)
   await drag(fullSearchSheet.querySelector('.wiki-sheet-grabber')!, 650, 300)
+  assert.equal(snapCount, 2, '搜索半窗使用相同的吸顶触觉反馈')
   await act(async () => { await wait() })
   window.removeEventListener('newsnook:open-browser', recordFullBrowser)
   assert.ok(promotedUrl.startsWith('https://') && promotedUrl.includes(encodeURIComponent('量子纠缠')), '搜索面板触顶后将当前搜索地址交给完整浏览器')

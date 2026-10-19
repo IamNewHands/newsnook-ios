@@ -222,15 +222,59 @@ export function useBrowserSession(
   const visible = ready && /^https?:\/\//i.test(state.url || '') && !state.error && !covered
   useLayoutEffect(() => {
     if (!ready) return
-    const sync = () => { void nativeBrowser.setBounds({...getBounds(), visible}).catch(() => undefined) }
+    type Bounds = {top: number; bottom: number; visible: boolean}
+    const equal = (a: Bounds | null, b: Bounds) =>
+      a?.top === b.top && a.bottom === b.bottom && a.visible === b.visible
+    let stopped = false
+    let sending = false
+    let frame: number | null = null
+    let timeoutFrame = false
+    let desired: Bounds | null = null
+    let lastSent: Bounds | null = null
+
+    // 原生 WebView 更新会触发 Android UI 线程重布局。把连续的 ResizeObserver
+    // 更新合并为每帧最新尺寸，且最多只保留一个进行中的桥接请求，避免拖动时积压旧位置。
+    const flush = () => {
+      if (stopped || sending || !desired) return
+      const next = desired
+      desired = null
+      if (equal(lastSent, next)) return
+      lastSent = next
+      sending = true
+      void nativeBrowser.setBounds(next).catch(() => {
+        if (lastSent === next) lastSent = null
+      }).finally(() => {
+        sending = false
+        flush()
+      })
+    }
+    const sync = () => {
+      if (stopped) return
+      const bounds = getBounds()
+      desired = {top: Math.round(bounds.top), bottom: Math.round(bounds.bottom), visible}
+      flush()
+    }
+    const schedule = () => {
+      if (stopped || frame !== null) return
+      timeoutFrame = typeof requestAnimationFrame !== 'function'
+      frame = timeoutFrame
+        ? window.setTimeout(() => { frame = null; sync() }, 16)
+        : requestAnimationFrame(() => { frame = null; sync() })
+    }
+    // 显隐变化必须立即生效，不能因为拖拽节流让不可见 WebView 盖住按钮。
     sync()
-    window.addEventListener('resize', sync)
-    window.visualViewport?.addEventListener('resize', sync)
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(sync)
+    window.addEventListener('resize', schedule)
+    window.visualViewport?.addEventListener('resize', schedule)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule)
     if (viewport.current) observer?.observe(viewport.current)
     return () => {
-      window.removeEventListener('resize', sync)
-      window.visualViewport?.removeEventListener('resize', sync)
+      stopped = true
+      if (frame !== null) {
+        if (timeoutFrame) window.clearTimeout(frame)
+        else cancelAnimationFrame(frame)
+      }
+      window.removeEventListener('resize', schedule)
+      window.visualViewport?.removeEventListener('resize', schedule)
       observer?.disconnect()
     }
   }, [ready, visible, getBounds, viewport, bottomAddress])

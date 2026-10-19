@@ -57,9 +57,10 @@
 .wiki-sheet-search { height: 60vh; height: 60dvh; min-height: min(60dvh, 460px); max-height: 75vh; max-height: 75dvh; }
 .wiki-sheet-search.wiki-sheet-expanded { height: 100vh; min-height: 100vh; max-height: 100vh; height: 100dvh; min-height: 100dvh; max-height: 100dvh; }
 .wiki-sheet-dragging, .wiki-sheet-handoff { transition: none; }
-.wiki-sheet-expanded.wiki-sheet-dragging, .wiki-sheet-expanded.wiki-sheet-manual { max-width: 760px; border-radius: 24px 24px 0 0; }
+/* 全屏开始下拉时保留当前外框几何形状，避免第一个 pointermove 就突然收窄和圆角跳变。 */
+.wiki-sheet-expanded.wiki-sheet-manual { max-width: 760px; border-radius: 24px 24px 0 0; }
 .wiki-sheet-handoff { max-width: none; border-radius: 0; }
-.wiki-sheet-header { border-bottom: 1px solid var(--wiki-edge); padding: 0 14px 10px; flex: none; position: relative; }
+.wiki-sheet-header { border-bottom: 1px solid var(--wiki-edge); padding: 0 14px 10px; flex: none; position: relative; transition: padding-top 180ms ease-out; }
 .wiki-sheet-expanded .wiki-sheet-header, .wiki-sheet-handoff .wiki-sheet-header { padding-top: var(--sat, env(safe-area-inset-top, 0px)); }
 /* 整行都是抓手热区，仅中央显示细横条；触摸手势不劫持面板内容滚动。 */
 .wiki-lookup-ui .wiki-sheet-grabber { position: relative; display: block; width: 100%; height: 26px; padding: 0; margin: 0 auto 2px; border: 0; border-radius: 0; background: transparent; color: inherit; cursor: ns-resize; touch-action: none; user-select: none; -webkit-user-select: none; }

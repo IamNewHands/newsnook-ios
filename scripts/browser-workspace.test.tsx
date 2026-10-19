@@ -48,6 +48,7 @@ type Bounds = { top: number; bottom: number; visible: boolean }
 type OpenCall = Bounds & { url: string; embedded: boolean; recoverySession?: BrowserRecoverySession; scripts: unknown[]; palette: Record<string, string> }
 const openCalls: OpenCall[] = []
 const bounds: Bounds[] = []
+let boundsGate: ReturnType<typeof deferred> | null = null
 const commands: { action: string; url?: string }[] = []
 let closeCalls = 0
 const appliedSettings: Record<string, unknown>[] = []
@@ -130,7 +131,11 @@ const native = {
   },
   state: async () => ({ ...current }),
   tabs: async () => ({ tabs: tabList.map(tab => ({ ...tab })) }),
-  setBounds: async (value: Bounds) => { bounds.push({ ...value }) },
+  setBounds: async (value: Bounds) => {
+    bounds.push({ ...value })
+    const gate = boundsGate
+    if (gate) await gate.promise
+  },
   navigate: async (command: { action: string; url?: string }) => {
     commands.push({ ...command })
     bridgeOrder.push(command.action)
@@ -247,6 +252,7 @@ async function mount(preserveStorage = false, recoverySession?: BrowserRecoveryS
   commands.length = 0
   closeCalls = 0
   scriptUpdates.length = 0
+  boundsGate = null
   bridgeOrder.length = 0
   failScriptUpdate = false
   exits = 0
@@ -844,6 +850,51 @@ try {
   await click(toolbarCloseBtn)
   assert.equal(closeCalls, closeCallsBeforeToolbarExit + 1, 'clicking the toolbar shortcut exits the browser')
   assert.equal(document.querySelector('[aria-label="NewsNook 网页浏览器"]'), null)
+
+  // 连续拖拽会在一个刷新周期触发多次 ResizeObserver，原生桥接必须合并最新尺寸，
+  // 且不能让未完成的 setBounds 积压过时的尺寸请求。
+  const resizeCallbacks = new Set<ResizeObserverCallback>()
+  class TestResizeObserver {
+    constructor(private readonly callback: ResizeObserverCallback) {}
+    observe() { resizeCallbacks.add(this.callback) }
+    disconnect() { resizeCallbacks.delete(this.callback) }
+  }
+  Object.assign(globalThis, { ResizeObserver: TestResizeObserver })
+  Object.assign(window, { innerHeight: 900 })
+  await mount()
+  await click(button('Linux.do'))
+  const resizingViewport = select('[data-browser-viewport]') as HTMLElement
+  let top = 100
+  Object.defineProperty(resizingViewport, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => ({ top, bottom: 800 }),
+  })
+  const sizeGate = deferred()
+  boundsGate = sizeGate
+  const beforeResize = bounds.length
+  const fireResize = () => resizeCallbacks.forEach(callback => callback([], null as unknown as ResizeObserver))
+  await act(async () => {
+    top = 110; fireResize()
+    top = 140; fireResize()
+    top = 160; fireResize()
+    await new Promise(resolve => setTimeout(resolve, 20))
+  })
+  assert.equal(bounds.length, beforeResize + 1, '多个 ResizeObserver 通知每帧最多发送一次原生边界')
+  assert.equal(bounds.at(-1)?.top, 160, '原生边界只取本帧最后的指针位置')
+  await act(async () => {
+    top = 200; fireResize()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    top = 250; fireResize()
+    await new Promise(resolve => setTimeout(resolve, 20))
+  })
+  assert.equal(bounds.length, beforeResize + 1, '尚未完成的原生调用不积压历史位置')
+  boundsGate = null
+  await act(async () => { sizeGate.resolve(); await new Promise(resolve => setTimeout(resolve, 20)) })
+  assert.equal(bounds.length, beforeResize + 2, '原生调用完成后仅发送一次最新等待尺寸')
+  assert.equal(bounds.at(-1)?.top, 250)
+  await act(async () => { fireResize(); await new Promise(resolve => setTimeout(resolve, 20)) })
+  assert.equal(bounds.length, beforeResize + 2, '未变化的像素边界无需重复发送')
+  console.log('Browser native viewport resize: frame coalescing, in-flight dedupe and latest position OK')
 
   console.log('Browser external intent: cold launch, hot navigation and menu exit OK')
   console.log('Browser recovery: one-time launcher handoff, StrictMode, retained error tabs, manual reload and pending exit OK')

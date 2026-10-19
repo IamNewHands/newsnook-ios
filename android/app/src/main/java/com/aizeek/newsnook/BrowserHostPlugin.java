@@ -697,9 +697,13 @@ public class BrowserHostPlugin extends Plugin {
         onUi(call, () -> {
             if (!embeddedMode || pageFrame == null) { call.resolve(); return; }
             setEmbeddedBounds(top, bottom);
-            embeddedVisible = visible;
-            pageFrame.setVisibility(visible ? View.VISIBLE : View.GONE);
-            syncTabActivity();
+            // 拖拽面板期间会高频更新可视区域。仅在显隐真正改变时切换 WebView 生命周期，
+            // 否则每帧 onResume()/onPause() 都会干扰渲染与视频播放。
+            if (embeddedVisible != visible) {
+                embeddedVisible = visible;
+                pageFrame.setVisibility(visible ? View.VISIBLE : View.GONE);
+                syncTabActivity();
+            }
             call.resolve();
         });
     }
@@ -820,9 +824,13 @@ public class BrowserHostPlugin extends Plugin {
     }
     private void setEmbeddedBounds(float top, float bottom) {
         if (pageFrame == null) return;
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, -1, Gravity.TOP);
-        params.topMargin = dp(Math.max(0, top));
-        params.bottomMargin = dp(Math.max(0, bottom));
+        int topPx = dp(Math.max(0, top));
+        int bottomPx = dp(Math.max(0, bottom));
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) pageFrame.getLayoutParams();
+        if (params != null && params.topMargin == topPx && params.bottomMargin == bottomPx) return;
+        if (params == null) params = new FrameLayout.LayoutParams(-1, -1, Gravity.TOP);
+        params.topMargin = topPx;
+        params.bottomMargin = bottomPx;
         pageFrame.setLayoutParams(params);
     }
     private void createEmbedded(float top, float bottom) {
