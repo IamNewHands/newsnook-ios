@@ -364,7 +364,7 @@ export function BrowserWorkspace({
 
   const toolbar = findOpen ? <BrowserFindBar privateMode={privateMode} result={session.findResult} onFind={session.findInPage} onNext={session.findNext} onClose={closeFind}/> : <nav aria-label="浏览器控制" className="browser-toolbar relative z-10 shrink-0 border-y border-haze bg-ink-raised">
     <div className="browser-toolbar-row flex h-14 items-center gap-0.5 px-1.5">
-      <BrowserIconButton label="主页" disabled={session.pending} onClick={goHome}><Home size={21}/></BrowserIconButton>
+      <BrowserIconButton label="主页" disabled={session.pending} onClick={goHome}><Home size={20} strokeWidth={1.8}/></BrowserIconButton>
       <div className={'browser-address flex h-11 min-w-0 flex-1 items-center rounded-xl bg-haze/60 text-paper ' + (privateMode ? 'ring-1 ring-paper-muted/35' : '')}>
         {active ? <button type="button" aria-label={privateMode ? '隐私模式与网站信息' : '网站信息'} onClick={() => openPanel('site')} className="flex h-11 w-10 shrink-0 items-center justify-center rounded-l-xl text-paper-muted">
           {privateMode ? <Shield size={17}/> : /^https:/i.test(current) ? <LockKeyhole size={15}/> : <Globe2 size={17}/>}
@@ -375,12 +375,12 @@ export function BrowserWorkspace({
         </button>
       </div>
       <BrowserIconButton label={session.state.loading ? '停止加载' : '刷新'} disabled={!active || (!session.state.loading && session.pending)} onClick={() => runCommand(session.state.loading ? 'stop' : 'reload')}>
-        {session.state.loading ? <Square size={18}/> : <RefreshCw size={20}/>}
+        {session.state.loading ? <Square size={17} strokeWidth={1.9}/> : <RefreshCw size={19} strokeWidth={1.8}/>}
       </BrowserIconButton>
       <BrowserIconButton label="标签页" disabled={session.pending} onClick={() => openPanel('tabs')}>
-        <span className="flex size-[23px] items-center justify-center rounded-md border-[1.6px] border-current text-[12px] font-semibold tabular-nums">{session.tabs.length || 1}</span>
+        <span className="flex size-[18px] items-center justify-center rounded-[4px] border-[1.5px] border-current text-[10.5px] font-bold leading-none tabular-nums select-none">{session.tabs.length || 1}</span>
       </BrowserIconButton>
-      <BrowserIconButton label="网页工具" onClick={() => openPanel(panel === 'menu' ? null : 'menu')}><MoreHorizontal size={23}/></BrowserIconButton>
+      <BrowserIconButton label="网页工具" onClick={() => openPanel(panel === 'menu' ? null : 'menu')}><MoreHorizontal size={20} strokeWidth={1.8}/></BrowserIconButton>
     </div>
     {session.state.loading && <div role="progressbar" aria-label="网页加载进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={session.state.progress ?? 0}
       className="pointer-events-none absolute inset-x-0 top-0 h-0.5 overflow-hidden bg-haze">
