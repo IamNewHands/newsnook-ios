@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { ArrowRight, ArrowUpLeft, Check, Clock3, Copy, LoaderCircle, Search, X } from 'lucide-react'
+import { ArrowRight, ArrowUpLeft, Check, Clock3, Copy, LoaderCircle, Pencil, Search, X } from 'lucide-react'
 import { browserSearchProviders, type BrowserSearchCategory } from './browserSearchCatalog'
 import { BROWSER_ENGINES, browserHostLabel, type BrowserSearchChoice } from './browserPreferences'
 import type { BrowserVisit } from './browserHistory'
@@ -40,6 +40,12 @@ export function BrowserSearchPanel({
     setValue(next)
     if (submitError) setSubmitError('')
   }
+  const fillAddress = (target: string) => {
+    changeValue(target)
+    input.current?.focus()
+    input.current?.select?.()
+    try { input.current?.setSelectionRange?.(0, target.length) } catch {}
+  }
   const query = value.trim()
   const results = useMemo(() => {
     if (privateMode) return []
@@ -48,7 +54,10 @@ export function BrowserSearchPanel({
   }, [history, query, privateMode])
   useEffect(() => {
     input.current?.focus()
-    if (initialValue) input.current?.select()
+    if (initialValue && input.current) {
+      input.current.select?.()
+      try { input.current.setSelectionRange?.(0, input.current.value.length) } catch {}
+    }
   }, [initialValue])
 
   const submit = async (destination: string) => {
@@ -133,11 +142,14 @@ export function BrowserSearchPanel({
         {privateMode && <BrowserPrivateNotice compact/>}
         {(error || submitError) && <BrowserStatusBanner error>{error || submitError}</BrowserStatusBanner>}
         {current && <div className="browser-current-address">
-          <button type="button" onClick={() => {changeValue(current); input.current?.focus(); input.current?.select()}}>
+          <button type="button" aria-label={'填入当前网址：' + current} onClick={() => fillAddress(current)}>
             <span className="browser-list-detail">当前网址</span>
             <span className="browser-list-title" title={current}>{current}</span>
           </button>
-          <BrowserIconButton label="复制当前网址" onClick={() => onCopy(current)}><Copy size={19}/></BrowserIconButton>
+          <div className="browser-current-address-actions">
+            <BrowserIconButton label="复制当前网址" onClick={() => onCopy(current)}><Copy size={19}/></BrowserIconButton>
+            <BrowserIconButton label="编辑当前网址" onClick={() => fillAddress(current)}><Pencil size={18}/></BrowserIconButton>
+          </div>
         </div>}
         {query && <button type="button" disabled={busy} onClick={() => void submit(value)}
           aria-label={'搜索或打开：' + query} className="browser-search-submit">

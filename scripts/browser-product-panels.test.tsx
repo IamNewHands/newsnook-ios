@@ -444,6 +444,23 @@ try {
   assert.equal(searchClosed, 0)
   assert.equal((window.document.querySelector('input') as HTMLInputElement).value, 'preserve this search')
   assert.ok(window.document.body.textContent?.includes('网页暂时无法打开'), 'rejected navigation retains the draft and shows the failure')
+
+  let copiedUrl = ''
+  await act(async () => root.render(<BrowserSearchPanel
+    key="active-url"
+    current="https://www.google.com/search?q=423423"
+    initialValue="https://www.google.com/search?q=423423"
+    engine="google" history={entries} pending={false} error=""
+    onClose={() => {}} onOpen={async () => true} onCopy={url => {copiedUrl = url}} onEngineChange={() => true}/>))
+  assert.equal((window.document.querySelector('input[aria-label="搜索或输入网址"]') as HTMLInputElement).value, 'https://www.google.com/search?q=423423', 'active url pre-fills address input for immediate editing')
+  assert.ok(window.document.querySelector('button[aria-label="编辑当前网址"]'), 'provides explicit edit button for current url')
+  await click(button('复制当前网址'))
+  assert.equal(copiedUrl, 'https://www.google.com/search?q=423423', 'copy button copies current url')
+  await enterField('搜索或输入网址', 'new search query')
+  assert.equal((window.document.querySelector('input[aria-label="搜索或输入网址"]') as HTMLInputElement).value, 'new search query')
+  await click(button('编辑当前网址'))
+  assert.equal((window.document.querySelector('input[aria-label="搜索或输入网址"]') as HTMLInputElement).value, 'https://www.google.com/search?q=423423', 'edit button re-fills current url into input')
+
   console.log('browser product panels: selection-only search, preserved query, provider defaults, saved UA/desktop/privacy, failure recovery, pending races and explicit history access OK')
 } finally {
   await act(async () => root.unmount())

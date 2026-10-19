@@ -567,6 +567,9 @@ try {
 
     await mount()
     await click(button('Linux.do'))
+    await click(button('搜索或输入网址'))
+    assert.equal((select('input[aria-label="搜索或输入网址"]') as HTMLInputElement).value, 'https://linux.do/', 'active page pre-fills address input when clicking toolbar address')
+    await click(button('取消', select('[aria-label="搜索与地址"]')))
     const tabBeforeSwitch = current.tabId!
     await click(button('标签页'))
     await click(button('新建标签页'))

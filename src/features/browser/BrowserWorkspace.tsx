@@ -426,7 +426,7 @@ export function BrowserWorkspace({
     </div>
     {bottomAddress && toolbar}
 
-    {searchOpen && <BrowserSearchPanel privateMode={privateMode} current={active ? current : ''} initialValue="" engine={search} history={history}
+    {searchOpen && <BrowserSearchPanel privateMode={privateMode} current={active ? current : ''} initialValue={active ? current : ''} engine={search} history={history}
       pending={session.pending} error={session.error} onClose={() => {setSearchOpen(false); session.setError('')}}
       onOpen={openAddress} onEngineChange={saveSearchEngine} onCopy={value => {void copy(value)}}/>}
 

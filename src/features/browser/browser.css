@@ -236,8 +236,9 @@ html[data-scheme='buer'] .browser-workspace svg.lucide[fill='none'] { fill: none
 .browser-search { z-index: 40; }
 .browser-search-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-gap: 5px; flex-shrink: 0; align-items: center; padding: 10px 8px 10px 16px; border-bottom: 1px solid var(--color-haze); background: var(--color-ink); }
 .browser-search-content { padding-top: 16px; }
-.browser-current-address { display: grid; grid-template-columns: minmax(0, 1fr) 44px; grid-gap: 8px; align-items: center; padding-bottom: 14px; margin-bottom: 12px; border-bottom: 1px solid var(--color-haze); }
-.browser-current-address > button:first-child { min-width: 0; min-height: 48px; text-align: left; }
+.browser-current-address { display: flex; align-items: center; gap: 8px; padding-bottom: 14px; margin-bottom: 12px; border-bottom: 1px solid var(--color-haze); }
+.browser-current-address > button:first-child { flex: 1; min-width: 0; min-height: 48px; text-align: left; }
+.browser-current-address-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .browser-current-address .browser-list-title { font-size: 14px; font-weight: 400; }
 .browser-current-address .browser-list-detail { margin-top: 0; }
 .browser-search-submit { display: grid; grid-template-columns: 20px minmax(0, 1fr) 20px; grid-gap: 12px; align-items: center; width: 100%; min-height: 72px; margin-bottom: 16px; padding: 12px 14px; border: 1px solid var(--color-paper-muted); border-radius: 14px; background: var(--color-ink-raised); color: var(--color-paper); text-align: left; }
