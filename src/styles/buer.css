@@ -308,6 +308,8 @@ html[data-scheme='buer'][data-theme='light'] [class*="bg-cinnabar\/"] {
 html[data-scheme='buer'][data-theme='light'] [class*="bg-cinnabar\/"] svg {
   color: #111215 !important;
   stroke: #111215 !important;
+}
+html[data-scheme='buer'][data-theme='light'] [class*="bg-cinnabar\/"] svg:not([fill='none']):not(.lucide) {
   fill: currentColor !important;
 }
 html[data-scheme='buer'][data-theme='dark'] [class*="bg-cinnabar\/"] {
@@ -318,7 +320,14 @@ html[data-scheme='buer'][data-theme='dark'] [class*="bg-cinnabar\/"] {
 html[data-scheme='buer'][data-theme='dark'] [class*="bg-cinnabar\/"] svg {
   color: #C8F008 !important;
   stroke: #C8F008 !important;
+}
+html[data-scheme='buer'][data-theme='dark'] [class*="bg-cinnabar\/"] svg:not([fill='none']):not(.lucide) {
   fill: currentColor !important;
+}
+
+/* 保持所有 Lucide 轮廓线条图标的 fill="none"，防止意外被实心填黑 */
+html[data-scheme='buer'] svg.lucide[fill='none'] {
+  fill: none !important;
 }
 
 /* 4. LinuxDO 顶部 Feed 标签 (最新 / 热门 / 新 / 未读) */

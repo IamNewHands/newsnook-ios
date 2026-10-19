@@ -1151,7 +1151,7 @@ export default function App() {
       setSettingsRoute(null)
       setTab('today')
     },
-    onOpenBrowser: () => { openBrowserWithUrl() },
+    onOpenBrowser: (url?: string) => { openBrowserWithUrl(url) },
     onManage: () => {
       if (activeSiteId) leaveActiveSite()
       setSettingsRoute({ name: 'presets' })

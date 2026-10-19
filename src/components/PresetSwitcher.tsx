@@ -19,16 +19,25 @@ import {
   Newspaper,
   PencilLine,
   Plus,
+  Search,
   Settings,
   Settings2,
   Trophy,
   UserRound,
   UsersRound,
+  X,
 } from 'lucide-react'
 
 import { useHardwareBackLayer } from '../hooks/useHardwareBackLayer'
 import { useLongPressAction } from '../hooks/useLongPressAction'
 import type { Point } from '../lib/contextActions'
+import {
+  BROWSER_ENGINES,
+  BROWSER_KEYS,
+  readBrowserPreference,
+  resolveBrowserAddress,
+  type BrowserSearchChoice,
+} from '../features/browser/browserPreferences'
 import { PromptDialog } from './ConfirmDialog'
 import { ContextActionMenu, type ContextActionItem } from './ContextActionMenu'
 import { CmsHelpDialog } from './CmsHelpDialog'
@@ -58,7 +67,7 @@ export interface PresetSwitcherProps {
   onRenamePreset?: (id: string, name: string) => void
   onMovePreset?: (id: string, direction: -1 | 1) => void
   onOpenSettings?: () => void
-  onOpenBrowser?: () => void
+  onOpenBrowser?: (url?: string) => void
   /** 独立站点工作区；与 preset 完全分离，选择时不得调用 onSelect。 */
   siteItems?: SiteSwitcherItem[]
   onSelectSite?: (id: string) => void
@@ -118,7 +127,31 @@ export function PresetSwitcher({
   const [presetTab, setPresetTab] = useState<'builtin' | 'custom' | 'cms'>('builtin')
   const [actionMenu, setActionMenu] = useState<(ManagedItem & { anchor: Point }) | null>(null)
   const [renameTarget, setRenameTarget] = useState<ManagedItem | null>(null)
+  const [browserQuery, setBrowserQuery] = useState('')
   const titleId = useId()
+
+  useEffect(() => {
+    if (!open) {
+      setBrowserQuery('')
+    }
+  }, [open])
+
+  const handleOpenBrowserWithQuery = (queryText?: string) => {
+    if (!onOpenBrowser) return
+    const trimmed = (queryText !== undefined ? queryText : browserQuery).trim()
+    setOpen(false)
+    setBrowserQuery('')
+    if (!trimmed) {
+      onOpenBrowser()
+      return
+    }
+    const saved = readBrowserPreference(BROWSER_KEYS.search)
+    const engine = saved && Object.prototype.hasOwnProperty.call(BROWSER_ENGINES, saved)
+      ? (saved as BrowserSearchChoice)
+      : 'bing'
+    const resolved = resolveBrowserAddress(trimmed, engine) || (BROWSER_ENGINES[engine].url + encodeURIComponent(trimmed))
+    onOpenBrowser(resolved)
+  }
 
   const builtins = useMemo(() => items.filter((item) => item.builtin), [items])
   const mine = useMemo(() => items.filter((item) => !item.builtin), [items])
@@ -263,12 +296,57 @@ export function PresetSwitcher({
 
             {onOpenBrowser ? (
               <div className="px-3.5 pt-3 sm:px-5">
-                <button type="button" className="flex w-full items-center gap-3 rounded-xl border border-haze/80 bg-ink px-3.5 py-3 text-left transition-colors hover:border-cinnabar/40 hover:bg-ink-raised"
-                  onClick={() => { setOpen(false); onOpenBrowser() }}>
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-cinnabar/10 text-cinnabar"><PanelsTopLeft size={20} strokeWidth={1.6} /></span>
-                  <span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-paper">网页浏览</span><span className="block text-[11px] text-paper-muted">浏览网页 · 用户脚本</span></span>
-                  <ChevronDown size={15} className="-rotate-90 text-paper-faint" />
-                </button>
+                <div className="flex w-full items-center gap-2 rounded-xl border border-haze/80 bg-ink p-1.5 transition-colors focus-within:border-cinnabar/40 focus-within:bg-ink-raised hover:border-cinnabar/30">
+                  <button
+                    type="button"
+                    aria-label="进入网页浏览器"
+                    title="进入网页浏览器"
+                    onClick={() => {
+                      setOpen(false)
+                      setBrowserQuery('')
+                      onOpenBrowser()
+                    }}
+                    className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-cinnabar/10 text-cinnabar transition-all hover:bg-cinnabar/20 active:scale-95"
+                  >
+                    <PanelsTopLeft size={20} strokeWidth={1.6} />
+                  </button>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      handleOpenBrowserWithQuery()
+                    }}
+                    className="flex min-w-0 flex-1 items-center gap-1.5 pr-1"
+                  >
+                    <input
+                      type="text"
+                      value={browserQuery}
+                      onChange={(e) => setBrowserQuery(e.target.value)}
+                      placeholder="搜索或输入网址..."
+                      enterKeyHint="search"
+                      aria-label="搜索或输入网址"
+                      className="min-w-0 flex-1 bg-transparent px-1.5 py-1 text-[13px] text-paper placeholder:text-paper-faint outline-none"
+                    />
+                    {browserQuery ? (
+                      <button
+                        type="button"
+                        aria-label="清空输入"
+                        onClick={() => setBrowserQuery('')}
+                        className="flex size-6 shrink-0 items-center justify-center rounded-full text-paper-faint hover:text-paper-muted"
+                      >
+                        <X size={13} />
+                      </button>
+                    ) : null}
+                    <button
+                      type="submit"
+                      aria-label="进入浏览器搜索"
+                      title="进入浏览器搜索"
+                      onClick={() => handleOpenBrowserWithQuery()}
+                      className="flex size-8 shrink-0 items-center justify-center rounded-lg text-paper-faint transition-colors hover:bg-haze hover:text-cinnabar active:scale-95"
+                    >
+                      <Search size={15} strokeWidth={1.8} />
+                    </button>
+                  </form>
+                </div>
               </div>
             ) : null}
             <div className="flex min-h-0 flex-1 flex-col">
