@@ -5,6 +5,8 @@ const DRAG_SLOP_PX = 4
 // 状态栏/挖孔区域不宜成为触顶判定的必经触摸区。
 const FULL_SCREEN_THRESHOLD_PX = 48
 const COLLAPSED_THRESHOLD_PX = 20
+// 退出吸顶带需超过两倍带宽才重新武装马达：边界微抖不重复震动，刻意拉下再推上则再次卡扣。
+const SNAP_REARM_DISTANCE_PX = FULL_SCREEN_THRESHOLD_PX * 2
 
 type DragState = {
   pointerId: number
@@ -19,7 +21,7 @@ type DragState = {
   frame: number | null
   timeoutFrame: boolean
   lastAppliedHeight: number
-  snapFeedbackSent: boolean
+  snapArmed: boolean
 }
 
 interface WikiSheetGrabberProps {
@@ -119,7 +121,7 @@ export function WikiSheetGrabber({ expanded, onExpandedChange, onReachTop }: Wik
       frame: null,
       timeoutFrame: false,
       lastAppliedHeight: measuredHeight,
-      snapFeedbackSent: false,
+      snapArmed: true,
     }
     event.currentTarget.setPointerCapture?.(event.pointerId)
   }
@@ -137,10 +139,15 @@ export function WikiSheetGrabber({ expanded, onExpandedChange, onReachTop }: Wik
     event.preventDefault()
     const nextHeight = Math.max(drag.minHeight, Math.min(drag.maxHeight, drag.originHeight - delta))
     drag.currentHeight = nextHeight
-    // 进入全屏触发带时立即给一次卡扣触感。同一手势来回跨越阈值也不重复震动。
-    if (!expanded && !drag.snapFeedbackSent && drag.maxHeight - nextHeight <= FULL_SCREEN_THRESHOLD_PX) {
-      drag.snapFeedbackSent = true
-      void haptics.snap()
+    // 进入全屏触发带时给一次卡扣触感；退出触发带足够深度后重新武装，同一手势再次触顶会再次震动。
+    const topDistance = drag.maxHeight - nextHeight
+    if (topDistance <= FULL_SCREEN_THRESHOLD_PX) {
+      if (!expanded && drag.snapArmed) {
+        drag.snapArmed = false
+        void haptics.snap()
+      }
+    } else if (topDistance >= SNAP_REARM_DISTANCE_PX) {
+      drag.snapArmed = true
     }
     // touchmove 可能高于屏幕刷新率；每帧只写一次高度，避免抢占布局和原生 WebView 的时间片。
     if (drag.frame === null) {

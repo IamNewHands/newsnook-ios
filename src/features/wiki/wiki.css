@@ -57,6 +57,8 @@
 .wiki-sheet-search { height: 60vh; height: 60dvh; min-height: min(60dvh, 460px); max-height: 75vh; max-height: 75dvh; }
 .wiki-sheet-search.wiki-sheet-expanded { height: 100vh; min-height: 100vh; max-height: 100vh; height: 100dvh; min-height: 100dvh; max-height: 100dvh; }
 .wiki-sheet-dragging, .wiki-sheet-handoff { transition: none; }
+/* 抓手以整个视口为拖拽上限；静态 75dvh/82dvh 钳制必须在拖动期间放开，否则窗口提前冻结、触顶震动与交接判定落在看不见的死区里。 */
+.wiki-sheet-dragging, .wiki-sheet-manual, .wiki-sheet-handoff { max-height: 100vh; max-height: 100dvh; }
 /* 全屏开始下拉时保留当前外框几何形状，避免第一个 pointermove 就突然收窄和圆角跳变。 */
 .wiki-sheet-expanded.wiki-sheet-manual { max-width: 760px; border-radius: 24px 24px 0 0; }
 .wiki-sheet-handoff { max-width: none; border-radius: 0; }

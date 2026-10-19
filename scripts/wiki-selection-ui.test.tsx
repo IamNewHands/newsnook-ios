@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { registerHooks } from 'node:module'
 import React, { act } from 'react'
 import { parseHTML } from 'linkedom'
@@ -81,6 +82,17 @@ async function drag(grabber: Element, fromY: number, toY: number, cancelled = fa
   await act(async () => pointer(grabber, 'pointermove', toY))
   await act(async () => pointer(grabber, cancelled ? 'pointercancel' : 'pointerup', toY))
 }
+const wikiStyles = readFileSync('src/features/wiki/wiki.css', 'utf8')
+assert.match(
+  wikiStyles,
+  /\.wiki-sheet-dragging[^{]*\{[^}]*max-height:\s*100dvh/,
+  '拖拽上限是视口高度，CSS 必须在拖动期间放开静态 max-height 钳制，避免窗口提前冻结而触顶反馈仍在死区',
+)
+assert.match(
+  wikiStyles,
+  /\.wiki-sheet-manual[^{]*\{[^}]*max-height:\s*100dvh|\.wiki-sheet-dragging,\s*\.wiki-sheet-manual/,
+  '松手保留的手动高度同样可能超过静态钳制，停留态必须一并放开',
+)
 try {
   await act(async () => root.render(<WikiSelectionLayer />))
   await select()
@@ -168,14 +180,18 @@ try {
   assert.equal(snapCount, 1, '进入吸顶阈值时立刻发出一次触觉反馈，不等待松手')
   await act(async () => pointer(articleGrabber, 'pointermove', 400))
   await act(async () => pointer(articleGrabber, 'pointermove', 280))
-  assert.equal(snapCount, 1, '同一手势重复跨入吸顶阈值不重复震动')
-  await act(async () => pointer(articleGrabber, 'pointerup', 280))
+  assert.equal(snapCount, 1, '边界微抖未退出重新武装距离，不重复震动')
+  // 刻意把窗口拉离吸顶带足够深度（窗口明显缩小）后再推回顶部，马达必须再次卡扣。
+  await act(async () => pointer(articleGrabber, 'pointermove', 500))
+  await act(async () => pointer(articleGrabber, 'pointermove', 300))
+  assert.equal(snapCount, 2, '同一手势内拉离吸顶带足够深度后再次触顶应重新震动')
+  await act(async () => pointer(articleGrabber, 'pointerup', 300))
   assert.equal(frameCallbacks.size, 0, '抬手时取消尚未执行的拖拽帧')
   assert.ok(articleSheet.classList.contains('wiki-sheet-expanded'), '百科拖动至屏幕顶部自动转全屏')
   await act(async () => articleGrabber.click())
   assert.ok(articleSheet.classList.contains('wiki-sheet-expanded'), '拖动结束产生的 click 不得再次折叠面板')
   await drag(articleGrabber, 200, 540)
-  assert.equal(snapCount, 1, '从全屏向下拉不会触发吸顶马达')
+  assert.equal(snapCount, 2, '从全屏向下拉不会触发吸顶马达')
   assert.equal(articleSheet.classList.contains('wiki-sheet-expanded'), false, '百科全屏允许从横条向下拖动恢复浮层')
   assert.equal(articleSheet.style.height, '504px', '向下拖动后的中间尺寸保留，不强制跳回半屏')
   await drag(articleGrabber, 540, 600, true)
@@ -206,7 +222,7 @@ try {
   const recordFullBrowser = (event: Event) => { promotedUrl = (event as CustomEvent<{url: string}>).detail.url }
   window.addEventListener('newsnook:open-browser', recordFullBrowser)
   await drag(fullSearchSheet.querySelector('.wiki-sheet-grabber')!, 650, 300)
-  assert.equal(snapCount, 2, '搜索半窗使用相同的吸顶触觉反馈')
+  assert.equal(snapCount, 3, '搜索半窗使用相同的吸顶触觉反馈')
   await act(async () => { await wait() })
   window.removeEventListener('newsnook:open-browser', recordFullBrowser)
   assert.ok(promotedUrl.startsWith('https://') && promotedUrl.includes(encodeURIComponent('量子纠缠')), '搜索面板触顶后将当前搜索地址交给完整浏览器')
