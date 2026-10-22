@@ -7,7 +7,8 @@ import { ContextActionMenu } from '../../../components/ContextActionMenu'
 import { ConfirmDialog, OptionPickerDialog } from '../../../components/ConfirmDialog'
 import type { Point } from '../../../lib/contextActions'
 import { log } from '../../../lib/logger'
-import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
+import { LinuxDoCookedBody } from './LinuxDoCookedBody'
+import { resolveLinuxDoImageSrc } from '../media/imageSource'
 import {
   linuxDoApi,
   linuxDoDiscovery,
@@ -40,7 +41,6 @@ import { LinuxDoReadTracker } from '../topic/readTracker'
 import { verifyLinuxDoBrowserSession, verifyLinuxDoChallenge } from '../session/native'
 import { LinuxDoRequestError, type LinuxDoVerify } from './VerificationAction'
 import { ReadSyncStatus } from './ReadSyncStatus'
-import { installLinuxDoEmbeddedVideoFullscreen } from './embeddedVideoFullscreen'
 import { PostDevice } from './PostDevice'
 import { readSyncDiagnostic, type ReadSyncFailure } from '../topic/readSyncDiagnostic'
 import { applyLinuxDoTopicReadProgress, linuxDoOpeningUnreadFloor } from '../topic/readState'
@@ -84,81 +84,8 @@ function buildComposerTemplateVariables(
   }
 }
 
-function LinuxDoPostBody({ html, onClick }: { html: string; onClick: (event: ReactMouseEvent<HTMLDivElement>) => void }) {
-  const rootRef = useRef<HTMLDivElement | null>(null)
-  // React compares dangerouslySetInnerHTML by object identity. A fresh { __html }
-  // on every read-state/notification render rewrites innerHTML and restarts embedded
-  // iframes (Bilibili, YouTube, etc.) even when the post HTML has not changed.
-  const stableHtml = useMemo(() => ({ __html: html }), [html])
-  useEffect(() => {
-    const root = rootRef.current
-    return root ? installLinuxDoEmbeddedVideoFullscreen(root) : undefined
-  }, [html])
-  useProgressiveImages(rootRef, html, Boolean(html), {
-    autoLoad: true,
-    forceNativeFallback: true,
-    imageReferer: 'https://linux.do/',
-  })
-
-  useEffect(() => {
-    const root = rootRef.current
-    if (!root) return
-    root.querySelectorAll<HTMLElement>('[data-linuxdo-role="poll-bar"]').forEach((bar) => {
-      const percent = bar.getAttribute('data-linuxdo-poll-percent')
-      if (percent) {
-        bar.style.width = `${percent}%`
-      }
-    })
-    root.querySelectorAll<HTMLElement>('[data-linuxdo-role="quote-category-dot"]').forEach((dot) => {
-      const color = dot.getAttribute('data-linuxdo-category-color')
-      if (color) {
-        dot.style.backgroundColor = color
-      }
-    })
-    root.querySelectorAll<HTMLPreElement>('pre').forEach((pre) => {
-      if (pre.dataset.linuxdoEnhanced === 'true') return
-      pre.dataset.linuxdoEnhanced = 'true'
-      const code = pre.querySelector('code')
-      const rawText = (code || pre).textContent || ''
-      const lineCount = rawText.split('\n').length
-      const langClass = Array.from(code?.classList || []).find((c) => c.startsWith('lang-') || c.startsWith('language-'))
-      const lang = langClass ? langClass.replace(/^(lang-|language-)/, '') : '代码'
-
-      const header = document.createElement('div')
-      header.className = 'linuxdo-code-bar'
-      const info = document.createElement('span')
-      info.className = 'linuxdo-code-info'
-      info.textContent = `${lang} · ${lineCount} 行`
-      const copyBtn = document.createElement('button')
-      copyBtn.type = 'button'
-      copyBtn.className = 'linuxdo-code-copy'
-      copyBtn.textContent = '复制'
-      copyBtn.setAttribute('aria-label', '复制代码')
-      copyBtn.onclick = (event) => {
-        event.stopPropagation()
-        void navigator.clipboard?.writeText(rawText).then(() => {
-          copyBtn.textContent = '已复制'
-          copyBtn.classList.add('is-copied')
-          setTimeout(() => {
-            copyBtn.textContent = '复制'
-            copyBtn.classList.remove('is-copied')
-          }, 1200)
-        }).catch(() => undefined)
-      }
-      header.appendChild(info)
-      header.appendChild(copyBtn)
-      pre.parentElement?.insertBefore(header, pre)
-    })
-  }, [html])
-
-  return (
-    <div
-      ref={rootRef}
-      className="reader-prose linuxdo-post-prose mt-3 text-paper"
-      onClick={onClick}
-      dangerouslySetInnerHTML={stableHtml}
-    />
-  )
+function LinuxDoPostBody({ html, onClick }: { html: string; onClick: (event: ReactMouseEvent<HTMLElement>) => void }) {
+  return <LinuxDoCookedBody html={html} className="reader-prose linuxdo-post-prose mt-3 text-paper" onClick={onClick} />
 }
 
 function ReactionSummary({ reactions, fallbackCount }: { reactions: LinuxDoReaction[]; fallbackCount: number }) {
@@ -1951,7 +1878,7 @@ export function LinuxDoTopicView({
       {lightbox ? (() => {
         const current = lightbox.items[lightbox.index]
         if (!current) return null
-        return <ImageLightbox src={current.src} actionSrc={current.actionSrc} alt={current.alt} items={lightbox.items} onSelect={(index) => setLightbox((state) => state ? { ...state, index } : state)} index={lightbox.index} total={lightbox.items.length} onPrevious={lightbox.index > 0 ? () => setLightbox((state) => state ? { ...state, index: state.index - 1 } : state) : undefined} onNext={lightbox.index < lightbox.items.length - 1 ? () => setLightbox((state) => state ? { ...state, index: state.index + 1 } : state) : undefined} onClose={() => setLightbox(null)} overlayCloserRef={overlayBackHandlerRef} />
+        return <ImageLightbox src={current.src} actionSrc={current.actionSrc} alt={current.alt} items={lightbox.items} onSelect={(index) => setLightbox((state) => state ? { ...state, index } : state)} index={lightbox.index} total={lightbox.items.length} onPrevious={lightbox.index > 0 ? () => setLightbox((state) => state ? { ...state, index: state.index - 1 } : state) : undefined} onNext={lightbox.index < lightbox.items.length - 1 ? () => setLightbox((state) => state ? { ...state, index: state.index + 1 } : state) : undefined} onResolveOriginal={resolveLinuxDoImageSrc} onClose={() => setLightbox(null)} overlayCloserRef={overlayBackHandlerRef} />
       })() : null}
     </div>
   )

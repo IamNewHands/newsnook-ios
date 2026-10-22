@@ -2,7 +2,7 @@
  * 同步网络边界。
  *
  * 引擎只依赖这个接口，不关心 Cookie / Bearer / 代理这些差异——
- * Web 用 HttpOnly Cookie，Android 用 SecureStore 里的 Bearer，
+ * Web 用 HttpOnly Cookie，原生壳（Android / iOS）用 SecureStore 里的 Bearer，
  * 都由 account 层注入的 `fetchCloud` 决定。
  */
 
