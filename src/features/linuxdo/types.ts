@@ -103,6 +103,7 @@ export interface LinuxDoPost {
   postNumber: number
   username: string
   name?: string
+  userTitle?: string
   avatarTemplate?: string
   createdAt: string
   updatedAt?: string

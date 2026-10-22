@@ -1,0 +1,392 @@
+/*
+ * 不二的AI / BUER.AI — 先锋黑白社论高级视觉体系
+ *
+ * 核心 VI：INK #000000 / PAPER #FAFAFC / SIGNAL #C8F008
+ * 设计定位：现代先锋奢牌纸媒 (Monocle / Acne Paper 风格) — 极简纯粹、轻盈透气、高知高级。
+ *
+ * 核心色彩与可读性法则：
+ * 1. 电光绿 (#C8F008) 是高明度信号色：凡以此色为背景的按钮、标签、药丸，文字一律强制为极深纯黑 (#000000)，
+ *    杜绝白字配亮黄绿的灾难对比度，产生高达 17:1 的顶级排版张力。
+ * 2. 昼读模式 (Light) 下：纯白底上不直接使用低对比浅黄绿文字。强调文字、标签文字、活动状态文字使用
+ *    深邃碳墨 (#111215)，搭配精致电绿底纹、微标或下划线，确保 100% 清晰锐利。
+ */
+
+/* ==========================================================================
+   01 — 设置与「我的」工作区 (Paper Settings Shell)
+   ========================================================================== */
+
+/* 头部品牌标符：极简高阶铭牌，一抹纯粹电绿珠宝微标 */
+html[data-scheme='buer'] .paper-settings-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: #111111;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  padding: 0;
+  margin-bottom: 2px;
+}
+html[data-scheme='buer'][data-theme='dark'] .paper-settings-brand {
+  color: #F5F5F7;
+}
+html[data-scheme='buer'] .paper-settings-brand-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50% !important;
+  background: #C8F008 !important;
+  box-shadow: 0 0 8px rgba(200, 240, 8, 0.9) !important;
+}
+
+/* 一级主标题：优雅黑体，精致字间距 */
+html[data-scheme='buer'] .paper-settings-header h1 {
+  font-weight: 800 !important;
+  letter-spacing: -0.035em !important;
+  color: var(--tone-paper) !important;
+}
+
+/* 分组标题：精致微间距，低调大写 */
+html[data-scheme='buer'] .paper-settings-group-title,
+html[data-scheme='buer'] .paper-settings-section-title {
+  color: var(--tone-paper-muted) !important;
+  font-weight: 700 !important;
+  font-size: 11.5px !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  margin-bottom: 8px !important;
+}
+
+/* 设置卡片：优雅 12px 现代圆角，高精细致微线框，轻盈空气感 */
+html[data-scheme='buer'] .paper-settings-panel,
+html[data-scheme='buer'] .paper-settings-section-content {
+  border-radius: 12px !important;
+  border: 1px solid rgba(0, 0, 0, 0.07) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02), 0 8px 24px -12px rgba(0, 0, 0, 0.04) !important;
+  background: var(--tone-ink-raised) !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .paper-settings-panel,
+html[data-scheme='buer'][data-theme='dark'] .paper-settings-section-content {
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), 0 8px 24px -12px rgba(0, 0, 0, 0.6) !important;
+}
+
+/* 功能图标座：取自品牌浅绿微纸色 (#F0F3E6)，温和舒适，搭配精雕深墨图标 */
+html[data-scheme='buer'] .paper-settings-icon {
+  border-radius: 8px !important;
+  background: #F0F3E6 !important;
+  color: #1A1A1A !important;
+  border: 1px solid rgba(200, 240, 8, 0.25) !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .paper-settings-icon {
+  background: #181A16 !important;
+  color: #C8F008 !important;
+  border: 1px solid rgba(200, 240, 8, 0.2) !important;
+}
+
+/* 列表行微交互 */
+html[data-scheme='buer'] .paper-settings-row:active {
+  background: rgba(0, 0, 0, 0.02) !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .paper-settings-row:active {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* 快捷方式卡片 */
+html[data-scheme='buer'] .paper-settings-shortcut {
+  border-radius: 12px !important;
+  border: 1px solid rgba(0, 0, 0, 0.07) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02) !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .paper-settings-shortcut {
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2) !important;
+}
+html[data-scheme='buer'] .paper-settings-shortcut-icon {
+  border-radius: 8px !important;
+  background: #F0F3E6 !important;
+  color: #111111 !important;
+}
+
+
+/* ==========================================================================
+   02 — 主站底栏导航 (App TabBar)
+   ========================================================================== */
+
+html[data-scheme='buer'] [data-surface="tabbar"] {
+  border-top: 1px solid rgba(0, 0, 0, 0.06) !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  backdrop-filter: blur(16px) !important;
+}
+html[data-scheme='buer'][data-theme='dark'] [data-surface="tabbar"] {
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(10, 11, 13, 0.94) !important;
+}
+
+/* 激活标签：昼读纯黑极具识别度，夜读高亮电光绿 */
+html[data-scheme='buer'] [data-surface="tabbar"] button[aria-current="page"] svg {
+  color: #111111 !important;
+}
+html[data-scheme='buer'][data-theme='dark'] [data-surface="tabbar"] button[aria-current="page"] svg {
+  color: #C8F008 !important;
+  filter: drop-shadow(0 0 6px rgba(200, 240, 8, 0.6));
+}
+html[data-scheme='buer'] [data-surface="tabbar"] button[aria-current="page"] span:last-child {
+  color: #111111 !important;
+  font-weight: 750 !important;
+}
+html[data-scheme='buer'][data-theme='dark'] [data-surface="tabbar"] button[aria-current="page"] span:last-child {
+  color: #C8F008 !important;
+  font-weight: 750 !important;
+}
+
+/* 中央「布局」切换按钮 (TabBar PresetSwitcher)
+   - 彻底告别沉闷死板的黑块：昼读采用极具不二先锋特色的高能电光绿信号光盘 (#C8F008) + 纯黑高反差图标 (#000000)，拥有 17:1 极清视觉对比，与 LinuxDO 底部发布钮完美呼应
+   - 夜读模式：玄黑质感底座 (#17191D) + 纯正电光绿边界与辉光图标 */
+html[data-scheme='buer'] [data-tour="preset-switcher"] > span:first-child {
+  background-color: #C8F008 !important;
+  border: 1.5px solid rgba(17, 18, 21, 0.18) !important;
+  box-shadow: 0 4px 14px rgba(200, 240, 8, 0.45), 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease !important;
+}
+html[data-scheme='buer'] [data-tour="preset-switcher"] > span:first-child > span:first-child {
+  background-color: rgba(255, 255, 255, 0.28) !important;
+  border: none !important;
+}
+html[data-scheme='buer'] [data-tour="preset-switcher"] svg {
+  color: #000000 !important;
+  stroke: #000000 !important;
+  stroke-width: 2.2px !important;
+}
+html[data-scheme='buer'] [data-tour="preset-switcher"] > span:last-child {
+  color: #111215 !important;
+  font-weight: 750 !important;
+}
+
+/* 夜读模式：玄黑底座 + 电光绿微线与辉光 */
+html[data-scheme='buer'][data-theme='dark'] [data-tour="preset-switcher"] > span:first-child {
+  background-color: #17191D !important;
+  border: 1.5px solid #C8F008 !important;
+  box-shadow: 0 4px 16px rgba(200, 240, 8, 0.28), 0 0 0 1px rgba(0, 0, 0, 0.6) !important;
+}
+html[data-scheme='buer'][data-theme='dark'] [data-tour="preset-switcher"] > span:first-child > span:first-child {
+  background-color: rgba(200, 240, 8, 0.12) !important;
+}
+html[data-scheme='buer'][data-theme='dark'] [data-tour="preset-switcher"] svg {
+  color: #C8F008 !important;
+  stroke: #C8F008 !important;
+  stroke-width: 2px !important;
+  filter: drop-shadow(0 0 5px rgba(200, 240, 8, 0.6)) !important;
+}
+html[data-scheme='buer'][data-theme='dark'] [data-tour="preset-switcher"] > span:last-child {
+  color: #C8F008 !important;
+  font-weight: 750 !important;
+}
+
+/* 交互手感 */
+html[data-scheme='buer'] [data-tour="preset-switcher"]:hover > span:first-child {
+  transform: translateY(-2px) scale(1.05) !important;
+}
+html[data-scheme='buer'] [data-tour="preset-switcher"]:active > span:first-child {
+  transform: translateY(1px) scale(0.96) !important;
+}
+
+/* 稍后读角标：高能电绿胶囊 + 纯黑高反差数字 */
+html[data-scheme='buer'] span.rounded-full.bg-cinnabar {
+  background: #C8F008 !important;
+  color: #000000 !important;
+  font-weight: 850 !important;
+}
+
+
+/* ==========================================================================
+   03 — 分类导轨 (CategoryRail)
+   ========================================================================== */
+
+html[data-scheme='buer'] .CategoryRail span.bg-cinnabar,
+html[data-scheme='buer'] [aria-hidden] span.bg-cinnabar {
+  height: 2.5px !important;
+  background: #C8F008 !important;
+  box-shadow: 0 0 6px rgba(200, 240, 8, 0.7) !important;
+}
+
+
+/* ==========================================================================
+   04 — 阅读器正文 (Reader Prose — 高级文言排版)
+   ========================================================================== */
+
+html[data-scheme='buer'] .reader-prose h1 {
+  color: #111111 !important;
+  font-weight: 850 !important;
+  letter-spacing: -0.03em !important;
+  border-bottom: 2px solid #111111 !important;
+  padding-bottom: 12px !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .reader-prose h1 {
+  color: #FDFDFD !important;
+  border-bottom-color: #333333 !important;
+}
+
+html[data-scheme='buer'] .reader-prose h2 {
+  border-left: 3px solid #111111 !important;
+  padding-left: 12px !important;
+  color: #111111 !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .reader-prose h2 {
+  border-left-color: #C8F008 !important;
+  color: #FDFDFD !important;
+}
+
+html[data-scheme='buer'] .reader-prose strong,
+html[data-scheme='buer'] .reader-prose b {
+  color: inherit;
+  font-weight: 750;
+  border-bottom: 2px solid #C8F008;
+  padding-bottom: 1px;
+}
+html[data-scheme='buer'] .reader-prose a {
+  color: inherit !important;
+  text-decoration: none !important;
+  border-bottom: 2px solid #C8F008 !important;
+}
+
+html[data-scheme='buer'] .reader-prose blockquote {
+  background-color: #F8FAF2 !important;
+  color: #333333 !important;
+  border-left: 4px solid #C8F008 !important;
+  border-radius: 6px !important;
+  padding: 16px 18px !important;
+  font-style: normal !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .reader-prose blockquote {
+  background-color: #121411 !important;
+  color: #E2E2E2 !important;
+}
+
+
+/* ==========================================================================
+   05 — 全局通用与 LinuxDO 工作区高反差色彩系统 (Oil UI Clarity Overrides)
+   ========================================================================== */
+
+/* 1. 所有 bg-cinnabar 实体按钮与药丸标签：文字必须为纯黑 #000000，彻底消除白字配黄绿的灾难对比度 */
+html[data-scheme='buer'] .bg-cinnabar,
+html[data-scheme='buer'] button.bg-cinnabar,
+html[data-scheme='buer'] .linuxdo-control.bg-cinnabar,
+html[data-scheme='buer'] [class*="bg-cinnabar"]:not([class*="bg-cinnabar/"]),
+html[data-scheme='buer'] button[class*="bg-cinnabar"]:not([class*="bg-cinnabar/"]) {
+  background-color: #C8F008 !important;
+  color: #000000 !important;
+  font-weight: 750 !important;
+}
+html[data-scheme='buer'] .bg-cinnabar svg,
+html[data-scheme='buer'] button.bg-cinnabar svg,
+html[data-scheme='buer'] .linuxdo-control.bg-cinnabar svg,
+html[data-scheme='buer'] [class*="bg-cinnabar"]:not([class*="bg-cinnabar/"]) svg {
+  color: #000000 !important;
+  stroke: #000000 !important;
+}
+
+/* 2. 昼读模式下的 text-cinnabar 与 text-cinnabar-soft：纯白底上绝不能为浅黄绿色，统一映射为深邃墨黑 */
+html[data-scheme='buer'][data-theme='light'] .text-cinnabar {
+  color: #111215 !important;
+}
+html[data-scheme='buer'][data-theme='light'] .text-cinnabar-soft {
+  color: #252830 !important;
+}
+html[data-scheme='buer'][data-theme='light'] .fill-cinnabar {
+  fill: #111215 !important;
+}
+
+/* 3. 浅色透明度徽章与标签 (如 Discourse, HOT, 通告条)：
+   - 昼读模式：柔和淡青柠檬微洗底色 (#EEF6CE) + 精致微边框 + 纯黑/深墨文字，对比度 14:1
+   - 夜读模式：玄黑底上升温纯正电光绿 (#C8F008)，晶莹璀璨 */
+html[data-scheme='buer'][data-theme='light'] [class*="bg-cinnabar\/"] {
+  background-color: #EEF6CE !important;
+  border-color: rgba(180, 220, 10, 0.45) !important;
+  color: #111215 !important;
+}
+html[data-scheme='buer'][data-theme='light'] [class*="bg-cinnabar\/"] svg {
+  color: #111215 !important;
+  stroke: #111215 !important;
+}
+html[data-scheme='buer'][data-theme='light'] [class*="bg-cinnabar\/"] svg:not([fill='none']):not(.lucide) {
+  fill: currentColor !important;
+}
+html[data-scheme='buer'][data-theme='dark'] [class*="bg-cinnabar\/"] {
+  background-color: rgba(200, 240, 8, 0.14) !important;
+  border-color: rgba(200, 240, 8, 0.3) !important;
+  color: #C8F008 !important;
+}
+html[data-scheme='buer'][data-theme='dark'] [class*="bg-cinnabar\/"] svg {
+  color: #C8F008 !important;
+  stroke: #C8F008 !important;
+}
+html[data-scheme='buer'][data-theme='dark'] [class*="bg-cinnabar\/"] svg:not([fill='none']):not(.lucide) {
+  fill: currentColor !important;
+}
+
+/* 保持所有 Lucide 轮廓线条图标的 fill="none"，防止意外被实心填黑 */
+html[data-scheme='buer'] svg.lucide[fill='none'] {
+  fill: none !important;
+}
+
+/* 4. LinuxDO 顶部 Feed 标签 (最新 / 热门 / 新 / 未读) */
+html[data-scheme='buer'] .linuxdo-workspace [aria-pressed="true"],
+html[data-scheme='buer'] .linuxdo-workspace button[class*="bg-cinnabar"] {
+  background-color: #C8F008 !important;
+  color: #000000 !important;
+  font-weight: 750 !important;
+  box-shadow: 0 2px 8px rgba(200, 240, 8, 0.4) !important;
+}
+
+/* 5. LinuxDO 更新通报条 ("查看 XX 个新的或更新过的话题") */
+html[data-scheme='buer'][data-theme='light'] .linuxdo-workspace button.rounded-xl[class*="bg-cinnabar"] {
+  background-color: #EEF6CE !important;
+  color: #111215 !important;
+  border: 1px solid rgba(180, 220, 10, 0.6) !important;
+  font-weight: 700 !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .linuxdo-workspace button.rounded-xl[class*="bg-cinnabar"] {
+  background-color: rgba(200, 240, 8, 0.16) !important;
+  color: #C8F008 !important;
+  border: 1px solid rgba(200, 240, 8, 0.35) !important;
+  font-weight: 700 !important;
+}
+
+/* 6. LinuxDO 底部导航栏 (Dock) */
+html[data-scheme='buer'][data-theme='light'] .linuxdo-bottom-nav .linuxdo-nav-item.is-active {
+  color: #111215 !important;
+  font-weight: 750 !important;
+}
+html[data-scheme='buer'][data-theme='light'] .linuxdo-bottom-nav .linuxdo-nav-item.is-active .linuxdo-nav-icon {
+  background: #D8F25C !important;
+  color: #111215 !important;
+}
+html[data-scheme='buer'][data-theme='light'] .linuxdo-bottom-nav .linuxdo-nav-item.is-active svg {
+  color: #111215 !important;
+  stroke: #111215 !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .linuxdo-bottom-nav .linuxdo-nav-item.is-active {
+  color: #C8F008 !important;
+  font-weight: 700 !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .linuxdo-bottom-nav .linuxdo-nav-item.is-active .linuxdo-nav-icon {
+  background: rgba(200, 240, 8, 0.18) !important;
+  color: #C8F008 !important;
+}
+html[data-scheme='buer'][data-theme='dark'] .linuxdo-bottom-nav .linuxdo-nav-item.is-active svg {
+  color: #C8F008 !important;
+  stroke: #C8F008 !important;
+}
+
+/* 7. LinuxDO 中央发布按钮 (+)：高能电光绿底座 + 纯黑加号 */
+html[data-scheme='buer'] .linuxdo-nav-compose > span:first-child {
+  background-color: #C8F008 !important;
+  background-image: none !important;
+  box-shadow: 0 4px 16px rgba(200, 240, 8, 0.55), 0 0 0 2px var(--color-ink) !important;
+}
+html[data-scheme='buer'] .linuxdo-nav-compose svg {
+  color: #000000 !important;
+  stroke: #000000 !important;
+  stroke-width: 2.8px !important;
+}

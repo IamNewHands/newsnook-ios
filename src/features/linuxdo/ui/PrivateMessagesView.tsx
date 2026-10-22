@@ -1,12 +1,12 @@
 import { createLinuxDoPrivateMessagesCache, markPrivateMessageNotificationRead, type LinuxDoPrivateMessagesCache, type LinuxDoPrivateMessagesEntry as Entry, type LinuxDoPrivateMessagesFilter as Filter } from './privateMessagesCache'
-import { ArrowLeft, ChevronRight, Loader2, Mail, RefreshCcw } from 'lucide-react'
+import { ArrowLeft, BatteryLow, ChevronRight, Loader2, Mail, RefreshCcw, Shield } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject } from 'react'
 import { linuxDoNotifications as notificationsApi } from '../runtime'
 import { privateMessageTopicItem, type LinuxDoPrivateMessageItem } from '../notification/privateMessages'
 import { LinuxDoApiError } from '../types'
 import type { LinuxDoSessionSnapshot, LinuxDoTopicSummary } from '../types'
 import { RefreshSurface } from './RefreshSurface'
-import { ago, avatar, readableError } from './utils'
+import { ago, avatar, isLinuxDoSiteAdmin, readableError } from './utils'
 import { LinuxDoVerificationAction } from './VerificationAction'
 
 const emptyEntry = (): Entry => ({ items: [], loaded: false, scrollTop: 0 })
@@ -273,25 +273,50 @@ function PrivateMessagesContent({ session, onOpen, onUnreadChange, onBack, onErr
                   (item.unread ? 'is-unread bg-cinnabar/[0.035] hover:bg-cinnabar/[0.06]' : 'hover:bg-paper/[0.03] active:bg-paper/[0.06]')
                 }
               >
-                <span className="relative h-11 w-11 shrink-0">
-                  <span className="block h-full w-full overflow-hidden rounded-full bg-paper/5 ring-1 ring-black/5 dark:ring-white/10 shadow-sm">
-                    {avatar(item.avatarTemplate, item.sender)}
-                  </span>
-                  <span className="linuxdo-type-badge absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full bg-ink-raised text-paper-muted ring-2 ring-ink-raised shadow-sm">
-                    <Mail size={10} aria-hidden />
-                  </span>
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-baseline justify-between gap-3">
-                    <span className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.01em] text-paper group-hover:text-cinnabar transition-colors">
-                      {item.sender}
-                    </span>
-                    <span className="shrink-0 text-[11px] tabular-nums text-paper-faint">{ago(item.createdAt)}</span>
-                  </span>
-                  <span className="mt-1 block line-clamp-2 text-[13.5px] leading-snug font-normal text-paper-muted">
-                    {item.title}
-                  </span>
-                </span>
+                {(() => {
+                  const isSenderAdmin = isLinuxDoSiteAdmin(item.sender)
+                  return (
+                    <>
+                      <span className="relative h-11 w-11 shrink-0">
+                        <span className={`block h-full w-full overflow-hidden bg-paper/5 ring-1 ring-black/5 dark:ring-white/10 shadow-sm ${
+                          isSenderAdmin ? 'rounded-[9px]' : 'rounded-full'
+                        }`}>
+                          {avatar(item.avatarTemplate, item.sender)}
+                        </span>
+                        {isSenderAdmin ? (
+                          <span
+                            data-linuxdo-site-admin-badge
+                            title="站长"
+                            className="absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-[#0088ff] text-white shadow-xs ring-2 ring-ink-raised pointer-events-none"
+                            aria-label="站长角标"
+                          >
+                            <BatteryLow size={10} strokeWidth={2.5} className="shrink-0" aria-hidden="true" />
+                          </span>
+                        ) : (
+                          <span className="linuxdo-type-badge absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full bg-ink-raised text-paper-muted ring-2 ring-ink-raised shadow-sm">
+                            <Mail size={10} aria-hidden />
+                          </span>
+                        )}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-baseline justify-between gap-3">
+                          <span className={`min-w-0 truncate text-[15px] tracking-[-0.01em] transition-colors inline-flex items-center gap-1 ${
+                            isSenderAdmin ? 'font-bold text-[#0088ff] dark:text-[#38a3ff]' : 'font-semibold text-paper group-hover:text-cinnabar'
+                          }`}>
+                            <span>{item.sender}</span>
+                            {isSenderAdmin && (
+                              <Shield size={13} className="shrink-0 fill-[#0088ff] text-[#0088ff] dark:fill-[#38a3ff] dark:text-[#38a3ff]" aria-label="站长认证" />
+                            )}
+                          </span>
+                          <span className="shrink-0 text-[11px] tabular-nums text-paper-faint">{ago(item.createdAt)}</span>
+                        </span>
+                        <span className="mt-1 block line-clamp-2 text-[13.5px] leading-snug font-normal text-paper-muted">
+                          {item.title}
+                        </span>
+                      </span>
+                    </>
+                  )
+                })()}
                 {item.unread ? (
                   <span aria-label="未读私信" className="ml-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-cinnabar ring-4 ring-cinnabar/20 shadow-sm" />
                 ) : (

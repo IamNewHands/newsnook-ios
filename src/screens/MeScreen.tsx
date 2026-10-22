@@ -1,6 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import {
-  ALargeSmall,
   ArrowLeft,
   Bookmark,
   ChevronRight,
@@ -34,7 +33,6 @@ interface Props {
   categoriesSummary?: string
   presetsSummary: string
   typographySummary: string
-  uiFontSummary: string
   appearanceSummary: string
   translationSummary: string
   readAloudSummary: string
@@ -52,7 +50,6 @@ interface Props {
   onOpenCategories: () => void
   onOpenPresets: () => void
   onOpenTypographySettings: () => void
-  onOpenUiFontSettings: () => void
   onOpenAppearanceSettings: () => void
   onOpenTranslationSettings: () => void
   onOpenWikiSettings: () => void
@@ -100,7 +97,6 @@ export function MeScreen({
   categoriesSummary,
   presetsSummary,
   typographySummary,
-  uiFontSummary,
   appearanceSummary,
   translationSummary,
   readAloudSummary,
@@ -118,7 +114,6 @@ export function MeScreen({
   onOpenCategories,
   onOpenPresets,
   onOpenTypographySettings,
-  onOpenUiFontSettings,
   onOpenAppearanceSettings,
   onOpenTranslationSettings,
   onOpenWikiSettings,
@@ -158,7 +153,6 @@ export function MeScreen({
         </Group>
         <Group title="阅读体验">
           <Entry icon={Type} title="阅读字体" subtitle={typographySummary} onClick={onOpenTypographySettings}/>
-          <Entry icon={ALargeSmall} title="界面字体" subtitle={uiFontSummary} onClick={onOpenUiFontSettings}/>
           <Entry icon={Contrast} title="外观" subtitle={appearanceSummary} onClick={onOpenAppearanceSettings}/>
           <Entry icon={Languages} title="翻译" subtitle={translationSummary} onClick={onOpenTranslationSettings} dataTour="me-translation"/>
           <Entry icon={BookOpen} title="划词百科" subtitle="划词查询与百科源" onClick={onOpenWikiSettings}/>

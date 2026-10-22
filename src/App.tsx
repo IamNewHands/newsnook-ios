@@ -3,6 +3,8 @@ import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 
 import { AppShell } from './components/AppShell'
+import { BrowserLauncher } from './features/browser/BrowserLauncher'
+import { openBrowserWithUrl } from './features/browser/browserOpen'
 import { WikiSelectionLayer } from './features/wiki/WikiSelectionLayer'
 import { DlnaCastBanner } from './components/DlnaCastBanner'
 import { OpenInAppBanner } from './components/OpenInAppBanner'
@@ -36,7 +38,7 @@ import { log } from './lib/logger'
 import {
   buildReadingProfile,
   collectReadArticles,
-  rankRecommendationsForSource,
+  rankRecommendations,
   recommendationReadiness,
   scopeSignalsToSources,
 } from './lib/recommend'
@@ -96,7 +98,6 @@ import { LocalSearchScreen } from './screens/settings/LocalSearchScreen'
 import { PresetListScreen } from './screens/settings/PresetListScreen'
 import { StorageScreen } from './screens/settings/StorageScreen'
 import { TypographyScreen } from './screens/settings/TypographyScreen'
-import { UiFontScreen } from './screens/settings/UiFontScreen'
 import { TranslationScreen } from './screens/settings/TranslationScreen'
 import { ReadAloudScreen } from './screens/settings/ReadAloudScreen'
 import { AiSettingsScreen } from './screens/settings/AiSettingsScreen'
@@ -145,7 +146,6 @@ import {
   resetCategoryLayout,
   resetCategorySources,
   resetTypography,
-  resetUiPrefs,
   setAutoRefreshOnCategorySwitch,
   setCategoryOrder,
   moveCategory,
@@ -167,15 +167,10 @@ import {
   updateCustomSource,
   renameSource,
   updateTypography,
-  updateUiPrefs,
-  UI_FONT_WEIGHT_OPTIONS,
-  UI_SCALE_OPTIONS,
-  resolveUiFontOption,
   visibleCategories,
   withFavoriteCategory,
   withRecommendCategory,
   type TypographyPrefs,
-  type UiPrefs,
 } from './sources/preferences'
 import { SITES, SOURCES, findSite, findSource, makeCustomSourceId } from './sources/registry'
 import { findSubscriptionDuplicate, replaceCustomSourceInstance, setCustomSourcePaused } from './features/feedDiscovery/subscriptionActions'
@@ -228,7 +223,6 @@ type SettingsRoute =
   | { name: 'feed-store'; returnTo?: 'custom-sources' }
   | { name: 'channels' }
   | { name: 'typography' }
-  | { name: 'ui-font' }
   | { name: 'appearance' }
   | { name: 'custom-scheme' }
   | { name: 'storage' }
@@ -608,11 +602,8 @@ export default function App() {
   const closeReader = useCallback(() => {
     setReading(null)
     clearShareLocation()
-    // 右滑返回的收尾动画故意把阅读器停在屏幕外、等 React 卸载它。同一 tick 里
-    // 复位合成层会把正文画回屏幕原位一帧——观感是「返回时跳一下」。等两帧再
-    // 收拾：那时阅读器已经不在了，这里只清列表侧的残留。
     window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(recoverAppScrollAfterNavigation)
+      recoverAppScrollAfterNavigation()
     })
   }, [])
 
@@ -835,36 +826,21 @@ export default function App() {
     )
   }, [categoryId, recommendScope, recommendProfileSeq])
 
-  /**
-   * 单源聚焦：先按源裁剪候选，再做推荐排序与截断（顺序由
-   * lib/recommend.rankRecommendationsForSource 保证）。反过来的话，
-   * 推荐栏的 RECOMMEND_LIMIT 会先吃掉整个候选池——信源一多，低频源
-   * （一天一两条的小众软件这类）挤不进全局前 120 条，点开该源就是空列表，
-   * 而信源入口上的条数徽标仍显示有内容。
-   */
-  const sourceScopedArticles = useMemo(
-    () =>
-      categoryFilterSourceId
-        ? articles.filter((item) => item.sourceId === categoryFilterSourceId)
-        : articles,
-    [articles, categoryFilterSourceId],
-  )
-
   /** 推荐结果：排除已读与稍后读（稍后读有专页），冷启动退化为按时间 */
   const recommendedArticles = useMemo(() => {
     if (!recommendProfile) return null
     const excludeIds = new Set(readIdsRef.current)
     for (const item of laterRef.current) excludeIds.add(item.id)
-    return rankRecommendationsForSource(articles, recommendProfile, categoryFilterSourceId, {
-      excludeIds,
-    })
-  }, [articles, recommendProfile, categoryFilterSourceId])
+    return rankRecommendations(articles, recommendProfile, { excludeIds })
+  }, [articles, recommendProfile])
 
   /** 单源筛选时保持数组引用稳定：每次渲染现算会让列表翻译等依赖 articles 的 effect 反复中止重启 */
-  const displayedArticles = useMemo(
-    () => recommendedArticles ?? sourceScopedArticles,
-    [recommendedArticles, sourceScopedArticles],
-  )
+  const displayedArticles = useMemo(() => {
+    const base = recommendedArticles ?? articles
+    return categoryFilterSourceId
+      ? base.filter((item) => item.sourceId === categoryFilterSourceId)
+      : base
+  }, [articles, recommendedArticles, categoryFilterSourceId])
 
   const articlesForCategory = useCallback(
     (id: CategoryId) => {
@@ -960,33 +936,51 @@ export default function App() {
    * App 唤起深链：Android 的 https App Links 与 `newsnook://` 自定义 scheme
    * 都经 Capacitor 的 launchUrl（冷启动）/ appUrlOpen（运行中）送进来，
    * 与 Web 冷启动共用同一套 token 解码，直接进阅读器。
-   * 同一 URL 只处理一次——冷启动时两个入口可能重复上报。
+   * 同时支持被注册为系统浏览器后，外部应用唤起通用 http/https 链接直接进入内置浏览器。
+   * 防抖：短时间（1500ms 内）相同的 URL 不重复响应，避免冷启动时 launchUrl 与 appUrlOpen 双重触发。
    */
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return
 
     let disposed = false
     let removeListener: (() => Promise<void>) | undefined
-    const handledUrls = new Set<string>()
+    let lastHandledUrl = ''
+    let lastHandledAt = 0
 
     const openFromUrl = (url: string) => {
-      if (!url || handledUrls.has(url)) return
-      handledUrls.add(url)
-      // 同步通知点开后落到「账户与同步」，不是分享深链
-      if (syncRouteFromAppUrl(url)) {
+      const trimmed = url?.trim()
+      if (!trimmed) return
+      const now = Date.now()
+      if (trimmed === lastHandledUrl && now - lastHandledAt < 1500) return
+      lastHandledUrl = trimmed
+      lastHandledAt = now
+
+      // 1. 同步通知点开后落到「账户与同步」，不是分享深链
+      if (syncRouteFromAppUrl(trimmed)) {
         openAccountSync()
         return
       }
-      const token = shareTokenFromAppUrl(url)
-      if (!token) return
-      const payload = decodeShareToken(token)
-      if (!payload) {
-        log.app.warn('app deep link rejected: token corrupted or truncated')
-        setDeepLinkError(true)
+
+      // 2. 站内文章分享短链（news.aizeek.com/a/<token> 或 newsnook://a/<token>）
+      const token = shareTokenFromAppUrl(trimmed)
+      if (token) {
+        const payload = decodeShareToken(token)
+        if (!payload) {
+          log.app.warn('app deep link rejected: token corrupted or truncated')
+          setDeepLinkError(true)
+          return
+        }
+        log.app.info('app deep link opened', payload.sourceId)
+        openArticle(articleFromSharePayload(payload, customSourcesRef.current))
         return
       }
-      log.app.info('app deep link opened', payload.sourceId)
-      openArticle(articleFromSharePayload(payload, customSourcesRef.current))
+
+      // 3. 作为 Android 系统浏览器唤起的外部通用网页链接
+      if (/^https?:\/\//i.test(trimmed)) {
+        log.app.info('external web url opened in browser workspace', trimmed)
+        openBrowserWithUrl(trimmed)
+        return
+      }
     }
 
     void CapacitorApp.getLaunchUrl()
@@ -1157,6 +1151,7 @@ export default function App() {
       setSettingsRoute(null)
       setTab('today')
     },
+    onOpenBrowser: (url?: string) => { openBrowserWithUrl(url) },
     onManage: () => {
       if (activeSiteId) leaveActiveSite()
       setSettingsRoute({ name: 'presets' })
@@ -1262,15 +1257,6 @@ export default function App() {
     return `${family?.label ?? '黑体'} · 字号${scale?.label ?? '自定义'} · 行高 ${prefs.typography.lineHeight}${indent}`
   }, [prefs.typography])
 
-  const uiFontSummary = useMemo(() => {
-    const font = resolveUiFontOption(prefs.ui.fontFamily)
-    const scale = UI_SCALE_OPTIONS.find((item) => item.value === prefs.ui.scale)
-    const weight = UI_FONT_WEIGHT_OPTIONS.find((item) => item.id === prefs.ui.weight)
-    const parts = [font.label, `字号${scale?.label ?? '自定义'}`]
-    if (weight && weight.id !== 'regular') parts.push(`字重${weight.label}`)
-    return parts.join(' · ')
-  }, [prefs.ui])
-
   const appearanceSummary = useMemo(() => {
     const mode = THEME_MODES.find((item) => item.id === prefs.theme)
     const scheme = THEME_SCHEMES.find((item) => item.id === prefs.scheme)
@@ -1322,17 +1308,6 @@ export default function App() {
             update((prev) => updateTypography(prev, patch))
           }
           onReset={() => update(resetTypography)}
-          onBack={() => setSettingsRoute(null)}
-        />
-      )
-    }
-
-    if (settingsRoute.name === 'ui-font') {
-      return (
-        <UiFontScreen
-          prefs={prefs}
-          onChange={(patch: Partial<UiPrefs>) => update((prev) => updateUiPrefs(prev, patch))}
-          onReset={() => update(resetUiPrefs)}
           onBack={() => setSettingsRoute(null)}
         />
       )
@@ -1823,7 +1798,6 @@ export default function App() {
           }`}
           presetsSummary={`${presets.activePreset?.name ?? '未选择'} · ${regularCategories.length} 分类 · ${enabledIds.length} 源`}
           typographySummary={typographySummary}
-          uiFontSummary={uiFontSummary}
           appearanceSummary={appearanceSummary}
           translationSummary={translationSummary}
           readAloudSummary={readAloudSummary}
@@ -1844,7 +1818,6 @@ export default function App() {
           onOpenCategories={() => setSettingsRoute({ name: 'categories', returnTo: 'me' })}
           onOpenPresets={() => setSettingsRoute({ name: 'presets' })}
           onOpenTypographySettings={() => setSettingsRoute({ name: 'typography' })}
-          onOpenUiFontSettings={() => setSettingsRoute({ name: 'ui-font' })}
           onOpenAppearanceSettings={() => setSettingsRoute({ name: 'appearance' })}
           onOpenTranslationSettings={() => setSettingsRoute({ name: 'translation' })}
           onOpenWikiSettings={() => window.dispatchEvent(new Event('newsnook:open-wiki-settings'))}
@@ -1944,6 +1917,7 @@ export default function App() {
 
   return (
     <AppShell>
+      <BrowserLauncher />
       <div className="flex h-full w-full flex-row overflow-hidden">
         {!activeSiteId && <DesktopSidebar
           categories={categories}
@@ -2093,11 +2067,6 @@ export default function App() {
             overlayCloserRef={readerOverlayCloserRef}
             translationPrefs={prefs.translation}
             readAloudPrefs={prefs.readAloud}
-            floatReaderNav={prefs.ui.floatReaderNav}
-            onToggleFloatReaderNav={(enabled) => update((prev) => updateUiPrefs(prev, { floatReaderNav: enabled }))}
-            onTranslationProviderChange={(provider) =>
-              update((prev) => ({ ...prev, translation: { ...prev.translation, provider } }))
-            }
             customSources={prefs.customSources}
             einkMode={Boolean(prefs.einkMode)}
             wifiOnlyAutoLoadMedia={Boolean(prefs.wifiOnlyAutoLoadMedia)}

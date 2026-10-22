@@ -1,0 +1,58 @@
+{
+  "at": "2026-10-18T01:10:43.408Z",
+  "result": {
+    "url": "http://localhost:8137/fixture?session=corrections",
+    "ready": "complete",
+    "width": 426,
+    "screenWidth": 427,
+    "viewport": "width=device-width,initial-scale=1",
+    "ua": "Mozilla/5.0 (Linux; Android 17; sdk_gphone16k_x86_64 Build/CP31.260623.005) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.181 Mobile Safari/537.36",
+    "clientHints": {
+      "brands": [
+        {
+          "brand": "Not;A=Brand",
+          "version": "8"
+        },
+        {
+          "brand": "Chromium",
+          "version": "150"
+        },
+        {
+          "brand": "Google Chrome",
+          "version": "150"
+        }
+      ],
+      "mobile": true,
+      "platform": "Android"
+    },
+    "desktopLayout": false,
+    "scriptMarker": "version-two",
+    "images": [
+      {
+        "id": "article",
+        "decoded": true,
+        "width": 1200
+      },
+      {
+        "id": "",
+        "decoded": true,
+        "width": 426
+      },
+      {
+        "id": "",
+        "decoded": false,
+        "width": 0
+      },
+      {
+        "id": "blob",
+        "decoded": false,
+        "width": 0
+      },
+      {
+        "id": "",
+        "decoded": true,
+        "width": 64
+      }
+    ]
+  }
+}

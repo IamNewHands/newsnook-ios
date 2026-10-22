@@ -7,9 +7,6 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Mutable
 
 import { HomeRefreshButton } from '../../../components/HomeRefreshButton'
 import { PresetSwitcher, type PresetSwitcherProps } from '../../../components/PresetSwitcher'
-import { useEdgeSwipeBack } from '../../../hooks/useEdgeSwipeBack'
-import { useReducedMotion } from '../../../hooks/useReducedMotion'
-import { EDGE_WIDTH_PX, isEdgeStart } from '../../../lib/edgeSwipeBack'
 import { LinuxDoBoostComposer, LinuxDoComposer, LinuxDoTopicView } from './ThreadViews'
 import { BookmarksView, NotificationsView, SearchView } from './CommunityViews'
 import { DiscoverView } from './DiscoverView'
@@ -110,6 +107,7 @@ function FeedView({
   session,
   onMode,
   onOpen,
+  onOpenUser,
   onVerify,
   onOpenScope,
   onCategories,
@@ -125,6 +123,7 @@ function FeedView({
   session: LinuxDoSessionSnapshot
   onMode: (mode: LinuxDoFeedMode) => void
   onOpen: (topic: LinuxDoTopicSummary) => void
+  onOpenUser?: (username: string) => void
   onVerify: LinuxDoVerify
   onOpenScope: (scope: LinuxDoDiscoveryScope) => void
   onCategories: () => void
@@ -306,18 +305,6 @@ function FeedView({
       touchIntent.current = null
       return
     }
-    const touch = event.touches[0]
-    // 左缘窄条是返回手势的起步区：切标签必须让位，否则一次右滑会同时
-    // 「返回上一级 + 切到上一个标签」。判据与 useEdgeSwipeBack(edgeOnly) 同源。
-    if (
-      touch &&
-      isEdgeStart(touch.clientX, EDGE_WIDTH_PX, event.currentTarget.getBoundingClientRect().left)
-    ) {
-      touchStartX.current = null
-      touchStartY.current = null
-      touchIntent.current = null
-      return
-    }
     touchStartX.current = event.touches[0]?.clientX ?? null
     touchStartY.current = event.touches[0]?.clientY ?? null
     touchIntent.current = null
@@ -487,6 +474,7 @@ function FeedView({
                   topic={topic}
                   category={topic.categoryId ? categoriesById[topic.categoryId] : undefined}
                   onOpen={() => onOpen(topic)}
+                  onOpenUser={onOpenUser}
                   onOpenCategory={(category) => onOpenScope({ kind: 'category', category })}
                   onOpenTag={(name) => onOpenScope({ kind: 'tag', name })}
                 />
@@ -573,8 +561,6 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher, histo
     onHistoryTargetConsumed?.()
   }, [historyTarget, onHistoryTargetConsumed])
   const feedCacheRef = useRef<LinuxDoFeedCache>(createFeedCache())
-  const shellRef = useRef<HTMLDivElement | null>(null)
-  const reduced = useReducedMotion()
   const feedHomeRefreshRef = useRef<(() => void) | null>(null)
   const lastFeedModeRef = useRef<LinuxDoFeedMode>('latest')
   if (route.kind === 'feed') lastFeedModeRef.current = route.mode
@@ -746,39 +732,19 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher, histo
     setComposerEditPost(undefined)
   }, [])
 
-  /**
-   * 工作区统一返回优先级，系统返回键与左缘右滑共用同一份实现——
-   * 两条入口若各写一套，迟早会漂移（一边能关弹层、另一边直接退工作区）。
-   */
-  const handleWorkspaceBack = useCallback(() => {
-    if (topicOverlayBackHandlerRef.current?.()) return true
-    if (boostPost) { setBoostPost(null); return true }
-    if (composerOpen) { composerRequestCloseRef.current?.(); return true }
-    if (route.kind === 'discover' && route.scope) {
-      setRoute({ kind: 'discover' })
-      return true
-    }
-    return goBack()
-  }, [boostPost, composerOpen, goBack, route])
-
   useEffect(() => {
-    backHandlerRef.current = handleWorkspaceBack
+    backHandlerRef.current = () => {
+      if (topicOverlayBackHandlerRef.current?.()) return true
+      if (boostPost) { setBoostPost(null); return true }
+      if (composerOpen) { composerRequestCloseRef.current?.(); return true }
+      if (route.kind === 'discover' && route.scope) {
+        setRoute({ kind: 'discover' })
+        return true
+      }
+      return goBack()
+    }
     return () => { backHandlerRef.current = null }
-  }, [backHandlerRef, handleWorkspaceBack])
-
-  // 左缘右滑返回：与系统返回同一套优先级（主题内浮层 → 加精弹层 → 发帖器 →
-  // 发现子域 → 路由栈），退到根仍无历史时交给 onExit 退出工作区。
-  // 弹层打开时禁用拖拽，避免把底下的工作区拖走。
-  useEdgeSwipeBack({
-    containerRef: shellRef,
-    onBack: () => {
-      if (!handleWorkspaceBack()) onExit()
-    },
-    disabled: composerOpen || Boolean(boostPost),
-    edgeOnly: true,
-    reduced,
-    resetAfterBack: true,
-  })
+  }, [backHandlerRef, boostPost, composerOpen, goBack, route])
 
   const verify: LinuxDoVerify = async (options?: LinuxDoVerificationOptions): Promise<boolean> => {
     try {
@@ -826,7 +792,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher, histo
                     : '我的'
 
   return (
-    <div ref={shellRef} className="linuxdo-workspace relative flex h-full min-h-0 flex-col overflow-hidden bg-ink text-paper">
+    <div className="linuxdo-workspace relative flex h-full min-h-0 flex-col overflow-hidden bg-ink text-paper">
       {route.kind !== 'topic' ? <header className="linuxdo-brand-header linuxdo-control shrink-0 border-b border-paper/[0.06] bg-ink/90 page-x select-none backdrop-blur-2xl">
         <div className="flex h-12 items-center gap-2 sm:gap-2.5">
           <button
@@ -895,6 +861,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher, histo
             cacheRef={feedCacheRef}
             onMode={(mode) => setRoute({ kind: 'feed', mode })}
             onOpen={(topic) => navigate({ kind: 'topic', topic })}
+            onOpenUser={(username) => navigate({ kind: 'user', username })}
             onOpenScope={(scope) => navigate({ kind: 'discover', scope })}
             onVerify={verify}
             onCategories={() => {
@@ -919,7 +886,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher, histo
         ) : route.kind === 'search' ? (
           <SearchView cacheRef={searchCacheRef} key={session.authenticated ? session.currentUser?.id ?? 'member' : 'guest'} authenticated={session.authenticated} categoriesById={workspaceCategories} onVerify={verify} onLogin={() => navigate({ kind: 'account' })} onOpen={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenUser={(username) => navigate({ kind: 'user', username })} onOpenCategory={(category) => navigate({ kind: 'discover', scope: { kind: 'category', category } })} onOpenTag={(name) => navigate({ kind: 'discover', scope: { kind: 'tag', name } })} />
         ) : route.kind === 'discover' ? (
-          <DiscoverView initialScope={route.scope} cacheRef={discoverCacheRef} onVerify={verify} onScopeChange={replaceDiscoverScope} onOpen={(topic) => navigate({ kind: 'topic', topic })} />
+          <DiscoverView initialScope={route.scope} cacheRef={discoverCacheRef} onVerify={verify} onScopeChange={replaceDiscoverScope} onOpen={(topic) => navigate({ kind: 'topic', topic })} onOpenUser={(username) => navigate({ kind: 'user', username })} />
         ) : route.kind === 'notifications' ? (
           <NotificationsView onPrivateError={setWorkspaceError} initialFilter={notificationFilterRef.current} onFilterChange={(filter) => { notificationFilterRef.current = filter }} onVerify={verify} onLogin={() => navigate({ kind: 'account' })} privateMessagesCacheRef={privateMessagesCacheRef} key={`${session.authMode}:${session.currentUser?.id ?? ''}`} session={session} onUnreadChange={applyNotificationUnread} onOpen={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenUser={(username, tab, badgeId) => navigate({ kind: 'user', username, tab, badgeId })} />
         ) : route.kind === 'messages' ? (

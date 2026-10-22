@@ -1,0 +1,103 @@
+name: Native Browser Debug APK
+run-name: Browser Product Debug | ${{ github.ref_name }} | ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - feat/userscripts-audit-debug-20261017
+      - feat/browser-media-sniffer-20261017
+      - feat/browser-unified-ux-20261017-validated
+      - feat/browser-privacy-images-20261017
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-browser-debug-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cloud-debug:
+    name: Build Cloud Debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0 cmake;3.22.1'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared contracts
+        run: npm run build:contracts
+
+      - name: Verify browser product and media lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx tsx scripts/browser-userscripts.test.ts
+          if [ -f scripts/browser-media.test.ts ]; then
+            npx tsx scripts/browser-media.test.ts
+          fi
+          npm run test:media-sniffer
+          npm run test:origin-player-live-sniff
+          npm run test:browser
+          npx tsx scripts/wiki-selection-ui.test.tsx
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Sync Capacitor Android project
+        run: npx cap sync android
+
+      - name: Compile Debug APK (no release signing)
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:testCloudDebugUnitTest :app:assembleCloudDebug --no-daemon
+
+      - name: Validate Debug APK identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk='android/app/build/outputs/apk/cloud/debug/app-cloud-debug.apk'
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" | grep "package: name='com.aizeek.newsnook.debug'"
+          mkdir -p artifacts/android
+          cp "$apk" "artifacts/android/NewsNook-browser-cloud-debug-${GITHUB_SHA:0:8}.apk"
+          sha256sum artifacts/android/*.apk
+          {
+            echo '### NewsNook browser debug APK'
+            echo ''
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo '- Package: `com.aizeek.newsnook.debug`'
+            echo '- Build variant: `cloudDebug`'
+            echo '- Artifact: see **Artifacts** under this run'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload installable Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: newsnook-native-browser-debug-${{ github.run_id }}
+          path: artifacts/android/*.apk
+          if-no-files-found: error
+          retention-days: 14

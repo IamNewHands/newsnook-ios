@@ -1,0 +1,198 @@
+{
+  "status": "passed",
+  "package": "com.aizeek.newsnook.browseraudit.debug",
+  "device": "emulator-5554",
+  "android_api": 37,
+  "webview": "150.0.7871.181",
+  "apk_sha256": "e21c822477f907a472d5938937a662fc66de783e657fc2892e5bf99da523a2ac",
+  "apk_bytes": 8963720,
+  "application_pids": {
+    "before": "29836",
+    "private": "29836",
+    "after": "29836"
+  },
+  "same_application_process": true,
+  "phases": {
+    "start": {
+      "at": "2026-10-18T01:23:22.133Z",
+      "result": {
+        "searchSelectionOnly": true,
+        "draftPreserved": true,
+        "before": {
+          "url": "http://localhost:8137/fixture?session=final-bundle",
+          "tabId": 1,
+          "title": "浏览器验证",
+          "back": false,
+          "forward": false,
+          "desktop": false,
+          "privateMode": false,
+          "recordHistory": true,
+          "activeScriptCount": 1,
+          "matchedScriptCount": 1,
+          "userAgentMode": "android",
+          "userAgent": "Mozilla/5.0 (Linux; Android 17; sdk_gphone16k_x86_64 Build/CP31.260623.005) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.181 Mobile Safari/537.36",
+          "textZoom": 100,
+          "loading": false,
+          "progress": 100,
+          "error": null
+        },
+        "privateOn": {
+          "url": "http://localhost:8137/fixture?session=final-bundle",
+          "tabId": 1,
+          "title": "浏览器验证",
+          "back": false,
+          "forward": false,
+          "desktop": false,
+          "privateMode": true,
+          "recordHistory": false,
+          "activeScriptCount": 1,
+          "matchedScriptCount": 1,
+          "userAgentMode": "android",
+          "userAgent": "Mozilla/5.0 (Linux; Android 17; sdk_gphone16k_x86_64 Build/CP31.260623.005) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.181 Mobile Safari/537.36",
+          "textZoom": 100,
+          "loading": false,
+          "progress": 100,
+          "error": null
+        }
+      }
+    },
+    "script": {
+      "at": "2026-10-18T01:23:45.434Z",
+      "result": {
+        "before": {
+          "url": "http://localhost:8137/fixture?session=final-bundle",
+          "tabId": 1,
+          "title": "浏览器验证",
+          "back": false,
+          "forward": false,
+          "desktop": false,
+          "privateMode": true,
+          "recordHistory": false,
+          "activeScriptCount": 1,
+          "matchedScriptCount": 1,
+          "userAgentMode": "android",
+          "userAgent": "Mozilla/5.0 (Linux; Android 17; sdk_gphone16k_x86_64 Build/CP31.260623.005) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.181 Mobile Safari/537.36",
+          "textZoom": 100,
+          "loading": false,
+          "progress": 100,
+          "error": null
+        },
+        "beforeRefreshUi": "此页已运行 1 个脚本\n\n匹配此网页 2 个",
+        "beforeRefresh": {
+          "url": "http://localhost:8137/fixture?session=final-bundle",
+          "tabId": 1,
+          "title": "浏览器验证",
+          "back": false,
+          "forward": false,
+          "desktop": false,
+          "privateMode": true,
+          "recordHistory": false,
+          "activeScriptCount": 1,
+          "matchedScriptCount": 1,
+          "userAgentMode": "android",
+          "userAgent": "Mozilla/5.0 (Linux; Android 17; sdk_gphone16k_x86_64 Build/CP31.260623.005) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.181 Mobile Safari/537.36",
+          "textZoom": 100,
+          "loading": false,
+          "progress": 100,
+          "error": null
+        },
+        "afterRefresh": {
+          "url": "http://localhost:8137/fixture?session=final-bundle",
+          "tabId": 1,
+          "title": "浏览器验证",
+          "back": false,
+          "forward": false,
+          "desktop": false,
+          "privateMode": true,
+          "recordHistory": false,
+          "activeScriptCount": 2,
+          "matchedScriptCount": 2,
+          "userAgentMode": "android",
+          "userAgent": "Mozilla/5.0 (Linux; Android 17; sdk_gphone16k_x86_64 Build/CP31.260623.005) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.181 Mobile Safari/537.36",
+          "textZoom": 100,
+          "loading": false,
+          "progress": 100,
+          "error": null
+        }
+      }
+    },
+    "document": {
+      "at": "2026-10-18T01:23:59.518Z",
+      "result": {
+        "ready": "complete",
+        "url": "http://localhost:8137/fixture?session=final-bundle",
+        "existing": "version-two",
+        "installed": "final-bundle-executed"
+      }
+    },
+    "remove": {
+      "at": "2026-10-18T01:24:14.330Z",
+      "result": {
+        "beforeRefreshUi": "此页已运行 2 个脚本\n\n匹配此网页 1 个",
+        "beforeRefresh": {
+          "url": "http://localhost:8137/fixture?session=final-bundle",
+          "tabId": 1,
+          "title": "浏览器验证",
+          "back": false,
+          "forward": false,
+          "desktop": false,
+          "privateMode": true,
+          "recordHistory": false,
+          "activeScriptCount": 2,
+          "matchedScriptCount": 2,
+          "userAgentMode": "android",
+          "userAgent": "Mozilla/5.0 (Linux; Android 17; sdk_gphone16k_x86_64 Build/CP31.260623.005) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.181 Mobile Safari/537.36",
+          "textZoom": 100,
+          "loading": false,
+          "progress": 100,
+          "error": null
+        },
+        "afterRefresh": {
+          "url": "http://localhost:8137/fixture?session=final-bundle",
+          "tabId": 1,
+          "title": "浏览器验证",
+          "back": false,
+          "forward": false,
+          "desktop": false,
+          "privateMode": true,
+          "recordHistory": false,
+          "activeScriptCount": 1,
+          "matchedScriptCount": 1,
+          "userAgentMode": "android",
+          "userAgent": "Mozilla/5.0 (Linux; Android 17; sdk_gphone16k_x86_64 Build/CP31.260623.005) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.181 Mobile Safari/537.36",
+          "textZoom": 100,
+          "loading": false,
+          "progress": 100,
+          "error": null
+        },
+        "privacyOff": {
+          "url": "http://localhost:8137/fixture?session=final-bundle",
+          "tabId": 1,
+          "title": "浏览器验证",
+          "back": false,
+          "forward": false,
+          "desktop": false,
+          "privateMode": false,
+          "recordHistory": false,
+          "activeScriptCount": 1,
+          "matchedScriptCount": 1,
+          "userAgentMode": "android",
+          "userAgent": "Mozilla/5.0 (Linux; Android 17; sdk_gphone16k_x86_64 Build/CP31.260623.005) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.181 Mobile Safari/537.36",
+          "textZoom": 100,
+          "loading": false,
+          "progress": 100,
+          "error": null
+        }
+      }
+    },
+    "deleted-document": {
+      "at": "2026-10-18T01:24:32.527Z",
+      "result": {
+        "ready": "complete",
+        "url": "http://localhost:8137/fixture?session=final-bundle",
+        "existing": "version-two",
+        "removed": null
+      }
+    }
+  }
+}

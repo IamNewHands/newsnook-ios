@@ -216,3 +216,104 @@ html[data-eink='1'] [data-linuxdo-reading-layout='threaded'] article[data-linuxd
 html[data-eink='1'] [data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth]:not([data-linuxdo-thread-depth='0']) { background: var(--color-ink); }
 html[data-eink='1'] [data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-depth]::before,
 html[data-eink='1'] [data-linuxdo-reading-layout='threaded'] article[data-linuxdo-thread-first]::after { border-color: var(--color-paper); }
+
+/* --- 222.html Refactoring: High-Contrast Reading & Subtle Structure --- */
+
+.linuxdo-post-item {
+  position: relative;
+  transition: box-shadow 200ms ease, border-color 200ms ease;
+}
+
+@keyframes linuxdo-flash {
+  0%, 100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  25%, 65% {
+    box-shadow: 0 0 0 2px var(--color-cinnabar-soft), 0 4px 16px color-mix(in srgb, var(--color-cinnabar-soft) 30%, transparent);
+  }
+}
+
+.linuxdo-post-item.is-flashing {
+  animation: linuxdo-flash 1.2s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .linuxdo-post-item.is-flashing {
+    animation: none;
+  }
+}
+
+/* Horizontal tree branch connector from guide rail to avatar */
+.linuxdo-branch-connector {
+  position: absolute;
+  top: 28px;
+  left: calc(12px + var(--linuxdo-thread-inset) / 2);
+  width: calc(var(--linuxdo-thread-inset) / 2 - 2px);
+  height: 1px;
+  background-color: color-mix(in srgb, var(--color-paper-muted) 24%, transparent);
+  pointer-events: none;
+}
+
+/* Unified 222.html Reply Capsule */
+.linuxdo-to-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+}
+.linuxdo-to-capsule:hover {
+  filter: brightness(1.08);
+}
+
+/* Inline Quote Box */
+.linuxdo-inline-quote {
+  position: relative;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.linuxdo-inline-quote:hover {
+  filter: brightness(1.06);
+}
+
+/* Code block header bar & copy button from 222.html */
+.linuxdo-code-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: var(--color-ink-deep);
+  border: 1px solid var(--color-haze);
+  border-bottom: 0;
+  border-radius: 9px 9px 0 0;
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-paper-muted);
+}
+.linuxdo-code-bar + pre {
+  margin-top: 0 !important;
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+}
+.linuxdo-code-copy {
+  background: none;
+  border: 0;
+  color: var(--color-cinnabar-soft);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 120ms;
+}
+.linuxdo-code-copy:hover {
+  background-color: color-mix(in srgb, var(--color-paper) 8%, transparent);
+}
+.linuxdo-code-copy.is-copied {
+  color: #63c98d;
+}
+

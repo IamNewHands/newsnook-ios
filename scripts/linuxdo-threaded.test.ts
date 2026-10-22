@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { buildLinuxDoThreads } from '../src/features/linuxdo/ui/threadModel'
+import { buildLinuxDoThreads, computeConversationChain, extractQuoteSnippet } from '../src/features/linuxdo/ui/threadModel'
 import type { LinuxDoPost } from '../src/features/linuxdo/types'
 
 const post = (postNumber: number, replyToPostNumber?: number): LinuxDoPost => ({
@@ -35,3 +35,18 @@ const deep = buildLinuxDoThreads(Array.from({ length: 12000 }, (_, i) => post(i 
 assert.equal(deep.length, 12000)
 assert.equal(deep.at(-1)?.depth, 11998, 'deep threads must not overflow the call stack')
 console.log('PASS malformed relations and deep chains cannot lose posts or recurse indefinitely')
+
+// 222.html transformation: conversation chain & quote snippet tests
+const chainPosts = [post(1), post(2), post(4, 2), post(5, 2), post(7, 4), post(8, 7), post(3, 1), post(6, 3)]
+const chain7 = computeConversationChain(7, chainPosts)
+assert.deepEqual(Array.from(chain7).sort((a, b) => a - b), [2, 4, 7, 8], 'chain on post 7 must include ancestors 2, 4 and descendant 8')
+const chain2 = computeConversationChain(2, chainPosts)
+assert.deepEqual(Array.from(chain2).sort((a, b) => a - b), [2, 4, 5, 7, 8], 'chain on root 2 must include all descendants in subtree')
+console.log('PASS computeConversationChain correctly connects ancestor and descendant threads')
+
+const snippet = extractQuoteSnippet('<p>哪有什么程序员，AI才是程序员，人类不都是prompt工程师吗？🫠</p>')
+assert.equal(snippet, '哪有什么程序员，AI才是程序员，人类不都是prompt工程师吗？🫠')
+const snippetWithCode = extractQuoteSnippet('<p>看看这段代码：<pre><code>console.log(123)</code></pre> 是不是很简单？</p>')
+assert.match(snippetWithCode, /\[代码\]/)
+console.log('PASS extractQuoteSnippet strips markup and normalizes code previews')
+

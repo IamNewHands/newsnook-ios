@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { registerHooks } from 'node:module'
 import React, { act } from 'react'
 import { parseHTML } from 'linkedom'
@@ -13,6 +14,21 @@ Object.assign(globalThis, { window, document: window.document, Node: window.Node
   HTMLElement: window.HTMLElement, React, IS_REACT_ACT_ENVIRONMENT: true,
   localStorage: { getItem: (key: string) => memory.get(key) ?? null, setItem: (key: string, value: string) => memory.set(key, value) } })
 Object.assign(window, { innerWidth: 390, innerHeight: 844 })
+const frameCallbacks = new Map<number, FrameRequestCallback>()
+let nextFrameId = 0
+Object.assign(globalThis, {
+  requestAnimationFrame: (callback: FrameRequestCallback) => {
+    const id = ++nextFrameId
+    frameCallbacks.set(id, callback)
+    return id
+  },
+  cancelAnimationFrame: (id: number) => { frameCallbacks.delete(id) },
+})
+function paintFrame() {
+  const batch = [...frameCallbacks.values()]
+  frameCallbacks.clear()
+  batch.forEach(callback => callback(0))
+}
 let selectionText = '量子纠缠'
 let anchor = document.getElementById('text')!.firstChild!
 const selection = {
@@ -25,6 +41,9 @@ const selection = {
 Object.assign(window, { getSelection: () => selection })
 const { createRoot } = await import('react-dom/client')
 const { WikiSelectionLayer } = await import('../src/features/wiki/WikiSelectionLayer')
+const { haptics } = await import('../src/lib/haptics')
+let snapCount = 0
+haptics.snap = async () => { snapCount++ }
 const { registerEncyclopediaProvider } = await import('../src/features/wiki/encyclopedia')
 const { dismissTopHardwareBackLayer } = await import('../src/lib/hardwareBackStack')
 registerEncyclopediaProvider({ id: 'test', name: '测试百科', language: 'zh', async lookup(term) {
@@ -46,6 +65,34 @@ async function select() {
   await event(document.getElementById('text')!, 'pointerup')
   assert.ok(peek(), '正文选词显示浮动工具栏')
 }
+function mockSheetHeight(sheet: Element, halfHeight: number) {
+  Object.defineProperty(sheet, 'getBoundingClientRect', { configurable: true, value: () => ({
+    height: Number.parseFloat((sheet as HTMLElement).style.height) || (sheet.classList.contains('wiki-sheet-expanded') ? window.innerHeight : halfHeight),
+  }) })
+}
+function pointer(target: EventTarget, type: string, clientY: number, pointerId = 7) {
+  const sample = new window.Event(type, { bubbles: true, cancelable: true })
+  Object.defineProperties(sample, {
+    button: { value: 0 }, pointerId: { value: pointerId }, clientY: { value: clientY },
+  })
+  target.dispatchEvent(sample)
+}
+async function drag(grabber: Element, fromY: number, toY: number, cancelled = false) {
+  await act(async () => pointer(grabber, 'pointerdown', fromY))
+  await act(async () => pointer(grabber, 'pointermove', toY))
+  await act(async () => pointer(grabber, cancelled ? 'pointercancel' : 'pointerup', toY))
+}
+const wikiStyles = readFileSync('src/features/wiki/wiki.css', 'utf8')
+assert.match(
+  wikiStyles,
+  /\.wiki-sheet-dragging[^{]*\{[^}]*max-height:\s*100dvh/,
+  '拖拽上限是视口高度，CSS 必须在拖动期间放开静态 max-height 钳制，避免窗口提前冻结而触顶反馈仍在死区',
+)
+assert.match(
+  wikiStyles,
+  /\.wiki-sheet-manual[^{]*\{[^}]*max-height:\s*100dvh|\.wiki-sheet-dragging,\s*\.wiki-sheet-manual/,
+  '松手保留的手动高度同样可能超过静态钳制，停留态必须一并放开',
+)
 try {
   await act(async () => root.render(<WikiSelectionLayer />))
   await select()
@@ -82,6 +129,104 @@ try {
   await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="复制所选文字"]')!.click())
   assert.equal(copied, '量子纠缠', '复制按钮使用点击前捕获的选中文字')
   assert.ok(peek() === null, '复制后关闭工具栏')
+
+  await select()
+  const searchBtn = document.querySelector<HTMLButtonElement>('[title="在浏览器中搜索“量子纠缠”"]')
+  assert.ok(searchBtn, '划词工具栏必须包含搜索按钮')
+  await act(async () => searchBtn.click())
+  const searchSheet = document.querySelector('.wiki-sheet-search')
+  assert.ok(searchSheet, '点击搜索按钮弹出内置浏览器搜索半窗')
+  assert.equal(searchSheet.classList.contains('wiki-sheet-expanded'), false, '默认呈半窗状态')
+
+  const expandBtn = searchSheet.querySelector<HTMLButtonElement>('[aria-label="展开为全屏"]')
+  assert.ok(expandBtn, '包含展开按钮')
+  await act(async () => expandBtn.click())
+  assert.ok(searchSheet.classList.contains('wiki-sheet-expanded'), '点击展开按钮展开为全屏')
+
+  const collapseBtn = searchSheet.querySelector<HTMLButtonElement>('[aria-label="收起为半窗"]')
+  assert.ok(collapseBtn, '全屏下包含收起按钮')
+  await act(async () => collapseBtn.click())
+  assert.equal(searchSheet.classList.contains('wiki-sheet-expanded'), false, '收起回半窗')
+
+  const baiduPill = searchSheet.querySelector<HTMLButtonElement>('[title="切换为 百度 搜索“量子纠缠”"]')
+  assert.ok(baiduPill, '必须包含百度搜索引擎切换标签')
+  await act(async () => baiduPill.click())
+  assert.ok(baiduPill.classList.contains('is-active'), '切换后百度标签成为激活态')
+
+  const wikiTab = searchSheet.querySelector<HTMLButtonElement>('[title="切换到词条百科"]')
+  assert.ok(wikiTab, '搜索半窗包含切换到百科模式标签')
+  await act(async () => wikiTab.click())
+  const articleSheet = document.querySelector<HTMLElement>('.wiki-sheet:not(.wiki-sheet-search)')!
+  assert.ok(articleSheet, '点击百科标签切回词条百科模式')
+  mockSheetHeight(articleSheet, 340)
+  const articleGrabber = articleSheet.querySelector<HTMLButtonElement>('.wiki-sheet-grabber')!
+  await drag(articleGrabber, 740, 450)
+  assert.equal(articleSheet.style.height, '630px', '百科半窗拖动时逐帧调整高度，松手后保持中间尺寸')
+  assert.equal(articleSheet.classList.contains('wiki-sheet-expanded'), false, '百科尚未触顶时不强制全屏')
+  assert.equal(snapCount, 0, '未触顶的手势不触发马达')
+
+  await act(async () => pointer(articleGrabber, 'pointerdown', 540))
+  await act(async () => {
+    pointer(articleGrabber, 'pointermove', 510)
+    pointer(articleGrabber, 'pointermove', 490)
+    pointer(articleGrabber, 'pointermove', 470)
+  })
+  assert.equal(frameCallbacks.size, 1, '同一刷新帧内的多次手指移动只排入一次布局写入')
+  assert.equal(articleSheet.style.height, '630px', 'rAF 提交前保留上帧位置，不同步强迫浏览器重布局')
+  await act(async () => paintFrame())
+  assert.equal(articleSheet.style.height, '700px', '下一次绘制采用最新指针位置，跳过过时位置')
+  assert.equal(snapCount, 0, '距吸顶区域尚远时无振动')
+  await act(async () => pointer(articleGrabber, 'pointermove', 350))
+  assert.equal(snapCount, 1, '进入吸顶阈值时立刻发出一次触觉反馈，不等待松手')
+  await act(async () => pointer(articleGrabber, 'pointermove', 400))
+  await act(async () => pointer(articleGrabber, 'pointermove', 280))
+  assert.equal(snapCount, 1, '边界微抖未退出重新武装距离，不重复震动')
+  // 刻意把窗口拉离吸顶带足够深度（窗口明显缩小）后再推回顶部，马达必须再次卡扣。
+  await act(async () => pointer(articleGrabber, 'pointermove', 500))
+  await act(async () => pointer(articleGrabber, 'pointermove', 300))
+  assert.equal(snapCount, 2, '同一手势内拉离吸顶带足够深度后再次触顶应重新震动')
+  await act(async () => pointer(articleGrabber, 'pointerup', 300))
+  assert.equal(frameCallbacks.size, 0, '抬手时取消尚未执行的拖拽帧')
+  assert.ok(articleSheet.classList.contains('wiki-sheet-expanded'), '百科拖动至屏幕顶部自动转全屏')
+  await act(async () => articleGrabber.click())
+  assert.ok(articleSheet.classList.contains('wiki-sheet-expanded'), '拖动结束产生的 click 不得再次折叠面板')
+  await drag(articleGrabber, 200, 540)
+  assert.equal(snapCount, 2, '从全屏向下拉不会触发吸顶马达')
+  assert.equal(articleSheet.classList.contains('wiki-sheet-expanded'), false, '百科全屏允许从横条向下拖动恢复浮层')
+  assert.equal(articleSheet.style.height, '504px', '向下拖动后的中间尺寸保留，不强制跳回半屏')
+  await drag(articleGrabber, 540, 600, true)
+  assert.equal(articleSheet.style.height, '504px', '系统取消指针手势时回滚至拖动前高度')
+
+  const searchTab = document.querySelector<HTMLButtonElement>('[title="切换到网页搜索“量子纠缠”"]')
+  assert.ok(searchTab, '百科半窗包含切换到搜索模式标签')
+  await act(async () => searchTab.click())
+  const activeSearchSheet = document.querySelector<HTMLElement>('.wiki-sheet-search')
+  assert.ok(activeSearchSheet, '点击搜索标签切回网页搜索半窗')
+
+  mockSheetHeight(activeSearchSheet, 506)
+  const searchGrabber = activeSearchSheet.querySelector<HTMLButtonElement>('.wiki-sheet-grabber')!
+  await drag(searchGrabber, 650, 520)
+  assert.equal(activeSearchSheet.style.height, '636px', '搜索半窗也支持连续拉高和保持中间尺寸')
+  await drag(searchGrabber, 520, 680)
+  assert.equal(activeSearchSheet.style.height, '', '搜索面板向下拖至最低位置恢复初始高度')
+  const closeSearchBtn = activeSearchSheet.querySelector<HTMLButtonElement>('[aria-label="关闭搜索返回阅读"]')
+  assert.ok(closeSearchBtn, '包含关闭搜索返回阅读按钮')
+  await act(async () => closeSearchBtn.click())
+  assert.equal(document.querySelector('.wiki-sheet-search'), null, '关闭搜索面板返回阅读')
+
+  await select()
+  await act(async () => document.querySelector<HTMLButtonElement>('[title="在浏览器中搜索“量子纠缠”"]')!.click())
+  const fullSearchSheet = document.querySelector<HTMLElement>('.wiki-sheet-search')!
+  mockSheetHeight(fullSearchSheet, 506)
+  let promotedUrl = ''
+  const recordFullBrowser = (event: Event) => { promotedUrl = (event as CustomEvent<{url: string}>).detail.url }
+  window.addEventListener('newsnook:open-browser', recordFullBrowser)
+  await drag(fullSearchSheet.querySelector('.wiki-sheet-grabber')!, 650, 300)
+  assert.equal(snapCount, 3, '搜索半窗使用相同的吸顶触觉反馈')
+  await act(async () => { await wait() })
+  window.removeEventListener('newsnook:open-browser', recordFullBrowser)
+  assert.ok(promotedUrl.startsWith('https://') && promotedUrl.includes(encodeURIComponent('量子纠缠')), '搜索面板触顶后将当前搜索地址交给完整浏览器')
+  assert.equal(document.querySelector('.wiki-sheet-search'), null, '进入完整浏览器时退出半屏搜索面板')
 
   selectionText = '量子纠缠'
   const nativeEvent = new window.Event('newsnook:wiki-selection', { cancelable: true })

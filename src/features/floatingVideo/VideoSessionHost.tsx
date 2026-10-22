@@ -17,6 +17,9 @@ export function VideoSessionHost({ manager, session }: { manager: VideoSessionMa
   const windowSlotRef = useRef<HTMLDivElement>(null)
   const pageSlotRef = useRef<HTMLDivElement>(null)
   const immersive = session.immersive
+  const overlayContainer = session.slot && session.props.overlayContainer?.isConnected
+    ? session.props.overlayContainer : undefined
+  const portalTarget = overlayContainer ?? document.body
   const domFullscreen = Boolean(immersive && document.fullscreenElement && host.contains(document.fullscreenElement))
   const close = useCallback(() => manager.close(session.id), [manager, session.id])
   const float = useCallback(() => manager.float(session.id), [manager, session.id])
@@ -40,11 +43,11 @@ export function VideoSessionHost({ manager, session }: { manager: VideoSessionMa
     // Removing an ancestor of a DOM fullscreen element triggers browser exit.
     // Only the fixed-position fallback needs promotion out of the page layout.
     if (immersive && document.fullscreenElement && host.contains(document.fullscreenElement)) return
-    const target = immersive ? document.body
+    const target = immersive ? portalTarget
       : session.mode === 'floating' ? windowSlotRef.current
       : session.mode === 'page' ? pageSlotRef.current : session.slot
     if (target && host.parentNode !== target) target.appendChild(host)
-  }, [host, immersive, session.mode, session.slot])
+  }, [host, immersive, session.mode, session.slot, portalTarget])
   useLayoutEffect(() => () => host.remove(), [host])
 
   const exitLayer = useCallback(() => {
@@ -70,13 +73,13 @@ export function VideoSessionHost({ manager, session }: { manager: VideoSessionMa
 
   return <>
     {createPortal(<VideoPresentationContext.Provider value={presentation}>
-      <InkVideoPlayerRuntime {...session.props} />
+      <InkVideoPlayerRuntime {...session.props} overlayContainer={overlayContainer} />
     </VideoPresentationContext.Provider>, host)}
     {createPortal(<FloatingVideoWindow
       domFullscreen={domFullscreen}
       title={session.props.title || '文章视频'} active={session.mode === 'floating'} hidden={immersive || session.mode !== 'floating'} slotRef={windowSlotRef}
       onRestore={restore} onClose={close}
-    />, document.body)}
+    />, portalTarget)}
     {session.mode === 'page' && createPortal(<section
       data-video-session-page="" data-theme="dark" aria-label="独立视频播放页"
       className="video-session-page" style={{ visibility: immersive ? 'hidden' : undefined }}
@@ -87,6 +90,6 @@ export function VideoSessionHost({ manager, session }: { manager: VideoSessionMa
         <button type="button" aria-label="关闭悬浮播放" onClick={close}><X size={20} /></button>
       </header>
       <div className="video-session-page-content"><div ref={pageSlotRef} /></div>
-    </section>, document.body)}
+    </section>, portalTarget)}
   </>
 }

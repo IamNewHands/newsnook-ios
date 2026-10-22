@@ -152,6 +152,7 @@ function wrapContentImages(rawHtml: string): string {
     for (const image of images) {
       if (image.closest('[data-reader-role="zhihu-image-host"]')) continue
       if (image.getAttribute('data-reader-role') === 'zhihu-link-image') continue
+      if (image.getAttribute('data-reader-role') === 'zhihu-comment-emoji') continue
       if (image.getAttribute('data-reader-role') === 'badge') continue
       if (image.closest('[data-reader-role="zhihu-link-card"], [data-reader-role="zhihu-video-page"]')) continue
 

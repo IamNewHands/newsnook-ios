@@ -78,6 +78,7 @@ export interface LinuxDoUserBadge {
   description?: string
   icon?: string
   imageUrl?: string
+  badgeTypeId?: number
   slug?: string
   count?: number
   grantedAt?: string
@@ -230,20 +231,39 @@ function summaryCategory(value: unknown): LinuxDoUserSummaryCategory | undefined
   }
 }
 
-function userBadge(value: unknown): LinuxDoUserBadge | undefined {
+export function cleanBadgeDescription(raw?: string): string {
+  if (!raw) return ''
+  return raw
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function userBadge(value: unknown, badgesById: Map<number, Json>): LinuxDoUserBadge | undefined {
   const item = value as Json | undefined
-  const badge = (item?.badge ?? item) as Json | undefined
+  const referencedBadgeId = numberValue(item?.badge_id)
+  const badge = (item?.badge ?? (referencedBadgeId !== undefined ? badgesById.get(referencedBadgeId) : item)) as Json | undefined
   const id = numberValue(item?.id) ?? numberValue(badge?.id)
   const badgeId = numberValue(badge?.id) ?? numberValue(item?.badge_id)
   const name = typeof badge?.name === 'string' ? badge.name : typeof item?.name === 'string' ? item.name : ''
+  if (referencedBadgeId !== undefined && !name) throw new Error('徽章数据无法识别，请刷新后重试')
   if (!id || !name) return undefined
   return {
     id,
     badgeId,
     name,
-    description: typeof badge?.description === 'string' ? badge.description : undefined,
+    description: typeof badge?.description === 'string' ? cleanBadgeDescription(badge.description) : undefined,
     icon: typeof badge?.icon === 'string' ? badge.icon : undefined,
     imageUrl: absoluteUrl(badge?.image_url),
+    badgeTypeId: numberValue(badge?.badge_type_id),
     slug: typeof badge?.slug === 'string' ? badge.slug : undefined,
     count: numberValue(item?.count),
     grantedAt: typeof item?.granted_at === 'string' ? item.granted_at : undefined,
@@ -313,6 +333,18 @@ export class LinuxDoPeopleService {
   async summary(username: string, options: ReadOptions = {}): Promise<LinuxDoUserSummary> {
     const payload = await this.api.getJson<Json>(linuxDoEndpoints.userSummary(username), { auth: 'optional', signal: options.signal })
     const root = (payload?.user_summary ?? payload) as Json
+    // Discourse sideloads topics/badge definitions at the response root.
+    const topicsById = new Map<number, Json>((Array.isArray(payload?.topics) ? payload.topics : []).map((topic: Json) => [topic.id, topic]))
+    const badgesById = new Map<number, Json>((Array.isArray(payload?.badges) ? payload.badges : []).map((badge: Json) => [badge.id, badge]))
+    const referencedTopic = (id: unknown): LinuxDoUserSummaryTopic | undefined => {
+      if (id === undefined) return undefined
+      const topic = summaryTopic(topicsById.get(Number(id)))
+      if (!topic) throw new Error('话题关联数据无法识别，请刷新后重试')
+      return topic
+    }
+    const topics = Array.isArray(root?.topic_ids)
+      ? root.topic_ids.map(referencedTopic).filter((item: LinuxDoUserSummaryTopic | undefined): item is LinuxDoUserSummaryTopic => Boolean(item))
+      : (Array.isArray(root?.topics) ? root.topics : []).map(summaryTopic).filter((item: LinuxDoUserSummaryTopic | undefined): item is LinuxDoUserSummaryTopic => Boolean(item))
     return {
       likesGiven: numberValue(root?.likes_given),
       likesReceived: numberValue(root?.likes_received),
@@ -326,10 +358,10 @@ export class LinuxDoPeopleService {
       bookmarkCount: numberValue(root?.bookmark_count),
       canSeeSummaryStats: booleanValue(root?.can_see_summary_stats),
       canSeeUserActions: booleanValue(root?.can_see_user_actions),
-      topics: (Array.isArray(root?.topics) ? root.topics : []).map(summaryTopic).filter((item): item is LinuxDoUserSummaryTopic => Boolean(item)),
+      topics,
       replies: (Array.isArray(root?.replies) ? root.replies : []).flatMap((value: unknown): LinuxDoUserSummaryReply[] => {
         const reply = value as Json
-        const topic = summaryTopic(reply?.topic)
+        const topic = summaryTopic(reply?.topic) ?? referencedTopic(reply?.topic_id)
         const postNumber = numberValue(reply?.post_number)
         if (!topic || postNumber === undefined) return []
         return [{
@@ -348,25 +380,29 @@ export class LinuxDoPeopleService {
           title: typeof link?.title === 'string' ? link.title : undefined,
           clicks: numberValue(link?.clicks),
           postNumber: numberValue(link?.post_number),
-          topic: summaryTopic(link?.topic),
+          topic: summaryTopic(link?.topic) ?? referencedTopic(link?.topic_id),
         }]
       }),
       mostLikedByUsers: (Array.isArray(root?.most_liked_by_users) ? root.most_liked_by_users : []).map(summaryPerson).filter((item): item is LinuxDoUserSummaryPerson => Boolean(item)),
       mostLikedUsers: (Array.isArray(root?.most_liked_users) ? root.most_liked_users : []).map(summaryPerson).filter((item): item is LinuxDoUserSummaryPerson => Boolean(item)),
       mostRepliedToUsers: (Array.isArray(root?.most_replied_to_users) ? root.most_replied_to_users : []).map(summaryPerson).filter((item): item is LinuxDoUserSummaryPerson => Boolean(item)),
       topCategories: (Array.isArray(root?.top_categories) ? root.top_categories : []).map(summaryCategory).filter((item): item is LinuxDoUserSummaryCategory => Boolean(item)),
-      badges: (Array.isArray(root?.badges) ? root.badges : []).map(userBadge).filter((item): item is LinuxDoUserBadge => Boolean(item)),
+      badges: (Array.isArray(root?.badges) ? root.badges : []).map((item: unknown) => userBadge(item, badgesById)).filter((item): item is LinuxDoUserBadge => Boolean(item)),
     }
   }
 
   async badges(username: string, options: ReadOptions = {}): Promise<LinuxDoUserBadge[]> {
     const payload = await this.api.getJson<Json>(linuxDoEndpoints.userBadges(username), { auth: 'optional', signal: options.signal })
+    if (!Array.isArray(payload?.user_badges) && !Array.isArray(payload?.badges)) {
+      throw new Error('徽章数据无法识别，请刷新后重试')
+    }
+    const badgesById = new Map<number, Json>((Array.isArray(payload?.badges) ? payload.badges : []).map((badge: Json) => [badge.id, badge]))
     const list = Array.isArray(payload?.user_badges)
       ? payload.user_badges
       : Array.isArray(payload?.badges)
         ? payload.badges
         : []
-    const badges = list.map(userBadge).filter((item): item is LinuxDoUserBadge => Boolean(item))
+    const badges = list.map((item: unknown) => userBadge(item, badgesById)).filter((item): item is LinuxDoUserBadge => Boolean(item))
     const byBadgeId = new Map<number, LinuxDoUserBadge>()
     for (const badge of badges) {
       const key = badge.badgeId ?? badge.id
@@ -382,6 +418,7 @@ export class LinuxDoPeopleService {
           ? (previous.grantedAt > badge.grantedAt ? previous.grantedAt : badge.grantedAt)
           : previous.grantedAt ?? badge.grantedAt,
         favorite: previous.favorite || badge.favorite,
+        badgeTypeId: previous.badgeTypeId ?? badge.badgeTypeId,
       })
     }
     return Array.from(byBadgeId.values())

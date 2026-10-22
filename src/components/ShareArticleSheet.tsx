@@ -1,7 +1,5 @@
-import { useRef } from 'react'
 import { Copy, Share2, X } from 'lucide-react'
 
-import { useSwipeDismiss } from '../hooks/useEdgeSwipeBack'
 import { shareUrlDisplay } from '../lib/shareLink'
 import { articleRelativeTime } from '../lib/time'
 
@@ -44,20 +42,12 @@ export function ShareArticleSheet({
   onShare,
   onCopy,
 }: Props) {
-  // 左缘右滑返回：分享卡片与遮罩一起滑出，回到正文。
-  const surfaceRef = useRef<HTMLDivElement>(null)
-  useSwipeDismiss(surfaceRef, open, onClose)
-
   if (!open) return null
 
   const time = articleRelativeTime({ publishedAt, hasRealDate })
 
   return (
-    <div
-      ref={surfaceRef}
-      className="swipe-back-surface absolute inset-0 z-50 flex flex-col justify-end"
-      data-no-page-tap
-    >
+    <div className="absolute inset-0 z-50 flex flex-col justify-end" data-no-page-tap>
       <button
         type="button"
         aria-label="关闭分享卡片"
