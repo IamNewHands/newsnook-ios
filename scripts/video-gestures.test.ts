@@ -102,7 +102,7 @@ assert.equal(zoomedPan.y, -200)
     join(process.cwd(), 'src/components/InkVideoPlayer.tsx'),
     'utf8',
   )
-  const playButton = player.slice(player.indexOf('aria-label="播放"'))
+  const playButton = player.slice(player.indexOf("aria-label={playing ? '暂停' : '播放'}"))
   assert.match(playButton.slice(0, 900), /ink-video-abs-center/)
   assert.doesNotMatch(
     playButton.slice(0, 900),

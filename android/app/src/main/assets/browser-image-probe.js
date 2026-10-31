@@ -158,68 +158,158 @@
       var entry = records[id];
       if (!alive || !entry) return { error: '图片已失效，请重新扫描' };
       if (Object.keys(transfers).length >= 2) return { error: '正在读取其他图片，请重试' };
-      if (entry.source.indexOf('data:') === 0 && entry.source.length > maxBytes * 1.4 + 1024) {
-        return { error: '图片超过 6 MB，请返回网页查看' };
-      }
-      var current = { token: token, done: false, cancelled: false };
+      var current = {
+        token: token, owner: entry.owner, cancelled: false, ready: false, reading: false,
+        mime: '', max: maxBytes, controller: null, stream: null, blob: null,
+        buffered: null, offset: 0, seen: 0, transferred: 0, eof: false,
+        chunk: null, chunkBytes: 0, chunkSize: 192 * 1024
+      };
       transfers[token] = current;
-      function fail() {
+      function fail(reason) {
         if (!alive || current.cancelled || transfers[token] !== current) return;
-        current.done = true;
-        current.error = '网页内存图片无法读取，请重新扫描或返回网页';
+        current.ready = true;
+        current.reading = false;
+        current.error = reason === 'size' ? '图片文件过大，当前设备无法处理'
+          : '网页内存图片无法读取，请重新扫描或返回网页';
+        try { if (current.stream) current.stream.cancel(); } catch (ignored) { void ignored; }
       }
       try {
         current.controller = new entry.owner.AbortController();
         entry.owner.fetch(entry.source, { signal: current.controller.signal }).then(function (response) {
           if (!response.ok) throw new Error('fetch');
           var length = Number(response.headers.get('content-length') || 0);
-          if (length > maxBytes) { current.controller.abort(); throw new Error('size'); }
+          if (length > maxBytes) throw new Error('size');
           var mime = (response.headers.get('content-type') || '').split(';')[0].toLowerCase();
           if (!mime || mime === 'application/octet-stream') mime = 'image/unknown';
           if (!/^image\//.test(mime)) throw new Error('mime');
-          if (!response.body || !response.body.getReader) {
-            if (!length) throw new Error('unbounded');
-            return response.blob();
-          }
-          var stream = response.body.getReader(), chunks = [], bytes = 0;
-          function readChunk() {
-            return stream.read().then(function (part) {
-              if (!alive || current.cancelled || transfers[token] !== current) { stream.cancel(); throw new Error('cancelled'); }
-              if (part.done) return new entry.owner.Blob(chunks, { type: mime });
-              bytes += part.value.byteLength;
-              if (bytes > maxBytes) { stream.cancel(); current.controller.abort(); throw new Error('size'); }
-              chunks.push(part.value);
-              return readChunk();
+          current.mime = mime;
+          if (response.body && response.body.getReader) {
+            // Pull only the next chunk AFTER native has consumed the previous one.
+            // Never collect the whole blob or array of chunks in page JS memory.
+            current.stream = response.body.getReader();
+            current.ready = true;
+          } else {
+            // WebViews without ReadableStream have a bounded Blob fallback.
+            return response.blob().then(function (blob) {
+              if (blob.size > maxBytes) throw new Error('size');
+              current.blob = blob;
+              current.ready = true;
             });
           }
-          return readChunk();
-        }).then(function (blob) {
-          if (!alive || current.cancelled || transfers[token] !== current) return;
-          if (!/^image\//i.test(blob.type) || !blob.size || blob.size > maxBytes) throw new Error('size');
-          current.reader = new entry.owner.FileReader();
-          current.reader.onerror = fail;
-          current.reader.onload = function () {
-            if (!alive || current.cancelled || transfers[token] !== current) return;
-            current.dataUrl = String(current.reader.result || '');
-            current.done = true;
-          };
-          current.reader.readAsDataURL(blob);
-        }).catch(fail);
-      } catch (ignored) { void ignored; fail(); }
+        }).catch(function (error) { fail(error && error.message); });
+      } catch (ignored) { void ignored; fail('fetch'); }
       return { started: true };
     },
     read: function (token) {
       var transfer = transfers[token];
       if (!alive || !transfer) return { error: '图片读取已取消' };
-      if (!transfer.done) return { pending: true };
-      var result = transfer.error ? { error: transfer.error } : { dataUrl: transfer.dataUrl };
-      delete transfers[token];
-      return result;
+      if (transfer.error) {
+        var message = transfer.error;
+        session.stop(token);
+        return { error: message };
+      }
+      if (!transfer.ready || transfer.reading) return { pending: true };
+      if (transfer.chunk !== null) {
+        var chunk = transfer.chunk;
+        transfer.chunk = null;
+        transfer.transferred += transfer.chunkBytes;
+        return { chunk: chunk, mimeType: transfer.mime };
+      }
+      if (transfer.eof && !transfer.buffered) {
+        var length = transfer.transferred, mime = transfer.mime;
+        session.stop(token);
+        return { done: true, byteLength: length, mimeType: mime };
+      }
+      transfer.reading = true;
+      function encode(bytes) {
+        if (!alive || transfer.cancelled || transfers[token] !== transfer) return;
+        var data;
+        try {
+          transfer.chunkBytes = bytes.byteLength;
+          transfer.reader = new transfer.owner.FileReader();
+          transfer.reader.onerror = function () { failChunk('read'); };
+          transfer.reader.onload = function () {
+            if (!alive || transfer.cancelled || transfers[token] !== transfer) return;
+            data = String(transfer.reader.result || '');
+            var comma = data.indexOf(',');
+            if (comma < 0 || comma > 128) { failChunk('read'); return; }
+            transfer.chunk = data.substring(comma + 1);
+            transfer.reader = null;
+            transfer.reading = false;
+          };
+          transfer.reader.readAsDataURL(new transfer.owner.Blob([bytes], { type: transfer.mime }));
+        } catch (ignored) { void ignored; failChunk('read'); }
+      }
+      function failChunk(reason) {
+        if (!alive || transfer.cancelled || transfers[token] !== transfer) return;
+        transfer.error = reason === 'size' ? '图片文件过大，当前设备无法处理'
+          : '网页内存图片无法读取，请重新扫描或返回网页';
+        transfer.reading = false;
+      }
+      function consume(bytes) {
+        if (!alive || transfer.cancelled || transfers[token] !== transfer) return;
+        if (bytes.byteLength > transfer.chunkSize) {
+          transfer.buffered = bytes.subarray(transfer.chunkSize);
+          encode(bytes.subarray(0, transfer.chunkSize));
+        } else {
+          transfer.buffered = null;
+          encode(bytes);
+        }
+      }
+      if (transfer.buffered) {
+        consume(transfer.buffered);
+      } else if (transfer.stream) {
+        transfer.stream.read().then(function (part) {
+          if (!alive || transfer.cancelled || transfers[token] !== transfer) return;
+          if (part.done) {
+            transfer.eof = true;
+            transfer.reading = false;
+            return;
+          }
+          var bytes = part.value;
+          transfer.seen += bytes.byteLength;
+          if (transfer.seen > transfer.max) {
+            transfer.controller.abort();
+            failChunk('size');
+            return;
+          }
+          if (bytes.byteLength === 0) { transfer.reading = false; return; }
+          consume(bytes);
+        }).catch(function (error) { failChunk(error && error.message); });
+      } else if (transfer.blob) {
+        var slice = transfer.blob.slice(transfer.offset, transfer.offset + transfer.chunkSize);
+        transfer.offset += slice.size;
+        if (!slice.size) {
+          transfer.eof = true;
+          transfer.reading = false;
+        } else {
+          transfer.reader = new transfer.owner.FileReader();
+          transfer.chunkBytes = slice.size;
+          transfer.reader.onerror = function () { failChunk('read'); };
+          transfer.reader.onload = function () {
+            if (!alive || transfer.cancelled || transfers[token] !== transfer) return;
+            var data = String(transfer.reader.result || '');
+            var comma = data.indexOf(',');
+            if (comma < 0 || comma > 128) { failChunk('read'); return; }
+            transfer.chunk = data.substring(comma + 1);
+            transfer.reader = null;
+            transfer.reading = false;
+          };
+          transfer.reader.readAsDataURL(slice);
+        }
+      } else {
+        failChunk('read');
+      }
+      return { pending: true };
     },
     stop: function (token) {
       var transfer = transfers[token];
       if (!transfer) return;
       transfer.cancelled = true;
+      transfer.blob = null;
+      transfer.chunk = null;
+      transfer.buffered = null;
+      try { if (transfer.stream) transfer.stream.cancel(); } catch (ignored) { void ignored; }
       try { if (transfer.controller) transfer.controller.abort(); } catch (ignored) { void ignored; }
       try { if (transfer.reader) transfer.reader.abort(); } catch (ignored) { void ignored; }
       delete transfers[token];

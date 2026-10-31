@@ -9,6 +9,9 @@ export interface RssHubInstance {
 
 export const DEFAULT_RSSHUB_INSTANCES: readonly RssHubInstance[] = [
   { id: 'isrss', name: 'isRSS', url: 'https://rsshub.isrss.com', enabled: true, builtin: true },
+  // These public hubs report active Twitter routes; availability is still checked per feed.
+  { id: 'stsecurity', name: 'STSecurity', url: 'https://rsshub.stsecurity.moe', enabled: true, builtin: true },
+  { id: 'mario', name: 'Mario RSSHub', url: 'https://rsshub.mario.lol', enabled: true, builtin: true },
   { id: 'cups', name: 'FunnyCups', url: 'https://rsshub.cups.moe', enabled: true, builtin: true },
   { id: 'slarker', name: 'Slarker', url: 'https://hub.slarker.me', enabled: true, builtin: true },
   { id: 'rssforever', name: 'RSSForever', url: 'https://rsshub.rssforever.com', enabled: true, builtin: true },

@@ -74,7 +74,7 @@ try {
   await act(async () => { root.render(<FeedStoreScreen {...props} />) })
   assert.equal(radarCalls, 0, 'opening store must not eagerly download Radar catalog')
   assert.equal([...document.querySelectorAll('button[aria-pressed]')].find((item) => item.textContent?.includes('通过网站订阅'))?.getAttribute('aria-pressed'), 'true')
-  assert.ok(document.body.textContent?.includes('RSSHub · 7 个已启用实例'))
+  assert.ok(document.body.textContent?.includes('RSSHub · 9 个已启用实例'))
   assert.ok((document.querySelector('#feed-store-search') as HTMLInputElement).placeholder.includes('rsshub://'), 'URL mode accepts RSSHub logical routes')
   await click(findButton('查找订阅'))
   assert.equal(radarCalls, 1)
@@ -126,6 +126,29 @@ try {
   assert.equal(rebound?.[0], 'custom-rsshub-ui')
   assert.equal(rebound?.[1], 'https://rsshub.cups.moe/bilibili/user/dynamic/12345')
   assert.equal(rebound?.[2].routeKey, '/bilibili/user/dynamic/12345')
+
+  // Regression for issue #79: X account discovery works without requesting x.com.
+  // If every public hub returns 503, the user may save an explicitly unverified
+  // subscription instead of being trapped behind a failed preview.
+  globalThis.fetch = async (input) => {
+    const requested = String(input)
+    const wrapped = new URL(requested, 'https://news.example.net')
+    const target = wrapped.searchParams.get('url') ?? requested
+    if (target.includes('/twitter/user/Swang1')) return new Response('Service unavailable', { status: 503 })
+    throw new Error('Unexpected X test request: ' + requested)
+  }
+  draft = undefined
+  await act(async () => { root.render(<FeedStoreScreen key="issue-79-x" {...props} initialQuery="https://x.com/Swang1" />) })
+  await click(findButton('查找订阅'))
+  assert.ok(document.body.textContent?.includes('X / Twitter · @Swang1'))
+  const xResult = [...document.querySelectorAll('button')].find((item) => item.textContent?.includes('X / Twitter · @Swang1'))
+  assert.ok(xResult)
+  await click(xResult as HTMLButtonElement)
+  await click(findButton('检测与预览'))
+  assert.ok(document.body.textContent?.includes('HTTP 503'))
+  await click(findButton('仍添加，稍后重试'))
+  assert.equal((draft!.discovery as { verification: { status: string } }).verification.status, 'unverified')
+  assert.equal((draft!.discovery as { routeKey: string }).routeKey, '/twitter/user/Swang1')
 } finally {
   globalThis.fetch = originalFetch
   await act(async () => { root.unmount() })

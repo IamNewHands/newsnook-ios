@@ -44,6 +44,8 @@ html[data-scheme='buer'] .browser-workspace svg.lucide[fill='none'] { fill: none
   margin: 0; color: var(--color-paper); font-size: 17px; font-weight: 600; line-height: 1.45;
 }
 .browser-page-heading p { margin: 2px 0 0; font-size: 13px; color: var(--color-paper-muted); }
+.browser-page-title-tap { border: 0; padding: 0; background: transparent; color: inherit; font: inherit; text-align: left; touch-action: manipulation; }
+.browser-page-title-tap:focus-visible { outline: 2px solid var(--color-paper-muted); outline-offset: 4px; border-radius: 4px; }
 .browser-page-actions { display: flex; flex-shrink: 0; align-items: center; }
 .browser-count-label { padding: 8px 12px; font-size: 14px; color: var(--color-paper-muted); font-variant-numeric: tabular-nums; }
 .browser-panel {
@@ -305,10 +307,79 @@ html[data-scheme='buer'] .browser-workspace svg.lucide[fill='none'] { fill: none
 .browser-sheet-header { display: flex; align-items: center; flex-shrink: 0; min-height: 58px; padding: 4px 12px 4px 18px; }
 .browser-sheet-header h2 { min-width: 0; flex: 1; margin-right: 10px; }
 .browser-sheet-content { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px 8px; }
+/* A quiet icon action: 44px hit target without a visible 44px button frame. */
+.browser-media-play {
+  display: inline-flex; flex: 0 0 44px; align-items: center; justify-content: center;
+  width: 44px; height: 44px; padding: 0;
+  border: 0; border-radius: 10px;
+  color: var(--color-paper); background: transparent;
+  transition: background-color 140ms ease;
+}
+.browser-media-play svg { flex-shrink: 0; }
+.browser-media-play:active { background: var(--color-haze); }
+@media (hover: hover) { .browser-media-play:hover { background: var(--color-haze); } }
 .browser-toolbar { flex-shrink: 0; background: var(--color-ink-raised); }
 .browser-toolbar-row { min-height: 56px; }
 .browser-address { min-height: 44px; border-radius: 14px; }
 .browser-address > span { font-size: 14px; font-weight: 500; }
+/* The page's playable media appears where the user already looks: the URL field.
+   This lives outside the Android native WebView and never covers page controls. */
+.browser-media-indicator {
+  color: var(--color-paper);
+  background: transparent;
+  transition: background-color 170ms ease, color 170ms ease;
+}
+.browser-media-indicator-new { background: rgb(var(--tone-paper-rgb) / .08); }
+.browser-media-indicator:active { background: rgb(var(--tone-paper-rgb) / .16); }
+.browser-media-indicator-count {
+  position: absolute; top: 4px; right: 1px;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 15px; height: 15px; padding: 0 3px;
+  border-radius: 999px; background: var(--color-paper); color: var(--color-ink);
+  font-size: 10px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.browser-address-host-during-hint { display: none; }
+.browser-media-address-hint {
+  display: inline;
+  color: var(--color-paper);
+  animation: browser-media-arrive 200ms cubic-bezier(.2,0,0,1) both;
+}
+/* The accessory row avoids sacrificing a 100px-wide mobile URL field. */
+.browser-media-strip { display: none; }
+.browser-media-strip:active { background: var(--color-haze); }
+.browser-media-strip-icon { display: flex; align-items: center; color: var(--color-paper); }
+.browser-media-strip-text { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; text-align: left; }
+.browser-media-strip-count {
+  min-width: 18px; height: 18px; padding: 0 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px; background: var(--color-paper); color: var(--color-ink);
+  font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.browser-media-strip-arrow { color: var(--color-paper-muted); }
+@media (max-width: 479px) {
+  .browser-workspace .browser-media-indicator { display: none; }
+  .browser-workspace .browser-media-strip {
+    display: flex; align-items: center; gap: 9px; width: 100%; min-height: 44px;
+    padding: 0 13px; border: 0; border-bottom: 1px solid var(--color-haze);
+    background: var(--color-ink-raised); color: var(--color-paper);
+    transition: background-color 140ms ease;
+  }
+  .browser-address-host-during-hint { display: inline; }
+  .browser-media-address-hint { display: none; }
+}
+@keyframes browser-media-arrive {
+  from { opacity: .55; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (max-width: 360px) {
+  /* Keep the URL usable on 320px displays; home and AI remain in the tools menu. */
+  .browser-workspace .browser-toolbar-compact-optional { display: none; }
+  .browser-address-site { width: 33px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .browser-media-address-hint { animation: none; }
+}
+[data-eink] .browser-media-address-hint { animation: none; }
 .browser-tools-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-gap: 6px 4px; }
 .browser-tools-grid > button { min-height: 82px; border-radius: 14px; }
 .browser-tools-grid > button > span:last-child { font-size: 14px; line-height: 1.5; }

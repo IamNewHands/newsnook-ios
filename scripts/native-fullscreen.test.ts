@@ -114,8 +114,12 @@ function clearBridge() {
   assert.match(plugin, /\(\(BrowserFullscreenHost\) activity\)\.setVideoFullscreen\(active\)/)
 
   const css = readAppStyles()
-  assert.match(css, /\.ink-video-top-chrome\s*\{[^}]*padding:\s*0\.5rem 0\.625rem 2rem/s)
-  assert.match(css, /\.ink-video-bottom-chrome\s*\{[^}]*padding:\s*3rem 1rem 0\.25rem/s)
+  // Chrome V2 uses a narrower gradient and keeps symmetric side padding.
+  // Test the behavior rather than the old exact padding numbers.
+  assert.match(css, /\.ink-video-top-chrome\s*\{[^}]*padding:\s*9px 14px 23px/s)
+  assert.match(css, /\.ink-video-bottom-chrome\s*\{[^}]*padding:\s*27px 14px 9px/s)
+  assert.match(css, /\[data-video-fullscreen='true'\] \.ink-video-top-chrome\s*\{[^}]*--video-sat/s)
+  assert.match(css, /\[data-video-fullscreen='true'\] \.ink-video-bottom-chrome\s*\{[^}]*--video-sab/s)
   assert.doesNotMatch(player, /ink-video-top-chrome[^\n]*var\(--sal/)
 
   const capConfig = readFileSync(join(process.cwd(), 'capacitor.config.ts'), 'utf8')

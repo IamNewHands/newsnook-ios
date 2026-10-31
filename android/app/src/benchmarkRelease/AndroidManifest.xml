@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Profileable only for the isolated startup benchmark APK. -->
+        <profileable android:shell="true" />
+    </application>
+</manifest>

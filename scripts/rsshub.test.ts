@@ -26,8 +26,8 @@ import { normalizePreferences, DEFAULT_PREFERENCES } from '../src/sources/prefer
 import { searchOnlineFeeds } from '../src/features/feedDiscovery/onlineSearch'
 
 const enabled = normalizeRssHubInstances(DEFAULT_RSSHUB_INSTANCES)
-assert.equal(enabled.length, 8)
-assert.equal(enabled.filter((item) => item.enabled).length, 7)
+assert.equal(enabled.length, 10)
+assert.equal(enabled.filter((item) => item.enabled).length, 9)
 assert.equal(enabled.find((item) => item.id === 'official-demo')?.enabled, false)
 for (const url of ['http://example.org', 'https://localhost', 'https://192.168.1.1', 'https://10.0.0.1',
   'https://example.org:8443', 'https://example.org@127.0.0.1', 'https://user:pass@example.org',
@@ -180,6 +180,29 @@ await fetchRssHubSourceText(customSource, undefined, async (url) => {
   return xml
 })
 assert.deepEqual(privateCalls.map((url) => new URL(url).hostname), ['feeds.example.org', 'second-feeds.example.org'])
+resetRssHubHealthForTest()
+
+// X profiles are recognized offline even when x.com itself refuses non-browser scraping.
+const twitterProfile = await searchOnlineFeeds('https://x.com/Swang1')
+assert.equal(twitterProfile.length, 1)
+assert.equal(twitterProfile[0].routePath, '/twitter/user/Swang1')
+assert.equal(twitterProfile[0].type, 'rsshub')
+const twitterAlt = await searchOnlineFeeds('https://twitter.com/Swang1')
+assert.equal(twitterAlt[0].routePath, '/twitter/user/Swang1')
+resetRssHubHealthForTest()
+const twitterSource: NewsSource = { ...source, id: 'twitter-source',
+  url: 'https://rsshub.isrss.com/twitter/user/Swang1',
+  discovery: { providerId: 'rsshub', entryId: 'twitter:Swang1', generator: 'rsshub',
+    instanceId: 'isrss', routeKey: '/twitter/user/Swang1' },
+}
+const twitterRetries: string[] = []
+const twitterResult = await fetchRssHubSourceText(twitterSource, undefined, async (url) => {
+  twitterRetries.push(url)
+  if (twitterRetries.length < 4) throw new Error('HTTP 503')
+  return xml
+})
+assert.equal(twitterResult, xml)
+assert.equal(twitterRetries.length, 4, 'Twitter retries more than two known public instances, bounded by four')
 resetRssHubHealthForTest()
 
 // Complete, pasted RSSHub URLs are recognized offline without a second Radar request.

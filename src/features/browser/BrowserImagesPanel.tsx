@@ -3,12 +3,14 @@ import { Capacitor } from '@capacitor/core'
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import { ChevronLeft, ChevronRight, ImageOff, Images, LoaderCircle, RefreshCw, ShieldCheck } from 'lucide-react'
 import { ImageLightbox } from '../../components/ImageLightbox'
-import { saveImageBlob, shareImageBlob, type ImageActionResult } from '../../lib/imageActions'
+import { saveImageBlob, shareImageBlob, saveImageFileUri, shareImageFileUri, type ImageActionResult } from '../../lib/imageActions'
 import { BrowserIconButton, BrowserPageHeader } from './BrowserPrimitives'
 import { useBrowserDialogFocus } from './useBrowserDialogFocus'
 import {
   BROWSER_IMAGE_PAGE_SIZE,
   BrowserImageLoader,
+  isBrowserImageFile,
+  type BrowserImageFile,
   browserImageSourceLabel,
   browserImageTitle,
   type BrowserImageCandidate,
@@ -56,6 +58,7 @@ function ImageThumbnail({ item, loader, revision, enabled = true }: {
   return <span ref={element} className="relative grid h-full w-full place-items-center bg-haze/35 text-paper-faint">
     {source
       ? <img src={source} alt="" draggable={false} decoding="async" className="h-full w-full object-cover"/>
+      : error?.includes('图片较大，点开即可查看') ? <span className="px-2 text-center text-[12px] text-paper-muted">点击查看大图</span>
       : error ? <ImageOff size={22} aria-hidden/> : visible && enabled ? <LoaderCircle size={20} className="animate-spin" aria-hidden/> : <Images size={22} aria-hidden/>}
   </span>
 }
@@ -88,12 +91,16 @@ function ExportConfirmation({ action, onAnswer }: { action: 'save' | 'share'; on
   </div>
 }
 
-async function exportImage(blob: Blob, action: 'save' | 'share', title: string): Promise<ImageActionResult> {
+async function exportImage(image: Blob | BrowserImageFile, action: 'save' | 'share', title: string): Promise<ImageActionResult> {
+  const mime = isBrowserImageFile(image) ? image.mimeType : image.type
   const extension = ({ 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'image/avif': 'avif',
-    'image/svg+xml': 'svg', 'image/bmp': 'bmp' } as Record<string, string>)[blob.type] || 'jpg'
+    'image/svg+xml': 'svg', 'image/bmp': 'bmp' } as Record<string, string>)[mime] || 'jpg'
   const fileName = 'newsnook-image-' + Date.now().toString(36) + '.' + extension
+  if (isBrowserImageFile(image)) {
+    return action === 'save' ? saveImageFileUri(image.fileUri, fileName) : shareImageFileUri(image.fileUri, fileName, title)
+  }
   try {
-    return action === 'save' ? await saveImageBlob(blob, fileName) : await shareImageBlob(blob, fileName, title)
+    return action === 'save' ? await saveImageBlob(image, fileName) : await shareImageBlob(image, fileName, title)
   } finally {
     if (Capacitor.isNativePlatform()) {
       const cleanup = () => { void Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {}) }
@@ -127,6 +134,7 @@ export function BrowserImagesPanel({ snapshot, scanning, error, onScan, onClose,
   const [confirmation, setConfirmation] = useState<'save' | 'share' | null>(null)
   const confirmAnswer = useRef<((answer: boolean) => void) | null>(null)
   const lightboxCloser = useRef<(() => boolean) | null>(null)
+  const previousSelected = useRef(-1)
   const actionEpoch = useRef(0)
   const contentCount = snapshot?.items.filter(item => item.content).length ?? 0
   const items = useMemo(() => snapshot?.items.filter(item => filter === 'all' || item.content) ?? [], [snapshot, filter])
@@ -139,6 +147,7 @@ export function BrowserImagesPanel({ snapshot, scanning, error, onScan, onClose,
     actionEpoch.current++
     loader?.cancelExports()
     loader?.displayWindow([])
+    previousSelected.current = -1
     setSelectedId(null)
   }, [loader])
   const answerExport = useCallback((answer: boolean) => {
@@ -151,6 +160,7 @@ export function BrowserImagesPanel({ snapshot, scanning, error, onScan, onClose,
     actionEpoch.current++
     answerExport(false)
     setSelectedId(null)
+    previousSelected.current = -1
     setPageIndex(0)
     setFilter(snapshot?.items.some(item => item.content) ? 'content' : 'all')
   }, [snapshot, answerExport])
@@ -165,10 +175,27 @@ export function BrowserImagesPanel({ snapshot, scanning, error, onScan, onClose,
   }, [confirmation, answerExport, overlayCloserRef, selected])
   useEffect(() => {
     if (!loader || selected < 0) return
-    // Only the current image and its two neighbours request display-size bytes.
-    const window = [selected, selected - 1, selected + 1].map(position => items[position]).filter(Boolean)
-    loader.displayWindow(window)
-    for (const item of window) void loader.load(item, false).catch(() => {})
+    // Download the selected image FIRST. Never start three potentially 128MB
+    // originals together when someone rapidly flicks through photos.
+    const direction = selected < previousSelected.current ? -1 : 1
+    previousSelected.current = selected
+    const active = items[selected]
+    const adjacent = items[selected + direction] || items[selected - direction]
+    if (!active) return
+    const display = adjacent ? [active, adjacent] : [active]
+    loader.displayWindow(display)
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    void loader.load(active, false).then(() => {
+      if (cancelled || !adjacent) return
+      // Prefetch only one small neighbour after the selected image has loaded
+      // and the user has stayed still. Large images remain explicitly on-demand.
+      if (!adjacent.width || !adjacent.height || adjacent.width * adjacent.height > 2_000_000) return
+      timer = setTimeout(() => {
+        if (!cancelled && !loader.cached(adjacent, false)) void loader.load(adjacent, false).catch(() => {})
+      }, 350)
+    }).catch(() => {})
+    return () => { cancelled = true; if (timer) clearTimeout(timer) }
   }, [loader, selected, items])
   const select = (position: number) => {
     const next = items[position]
@@ -191,13 +218,17 @@ export function BrowserImagesPanel({ snapshot, scanning, error, onScan, onClose,
   const runAction = async (action: 'save' | 'share'): Promise<ImageActionResult> => {
     if (!loader || !current) return 'cancelled'
     const generation = actionEpoch.current
+    let image: Blob | BrowserImageFile | null = null
     try {
-      const blob = await loader.original(current)
+      image = await loader.original(current)
       if (generation !== actionEpoch.current) return 'cancelled'
-      return exportImage(blob, action, browserImageTitle(current, selected))
+      return await exportImage(image, action, browserImageTitle(current, selected))
     } catch (failure) {
       if (generation !== actionEpoch.current || failure instanceof Error && /已取消|已关闭/.test(failure.message)) return 'cancelled'
       throw failure
+    } finally {
+      // File URI is request-scoped. Share uses its own delayed-cleanup cache copy.
+      if (image && isBrowserImageFile(image)) await loader.releaseOriginal(image).catch(() => {})
     }
   }
   const scanAgain = () => {

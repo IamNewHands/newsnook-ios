@@ -13,8 +13,6 @@ type ImageRetryState = {
   index: number
   nativeTried: boolean
   busy: boolean
-  /** 自定义 resolver 是否被问过（用于区分「通道没取到字节」和「根本没走通道」）。 */
-  resolverTried: boolean
 }
 
 function safeHttpImageUrl(value: unknown): string | undefined {
@@ -63,21 +61,12 @@ export function useProgressiveImages(
     onDeferredPhase?: (url: string, phase: DeferredHostPhase | 'loaded', playableSrc?: string) => void
     forceNativeFallback?: boolean
     imageReferer?: string
-    /** 自定义失败兜底：源站自带会话/挑战通道时接管（Linux.do 用原生插件取字节）。 */
-    resolveImage?: (url: string) => Promise<string>
-    /**
-     * 最终失败时给占位写一行可读原因（写到 `data-reader-image-error`，由 CSS 显示）。
-     * 真机上没有日志面板，这行文案是排查取字节链路断在哪一步的唯一现场证据。
-     */
-    failureNote?: (url: string) => string | undefined
   },
 ): void {
   const autoLoad = options?.autoLoad !== false
   const onDeferredPhase = options?.onDeferredPhase
   const forceNativeFallback = options?.forceNativeFallback === true
   const imageReferer = options?.imageReferer
-  const resolveImage = options?.resolveImage
-  const failureNote = options?.failureNote
   const inflightRef = useRef(new Map<string, () => void>())
 
   useEffect(() => {
@@ -107,7 +96,6 @@ export function useProgressiveImages(
       host?.classList.remove('is-failed', 'is-decorative')
       const linuxDoHost = linuxDoHostOf(img)
       linuxDoHost?.classList.remove('is-failed', 'is-loaded')
-      linuxDoHost?.removeAttribute('data-reader-image-error')
       linuxDoHost?.classList.add('is-loading', 'ink-shimmer')
     }
 
@@ -146,22 +134,12 @@ export function useProgressiveImages(
         host?.classList.add('is-failed')
         linuxDoHost?.classList.remove('is-loaded')
         linuxDoHost?.classList.add('is-failed')
-        if (linuxDoHost && failureNote) {
-          const state = retryStates.get(img)
-          const firstUrl = state?.urls[0] ?? img.getAttribute('src') ?? ''
-          const note = (failureNote(firstUrl) ?? '').trim()
-          linuxDoHost.setAttribute(
-            'data-reader-image-error',
-            note || (state?.resolverTried ? '会话通道没取到字节' : '没走会话通道（地址不在 linux.do）'),
-          )
-        }
         return
       }
       img.classList.remove('async-img-failed')
       img.classList.add('async-img-done')
       host?.classList.remove('is-failed')
       linuxDoHost?.classList.remove('is-failed')
-      linuxDoHost?.removeAttribute('data-reader-image-error')
       linuxDoHost?.classList.add('is-loaded')
       applyRole(img)
     }
@@ -178,35 +156,18 @@ export function useProgressiveImages(
       state.busy = true
       clearVisualState(img)
       try {
-        // 源站自带会话/挑战通道时先逐个问它（含 HTML 里声明的备用地址，例如 Linux.do
-        // 的 optimized 变体）；全都原样返回（管不了这些地址）再走通用原生兜底。
-        if (resolveImage) {
-          state.resolverTried = true
-          const candidates = state.urls.length ? state.urls : [url]
-          for (const candidate of candidates) {
-            const resolved = await resolveImage(candidate)
-            if (disposed) return
-            if (resolved !== candidate) {
-              // 自定义 resolver 的 blob 归它自己的缓存所有，卸载时不能撤销。
-              setImageSource(img, state, resolved)
-              return
-            }
-          }
+        const playable = await resolvePlayableImageSrc(url, {
+          forceNative: forceNativeFallback,
+          referer: imageReferer,
+        })
+        if (disposed) {
+          revokeBlobUrl(playable)
+          return
         }
-        if (forceNativeFallback) {
-          const playable = await resolvePlayableImageSrc(url, {
-            forceNative: true,
-            referer: imageReferer,
-          })
-          if (disposed) {
-            revokeBlobUrl(playable)
-            return
-          }
-          if (playable !== url) {
-            if (playable.startsWith('blob:')) ownedBlobUrls.add(playable)
-            setImageSource(img, state, playable)
-            return
-          }
+        if (playable !== url) {
+          if (playable.startsWith('blob:')) ownedBlobUrls.add(playable)
+          setImageSource(img, state, playable)
+          return
         }
       } catch {
         // 进入最终失败状态，由占位提供人工重试。
@@ -215,24 +176,18 @@ export function useProgressiveImages(
       settle(img, false)
     }
 
-    // 自定义 resolver 本身就是兜底通道，不要求调用方再显式打开 forceNativeFallback。
-    const hasFallback = forceNativeFallback || Boolean(resolveImage)
-
     const advanceAfterError = (img: HTMLImageElement) => {
       const state = retryStates.get(img)
-      if (!state || disposed) {
+      if (!state || state.busy || disposed) {
         settle(img, false)
         return
       }
-      // 兜底链路（自定义 resolver / 原生兜底）正在跑：这次 error 只是上一张候选图收尾。
-      // 链路自己会在结束时给出结果（成功换 src、失败才 settle），这里不能抢先把图判死。
-      if (state.busy) return
       if (state.index + 1 < state.urls.length) {
         state.index += 1
         setImageSource(img, state, state.urls[state.index]!)
         return
       }
-      if (hasFallback && !state.nativeTried && state.urls.length > 0) {
+      if (forceNativeFallback && !state.nativeTried && state.urls.length > 0) {
         state.nativeTried = true
         void tryNativeFallback(img, state, state.urls[0]!)
         return
@@ -244,9 +199,9 @@ export function useProgressiveImages(
       const state = retryStates.get(img)
       if (!state || state.busy || !state.urls.length) return
       state.index = 0
-      state.nativeTried = hasFallback
+      state.nativeTried = forceNativeFallback
       clearVisualState(img)
-      if (hasFallback) {
+      if (forceNativeFallback) {
         void tryNativeFallback(img, state, state.urls[0]!)
       } else {
         // 重新赋值会让 WebView 再走一次自己的 HTTP cache/revalidation。
@@ -362,7 +317,7 @@ export function useProgressiveImages(
       }
 
       const urls = imageFallbackUrls(img)
-      retryStates.set(img, { urls, index: 0, nativeTried: false, busy: false, resolverTried: false })
+      retryStates.set(img, { urls, index: 0, nativeTried: false, busy: false })
       if (!premarkedBadge && !premarkedRelated) {
         img.classList.add('async-img')
         clearVisualState(img)
@@ -395,7 +350,7 @@ export function useProgressiveImages(
       ownedBlobUrls.forEach((url) => revokeBlobUrl(url))
       ownedBlobUrls.clear()
     }
-  }, [rootRef, html, enabled, autoLoad, forceNativeFallback, imageReferer, resolveImage, failureNote, onDeferredPhase])
+  }, [rootRef, html, enabled, autoLoad, forceNativeFallback, imageReferer, onDeferredPhase])
 
   useEffect(() => {
     const inflight = inflightRef.current

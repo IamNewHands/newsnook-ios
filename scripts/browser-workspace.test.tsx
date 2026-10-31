@@ -1,10 +1,23 @@
 import assert from 'node:assert/strict'
+import { registerHooks } from 'node:module'
 import { mock } from 'node:test'
 import React, { act, useState } from 'react'
 import { parseHTML } from 'linkedom'
 import type { BrowserRecoverySession, BrowserState, BrowserTab } from '../src/features/browser/useBrowserSession'
 import { installUserScript, saveUserScripts, type UserScript } from '../src/features/browser/scripts'
 import type { MediaResourceDescriptor } from '../src/features/mediaSniffer/types'
+
+// Node has no stylesheet loader. The dedicated launcher test exercises pending CSS;
+// this suite covers the real workspace controls and native session after styles load.
+const styleLoader = registerHooks({
+  load(url, context, nextLoad) {
+    const path = new URL(url).pathname
+    if (path.endsWith('/features/browser/browser.css') || path.endsWith('/features/browser/agent/agent.css')) {
+      return { format: 'module', shortCircuit: true, source: '' }
+    }
+    return nextLoad(url, context)
+  },
+})
 
 const { window } = parseHTML('<html><body><div id="root"></div></body></html>')
 const document = window.document
@@ -35,6 +48,7 @@ Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
 } })
 const HISTORY = 'newsnook:browser:history:v1'
 const MARKS = 'newsnook:browser:bookmarks:v1'
+const PRIVATE_MARKS = 'newsnook:browser:private-bookmarks:v1'
 const SHORTCUTS = 'newsnook:browser:shortcuts:v1'
 const listeners = new Map<string, (event: any) => void>()
 const blank = (): BrowserState => ({ url: null, back: false, forward: false, desktop: false, error: null })
@@ -329,6 +343,9 @@ async function playFirst() {
 try {
   await mount()
   await visit('https://public.example/before-private')
+  await menu('添加书签')
+  await back()
+  const publicMarks = storage.get(MARKS)
   const publicHistory = storage.get(HISTORY)
   const sameTab = current.tabId
   const sameOpenCalls = openCalls.length
@@ -340,13 +357,36 @@ try {
   await back()
   await visit('https://private.example/never-record')
   assert.equal(storage.get(HISTORY), publicHistory, 'private navigation preserves old history without adding a new visit')
+  failedStorageKey = PRIVATE_MARKS
   await menu('添加书签')
-  assert.ok(JSON.parse(storage.get(MARKS) || '[]').some((item: {url: string}) => item.url.includes('never-record')), 'explicit bookmarks remain available in privacy mode')
+  assert.equal(storage.has(PRIVATE_MARKS), false, 'failed private-bookmark writes must never claim success')
+  assert.ok(button('添加书签', select('[role="dialog"][aria-label="网页工具"]')))
+  failedStorageKey = null
+  await click(button('添加书签', select('[role="dialog"][aria-label="网页工具"]')))
+  assert.equal(storage.get(MARKS), publicMarks, 'private-mode bookmark saves must not change public bookmarks')
+  assert.ok(JSON.parse(storage.get(PRIVATE_MARKS) || '[]').some((item: {url: string}) => item.url.includes('never-record')),
+    'private-mode bookmarks persist separately after an explicit save')
+  await click(button('书签', select('[role="dialog"][aria-label="网页工具"]')))
+  const bookmarksPanel = () => select('section[aria-label="书签"]')
+  assert.ok(bookmarksPanel().textContent?.includes('public.example'), 'public bookmarks remain accessible in private mode')
+  assert.ok(!bookmarksPanel().textContent?.includes('private.example'), 'bookmarks are locked by default')
+  for (let i = 0; i < 4; i++) await click(select('section[aria-label="书签"] h2 button'))
+  assert.ok(!bookmarksPanel().textContent?.includes('private.example'), 'four title taps are insufficient')
+  await click(select('section[aria-label="书签"] h2 button'))
+  assert.ok(button('打开：private.example'), 'fifth title tap reveals explicitly saved private bookmark')
+  await back()
+  await menu('书签')
+  assert.ok(!bookmarksPanel().textContent?.includes('private.example'), 'leaving and reopening the panel re-locks it')
   await mount(true)
   await visit('https://private.example/after-reopen')
   assert.equal(storage.get(HISTORY), publicHistory, 'privacy preference remains effective after reopening the browser')
   await menu('隐私模式')
   assert.equal(JSON.parse(storage.get('newsnook:browser:preferences:v1') || '{}').privateMode, false)
+  await back()
+  await menu('书签')
+  assert.ok(bookmarksPanel().textContent?.includes('public.example'), 'normal mode keeps public bookmarks visible')
+  assert.ok(!bookmarksPanel().textContent?.includes('never-record'), 'normal mode does not reveal private bookmarks')
+  assert.ok(!document.querySelector('section[aria-label="书签"] h2 button'), 'normal mode title remains static')
   await back()
   await act(async () => listeners.get('navigation')?.({...current, privateMode: false, recordHistory: false, phase: 'end'}))
   assert.equal(storage.get(HISTORY), publicHistory, 'a late completion from a private document cannot backfill history after the switch turns off')
@@ -354,7 +394,27 @@ try {
   const publicVisits = JSON.parse(storage.get(HISTORY) || '[]') as {url: string}[]
   assert.ok(publicVisits.some(item => item.url.includes('after-private')), 'new public visits resume after disabling privacy')
   assert.equal(publicVisits.some(item => item.url.includes('private.example')), false, 'private visits are never written back later')
-  console.log('Persistent privacy: same tab, no new records, explicit bookmarks and restart persistence OK')
+
+  // End-to-end scoped deletion and confirmation: neither path can mutate normal bookmarks.
+  await menu('隐私模式')
+  await back()
+  await menu('书签')
+  for (let i = 0; i < 5; i++) await click(select('section[aria-label="书签"] h2 button'))
+  await click(button('删除：private.example'))
+  assert.deepEqual(JSON.parse(storage.get(PRIVATE_MARKS) || '[]'), [], 'private removal updates only the private collection')
+  assert.equal(storage.get(MARKS), publicMarks, 'private removal leaves normal bookmarks byte-identical')
+  await back()
+  await visit('https://private.example/second-bookmark')
+  await menu('添加书签')
+  await click(button('书签', select('[role="dialog"][aria-label="网页工具"]')))
+  for (let i = 0; i < 5; i++) await click(select('section[aria-label="书签"] h2 button'))
+  assert.ok(button('打开：private.example'))
+  await click(button('清空隐私书签'))
+  assert.ok(document.body.textContent?.includes('不影响普通书签'), 'private clear warns about its isolated scope')
+  await click(button('确认删除'))
+  assert.deepEqual(JSON.parse(storage.get(PRIVATE_MARKS) || '[]'), [], 'private clear actually persists an empty private list')
+  assert.equal(storage.get(MARKS), publicMarks, 'private clear never removes normal bookmarks')
+  console.log('Persistent privacy: scoped saving, isolated removal, hidden reveal and restart persistence OK')
 
   await mount()
   await visit()
@@ -418,6 +478,65 @@ try {
   assert.match(document.body.textContent ?? '', /匹配此网页 0 个/, 'the live match count also excludes newly disabled scripts')
   assert.match(document.body.textContent ?? '', /此页已运行 0 个脚本/)
   console.log('Script matches: installed configuration updates immediately while native execution waits for refresh OK')
+
+  // Media discovery must be a first-class, tab-scoped address-bar action, not a menu-only badge.
+  await mount()
+  await visit('https://watch.example/film#scene')
+  const mediaTab = current.tabId!
+  const addressMediaCount = () => select('.browser-address').getAttribute('data-browser-media-count')
+  assert.equal(addressMediaCount(), '0')
+  assert.equal(document.querySelector('.browser-media-indicator'), null)
+  await observe(mediaTab, 'https://watch.example/film', 'https://cdn.example.com/movie.mp4')
+  assert.equal(addressMediaCount(), '1', 'a hash-only navigation still belongs to the same document')
+  assert.ok(select('.browser-media-indicator-count').textContent === '1')
+  assert.ok(select('[data-browser-media-prompt]').textContent?.includes('发现 1 个视频'), 'the first discovery is visible inside the address bar')
+  await click(button('搜索或输入网址'))
+  assert.ok(select('[aria-label="搜索与地址"]'), 'media discovery never replaces the URL/search action')
+  await back()
+  const directMediaButton = select('button[aria-label^="媒体资源，发现 1 个视频"]')
+  const scansBefore = commands.filter(command => command.action === 'scanMedia').length
+  await click(directMediaButton)
+  assert.ok(select('[role="dialog"][aria-label="媒体资源"]'), 'address-bar badge opens the real media sheet')
+  assert.equal(commands.filter(command => command.action === 'scanMedia').length, scansBefore + 1)
+  assert.equal(select('[role="dialog"][aria-label="媒体资源"] ul').querySelectorAll('li').length, 1)
+  const mediaPlay = button('播放 视频文件', select('[role="dialog"][aria-label="媒体资源"]'))
+  assert.ok(mediaPlay.classList.contains('browser-media-play'), 'media action uses the restrained shared visual treatment')
+  const agentIcon = button('AI 浏览助手').querySelector('svg')
+  assert.equal(agentIcon?.getAttribute('width'), '22', 'the AI toolbar icon needs optical size parity with adjacent icons')
+  assert.equal(agentIcon?.getAttribute('stroke-width'), '1.9', 'the AI icon must not appear thinner than adjacent controls')
+  assert.equal(select('.browser-address').getAttribute('data-browser-media-prompt'), null, 'viewing media dismisses the introductory hint')
+  assert.equal(select('.browser-media-strip').getAttribute('aria-expanded'), 'true', 'the direct action exposes its sheet state')
+  await click(button('播放 视频文件', select('[role="dialog"][aria-label="媒体资源"]')))
+  assert.ok(select('[data-test-player]'), 'the address-bar entry leads to the existing playback pipeline')
+  assert.equal(addressMediaCount(), '0', 'dedicated playback does not keep showing a redundant discovery affordance')
+  await click(button('返回网页'))
+  assert.equal(addressMediaCount(), '1', 'the count remains discoverable after playback')
+  await click(button('标签页'))
+  await click(button('新建标签页'))
+  assert.equal(addressMediaCount(), '0', 'a blank tab never inherits another tab\'s media')
+  await visit('https://other.example/another-film')
+  const secondMediaTab = current.tabId!
+  await observe(secondMediaTab, current.url!, 'https://cdn.example.com/other.mp4')
+  assert.equal(addressMediaCount(), '1')
+  await click(button('标签页'))
+  await click(button('打开标签页：watch.example'))
+  assert.equal(current.tabId, mediaTab)
+  assert.equal(addressMediaCount(), '1', 'switching back restores that tab\'s count')
+  assert.equal(select('.browser-address').getAttribute('data-browser-media-prompt'), null, 'already-announced pages do not repeatedly prompt')
+  await visit('https://watch.example/other-film')
+  assert.equal(addressMediaCount(), '0', 'navigation immediately hides the stale page media even before native reset arrives')
+  await click(button('网页工具'))
+  await click(button('媒体资源', select('[role="dialog"][aria-label="网页工具"]')))
+  assert.equal(select('[role="dialog"][aria-label="媒体资源"]').querySelector('ul'), null, 'the existing sheet also rejects stale previous-page resources')
+  await back()
+
+  await mount(false, undefined, false, true)
+  await visit('https://private.example/film?session=sensitive')
+  const storageBeforeDiscovery = [...storage.entries()]
+  await observe(current.tabId!, current.url!, 'https://media.example.org/private-clip.mp4?token=secret')
+  assert.equal(addressMediaCount(), '1', 'private browsing still has working in-memory discovery')
+  assert.deepEqual([...storage.entries()], storageBeforeDiscovery, 'media discovery never saves URLs or temporary notices to storage')
+  console.log('Browser media entry: visible discovery, direct sheet, playback, tab isolation, stale navigation and privacy OK')
 
   for (let iteration = 1; iteration <= 3; iteration++) {
     await mount()
@@ -900,6 +1019,7 @@ try {
   console.log('Browser recovery: one-time launcher handoff, StrictMode, retained error tabs, manual reload and pending exit OK')
 } finally {
   await act(async () => root.unmount())
+  styleLoader.deregister()
   mock.restoreAll()
 }
 console.log('Browser workspace: overlays, pending navigation, blank tabs, downloads, confirmations, persistence and media ownership passed 3 iterations')

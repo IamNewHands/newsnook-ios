@@ -1,5 +1,5 @@
 import type { TranslationLanguage } from './types'
-import { classifyChineseVariant } from './chineseVariant'
+import { classifyChineseVariant } from './chineseVariantMarks'
 
 export type DetectLanguageResult = {
   language: TranslationLanguage

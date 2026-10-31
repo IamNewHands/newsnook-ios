@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import { Check, FileUp, Globe2, LoaderCircle, Plus, RefreshCw, ShieldAlert, ShieldCheck, Trash2, X } from 'lucide-react'
 import { useHardwareBackLayer } from '../../hooks/useHardwareBackLayer'
 import { useBrowserDialogFocus } from './useBrowserDialogFocus'
 import { loadUserScripts, matchesUserScript, MAX_USER_SCRIPT_BYTES, prepareUserScriptInstall, saveUserScripts, type UserScript } from './scripts'
+import {downloadUserScriptSource} from './userScriptImport'
 
 interface Props {
   onClose: () => void
@@ -34,6 +34,11 @@ export function ScriptManager({ onClose, onChanged, pageStatus, onReload }: Prop
   const permissionDialog = useBrowserDialogFocus<HTMLDivElement>(!!candidate)
   const deletionDialog = useBrowserDialogFocus<HTMLDivElement>(!!deleting)
 
+  useEffect(() => {
+    const refresh = () => setScripts(loadUserScripts())
+    window.addEventListener('newsnook:userscripts-changed',refresh)
+    return () => window.removeEventListener('newsnook:userscripts-changed',refresh)
+  }, [])
   useEffect(() => () => {
     importGeneration.current += 1
     syncGeneration.current += 1
@@ -71,6 +76,7 @@ export function ScriptManager({ onClose, onChanged, pageStatus, onReload }: Prop
       return false
     }
     setScripts(next)
+    window.dispatchEvent(new window.Event('newsnook:userscripts-changed'))
     setStatus(success)
     const generation = ++syncGeneration.current
     const syncFailed = () => {
@@ -127,36 +133,14 @@ export function ScriptManager({ onClose, onChanged, pageStatus, onReload }: Prop
     const controller = new AbortController()
     downloadAbort.current = controller
     setImporting(true); setMessage(''); setStatus(''); setCandidate(null)
-    let timeout: ReturnType<typeof window.setTimeout> | undefined
     try {
-      let target: URL
-      try { target = new URL(url.trim()) }
-      catch { throw new Error('请输入完整的 HTTPS 脚本地址') }
-      if (target.protocol !== 'https:' || target.username || target.password) throw new Error('只允许 HTTPS 脚本地址')
-      const download = async () => {
-        if (Capacitor.getPlatform() === 'android') {
-          const response = await CapacitorHttp.get({ url: target.href, responseType: 'text', connectTimeout: 15000, readTimeout: 25000 })
-          if (response.status < 200 || response.status >= 300) throw new Error(`下载失败：HTTP ${response.status}`)
-          if (typeof response.data !== 'string') throw new Error('下载内容不是 JavaScript 文本')
-          return response.data
-        }
-        const response = await fetch(target.href, { signal: controller.signal })
-        if (!response.ok) throw new Error(`下载失败：HTTP ${response.status}`)
-        return response.text()
-      }
-      const text = await Promise.race([
-        download(),
-        new Promise<never>((_, reject) => {
-          timeout = window.setTimeout(() => { controller.abort(); reject(new Error('脚本下载超时，请检查网络后重试')) }, 25000)
-        }),
-      ])
+      const text = await downloadUserScriptSource(url,controller.signal)
       if (generation !== importGeneration.current) return
       const script = prepareUserScriptInstall(text, loadUserScripts())
       setSource(text); setCandidate(script); setEditing(null)
     } catch (cause) {
       if (generation === importGeneration.current) setMessage(cause instanceof Error ? cause.message : '无法导入脚本，请检查网络后重试')
     } finally {
-      if (timeout !== undefined) window.clearTimeout(timeout)
       if (generation === importGeneration.current) { setImporting(false); downloadAbort.current = null }
     }
   }

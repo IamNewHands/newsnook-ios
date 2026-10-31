@@ -2,8 +2,8 @@ import { memo, useState } from 'react'
 import { BookmarkCheck, Cloud } from 'lucide-react'
 
 import { InkImage } from './InkImage'
+import { useArticleCover } from '../hooks/useArticleCover'
 import { EditorialCoverPlaceholder } from './EditorialCoverPlaceholder'
-import { articleCoverUrl } from '../lib/articleAudio'
 import { feedDisplayTitle } from '../lib/articleTitle'
 import { cleanSummaryText } from '../lib/cleanSummary'
 import type { Article } from '../lib/types'
@@ -50,7 +50,7 @@ export const ArticleRow = memo(function ArticleRow({
   )
   const originalDisplayTitle = feedDisplayTitle(article.title, article.summary)
   const displaySummary = cleanSummaryText(activeSummary, activeTitle)
-  const cover = articleCoverUrl(article.image)
+  const { cover, onFailed } = useArticleCover(article)
 
   const renderTranslateBadge = () => {
     if (!hasTranslation) return null
@@ -92,24 +92,24 @@ export const ArticleRow = memo(function ArticleRow({
         <button
           type="button"
           onClick={() => onOpen(article)}
-          className={`group pressable-card relative flex w-full items-center gap-3.5 px-4 py-3.5 text-left sm:px-5 sm:py-4 ${
+          className={`group pressable-card relative flex w-full items-center gap-4 px-4 py-3.5 text-left sm:px-5 sm:py-4 ${
             variant === 'auto' ? 'md:hidden' : ''
           } ${
             read
               ? 'bg-transparent hover:bg-ink/50'
-              : 'bg-gradient-to-b from-ink-raised/40 to-transparent hover:bg-ink-raised'
+              : 'bg-gradient-to-b from-ink-raised/35 to-transparent hover:bg-ink-raised/80'
           }`}
         >
           <span className="min-w-0 flex-1">
             {/* 顶部信源与时间元数据 */}
             <span
-              className={`flex items-center gap-1.5 font-mono text-[11px] tracking-[0.08em] ${
-                read ? 'text-paper-faint/80' : 'text-paper-faint'
+              className={`flex items-center gap-1.5 font-mono text-[11px] tracking-[0.04em] ${
+                read ? 'text-paper-faint/75' : 'text-paper-faint'
               }`}
             >
               {!read && (
                 <span
-                  className="h-1 w-1 rounded-full bg-cinnabar/90 shrink-0"
+                  className="h-1.5 w-1.5 rounded-full bg-cinnabar/90 shrink-0 shadow-[0_0_5px_rgba(196,92,74,0.4)]"
                   aria-label="未读"
                 />
               )}
@@ -125,13 +125,13 @@ export const ArticleRow = memo(function ArticleRow({
                     : undefined
                 }
                 className={`${
-                  read ? 'text-paper-faint' : 'text-paper-muted font-medium'
+                  read ? 'text-paper-faint' : 'text-paper-muted font-[450]'
                 } ${onSourceClick ? 'hover:text-cinnabar transition-colors cursor-pointer' : ''}`}
               >
                 {article.sourceLabel}
               </span>
-              <span aria-hidden className="text-paper-faint/50">·</span>
-              <span>{articleRelativeTime(article)}</span>
+              <span aria-hidden className="text-paper-faint/45">·</span>
+              <span className="tabular-nums">{articleRelativeTime(article)}</span>
               {saved && <BookmarkCheck size={11} strokeWidth={1.8} className="text-cinnabar ml-0.5" />}
               {prestored && (
                 <Cloud
@@ -144,12 +144,12 @@ export const ArticleRow = memo(function ArticleRow({
               {renderTranslateBadge()}
             </span>
 
-            {/* 文章标题 */}
+            {/* 文章标题：450~500 挺拔字重，典雅深墨色，消除暴力加粗 */}
             <span
-              className={`row-title mt-1.5 line-clamp-2 text-[17px] leading-[1.46] tracking-[0.005em] transition-colors ${
+              className={`row-title mt-1.5 line-clamp-2 text-[16.5px] leading-[1.5] tracking-[-0.012em] transition-colors ${
                 read
-                  ? 'font-normal text-paper-muted/75'
-                  : 'font-medium text-paper group-hover:text-cinnabar'
+                  ? 'font-normal text-paper-muted/70'
+                  : 'font-medium text-paper/93 group-hover:text-cinnabar'
               }`}
             >
               {activeTitle}
@@ -162,11 +162,11 @@ export const ArticleRow = memo(function ArticleRow({
               </span>
             )}
 
-            {/* 清洗后的正文摘要 */}
+            {/* 清洗后的正文摘要：灰度回填至 92%，消除黑度断层 */}
             {displaySummary && (
               <span
-                className={`mt-1.5 line-clamp-2 text-[13px] leading-[1.62] ${
-                  read ? 'text-paper-faint/80' : 'text-paper-muted'
+                className={`mt-2 line-clamp-2 text-[13px] leading-[1.62] ${
+                  read ? 'text-paper-faint/75' : 'text-paper-muted/92'
                 }`}
               >
                 {displaySummary}
@@ -174,11 +174,12 @@ export const ArticleRow = memo(function ArticleRow({
             )}
           </span>
 
-          {/* 缩略图容器：微圆角与极细边框，强制满幅裁切消除 Letterboxing */}
+          {/* 缩略图容器：升级为 4:3 比例杂志画幅，配合微倒角与轻柔阴影 */}
           {cover && (
-            <span className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-haze/70 bg-ink-deep/30 shadow-2xs sm:h-17 sm:w-17">
+            <span className="relative h-16 w-[5.35rem] shrink-0 overflow-hidden rounded-[10px] border border-haze/60 bg-ink-deep/25 shadow-[0_2px_8px_rgba(0,0,0,0.04)] sm:h-[4.5rem] sm:w-[6rem]">
               <InkImage
                 src={cover}
+                onFailed={onFailed}
                 collapseOnError
                 className={`h-full w-full object-cover transition-all duration-300 ${
                   read
@@ -211,6 +212,7 @@ export const ArticleRow = memo(function ArticleRow({
             <span className={`relative block w-full overflow-hidden border-b border-haze/55 bg-ink-deep/30 ${article.contentType === 'video' ? 'aspect-video' : 'aspect-[4/3]'}`}>
               <InkImage
                 src={cover}
+                onFailed={onFailed}
                 collapseOnError
                 className={`h-full w-full object-cover transition-[transform,filter,opacity] duration-300 ${
                   read
@@ -312,6 +314,7 @@ export const ArticleRow = memo(function ArticleRow({
               <div className="relative mb-3.5 overflow-hidden rounded-lg bg-ink border border-haze/60">
                 <InkImage
                   src={cover}
+                  onFailed={onFailed}
                   collapseOnError
                   className={`${article.contentType === 'video' ? 'aspect-video h-auto' : 'h-38'} w-full object-cover transition-all duration-500 group-hover:scale-105 ${
                     read
@@ -466,7 +469,7 @@ export const LeadStory = memo(function LeadStory({
   )
   const originalDisplayTitle = feedDisplayTitle(article.title, article.summary)
   const displaySummary = cleanSummaryText(activeSummary, activeTitle)
-  const cover = articleCoverUrl(article.image)
+  const { cover, onFailed } = useArticleCover(article)
 
   const renderTranslateBadge = () => {
     if (!hasTranslation) return null
@@ -498,19 +501,25 @@ export const LeadStory = memo(function LeadStory({
           data-reveal={revealed ? undefined : true}
           type="button"
           onClick={() => onOpen(article)}
-          className={`lead-hero h-[13.75rem] sm:h-[15rem] group text-left ${framed ? 'is-framed' : ''} ${variant === 'auto' ? 'lg:hidden' : ''}`}
+          className={`lead-hero h-[14.5rem] sm:h-[16rem] group text-left ${framed ? 'is-framed' : ''} ${variant === 'auto' ? 'lg:hidden' : ''}`}
         >
-          <InkImage
-            src={cover || article.image}
-            eager
-            className={`h-[13.75rem] w-full sm:h-[15rem] ${
-              read ? 'opacity-[0.78] grayscale-[0.12] saturate-[0.9]' : 'opacity-100'
-            }`}
-          />
+          {/* 外层固定高度：封面补救失败后 InkImage 可能卸载，头条框仍须占位 */}
+          <span className="block h-[14.5rem] w-full overflow-hidden sm:h-[16rem]" aria-hidden={!cover}>
+            {cover ? (
+              <InkImage
+                src={cover}
+                onFailed={onFailed}
+                eager
+                className={`h-full w-full ${
+                  read ? 'opacity-[0.78] grayscale-[0.12] saturate-[0.9]' : 'opacity-100'
+                }`}
+              />
+            ) : null}
+          </span>
           <span className="lead-cover-veil" aria-hidden />
-          <span className={`lead-hero-copy page-x pb-3.5 pt-8 sm:pb-4 ${read ? 'is-read' : ''}`}>
-            <span className="lead-hero-kicker flex items-center gap-2 font-mono text-[10.5px] tracking-[0.16em]">
-              <span className="h-px w-5 bg-cinnabar" aria-hidden />
+          <span className={`lead-hero-copy page-x pb-4 pt-10 sm:pb-4.5 ${read ? 'is-read' : ''}`}>
+            <span className="lead-hero-kicker flex items-center gap-2 font-mono text-[11px] tracking-[0.14em]">
+              <span className="h-[2px] w-3.5 rounded-full bg-cinnabar" aria-hidden />
               <span
                 role={onSourceClick ? 'button' : undefined}
                 tabIndex={onSourceClick ? 0 : undefined}
@@ -531,13 +540,13 @@ export const LeadStory = memo(function LeadStory({
                 <Cloud
                   size={11}
                   strokeWidth={1.35}
-                  className="text-paper-faint/70"
+                  className="text-white/60"
                   aria-label="已预存，可离线阅读"
                 />
               )}
               {renderTranslateBadge()}
             </span>
-            <span className="lead-title mt-1.5 line-clamp-3 text-[20px] font-medium leading-[1.32] sm:text-[22px]">
+            <span className="lead-title mt-2 line-clamp-2 sm:line-clamp-3 text-[19px] font-medium leading-[1.42] tracking-[-0.01em] sm:text-[21px]">
               {activeTitle}
             </span>
             {isTranslated && displayMode === 'compare' && (
@@ -546,14 +555,14 @@ export const LeadStory = memo(function LeadStory({
               </span>
             )}
             {displaySummary && (
-              <span className="lead-hero-summary mt-1.5 line-clamp-1 text-[13px] leading-[1.5]">
+              <span className="lead-hero-summary mt-1.5 line-clamp-1 text-[12.5px] leading-[1.58] text-white/75">
                 {displaySummary}
               </span>
             )}
-            <span className="lead-hero-meta mt-2 flex items-center gap-2 font-mono text-[10.5px] tracking-[0.08em]">
+            <span className="lead-hero-meta mt-2.5 flex items-center gap-2 font-mono text-[10.5px] tracking-[0.06em] text-white/60">
               <span>{articleRelativeTime(article)}</span>
-              <span className="h-px w-3 bg-white/25" aria-hidden />
-              <span>{read ? '重温正文' : '阅读全文'}</span>
+              <span className="h-2 w-px bg-white/20" aria-hidden />
+              <span className="text-white/80 font-medium">{read ? '重温正文' : '阅读全文'}</span>
             </span>
           </span>
         </button>
@@ -577,7 +586,8 @@ export const LeadStory = memo(function LeadStory({
             {/* 左侧大图 (7 栅格) */}
             <div className="col-span-7 h-[300px] xl:h-[350px] 2xl:h-[400px] w-full overflow-hidden rounded-xl bg-ink border border-haze/70 relative">
               <InkImage
-                src={cover || article.image}
+                src={cover}
+                onFailed={onFailed}
                 eager
                 collapseOnError
                 className={`h-full w-full object-cover transition-all duration-700 ease-ink group-hover:scale-105 ${

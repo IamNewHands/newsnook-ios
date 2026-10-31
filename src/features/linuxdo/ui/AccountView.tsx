@@ -13,7 +13,6 @@ import {
 import { useState } from 'react'
 
 import { linuxDoCapabilities } from '../capabilities'
-import { releaseLinuxDoImageCache } from '../media/imageSource'
 import { linuxDoApi as api } from '../runtime'
 import {
   authenticateLinuxDo,
@@ -112,7 +111,6 @@ export function AccountView({
 
   const logout = async () => {
     await Promise.all([clearLinuxDoSession(), clearLinuxDoBrowserSession()])
-    releaseLinuxDoImageCache()
     applySession({ authenticated: false, authMode: 'none' })
   }
 
@@ -130,7 +128,6 @@ export function AccountView({
           onVerifyBrowser: verifyBrowser,
           onClearBrowserSession: async () => {
             await clearLinuxDoBrowserSession()
-            releaseLinuxDoImageCache()
             setAccountError('')
           },
           accountError,
@@ -240,7 +237,6 @@ export function AccountView({
             type="button"
             onClick={async () => {
               await clearLinuxDoBrowserSession()
-              releaseLinuxDoImageCache()
               setAccountError('')
             }}
             className="linuxdo-control text-paper-faint hover:text-paper underline decoration-haze underline-offset-4"

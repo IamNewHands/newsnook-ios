@@ -80,7 +80,7 @@ function normalizeProvider(value: unknown, index: number, used: Set<string>): Ai
       ? capabilitiesInput.tts
       : id === DEFAULT_AI_PROVIDER_ID
   if (!endpoint && !name && !apiKey) return null
-  return { id, name, endpoint, apiKey, capabilities: { tts } }
+  return { id, name, endpoint, apiKey, allowInsecureHttp: input.allowInsecureHttp === true, capabilities: { tts } }
 }
 
 function legacyAiPrefs(legacyOpenAi: CloudTranslationConfig): AiPrefs {
@@ -180,6 +180,7 @@ export function resolveAiFeatureConfig(
   return {
     endpoint: provider.endpoint,
     apiKey: provider.apiKey,
+    allowInsecureHttp: provider.allowInsecureHttp === true,
     model: selection.model,
     ...(feature === 'translation' ? { concurrency: prefs.ai.translation.concurrency } : {}),
   }

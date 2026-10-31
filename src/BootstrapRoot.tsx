@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 
 import App from './App'
+import { StartupReadinessProvider } from './components/StartupReadiness'
 import { FloatingVideoProvider } from './features/floatingVideo/FloatingVideoProvider'
-import { StartupSplash, type SplashMode } from './components/StartupSplash'
 import { WebAppDownloadBanner } from './components/WebAppDownloadBanner'
 import {
   hydrateRuntimeSecrets,
@@ -12,23 +12,15 @@ import {
 import { initCompositorWakeListener } from './lib/compositorWake'
 import { ANDROID_APP_DOWNLOAD_URL, shouldShowWebAppDownloadBanner } from './lib/appDownload'
 import { applyNativeChrome } from './lib/nativeChrome'
-import { shouldUseStartupSplash } from './lib/nativePlatform'
-import { bootMark, bootMeasure } from './lib/startupPerf'
+import { bootMark, bootMeasure, emitFirstUiFallback } from './lib/startupPerf'
+import { log } from './lib/logger'
 import {
-  hasSeenStartupSplash,
   hydrateNativeStorage,
   loadPreferences,
-  markStartupSplashSeen,
 } from './lib/storage'
 import { applyTheme, applyThemeScheme, themeSurface } from './lib/theme'
 import { normalizePreferences } from './sources/preferences'
 
-const SPLASH_ENABLED = shouldUseStartupSplash(
-  Capacitor.getPlatform(),
-  import.meta.env.DEV,
-)
-/** 启动页淡出时长，与 StartupSplash.css 的 --splash-exit 保持一致 */
-const SPLASH_EXIT_MS = 320
 
 /**
  * 先恢复原生偏好，再挂载业务界面，避免首页用旧镜像反写原生存储。
@@ -49,9 +41,12 @@ async function bootstrap(): Promise<void> {
 
   const prefs = normalizePreferences(loadPreferences())
   applyThemeScheme(prefs.scheme, { custom: prefs.customScheme })
-  const theme = applyTheme(prefs.theme)
-  await applyNativeChrome(theme)
-  bootMark('chrome-done')
+  applyTheme(prefs.theme)
+  // The Android launch theme already owns white splash system bars. Calling
+  // SystemBars here crosses the native bridge, forces dark icons in the wrong
+  // direction during the white splash, and blocks the React mount. Apply the
+  // saved app theme exactly once in endSplashBoot() as the real UI takes over.
+  bootMark('initial-theme-ready')
 }
 
 let bootstrapPromise: Promise<void> | undefined
@@ -61,7 +56,7 @@ function prepareApp(): Promise<void> {
   return bootstrapPromise
 }
 
-/** 摘掉 HTML 深色壳；保留 data-boot=splash，直到 React 启动页交还后再改系统栏颜色 */
+/** Remove the document placeholder only after the first real application commit. */
 function clearBootSplashShell(): void {
   document.getElementById('boot-splash')?.remove()
   delete document.documentElement.dataset.bootSplash
@@ -79,94 +74,68 @@ async function endSplashBoot(): Promise<void> {
   await applyNativeChrome(theme)
 }
 
-export function BootstrapRoot() {
-  const [appReady, setAppReady] = useState(false)
-  const [splashComplete, setSplashComplete] = useState(false)
-  const [splashDetached, setSplashDetached] = useState(false)
-  const [appDownloadDismissed, setAppDownloadDismissed] = useState(false)
-  const [splashMode] = useState<SplashMode>(() =>
-    hasSeenStartupSplash() ? 'static' : 'full',
-  )
-  // 启动页放完时 App 可能仍在恢复原生偏好，此时撤掉启动页只会露出空屏
-  const splashLeaving = splashComplete && appReady
-  const showSplash = SPLASH_ENABLED && !splashDetached
-  const showAppDownload =
-    appReady &&
-    !showSplash &&
-    !appDownloadDismissed &&
-    shouldShowWebAppDownloadBanner(Capacitor.isNativePlatform())
-
-  // React 启动页（含静态竖排）一旦进入 DOM，立刻摘掉 HTML 深色壳（仍保留 data-boot）
-  useLayoutEffect(() => {
-    bootMark('react-splash')
-    if (!SPLASH_ENABLED) {
-      clearBootSplashShell()
-      void endSplashBoot()
-      setSplashComplete(true)
-      setSplashDetached(true)
+function reportInitialSurfaceFrame(): void {
+  bootMark('first-ui-frame')
+  try {
+    const native = (window as Window & {
+      NewsNookNative?: { notifyFirstUiPaint?: () => void }
+    }).NewsNookNative
+    if (typeof native?.notifyFirstUiPaint === 'function') {
+      native.notifyFirstUiPaint()
       return
     }
-    clearBootSplashShell()
+  } catch {
+    // A retired native bridge must not delay React.
+  }
+  // Some WebView providers install the JS interface after initial navigation.
+  if (Capacitor.isNativePlatform()) emitFirstUiFallback()
+}
+
+/** Render the actual app as soon as its persisted state and secrets are restored.
+ * No artificial launch animation, static splash, or time-based mount delay.
+ */
+export function BootstrapRoot() {
+  const [appReady, setAppReady] = useState(false)
+  const [appDownloadDismissed, setAppDownloadDismissed] = useState(false)
+
+  useLayoutEffect(() => {
+    bootMark('react-bootstrap')
   }, [])
 
-  useEffect(() => {
-    if (!splashLeaving) return
-
-    bootMark('splash-leaving')
-    const timer = window.setTimeout(() => {
-      setSplashDetached(true)
-      bootMark('splash-detached')
-      void endSplashBoot()
-    }, SPLASH_EXIT_MS)
-    return () => window.clearTimeout(timer)
-  }, [splashLeaving])
+  // Keep the minimal document background only until the real app is committed.
+  useLayoutEffect(() => {
+    if (!appReady) return
+    clearBootSplashShell()
+    bootMark('first-app-commit')
+  }, [appReady])
 
   useEffect(() => {
-    if (SPLASH_ENABLED) markStartupSplashSeen()
-
     const unbindWake = initCompositorWakeListener()
     let active = true
-    let delayTimer = 0
-
-    void prepareApp().finally(() => {
+    void prepareApp().then(() => {
       if (!active) return
-
-      if (splashMode === 'full') {
-        // 首次完整动效：前 2.4 秒是高强度的粒子公转与吸入渲染，
-        // 错峰将 App 后台挂载与大批量网络请求延后至平静整理阶段启动，彻底消除 JS 主线程争抢导致的动画掉帧
-        delayTimer = window.setTimeout(() => {
-          if (active) {
-            setAppReady(true)
-            bootMark('app-ready')
-          }
-        }, 2400)
-      } else {
-        setAppReady(true)
-        bootMark('app-ready')
-      }
+      setAppReady(true)
+      bootMark('app-ready')
+      void endSplashBoot()
+    }).catch((error) => {
+      // Do not mount with stale native preferences/secrets on an initialization failure.
+      log.boot.error('bootstrap failed', error)
     })
-
     return () => {
       active = false
-      if (delayTimer) window.clearTimeout(delayTimer)
       unbindWake()
     }
-  }, [splashMode])
-
-  const finishSplash = useCallback(() => {
-    bootMark('splash-complete')
-    setSplashComplete(true)
   }, [])
+
+  const showAppDownload = appReady && !appDownloadDismissed &&
+    shouldShowWebAppDownloadBanner(Capacitor.isNativePlatform())
 
   return (
     <>
-      {appReady && <FloatingVideoProvider><App /></FloatingVideoProvider>}
-      {showSplash && (
-        <StartupSplash
-          mode={splashMode}
-          leaving={splashLeaving}
-          onComplete={finishSplash}
-        />
+      {appReady && (
+        <StartupReadinessProvider onReady={reportInitialSurfaceFrame}>
+          <FloatingVideoProvider><App /></FloatingVideoProvider>
+        </StartupReadinessProvider>
       )}
       {showAppDownload && (
         <WebAppDownloadBanner

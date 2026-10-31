@@ -32,7 +32,7 @@ public class NewsNookNetworkPlugin extends Plugin {
         // Reuse the upstream status interpretation only. Its monitoring callback
         // dereferences a listener cleared by destroy and must never be registered.
         statusReader = new Network(context);
-        Log.d("NewsNookNetwork", "App network lifecycle adapter loaded");
+        if (BuildConfig.DEBUG) Log.d("NewsNookNetwork", "App network lifecycle adapter loaded");
     }
 
     @PluginMethod public void getStatus(PluginCall call) {

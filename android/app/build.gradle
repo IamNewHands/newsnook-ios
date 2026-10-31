@@ -1,11 +1,18 @@
 apply plugin: 'com.android.application'
+apply plugin: 'androidx.baselineprofile'
 
 def releaseStoreFile = System.getenv("NEWSNOOK_KEYSTORE_FILE")
 def releaseStorePassword = System.getenv("NEWSNOOK_KEYSTORE_PASSWORD")
 def releaseKeyAlias = System.getenv("NEWSNOOK_KEY_ALIAS")
 def releaseKeyPassword = System.getenv("NEWSNOOK_KEY_PASSWORD")
 def hasReleaseSigning = [releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword].every { it }
-def isReleaseBuild = gradle.startParameter.taskNames.any { it.toLowerCase().contains("release") }
+// Only distribution tasks require a production key. A profile generation task
+// mentions "Release" but builds benchmarkRelease/nonMinifiedRelease with local
+// debug signing, and must never ask for a production keystore.
+def isReleaseBuild = gradle.startParameter.taskNames.any { taskPath ->
+    def name = taskPath.tokenize(':').last()
+    name ==~ /(?i)(?:assemble|bundle|publish|package)(?:cloud|local)?release(?:.*)?/
+}
 
 if (isReleaseBuild && !hasReleaseSigning) {
     throw new GradleException(
@@ -51,6 +58,9 @@ def enableLocalAbiSplits = providers.gradleProperty("newsnookLocalAbiSplits")
 android {
     namespace = "com.aizeek.newsnook"
     compileSdk = rootProject.ext.compileSdkVersion
+    buildFeatures {
+        buildConfig true
+    }
     flavorDimensions += "translation"
     productFlavors {
         // 不链接 ML Kit / Bergamot：适合默认分发，保留云翻译。
@@ -82,6 +92,7 @@ android {
         versionCode appVersionCode
         versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField 'boolean', 'STARTUP_BENCHMARK', 'false'
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
@@ -122,7 +133,26 @@ android {
             }
             minifyEnabled = true
             shrinkResources = true
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        // Manually declared profile variants must inherit release themselves:
+        // the plugin does not copy minify/shrink settings into existing types.
+        // Both remain non-debuggable and installable without production keys.
+        benchmarkRelease {
+            initWith release
+            buildConfigField 'boolean', 'STARTUP_BENCHMARK', 'true'
+            applicationIdSuffix '.benchmark'
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ['release']
+        }
+        nonMinifiedRelease {
+            initWith release
+            minifyEnabled = false
+            shrinkResources = false
+            buildConfigField 'boolean', 'STARTUP_BENCHMARK', 'true'
+            applicationIdSuffix '.benchmark'
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ['release']
         }
     }
     testOptions {
@@ -130,6 +160,14 @@ android {
             includeAndroidResources = true
         }
     }
+}
+
+// Keep routine GitHub/CLI releases deterministic: the generated profile is
+// checked into src/main/generated/baselineProfiles; generation is explicit.
+baselineProfile {
+    mergeIntoMain true
+    saveInSrc true
+    automaticGenerationDuringBuild false
 }
 
 // cloud flavor 不需要原生引擎；禁用其 CMake/Ninja 任务以免空跑。
@@ -175,6 +213,9 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation "androidx.webkit:webkit:$androidxWebkitVersion"
+    // Required for sideloaded APK distribution to apply compiled ART profiles.
+    implementation 'androidx.profileinstaller:profileinstaller:1.4.1'
+    baselineProfile project(':baselineprofile')
     implementation "androidx.browser:browser:1.8.0"
     implementation "com.squareup.okhttp3:okhttp:$okhttpVersion"
     implementation project(':capacitor-android')

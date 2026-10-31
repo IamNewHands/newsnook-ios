@@ -1,4 +1,5 @@
 import type { SourceGroup } from '../sources/registry'
+import type { FeedBodyEvidence } from './feedBodyEvidence'
 
 export type ArticleContentType = 'article' | 'video'
 
@@ -7,6 +8,8 @@ export interface Article {
   title: string
   summary: string
   contentHtml?: string
+  /** Small source-independent evidence, persisted when list HTML is compacted. */
+  feedBodyEvidence?: FeedBodyEvidence
   image?: string
   /** 上游给出的发布时间，缺失时为抓取时间 */
   publishedAt: number

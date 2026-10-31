@@ -64,11 +64,26 @@ assert.equal(window.document.querySelector('#hero').onclick, beforeClick, 'the w
 assert.ok(!JSON.stringify(result).includes('AQID'), 'data image bytes stay inside the source page until selected')
 const embedded = result.items.find((item: Owner) => item.sourceUrl === 'data:')
 const blob = result.items.find((item: Owner) => item.sourceUrl.startsWith('blob:'))
+async function receive(token: string, session = window.__testImages): Promise<{ bytes?: Buffer; error?: string; chunks?: number }> {
+  const buffers: Buffer[] = []
+  for (let iteration = 0; iteration < 2000; iteration++) {
+    const response = session.read(token)
+    if (response.pending) { await new Promise(resolve => setTimeout(resolve, 1)); continue }
+    if (response.error) return { error: response.error }
+    if (response.chunk) { buffers.push(Buffer.from(response.chunk, 'base64')); continue }
+    if (response.done) {
+      const bytes = Buffer.concat(buffers)
+      assert.equal(bytes.length, response.byteLength)
+      return { bytes, chunks: buffers.length }
+    }
+    throw new Error('Unexpected page transfer packet')
+  }
+  throw new Error('Page-owned image never completed')
+}
 assert.ok(window.__testImages.start(embedded.id, 'load-one', 1024).started)
 assert.ok(window.__testImages.start(blob.id, 'load-two', 1024).started)
-await new Promise(resolve => setTimeout(resolve, 20))
-assert.equal(window.__testImages.read('load-one').dataUrl, 'data:image/png;base64,AQID')
-assert.equal(window.__testImages.read('load-two').dataUrl, 'data:image/png;base64,AQID')
+assert.deepEqual((await receive('load-one')).bytes, Buffer.from([1, 2, 3]))
+assert.deepEqual((await receive('load-two')).bytes, Buffer.from([1, 2, 3]))
 assert.equal(fetches, 2, 'page-origin blob/data bytes are copied only on request')
 const retired = window.__testImages
 scan(window, 'new-scan')
@@ -88,7 +103,38 @@ oversized.fetch = async (_url: string, options: { signal: AbortSignal }) => {
 }
 const largeImage = scan(oversized).items[0]
 oversized.__testImages.start(largeImage.id, 'bounded', 1024)
-await new Promise(resolve => setTimeout(resolve, 20))
-assert.ok(oversized.__testImages.read('bounded').error, 'a page blob without content-length is still streamed within a byte budget')
+assert.ok((await receive('bounded', oversized.__testImages)).error, 'an unknown-length blob is bounded during stream read')
 assert.equal(aborted, true, 'an over-budget blob transfer is aborted before it crosses into native')
+
+// A true >6MB blob goes over the native boundary in 192KiB chunks, never one giant data URL.
+const bigger = owner('<img src="blob:https://news.example/high-resolution" width="1600" height="1200">')
+const content = Buffer.alloc(7 * 1024 * 1024 + 817, 0x5a)
+bigger.fetch = async () => new Response(new Blob([content], { type: 'image/png' }),
+  { headers: { 'content-type': 'image/png' } })
+const biggerImage = scan(bigger, 'big').items[0]
+assert.ok(bigger.__testImages.start(biggerImage.id, 'big-data', 128 * 1024 * 1024).started)
+const large = await receive('big-data', bigger.__testImages)
+assert.deepEqual(large.bytes, content, 'transferred bytes must be exact, ordered, and complete')
+assert.ok((large.chunks ?? 0) > 30, 'large file cannot cross native in one response')
+assert.equal(bigger.__testImages.read('big-data').error, '图片读取已取消', 'completed transfers leave no retained Blob')
+
+// Backpressure: WebView must not read all upstream bytes while native is idle.
+const controlled = owner('<img src="blob:https://news.example/pull" width="1200" height="1200">')
+const singleChunk = new Uint8Array(600 * 1024).fill(0x3b)
+let reads = 0
+controlled.fetch = async () => ({
+  ok: true, headers: new Headers({ 'content-type': 'image/png' }),
+  body: { getReader: () => ({
+    read: async () => ++reads === 1 ? { done: false, value: singleChunk } : { done: true },
+    cancel: () => {},
+  }) },
+})
+const controlledImage = scan(controlled, 'controlled').items[0]
+controlled.__testImages.start(controlledImage.id, 'controlled', 16 * 1024 * 1024)
+await new Promise(resolve => setTimeout(resolve, 10))
+assert.equal(reads, 0, 'no upstream read before native requests its first chunk')
+const controlledResult = await receive('controlled', controlled.__testImages)
+assert.deepEqual(controlledResult.bytes, Buffer.from(singleChunk))
+assert.equal(reads, 2, 'one 600KB upstream chunk must be split without extra stream reads')
+assert.ok((controlledResult.chunks ?? 0) >= 4, 'native receives at most 192KB per bridge callback')
 console.log('Browser image probe: currentSrc, srcset, picture/lazy, CSS, SVG, reachable frames, all/content, page bytes and bounds OK')

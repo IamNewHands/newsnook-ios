@@ -119,3 +119,8 @@ function imgFrom(html: string): Element {
 }
 
 console.log('reader-image-role.test.ts: ok')
+
+assert.equal(imageReferer('https://image.jiqizhixin.com/a/2026.png'), 'https://www.jiqizhixin.com/')
+assert.equal(imageReferer('https://pic1.zhimg.com/example.jpg'), 'https://www.zhihu.com/')
+assert.equal(imageReferer('https://cdn.example.org/photo.jpg'), 'https://cdn.example.org/')
+assert.equal(imageReferer('https://mmbiz.qpic.cn/example.jpg'), undefined)

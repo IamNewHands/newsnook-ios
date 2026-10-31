@@ -22,6 +22,7 @@ import type { ZhihuContentDetail } from '../api/decode'
 import { normalizeZhihuContentHtml } from '../content/normalize'
 import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
 import { formatZhihuCount, zhihuEntityLabel } from './ZhihuUiUtils'
+import { ZhihuRemarkBadge } from './ZhihuUserRemark'
 
 export function ZhihuEntityIcon({ kind, size = 13 }: { kind: ZhihuEntityKind; size?: number }) {
   const props = { size, strokeWidth: 1.6, className: 'shrink-0' }
@@ -306,6 +307,7 @@ export function ZhihuAnswerPeek({
                 <div className="mt-3 flex items-center gap-2 text-[12px] text-paper-muted">
                   <ZhihuAuthorAvatar author={content.author} className="size-8" />
                   <span className="max-w-[18rem] truncate font-medium">{content.author.name}</span>
+                  <ZhihuRemarkBadge author={content.author} compact />
                   {content.author.headline && <span className="max-w-full truncate text-paper-faint">{content.author.headline}</span>}
                 </div>
               )}
@@ -450,6 +452,7 @@ export function ZhihuContentRow({
                     <span className="max-w-28 truncate font-medium text-paper-muted sm:max-w-40">
                       {item.author.name}
                     </span>
+                    <ZhihuRemarkBadge author={item.author} compact />
                   </span>
                 )}
 
@@ -522,6 +525,7 @@ export function ZhihuContentRow({
           <>
             <span aria-hidden className="text-paper-faint/35">·</span>
             <span className="truncate font-sans text-paper-muted">{item.author.name}</span>
+            <ZhihuRemarkBadge author={item.author} compact />
           </>
         )}
         <span className="ml-auto flex shrink-0 items-center gap-2 text-paper-faint">

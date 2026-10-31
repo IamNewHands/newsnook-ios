@@ -1,11 +1,12 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, startTransition, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 
 import { AppShell } from './components/AppShell'
+import { StartupPending } from './components/StartupReadiness'
+import { useStartupBlocker, useStartupReady } from './hooks/useStartupReadiness'
 import { BrowserLauncher } from './features/browser/BrowserLauncher'
 import { openBrowserWithUrl } from './features/browser/browserOpen'
-import { WikiSelectionLayer } from './features/wiki/WikiSelectionLayer'
 import { DlnaCastBanner } from './components/DlnaCastBanner'
 import { OpenInAppBanner } from './components/OpenInAppBanner'
 import { DesktopSidebar } from './components/DesktopSidebar'
@@ -33,16 +34,16 @@ import {
 import { sortArticles } from './lib/feedPagination'
 import { recoverAppScrollAfterNavigation } from './lib/gestureStyles'
 import { dismissTopHardwareBackLayer } from './lib/hardwareBackStack'
-import { haptics } from './lib/haptics'
+import { useLaterArticles } from './hooks/useLaterArticles'
 import { log } from './lib/logger'
+import { scheduleIdleWork } from './lib/idleWork'
 import {
   buildReadingProfile,
   collectReadArticles,
-  rankRecommendationsForSource,
+  rankRecommendations,
   recommendationReadiness,
   scopeSignalsToSources,
 } from './lib/recommend'
-import { resolveArticleBody } from './lib/resolveBody'
 import { withArticlePreviewImage } from './lib/articlePreview'
 import {
   isAndroidBrowser,
@@ -63,46 +64,20 @@ import {
   listCacheStats,
   loadEnabledSources,
   loadIdSet,
-  loadLaterArticles,
   markSchemeOnboardingSeen,
   markSyncOnboardingSeen,
   saveEnabledSources,
   saveIdSet,
-  saveLaterArticles,
 } from './lib/storage'
 import { chineseDate } from './lib/time'
 import type { Article } from './lib/types'
 import { shouldShowSchemeOnboarding } from './lib/schemeOnboarding'
 import { THEME_MODES, THEME_SCHEMES, schemeSeedColors } from './lib/theme'
-import { ChannelsScreen } from './screens/ChannelsScreen'
 import { FeedScreen } from './screens/FeedScreen'
-import { MeScreen } from './screens/MeScreen'
-import { SiteScreen } from './screens/SiteScreen'
 import { formatSiteBrandName, formatSiteDisplayName, getSiteCleanDomain } from './features/siteCatalog/uiUtils'
-import { AboutScreen } from './screens/settings/AboutScreen'
-import { AccountSyncScreen } from './screens/settings/AccountSyncScreen'
-import { ChangelogScreen } from './screens/settings/ChangelogScreen'
-import { OpenSourceScreen } from './screens/settings/OpenSourceScreen'
-import { AppearanceScreen } from './screens/settings/AppearanceScreen'
-import { CustomSchemeScreen } from './screens/settings/CustomSchemeScreen'
-import { CategorySettingsScreen } from './screens/settings/CategorySettingsScreen'
-import { CategorySourcesScreen } from './screens/settings/CategorySourcesScreen'
-import { CategoryEditScreen } from './screens/settings/CategoryEditScreen'
-import { CustomSourcesScreen } from './screens/settings/CustomSourcesScreen'
-import { HistoryScreen } from './screens/settings/HistoryScreen'
 import { clearReadingHistory, listReadingHistory, migrateCachedReadingHistory, recordArticleRead, removeReadingHistory, removeReadingHistories, restoreReadingHistories, type ReadingHistoryEntry } from './features/readingHistory/store'
 import type { LinuxDoTopicSummary } from './features/linuxdo/types'
 import type { ZhihuEntityRef } from './features/zhihu/types'
-import { LaterScreen } from './screens/settings/LaterScreen'
-import { LocalSearchScreen } from './screens/settings/LocalSearchScreen'
-import { PresetListScreen } from './screens/settings/PresetListScreen'
-import { StorageScreen } from './screens/settings/StorageScreen'
-import { TypographyScreen } from './screens/settings/TypographyScreen'
-import { UiFontScreen } from './screens/settings/UiFontScreen'
-import { TranslationScreen } from './screens/settings/TranslationScreen'
-import { ReadAloudScreen } from './screens/settings/ReadAloudScreen'
-import { AiSettingsScreen } from './screens/settings/AiSettingsScreen'
-import { ProxyScreen } from './screens/settings/ProxyScreen'
 import { ConfirmDialog, OptionPickerDialog } from './components/ConfirmDialog'
 import {
   BRAND_TITLE,
@@ -114,7 +89,6 @@ import { proxyModeLabel } from './features/proxy/config'
 import { loadActiveSiteId, saveActiveSiteId } from './features/sites/layoutState'
 import type { SiteId } from './features/sites/types'
 import { useProductTour } from './features/productTour/useProductTour'
-import { UpdateDialog } from './features/appUpdate/UpdateDialog'
 import { useAppUpdate } from './features/appUpdate/useAppUpdate'
 import { usePrestore } from './features/prestore/usePrestore'
 import {
@@ -124,8 +98,6 @@ import {
 } from './features/translation/config'
 import { resolveAiFeatureConfig } from './features/translation/aiConfig'
 import { readAloudEngineLabel } from './features/readAloud/config'
-import { GlobalReadAloudBar } from './features/readAloud/ReadAloudBar'
-import { updateActiveReadAloudPreferences } from './features/readAloud/service'
 import { FAVORITES_CATEGORY_ID, RECOMMEND_CATEGORY_ID, type CategoryId } from './sources/categories'
 import { applySnapshotToPrefs, removeSourcesFromPresets } from './sources/presets'
 import {
@@ -147,7 +119,6 @@ import {
   resetCategoryLayout,
   resetCategorySources,
   resetTypography,
-  resetUiPrefs,
   setAutoRefreshOnCategorySwitch,
   setCategoryOrder,
   moveCategory,
@@ -169,19 +140,56 @@ import {
   updateCustomSource,
   renameSource,
   updateTypography,
-  updateUiPrefs,
-  UI_FONT_WEIGHT_OPTIONS,
-  UI_SCALE_OPTIONS,
-  resolveUiFontOption,
   visibleCategories,
   withFavoriteCategory,
   withRecommendCategory,
   type TypographyPrefs,
-  type UiPrefs,
 } from './sources/preferences'
 import { SITES, SOURCES, findSite, findSource, makeCustomSourceId } from './sources/registry'
 import { findSubscriptionDuplicate, replaceCustomSourceInstance, setCustomSourcePaused } from './features/feedDiscovery/subscriptionActions'
 import { SettingsShell } from './components/SettingsShell'
+
+// The home feed is the only tab required for a normal cold start.
+// The wiki pane is inactive until a user selects text or opens wiki settings.
+const WikiSelectionLayer = lazy(() => import('./features/wiki/WikiSelectionLayer').then(module => ({ default: module.WikiSelectionLayer })))
+const MeScreen = lazy(() => import('./screens/MeScreen').then(module => ({ default: module.MeScreen })))
+const SiteScreen = lazy(() => import('./screens/SiteScreen').then(module => ({ default: module.SiteScreen })))
+// Update release notes use Markdown parsing, which is not needed until a dialog opens.
+const UpdateDialog = lazy(() => import('./features/appUpdate/UpdateDialog').then(module => ({ default: module.UpdateDialog })))
+
+const AboutScreen = lazy(() => import('./screens/settings/AboutScreen').then(module => ({ default: module.AboutScreen })))
+const AccountSyncScreen = lazy(() => import('./screens/settings/AccountSyncScreen').then(module => ({ default: module.AccountSyncScreen })))
+const ChangelogScreen = lazy(() => import('./screens/settings/ChangelogScreen').then(module => ({ default: module.ChangelogScreen })))
+const OpenSourceScreen = lazy(() => import('./screens/settings/OpenSourceScreen').then(module => ({ default: module.OpenSourceScreen })))
+const AppearanceScreen = lazy(() => import('./screens/settings/AppearanceScreen').then(module => ({ default: module.AppearanceScreen })))
+const CustomSchemeScreen = lazy(() => import('./screens/settings/CustomSchemeScreen').then(module => ({ default: module.CustomSchemeScreen })))
+const CategorySettingsScreen = lazy(() => import('./screens/settings/CategorySettingsScreen').then(module => ({ default: module.CategorySettingsScreen })))
+const CategorySourcesScreen = lazy(() => import('./screens/settings/CategorySourcesScreen').then(module => ({ default: module.CategorySourcesScreen })))
+const CategoryEditScreen = lazy(() => import('./screens/settings/CategoryEditScreen').then(module => ({ default: module.CategoryEditScreen })))
+const CustomSourcesScreen = lazy(() => import('./screens/settings/CustomSourcesScreen').then(module => ({ default: module.CustomSourcesScreen })))
+const HistoryScreen = lazy(() => Promise.all([
+  import('./screens/settings/HistoryScreen'),
+  import('./styles/history-editorial.css'),
+]).then(([module]) => ({ default: module.HistoryScreen })))
+const LaterScreen = lazy(() => import('./screens/settings/LaterScreen').then(module => ({ default: module.LaterScreen })))
+const LocalSearchScreen = lazy(() => import('./screens/settings/LocalSearchScreen').then(module => ({ default: module.LocalSearchScreen })))
+const PresetListScreen = lazy(() => import('./screens/settings/PresetListScreen').then(module => ({ default: module.PresetListScreen })))
+const StorageScreen = lazy(() => import('./screens/settings/StorageScreen').then(module => ({ default: module.StorageScreen })))
+const TypographyScreen = lazy(() => import('./screens/settings/TypographyScreen').then(module => ({ default: module.TypographyScreen })))
+const TranslationScreen = lazy(() => import('./screens/settings/TranslationScreen').then(module => ({ default: module.TranslationScreen })))
+const ReadAloudScreen = lazy(() => import('./screens/settings/ReadAloudScreen').then(module => ({ default: module.ReadAloudScreen })))
+const AiSettingsScreen = lazy(() => import('./screens/settings/AiSettingsScreen').then(module => ({ default: module.AiSettingsScreen })))
+const ProxyScreen = lazy(() => import('./screens/settings/ProxyScreen').then(module => ({ default: module.ProxyScreen })))
+const ChannelsScreen = lazy(() => import('./screens/ChannelsScreen').then(module => ({ default: module.ChannelsScreen })))
+
+// The global read-aloud controller is not needed until a reader or voice
+// settings screen has been visited. Keep its media/translation dependencies
+// outside the initial home module graph.
+const GlobalReadAloudBar = lazy(() =>
+  import('./features/readAloud/ReadAloudBar').then(module => ({
+    default: module.GlobalReadAloudBar,
+  })),
+)
 
 const FeedStoreScreen = lazy(() => import('./screens/settings/FeedStoreScreen').then((module) => ({ default: module.FeedStoreScreen })))
 
@@ -230,7 +238,6 @@ type SettingsRoute =
   | { name: 'feed-store'; returnTo?: 'custom-sources' }
   | { name: 'channels' }
   | { name: 'typography' }
-  | { name: 'ui-font' }
   | { name: 'appearance' }
   | { name: 'custom-scheme' }
   | { name: 'storage' }
@@ -267,6 +274,10 @@ function drainBodyPrefetchQueue(): void {
     void (async () => {
       try {
         // 排队期间已被移出稍后读，不再为未浏览内容消耗弱网流量。
+        if (task.signal.aborted || !task.shouldPin()) return
+        // Article extraction pulls in Readability, HTML parsing and media sniffing.
+        // Defer all of that until an actual offline-body prefetch is requested.
+        const { resolveArticleBody } = await import('./lib/resolveBody')
         if (task.signal.aborted || !task.shouldPin()) return
         const resolved = await resolveArticleBody(task.article, task.signal, task.extraSources)
         if (task.signal.aborted) return
@@ -310,16 +321,42 @@ function prefetchBody(task: BodyPrefetchTask): void {
 
 export default function App() {
   const { prefs, resolvedTheme, update, replaceFromSync: replacePreferences } = usePreferences()
+  const [launchUrlReady, setLaunchUrlReady] = useState(() => !Capacitor.isNativePlatform())
+  const [browserOpen, setBrowserOpen] = useState(false)
+  useStartupBlocker(!launchUrlReady)
+  const startupReady = useStartupReady()
   const speedReadConfig = useMemo(
     () => resolveAiFeatureConfig({ ai: prefs.translation.ai }, 'speedRead'),
     [prefs.translation.ai],
   )
+  // The speech singleton does not exist at cold startup. The reader initializes
+  // it with current preferences when opened; only subsequent preference changes
+  // need to reach an already-active speech session.
+  const readAloudPrefsRef = useRef({ readAloud: prefs.readAloud, ai: prefs.translation.ai })
   useEffect(() => {
-    void updateActiveReadAloudPreferences(
-      prefs.readAloud,
-      prefs.translation.ai,
-    )
+    const previous = readAloudPrefsRef.current
+    if (previous.readAloud === prefs.readAloud && previous.ai === prefs.translation.ai) return
+    readAloudPrefsRef.current = { readAloud: prefs.readAloud, ai: prefs.translation.ai }
+    let active = true
+    void import('./features/readAloud/service').then(({ updateActiveReadAloudPreferences }) => {
+      if (active) void updateActiveReadAloudPreferences(prefs.readAloud, prefs.translation.ai)
+    }).catch(error => log.app.warn('Failed to update read-aloud preferences', error))
+    return () => { active = false }
   }, [prefs.readAloud, prefs.translation.ai])
+
+  const [wikiReady, setWikiReady] = useState(false)
+  useEffect(() => {
+    // Load the wiki/HTML parser after the real home page gets its first paint.
+    // Do not make its import part of React's cold-start critical path.
+    let secondFrame = 0
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => setWikiReady(true))
+    })
+    return () => {
+      cancelAnimationFrame(firstFrame)
+      if (secondFrame) cancelAnimationFrame(secondFrame)
+    }
+  }, [])
 
   const [tab, setTab] = useState<TabKey>('today')
   const [activeSiteId, setActiveSiteId] = useState<SiteId | null>(() => loadActiveSiteId())
@@ -406,6 +443,11 @@ export default function App() {
   })
   const [deepLinkError, setDeepLinkError] = useState(sharedEntry?.payload === null)
 
+  const [readAloudUiEnabled, setReadAloudUiEnabled] = useState(() => Boolean(reading))
+  useEffect(() => {
+    if (reading || settingsRoute?.name === 'read-aloud') setReadAloudUiEnabled(true)
+  }, [reading, settingsRoute?.name])
+
   useEffect(() => {
     if (!sharedEntry) return
     if (sharedEntry.payload === null) {
@@ -449,9 +491,7 @@ export default function App() {
     setTab('today')
     startProductTourNow()
   }, [startProductTourNow])
-  const [later, setLater] = useState<Article[]>(() => loadLaterArticles())
   const [readIds, setReadIds] = useState<Set<string>>(() => loadIdSet('read'))
-  const laterRef = useRef(later)
   /** 推荐排序经 ref 读取已读集合：打开文章返回时不重排，避免列表跳动 */
   const readIdsRef = useRef(readIds)
   readIdsRef.current = readIds
@@ -470,6 +510,7 @@ export default function App() {
     if (!cacheSnapshotReadyRef.current) return
     setCacheSnapshot(readCacheSnapshot())
   }, [])
+  const { later, laterRef, toggleLater, removeLater } = useLaterArticles(notifyCacheChange)
 
   useEffect(() => {
     const needsSnapshot =
@@ -610,11 +651,8 @@ export default function App() {
   const closeReader = useCallback(() => {
     setReading(null)
     clearShareLocation()
-    // 右滑返回的收尾动画故意把阅读器停在屏幕外、等 React 卸载它。同一 tick 里
-    // 复位合成层会把正文画回屏幕原位一帧——观感是「返回时跳一下」。等两帧再
-    // 收拾：那时阅读器已经不在了，这里只清列表侧的残留。
     window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(recoverAppScrollAfterNavigation)
+      recoverAppScrollAfterNavigation()
     })
   }, [])
 
@@ -692,6 +730,10 @@ export default function App() {
         return
       }
       if (settingsRoute) {
+        if (readerReturnArticle && settingsRoute.name === 'translation') {
+          restoreReaderFromSettings()
+          return
+        }
         setSettingsRoute(null)
         return
       }
@@ -707,7 +749,9 @@ export default function App() {
         setTab('today')
         return
       }
-      void CapacitorApp.exitApp()
+      // Keep the root Activity, Capacitor bridge and WebView alive when leaving
+      // the home screen. Android may reclaim the process later as usual.
+      void CapacitorApp.minimizeApp()
     }).then((handle) => {
       if (disposed) {
         void handle.remove()
@@ -835,38 +879,23 @@ export default function App() {
         recommendScope,
       ),
     )
-  }, [categoryId, recommendScope, recommendProfileSeq])
-
-  /**
-   * 单源聚焦：先按源裁剪候选，再做推荐排序与截断（顺序由
-   * lib/recommend.rankRecommendationsForSource 保证）。反过来的话，
-   * 推荐栏的 RECOMMEND_LIMIT 会先吃掉整个候选池——信源一多，低频源
-   * （一天一两条的小众软件这类）挤不进全局前 120 条，点开该源就是空列表，
-   * 而信源入口上的条数徽标仍显示有内容。
-   */
-  const sourceScopedArticles = useMemo(
-    () =>
-      categoryFilterSourceId
-        ? articles.filter((item) => item.sourceId === categoryFilterSourceId)
-        : articles,
-    [articles, categoryFilterSourceId],
-  )
+  }, [categoryId, recommendScope, recommendProfileSeq, laterRef])
 
   /** 推荐结果：排除已读与稍后读（稍后读有专页），冷启动退化为按时间 */
   const recommendedArticles = useMemo(() => {
     if (!recommendProfile) return null
     const excludeIds = new Set(readIdsRef.current)
     for (const item of laterRef.current) excludeIds.add(item.id)
-    return rankRecommendationsForSource(articles, recommendProfile, categoryFilterSourceId, {
-      excludeIds,
-    })
-  }, [articles, recommendProfile, categoryFilterSourceId])
+    return rankRecommendations(articles, recommendProfile, { excludeIds })
+  }, [articles, recommendProfile, laterRef])
 
   /** 单源筛选时保持数组引用稳定：每次渲染现算会让列表翻译等依赖 articles 的 effect 反复中止重启 */
-  const displayedArticles = useMemo(
-    () => recommendedArticles ?? sourceScopedArticles,
-    [recommendedArticles, sourceScopedArticles],
-  )
+  const displayedArticles = useMemo(() => {
+    const base = recommendedArticles ?? articles
+    return categoryFilterSourceId
+      ? base.filter((item) => item.sourceId === categoryFilterSourceId)
+      : base
+  }, [articles, recommendedArticles, categoryFilterSourceId])
 
   const articlesForCategory = useCallback(
     (id: CategoryId) => {
@@ -922,31 +951,46 @@ export default function App() {
   )
 
   const laterIds = useMemo(() => new Set(later.map((item) => item.id)), [later])
+  const initialBodyPinsReconciledRef = useRef(false)
 
   useEffect(() => saveEnabledSources(enabledIds), [enabledIds])
-  useEffect(() => saveLaterArticles(later), [later])
   useEffect(() => saveIdSet('read', readIds), [readIds])
 
   useEffect(() => {
     laterRef.current = later
+    if (!startupReady) return
     const controller = new AbortController()
-    const pinnedIds = new Set(later.map((item) => item.id))
-    syncBodyPins(pinnedIds)
+    // Reconciliation parses every cached body. Preserve offline pin repair and
+    // prefetch, but let the initial usable surface display before this scan.
+    const maintainBodies = () => {
+      if (controller.signal.aborted || laterRef.current !== later) return
+      const pinnedIds = new Set(later.map((item) => item.id))
+      syncBodyPins(pinnedIds)
+      initialBodyPinsReconciledRef.current = true
 
-    later.forEach((article) => {
-      if (article.contentType === 'video' || hasCachedBody(article.id)) return
-      if (findSource(article.sourceId, prefs.customSources)?.paused) return
-      prefetchBody({
-        article,
-        signal: controller.signal,
-        shouldPin: () => laterRef.current.some((item) => item.id === article.id),
-        onCacheChange: handleBodyCacheChange,
-        extraSources: prefs.customSources,
+      later.forEach((article) => {
+        if (article.contentType === 'video' || hasCachedBody(article.id)) return
+        if (findSource(article.sourceId, prefs.customSources)?.paused) return
+        prefetchBody({
+          article,
+          signal: controller.signal,
+          shouldPin: () => laterRef.current.some((item) => item.id === article.id),
+          onCacheChange: handleBodyCacheChange,
+          extraSources: prefs.customSources,
+        })
       })
-    })
-    notifyCacheChange()
-    return () => controller.abort()
-  }, [later, notifyCacheChange, handleBodyCacheChange, prefs.customSources])
+      notifyCacheChange()
+    }
+    // Only the startup scan waits for idle. Later saves keep their existing
+    // post-commit prefetch timing, with cached bodies already pinned by the action.
+    let cancelMaintenance: (() => void) | undefined
+    if (initialBodyPinsReconciledRef.current) maintainBodies()
+    else cancelMaintenance = scheduleIdleWork(maintainBodies)
+    return () => {
+      cancelMaintenance?.()
+      controller.abort()
+    }
+  }, [later, laterRef, notifyCacheChange, handleBodyCacheChange, prefs.customSources, startupReady])
 
   const customSourcesRef = useRef(prefs.customSources)
   customSourcesRef.current = prefs.customSources
@@ -1014,6 +1058,7 @@ export default function App() {
         if (!disposed && launch?.url) openFromUrl(launch.url)
       })
       .catch(() => {})
+      .finally(() => { if (!disposed) setLaunchUrlReady(true) })
 
     void CapacitorApp.addListener('appUrlOpen', (event) => {
       if (!disposed) openFromUrl(event.url)
@@ -1059,6 +1104,14 @@ export default function App() {
     eggOpen,
     deepLinkError,
   })
+  // A first-use style choice is already usable. A returning feed must first
+  // restore its local offline snapshot; network refresh never blocks readiness.
+  // Covered lazy pages do not delay the selected browser, reader or onboarding.
+  const mainSurfaceVisible = !showSchemeOnboarding && !reading && !browserOpen
+  useStartupBlocker(
+    mainSurfaceVisible && !activeSiteId && !settingsRoute &&
+    tab === 'today' && !prestore.restored,
+  )
   /**
    * 同步介绍只在功能引导之后、首页无遮挡时露一次面，且只对未登录用户。
    * 它是可选加分项，不参与 driver.js 的引导流程，两个按钮都会记下「看过」。
@@ -1074,32 +1127,6 @@ export default function App() {
     !focusSourceId &&
     !eggOpen &&
     !deepLinkError
-
-  const toggleLater = useCallback((article: Article) => {
-    if (laterRef.current.some((item) => item.id === article.id)) {
-      const next = laterRef.current.filter((item) => item.id !== article.id)
-      laterRef.current = next
-      setLater(next)
-      setBodyPinned(article.id, false)
-      void haptics.tick()
-      notifyCacheChange()
-      return
-    }
-
-    const next = [article, ...laterRef.current]
-    laterRef.current = next
-    setLater(next)
-    void haptics.success()
-  }, [notifyCacheChange])
-
-  const removeLater = useCallback((id: string) => {
-    const next = laterRef.current.filter((item) => item.id !== id)
-    laterRef.current = next
-    setLater(next)
-    setBodyPinned(id, false)
-    void haptics.tick()
-    notifyCacheChange()
-  }, [notifyCacheChange])
 
   const toggleSource = useCallback((id: string) => {
     setEnabledIds((prev) =>
@@ -1177,7 +1204,9 @@ export default function App() {
       setSettingsRoute(null)
       setTab('today')
     },
-    onOpenBrowser: (url?: string) => { openBrowserWithUrl(url) },
+    onOpenBrowser: Capacitor.getPlatform() === 'android'
+      ? (url?: string) => { openBrowserWithUrl(url) }
+      : undefined,
     onManage: () => {
       if (activeSiteId) leaveActiveSite()
       setSettingsRoute({ name: 'presets' })
@@ -1283,15 +1312,6 @@ export default function App() {
     return `${family?.label ?? '黑体'} · 字号${scale?.label ?? '自定义'} · 行高 ${prefs.typography.lineHeight}${indent}`
   }, [prefs.typography])
 
-  const uiFontSummary = useMemo(() => {
-    const font = resolveUiFontOption(prefs.ui.fontFamily)
-    const scale = UI_SCALE_OPTIONS.find((item) => item.value === prefs.ui.scale)
-    const weight = UI_FONT_WEIGHT_OPTIONS.find((item) => item.id === prefs.ui.weight)
-    const parts = [font.label, `字号${scale?.label ?? '自定义'}`]
-    if (weight && weight.id !== 'regular') parts.push(`字重${weight.label}`)
-    return parts.join(' · ')
-  }, [prefs.ui])
-
   const appearanceSummary = useMemo(() => {
     const mode = THEME_MODES.find((item) => item.id === prefs.theme)
     const scheme = THEME_SCHEMES.find((item) => item.id === prefs.scheme)
@@ -1343,17 +1363,6 @@ export default function App() {
             update((prev) => updateTypography(prev, patch))
           }
           onReset={() => update(resetTypography)}
-          onBack={() => setSettingsRoute(null)}
-        />
-      )
-    }
-
-    if (settingsRoute.name === 'ui-font') {
-      return (
-        <UiFontScreen
-          prefs={prefs}
-          onChange={(patch: Partial<UiPrefs>) => update((prev) => updateUiPrefs(prev, patch))}
-          onReset={() => update(resetUiPrefs)}
           onBack={() => setSettingsRoute(null)}
         />
       )
@@ -1421,7 +1430,13 @@ export default function App() {
         <TranslationScreen
           prefs={prefs.translation}
           onChange={(translation) => update((prev) => ({ ...prev, translation }))}
-          onBack={() => setSettingsRoute(null)}
+          onBack={() => {
+            if (readerReturnArticle) {
+              restoreReaderFromSettings()
+            } else {
+              setSettingsRoute(null)
+            }
+          }}
           onOpenAiSettings={() => setSettingsRoute({ name: 'ai', returnTo: 'translation' })}
         />
       )
@@ -1500,7 +1515,7 @@ export default function App() {
 
     if (settingsRoute.name === 'feed-store') {
       return (
-        <Suspense fallback={<SettingsShell title="RSS 订阅商店" caption="正在打开订阅发现…" onBack={() => setSettingsRoute(settingsRoute.returnTo ? { name: settingsRoute.returnTo } : null)}><p className="page-x text-paper-muted">正在加载…</p></SettingsShell>}>
+        <Suspense fallback={<StartupPending pending={mainSurfaceVisible}><SettingsShell title="RSS 订阅商店" caption="正在打开订阅发现…" onBack={() => setSettingsRoute(settingsRoute.returnTo ? { name: settingsRoute.returnTo } : null)}><p className="page-x text-paper-muted">正在加载…</p></SettingsShell></StartupPending>}>
         <FeedStoreScreen
           prefs={prefs}
           currentCategoryId={categoryId}
@@ -1820,6 +1835,8 @@ export default function App() {
           laterIds={laterIds}
           prestoredIds={prestore.articleIds}
           showLead={false}
+          homeFeedLayout={prefs.homeFeedLayout}
+          onHomeFeedLayoutChange={(layout) => update((prev) => setHomeFeedLayout(prev, layout))}
           offline={offline}
           translationPrefs={prefs.translation}
           customSources={prefs.customSources}
@@ -1827,6 +1844,7 @@ export default function App() {
           onLoadMore={() => void loadMore([focusSource.id])}
           onOpen={openArticle}
           onBack={closeSourceFeed}
+          resolvedTheme={resolvedTheme}
           catalogSource={focusSource.kind === 'web-catalog' ? focusSource : undefined}
         />
       )
@@ -1844,7 +1862,6 @@ export default function App() {
           }`}
           presetsSummary={`${presets.activePreset?.name ?? '未选择'} · ${regularCategories.length} 分类 · ${enabledIds.length} 源`}
           typographySummary={typographySummary}
-          uiFontSummary={uiFontSummary}
           appearanceSummary={appearanceSummary}
           translationSummary={translationSummary}
           readAloudSummary={readAloudSummary}
@@ -1865,7 +1882,6 @@ export default function App() {
           onOpenCategories={() => setSettingsRoute({ name: 'categories', returnTo: 'me' })}
           onOpenPresets={() => setSettingsRoute({ name: 'presets' })}
           onOpenTypographySettings={() => setSettingsRoute({ name: 'typography' })}
-          onOpenUiFontSettings={() => setSettingsRoute({ name: 'ui-font' })}
           onOpenAppearanceSettings={() => setSettingsRoute({ name: 'appearance' })}
           onOpenTranslationSettings={() => setSettingsRoute({ name: 'translation' })}
           onOpenWikiSettings={() => window.dispatchEvent(new Event('newsnook:open-wiki-settings'))}
@@ -1931,6 +1947,8 @@ export default function App() {
         prestoredIds={prestore.articleIds}
         showLead
         homeFeedLayout={prefs.homeFeedLayout}
+        onHomeFeedLayoutChange={(layout) => update((prev) => setHomeFeedLayout(prev, layout))}
+        resolvedTheme={resolvedTheme}
         offline={offline}
         categories={categories}
         categoryId={categoryId}
@@ -1965,7 +1983,7 @@ export default function App() {
 
   return (
     <AppShell>
-      <BrowserLauncher />
+      <BrowserLauncher onVisibilityChange={setBrowserOpen} />
       <div className="flex h-full w-full flex-row overflow-hidden">
         {!activeSiteId && <DesktopSidebar
           categories={categories}
@@ -1996,8 +2014,10 @@ export default function App() {
           onNavigateLater={() => setSettingsRoute({ name: 'later' })}
           onNavigateHistory={() => setSettingsRoute({ name: 'history' })}
           onNavigateSettings={() => {
-            setTab('me')
-            setSettingsRoute(null)
+            startTransition(() => {
+              setTab('me')
+              setSettingsRoute(null)
+            })
           }}
           onNavigateAbout={() => setSettingsRoute({ name: 'about' })}
           onBrandTap={onBrandTap}
@@ -2016,9 +2036,9 @@ export default function App() {
           {activeSiteId === 'zhihu' ? (
             <Suspense
               fallback={
-                <div role="status" className="flex h-full items-center justify-center font-mono text-[12px] text-paper-faint">
+                <StartupPending pending={mainSurfaceVisible}><div role="status" className="flex h-full items-center justify-center font-mono text-[12px] text-paper-faint">
                   正在打开知乎工作区…
-                </div>
+                </div></StartupPending>
               }
             >
               <ZhihuWorkspace
@@ -2038,9 +2058,9 @@ export default function App() {
           ) : activeSiteId === 'linuxdo' ? (
             <Suspense
               fallback={
-                <div role="status" className="flex h-full items-center justify-center font-mono text-[12px] text-paper-faint">
+                <StartupPending pending={mainSurfaceVisible}><div role="status" className="flex h-full items-center justify-center font-mono text-[12px] text-paper-faint">
                   正在打开 Linux.do 工作区…
-                </div>
+                </div></StartupPending>
               }
             >
               <LinuxDoWorkspace
@@ -2054,11 +2074,15 @@ export default function App() {
             </Suspense>
           ) : (
             <>
-              {renderTab()}
+              <Suspense fallback={<StartupPending pending={mainSurfaceVisible && !settingsRoute}><div role="status" className="page-x min-h-0 flex-1 py-4 text-sm text-paper-muted">正在打开页面…</div></StartupPending>}>
+                {renderTab()}
+              </Suspense>
 
-              <GlobalReadAloudBar
-                currentReaderArticleId={reading?.id ?? null}
-              />
+              {readAloudUiEnabled && (
+                <Suspense fallback={null}>
+                  <GlobalReadAloudBar currentReaderArticleId={reading?.id ?? null} />
+                </Suspense>
+              )}
 
               {!focusSource && tab !== 'sites' && (
                 <TabBar
@@ -2066,17 +2090,26 @@ export default function App() {
                   laterCount={later.length}
                   hasUpdate={appUpdate.hasUpdate}
                   onChange={(key) => {
-                    setFocusSourceId(null)
-                    setFocusReturnRoute(null)
-                    if (key !== 'me') setReaderReturnArticle(null)
-                    setTab(key)
+                    // Preserve the current surface until a cold lazy tab is ready.
+                    startTransition(() => {
+                      setFocusSourceId(null)
+                      setFocusReturnRoute(null)
+                      if (key !== 'me') setReaderReturnArticle(null)
+                      setTab(key)
+                    })
                   }}
                   onTodayDoubleTap={() => setTodayPullRefreshSeq((seq) => seq + 1)}
                   presetSwitcher={presetSwitcherConfig}
                 />
               )}
 
-              {renderSettings()}
+              <Suspense fallback={
+                <StartupPending pending={mainSurfaceVisible}><div role="status" className="page-x py-4 text-sm text-paper-muted">
+                  正在打开设置…
+                </div></StartupPending>
+              }>
+                {renderSettings()}
+              </Suspense>
             </>
           )}
         </main>
@@ -2091,7 +2124,7 @@ export default function App() {
       {reading && (
         <Suspense
           fallback={
-            <div
+            <StartupPending pending={!browserOpen}><div
               role="status"
               aria-label="正在打开文章"
               className="absolute inset-0 z-30 flex items-center justify-center bg-ink"
@@ -2103,23 +2136,33 @@ export default function App() {
                   正在打开分享的文章…
                 </span>
               ) : null}
-            </div>
+            </div></StartupPending>
           }
         >
           <ReaderScreen
             article={reading}
+            startupVisible={!browserOpen}
             saved={laterIds.has(reading.id)}
             onClose={closeReader}
             onToggleLater={toggleLater}
             onCacheChange={handleBodyCacheChange}
             overlayCloserRef={readerOverlayCloserRef}
             translationPrefs={prefs.translation}
-            readAloudPrefs={prefs.readAloud}
-            floatReaderNav={prefs.ui.floatReaderNav}
-            onToggleFloatReaderNav={(enabled) => update((prev) => updateUiPrefs(prev, { floatReaderNav: enabled }))}
-            onTranslationProviderChange={(provider) =>
-              update((prev) => ({ ...prev, translation: { ...prev.translation, provider } }))
+            onTranslationPrefsChange={(patch) =>
+              update((prev) => ({
+                ...prev,
+                translation: { ...prev.translation, ...patch },
+              }))
             }
+            onOpenTranslationSettings={() => {
+              setReaderReturnArticle(reading)
+              setReaderReturnSiteId(activeSiteId)
+              if (activeSiteId) leaveActiveSite()
+              setReading(null)
+              setSettingsRoute({ name: 'translation' })
+              setTab('me')
+            }}
+            readAloudPrefs={prefs.readAloud}
             customSources={prefs.customSources}
             einkMode={Boolean(prefs.einkMode)}
             wifiOnlyAutoLoadMedia={Boolean(prefs.wifiOnlyAutoLoadMedia)}
@@ -2142,7 +2185,11 @@ export default function App() {
         <OpenInAppBanner href={openInAppUrl} onDismiss={() => setOpenInAppDismissed(true)} />
       )}
 
-      <WikiSelectionLayer />
+      {wikiReady && (
+        <Suspense fallback={null}>
+          <WikiSelectionLayer />
+        </Suspense>
+      )}
 
       <SchemeOnboardingPrompt
         open={showSchemeOnboarding}
@@ -2179,15 +2226,19 @@ export default function App() {
         onConfirm={dismissDeepLinkError}
         onCancel={dismissDeepLinkError}
       />
-      <UpdateDialog
-        open={appUpdate.dialogOpen}
-        release={appUpdate.dialogRelease}
-        localVersion={appUpdate.localVersion}
-        onUpdate={appUpdate.onUpdate}
-        onLater={appUpdate.onLater}
-        onSkip={appUpdate.onSkip}
-        allowPermanentSkip={appUpdate.dialogOrigin === 'manual'}
-      />
+      {appUpdate.dialogOpen && appUpdate.dialogRelease && (
+        <Suspense fallback={null}>
+          <UpdateDialog
+            open={appUpdate.dialogOpen}
+            release={appUpdate.dialogRelease}
+            localVersion={appUpdate.localVersion}
+            onUpdate={appUpdate.onUpdate}
+            onLater={appUpdate.onLater}
+            onSkip={appUpdate.onSkip}
+            allowPermanentSkip={appUpdate.dialogOrigin === 'manual'}
+          />
+        </Suspense>
+      )}
       <OptionPickerDialog
         open={appUpdate.trackPickerOpen}
         title="更新通道"

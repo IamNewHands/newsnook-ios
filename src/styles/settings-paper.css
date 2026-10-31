@@ -22,8 +22,7 @@
   --color-haze: var(--paper-stroke);
   background: var(--paper-bg);
   color: var(--paper-text);
-  /* 跟随「界面字体」设置（--ui-font）；不要在这里再写死字体栈，否则设置页不响应。 */
-  font-family: var(--font-body);
+  font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', 'Source Han Sans SC', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }

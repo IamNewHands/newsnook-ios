@@ -19,9 +19,9 @@ export function FeedSkeleton({ showLead = false, rows = 6, layout = 'classic' }:
         !isDesktop ? (
           /* 移动端头条骨架 (Mobile: < lg) */
           <div className={`lead-hero ${layout === 'cards' ? 'is-framed' : ''}`}>
-            <div className="ink-shimmer h-[13.75rem] w-full sm:h-[15rem]" />
+            <div className="ink-shimmer h-[14.5rem] w-full sm:h-[16rem]" />
             <div className="lead-cover-veil" />
-            <div className="lead-hero-copy page-x pb-3.5 pt-8 sm:pb-4">
+            <div className="lead-hero-copy page-x pb-4 pt-10 sm:pb-4.5">
               <div className="ink-shimmer h-2 w-24 rounded-full" />
               <div className="ink-shimmer mt-3 h-4 w-[88%] rounded-full" />
               <div className="ink-shimmer mt-2 h-4 w-[62%] rounded-full" />
@@ -52,9 +52,9 @@ export function FeedSkeleton({ showLead = false, rows = 6, layout = 'classic' }:
       )}
 
       {/* 分组日期条 */}
-      <div className="page-x lg:px-6 xl:px-8 2xl:px-10 flex items-center gap-3 pt-5 pb-2">
+      <div className="page-x lg:px-6 xl:px-8 2xl:px-10 flex items-center gap-2.5 pt-5 pb-2">
         <div className="ink-shimmer h-2 w-16 rounded-full" />
-        <span className="h-px flex-1 bg-haze" />
+        <span className="h-px w-8 bg-gradient-to-r from-haze/80 to-transparent" />
       </div>
 
       {/* 手机骨架严格跟随所选布局，切换时不出现结构跳变。 */}
@@ -81,21 +81,20 @@ export function FeedSkeleton({ showLead = false, rows = 6, layout = 'classic' }:
             ))}
           </ul>
         ) : (
-          <ul className="divide-y divide-haze">
+          <ul className="divide-y divide-haze/35">
             {Array.from({ length: rows }, (_, index) => (
               <li
                 key={index}
-                className="flex items-center gap-3 bg-ink px-4 py-3.5 sm:gap-3.5 sm:px-5 sm:py-4"
+                className="flex items-center gap-4 bg-ink px-4 py-3.5 sm:px-5 sm:py-4"
                 style={{ opacity: 1 - index * 0.11 }}
               >
-                <span className="self-start mt-1.5 h-3.5 w-px shrink-0 bg-haze" />
                 <span className="min-w-0 flex-1">
-                  <span className="ink-shimmer block h-2 w-28 rounded-full" />
-                  <span className="ink-shimmer mt-2.5 block h-3.5 w-[92%] rounded-full" />
-                  <span className="ink-shimmer mt-2 block h-3.5 w-[64%] rounded-full" />
-                  <span className="ink-shimmer mt-2.5 block h-2.5 w-[80%] rounded-full" />
+                  <span className="ink-shimmer block h-2 w-24 rounded-full" />
+                  <span className="ink-shimmer mt-2 block h-3.5 w-[92%] rounded-full" />
+                  <span className="ink-shimmer mt-1.5 block h-3.5 w-[64%] rounded-full" />
+                  <span className="ink-shimmer mt-2 block h-2.5 w-[80%] rounded-full" />
                 </span>
-                <span className="ink-shimmer h-17 w-17 shrink-0 rounded-md" />
+                <span className="ink-shimmer h-16 w-[5.35rem] shrink-0 rounded-[10px] sm:h-[4.5rem] sm:w-[6rem]" />
               </li>
             ))}
           </ul>

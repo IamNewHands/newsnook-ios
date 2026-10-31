@@ -1,12 +1,14 @@
 import './lib/logger'
-import { StrictMode, Suspense, lazy, createElement } from 'react'
+import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import './index.css'
-const rootView = lazy(() => import('./BootstrapRoot').then(module => ({default: module.BootstrapRoot})))
+import { bootMark } from './lib/startupPerf'
+import { BootstrapRoot } from './BootstrapRoot'
+bootMark('main-module-ready')
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Suspense fallback={null}>{createElement(rootView)}</Suspense>
+    <BootstrapRoot />
   </StrictMode>,
 )

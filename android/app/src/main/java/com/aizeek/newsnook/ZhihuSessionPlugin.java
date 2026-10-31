@@ -64,14 +64,21 @@ public class ZhihuSessionPlugin extends Plugin {
     private WebView authWebView;
     private volatile PluginCall pendingCall;
     private final AtomicBoolean probing = new AtomicBoolean(false);
-    private final OkHttpClient identityClient = new OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .followRedirects(false)
-        .followSslRedirects(false)
-        .build();
+    private volatile OkHttpClient identityClient;
     private volatile boolean finishing;
     private volatile boolean closeRequested;
+
+    private synchronized OkHttpClient identityClient() {
+        if (identityClient == null) {
+            identityClient = new OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(15, TimeUnit.SECONDS)
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .build();
+        }
+        return identityClient;
+    }
 
     @PluginMethod
     public void authenticate(PluginCall call) {
@@ -299,7 +306,7 @@ public class ZhihuSessionPlugin extends Plugin {
             .header("Cookie", checkedCookieHeader);
         if (!userAgent.isEmpty()) request.header("User-Agent", userAgent);
 
-        identityClient.newCall(request.build()).enqueue(new Callback() {
+        identityClient().newCall(request.build()).enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException error) {
                 probing.set(false);
@@ -499,7 +506,8 @@ public class ZhihuSessionPlugin extends Plugin {
 
     @Override
     protected void handleOnDestroy() {
-        identityClient.dispatcher().cancelAll();
+        OkHttpClient client = identityClient;
+        if (client != null) client.dispatcher().cancelAll();
         if (pendingCall != null) {
             pendingCall.reject("ZH_AUTH_DESTROYED", "知乎认证页已被系统关闭");
             pendingCall = null;

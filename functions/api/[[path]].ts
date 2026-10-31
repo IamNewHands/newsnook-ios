@@ -1,4 +1,5 @@
 import { findSource, offsetPageRequest, userAgentFor, type NewsSource } from '../../src/sources/registry.ts'
+import { imageReferer } from '../../src/lib/imageProxy.ts'
 
 export interface EventContext<Env = unknown, Params extends string = any, Data = Record<string, unknown>> {
   request: Request
@@ -203,24 +204,19 @@ export const onRequest: PagesFunction = async (context) => {
       const isNetease = /(?:^|\.)(?:163\.com|netease\.com|126\.net)$/i.test(targetUrl.hostname)
       const isBilibiliAsset = BILIBILI_ASSET_HOST_RE.test(targetUrl.hostname)
       if (!isMedia && isNetease && targetUrl.protocol === 'http:') targetUrl.protocol = 'https:'
-      const isWechatImage =
-        !isMedia &&
-        /(?:^|\.)(?:mmbiz\.qpic\.cn|mmecoa\.qpic\.cn|qlogo\.cn)$/i.test(targetUrl.hostname)
-
       const headers: Record<string, string> = {
         'User-Agent': isNetease && !isMedia ? 'NewsApp' : requestedUa || BROWSER_UA,
         Accept: isMedia ? '*/*' : 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
       }
-      if (!isWechatImage) {
-        headers.Referer = isNetease
-          ? isMedia
-            ? 'https://3g.163.com/'
-            : 'https://www.163.com/'
+      const referer = isMedia
+        ? isNetease
+          ? 'https://3g.163.com/'
           : isBilibiliAsset
             ? 'https://www.bilibili.com/'
             : `${targetUrl.origin}/`
-      }
+        : imageReferer(targetUrl.href)
+      if (referer) headers.Referer = referer
 
       const range = isMedia ? request.headers.get('Range') : null
       if (range) headers.Range = range

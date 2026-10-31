@@ -252,6 +252,58 @@ try {
   assert.equal(calls.removed.length, 2)
   await click(button('清空书签'))
   assert.equal(calls.clear, 2)
+
+  // Explicitly saved private bookmarks have an independent disclosure gate.
+  // Ordinary bookmarks remain visible; private entries cannot leak through search,
+  // counts, favicons or rendered DOM until five consecutive title activations.
+  const secret = [{url:'https://hidden.example/private/path?token=example',title:'私密收藏',time:now + 1}]
+  let privateRemovals: string[] = []
+  let privateClears = 0
+  const privateProps = { ...placesProps, kind: 'bookmarks' as const, privateMode: true,
+    privateEntries: secret, onPrivateRemove: (url: string) => {privateRemovals.push(url)},
+    onPrivateClear: () => {privateClears++},
+  }
+  await act(async () => root.render(<BrowserPlacesPanel key="private-bookmarks" {...privateProps} />))
+  const secretTitle = () => window.document.querySelector('section[aria-label="书签"] h2 button') as HTMLButtonElement | null
+  assert.ok(secretTitle(), 'only private-mode bookmark headings accept the hidden tap gesture')
+  assert.ok(window.document.body.textContent?.includes('构建可读的网页'), 'normal bookmarks remain visible in private mode')
+  assert.ok(!window.document.body.textContent?.includes('私密收藏'), 'private item title is never visible before unlock')
+  assert.ok(!window.document.documentElement.outerHTML.includes('hidden.example'), 'locked bookmark URL never reaches the DOM')
+  assert.ok(window.document.body.textContent?.includes('共 2 个书签'), 'locked counts exclude hidden entries')
+  await search('hidden.example')
+  assert.ok(window.document.body.textContent?.includes('没有找到相关记录'), 'locked search must not reveal private results')
+  await click(button('清空搜索'))
+  for (let i = 0; i < 4; i++) await click(secretTitle()!)
+  assert.ok(!window.document.documentElement.outerHTML.includes('hidden.example'), 'four title taps cannot reveal entries')
+  await click(button('打开：构建可读的网页'))
+  await click(secretTitle()!)
+  assert.ok(!window.document.documentElement.outerHTML.includes('hidden.example'), 'a different control interrupts the streak')
+  for (let i = 0; i < 3; i++) await click(secretTitle()!)
+  assert.ok(!window.document.documentElement.outerHTML.includes('hidden.example'))
+  await click(secretTitle()!)
+  assert.ok(button('打开：私密收藏'), 'five consecutive title taps reveal private bookmarks')
+  assert.ok(window.document.body.textContent?.includes('隐私书签'), 'revealed items remain distinguished from normal')
+  assert.ok(window.document.body.textContent?.includes('共 3 个书签'))
+  for (let i = 0; i < 5; i++) await click(secretTitle()!)
+  assert.ok(!window.document.documentElement.outerHTML.includes('hidden.example'), 'another five taps hide the private section')
+  for (let i = 0; i < 5; i++) await click(secretTitle()!)
+  assert.ok(button('打开：私密收藏'), 'hidden bookmarks can be deliberately reopened')
+  await search('hidden.example')
+  assert.ok(button('打开：私密收藏'), 'only an unlocked collection can be searched')
+  await click(button('清空搜索'))
+  await click(button('删除：私密收藏'))
+  assert.deepEqual(privateRemovals, [secret[0].url], 'private removal cannot use normal bookmark mutation')
+  await click(button('清空隐私书签'))
+  assert.equal(privateClears, 1, 'private bulk deletion is separate from normal clear')
+  assert.equal(calls.clear, 2, 'normal bookmark clear is unaffected')
+  await act(async () => root.render(<BrowserPlacesPanel key="private-bookmarks" {...privateProps} privateMode={false} />))
+  assert.equal(secretTitle(), null, 'normal mode title is not an unlock control')
+  assert.ok(!window.document.documentElement.outerHTML.includes('hidden.example'), 'normal mode cannot see private bookmarks')
+  await act(async () => root.render(<BrowserPlacesPanel key="private-bookmarks" {...privateProps} />))
+  assert.ok(!window.document.documentElement.outerHTML.includes('hidden.example'), 'switching mode on the same mounted panel resets temporary unlock')
+  await act(async () => root.render(<BrowserPlacesPanel key="private-again" {...privateProps} />))
+  assert.ok(!window.document.documentElement.outerHTML.includes('hidden.example'), 'reopening the page resets temporary unlock')
+
   await act(async () => root.render(<BrowserPlacesPanel key="empty-history" kind="history" {...placesProps} entries={[]} hiddenHostCount={0} />))
   assert.ok(window.document.body.textContent?.includes('暂无浏览历史'))
   assert.ok(!window.document.querySelector('button[aria-label="清空浏览历史"]'))

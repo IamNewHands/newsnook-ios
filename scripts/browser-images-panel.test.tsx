@@ -185,8 +185,9 @@ try {
   await flush()
   assert.equal(document.querySelector('[data-image-track] img[alt="慢速图片 0"]')?.getAttribute('src'), currentSource,
     'late cancelled thumbnail replies cannot replace or invalidate the loaded main image')
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 400)) })
   const adjacentRead = busyReads.find(read => read.request.imageId === 'busy-1' && !read.request.thumbnail)
-  assert.ok(adjacentRead, 'the adjacent display image is prefetched')
+  assert.ok(adjacentRead, 'one small neighbour is prefetched only after the current image loads and settles')
   await act(async () => adjacentRead.resolve(busyResponse(adjacentRead.request)))
   await flush()
   const decodedAdjacent = document.querySelector<HTMLImageElement>('[data-image-track] img[src^="blob:"]:not([alt="慢速图片 0"])')!
@@ -199,5 +200,20 @@ try {
   assert.equal(button('调整图片').disabled, false, 'selecting a decoded browser image leaves loaded-only actions enabled')
   assert.ok(!document.querySelector('[data-image-stage]')?.textContent?.includes('图片加载中'),
     'selecting a decoded browser image cannot leave the main stage loading')
-  console.log('Browser image panel: bounded lazy grid, saturated queue recovery, main-image loading, private export confirmation and layered back OK')
+  const largeSnapshot: BrowserImageSnapshot = { ...snapshot, requestId: 'large-photo',
+    items: [{ ...snapshot.items[0], id: 'large-photo', alt: '超大照片', width: 6500, height: 4300 }] }
+  await act(async () => root.render(<BrowserImagesPanel {...props} snapshot={largeSnapshot} privateMode={false}
+    loadImage={async request => {
+      if (request.thumbnail) throw new Error('图片较大，点开即可查看')
+      return busyResponse(request)
+    }}/>))
+  await act(async () => { for (const notify of observed.values()) notify(true) })
+  await flush()
+  assert.ok(document.body.textContent?.includes('点击查看大图'),
+    'a too-large thumbnail must be shown as a deliberate open-image action, not a broken photo')
+  await click('查看：超大照片')
+  await flush()
+  assert.ok(document.querySelector('[data-image-track] img[src^="blob:"]'),
+    'the full image must still open when its thumbnail exceeded the background budget')
+  console.log('Browser image panel: lazy grid, large thumbnails, main-image priority, private export and layered back OK')
 } finally { await act(async () => root.unmount()) }

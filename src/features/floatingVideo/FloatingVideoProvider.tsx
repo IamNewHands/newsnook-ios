@@ -1,9 +1,13 @@
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { Suspense, lazy, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { App as CapacitorApp } from '@capacitor/app'
 import { VideoSessionManagerContext } from './context'
 import { createVideoSessionManager } from './session'
-import { VideoSessionHost } from './VideoSessionHost'
+// No player hosts exist during an ordinary app startup. Delay the heavy
+// video presentation tree until the first session is registered.
+const VideoSessionHost = lazy(() =>
+  import('./VideoSessionHost').then(module => ({ default: module.VideoSessionHost })),
+)
 import { setNativeLiveSurfaceSuppressed } from '../mediaSniffer/native'
 import { createLiveSuppressionCoordinator } from './nativeSurfaceCoordinator'
 
@@ -40,6 +44,8 @@ export function FloatingVideoProvider({ children }: { children: ReactNode }) {
   }, [manager, suppression])
   return <VideoSessionManagerContext.Provider value={manager}>
     {children}
-    {sessions.map(session => <VideoSessionHost key={session.id} manager={manager} session={session} />)}
+    <Suspense fallback={null}>
+      {sessions.map(session => <VideoSessionHost key={session.id} manager={manager} session={session} />)}
+    </Suspense>
   </VideoSessionManagerContext.Provider>
 }

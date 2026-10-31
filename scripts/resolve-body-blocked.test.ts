@@ -16,6 +16,7 @@ const article = {
 
 const resolved = buildBlockedPublisherFallbackForTest(article, 'https://example.com/paywall')
 assert.equal(resolved.bodySource, 'blocked')
-assert.ok(resolved.contentHtml.includes('原站暂不支持站内阅读'))
+assert.ok(resolved.contentHtml.includes('原站正文暂不可读取'))
+assert.ok(!resolved.contentHtml.includes('付费墙'), 'unknown HTTP failures cannot be diagnosed as paywalls')
 
 console.log('resolve-body-blocked tests passed')

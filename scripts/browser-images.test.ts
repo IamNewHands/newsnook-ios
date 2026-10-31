@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import {
-  BrowserImageLoader, BrowserImageMemory, browserImageBlob, dedupeBrowserImages,
+  BrowserImageLoader, BrowserImageMemory, browserImageBlob, dedupeBrowserImages, isBrowserImageFile,
   isBrowserImageResponseCurrent, isBrowserImageSnapshot,
   type BrowserImageCandidate, type BrowserImageData, type BrowserImageLoadRequest, type BrowserImageSnapshot,
 } from '../src/features/browser/browserImages'
@@ -30,9 +30,13 @@ for (const overrides of [{ tabId: 4 }, { documentId: 'same-url-reloaded' }, { re
   assert.ok(!isBrowserImageResponseCurrent(request, response(request, overrides)))
 }
 assert.equal(browserImageBlob(response(request)).size, 3)
-assert.throws(() => browserImageBlob(response(request, { mimeType: 'text/html' })), /格式/)
+assert.throws(() => browserImageBlob(response(request, { mimeType: 'text/html' })), /无效/)
 assert.throws(() => browserImageBlob(response(request, { byteLength: 4 })), /不完整/)
-assert.throws(() => browserImageBlob(response(request, { byteLength: 7 * 1024 * 1024 })), /预算/)
+assert.throws(() => browserImageBlob(response(request, { byteLength: 9 * 1024 * 1024 })), /预算/)
+const legacyImage = Buffer.alloc(7 * 1024 * 1024 + 3, 19)
+assert.equal(browserImageBlob(response(request, { byteLength: legacyImage.length,
+  dataUrl: 'data:image/png;base64,' + legacyImage.toString('base64') })).size, legacyImage.length,
+  'a valid >6MB legacy inline payload is no longer rejected by the arbitrary 6MB rule')
 const created: string[] = [], revoked: string[] = []
 const create = URL.createObjectURL, revoke = URL.revokeObjectURL
 URL.createObjectURL = () => { const value = 'blob:test-' + created.length; created.push(value); return value }
@@ -133,6 +137,22 @@ try {
   switching.cancelExports()
   assert.equal(await exportPromise, '图片读取已取消', 'closing a viewer cancels an original-byte request before any export')
   switching.close()
+
+  // Native original export returns a scoped private file, not a giant Base64 string.
+  const releasedFiles: unknown[] = []
+  const fileLoader = new BrowserImageLoader(snapshot, async req => ({ ...response(req, {
+    dataUrl: undefined, fileUri: 'file:///data/user/0/com.example/cache/export-large.jpg',
+    byteLength: 18 * 1024 * 1024, mimeType: 'image/jpeg',
+  }) }), async req => { releasedFiles.push(req) }, () => {})
+  const nativeOriginal = await fileLoader.original(snapshot.items[0])
+  assert.ok(isBrowserImageFile(nativeOriginal), 'native original must be a file URI instead of blob')
+  if (isBrowserImageFile(nativeOriginal)) {
+    assert.equal(nativeOriginal.byteLength, 18 * 1024 * 1024)
+    await fileLoader.releaseOriginal(nativeOriginal)
+    assert.deepEqual(releasedFiles[0], { tabId: 3, documentId: snapshot.documentId,
+      requestId: nativeOriginal.requestId }, 'export source is released by its exact document/request identity')
+  }
+  fileLoader.close()
 
   const busyRequests: { request: BrowserImageLoadRequest; resolve: (data: BrowserImageData) => void }[] = []
   const busyCancelled: BrowserImageLoadRequest[] = []

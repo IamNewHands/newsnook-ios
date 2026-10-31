@@ -3,6 +3,7 @@ import { validateFeedUrl } from './routeBuilder'
 import { discoverSiteFeeds } from './siteDiscovery'
 import { discoverRssHubRadar } from '../rsshub/radar'
 import { parseRssHubLogicalInput, describeRssHubRoute } from '../rsshub/input'
+import { twitterProfileRssHubRoute } from '../rsshub/twitter'
 import { DEFAULT_RSSHUB_INSTANCES, validateRssHubRoutePath, type RssHubInstance } from '../rsshub/instances'
 import type { FeedDiscoveryEntry } from './types'
 
@@ -36,6 +37,18 @@ export async function searchOnlineFeeds(query: string, signal?: AbortSignal, ins
     }
     const siteUrl = websiteSearchUrl(value)
     if (siteUrl) {
+      // X has no native feed and its public page may require login. Resolve an
+      // explicit profile URL locally instead of treating its HTML as a feed.
+      const twitter = twitterProfileRssHubRoute(siteUrl)
+      if (twitter) {
+        return [{
+          providerId: 'rsshub', entryId: 'rsshub:twitter:' + twitter.handle.toLowerCase(),
+          type: 'rsshub', title: `X / Twitter · @${twitter.handle}`,
+          categories: [], siteUrl, routeTemplate: twitter.routePath,
+          routePath: twitter.routePath, parameters: {}, missingParameters: [],
+          statusNote: 'X 不提供官方 RSS；正在检测可用 RSSHub 服务',
+        }]
+      }
       // A pasted feed link for a configured RSSHub instance already contains a
       // logical route. Do not download the Radar catalog or probe the service
       // merely to recognize it; preview will validate the actual feed.

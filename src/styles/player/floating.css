@@ -1,41 +1,273 @@
+/* Ink Player floating mode — edge-to-edge media, no chrome outside its frame. */
 .floating-video-window {
   position: fixed;
   z-index: 120;
   overflow: hidden;
-  border: 1px solid rgba(255,255,255,.18);
-  border-radius: 12px;
-  background: #0c0d10;
-  color: #f6f2e9;
-  box-shadow: 0 10px 36px rgba(0,0,0,.38);
-  touch-action: none;
   isolation: isolate;
+  touch-action: none;
+  border: 0;
+  border-radius: 13px;
+  background: var(--tone-ink-deep);
+  color: var(--tone-paper);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .26), 0 1px 5px rgba(0, 0, 0, .15), 0 0 0 1px rgba(255, 255, 255, .06);
 }
-.floating-video-titlebar { height: 44px; display: flex; align-items: center; background: #191a1d; }
-.floating-video-titlebar button, .video-session-page header button {
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0; width: 44px; height: 44px; cursor: pointer;
+.floating-video-slot {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
-.floating-video-titlebar button:active { background: rgba(255,255,255,.12); }
-.floating-video-drag { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; height: 44px; padding-left: 12px; cursor: move; user-select: none; }
-.floating-video-drag svg { flex-shrink: 0; opacity: .5; }
-.floating-video-drag span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; }
-.floating-video-slot { height: calc(100% - 44px); }
-.floating-video-slot > div, .floating-video-slot [data-video-compact], .floating-video-slot [data-video-stage] { width: 100%; height: 100%; }
-[data-video-compact] { border: 0; border-radius: 0; }
-[data-video-fullscreen="true"] { visibility: visible; }
-[data-video-compact] .ink-video-bottom-chrome { padding: 20px 8px 0; }
-[data-video-compact] .ink-video-bottom-chrome button { width: 36px; height: 36px; }
-[data-video-compact] .ink-video-bottom-chrome .video-extended-control { display: none; }
-[data-video-compact] .video-time { display: none; }
+.floating-video-slot > div,
+.floating-video-slot [data-video-compact],
+.floating-video-slot [data-video-stage] {
+  width: 100%;
+  height: 100%;
+}
+.floating-video-slot [data-video-compact] {
+  border: 0;
+  border-radius: 0;
+}
+.floating-video-slot [data-video-compact] .reader-video-aspect {
+  height: 100%;
+  aspect-ratio: auto;
+}
+.floating-video-slot [data-video-compact] .reader-video-aspect::before { display: none; }
+.floating-video-slot [data-video-fullscreen='true'] { visibility: visible; }
+
+/* The drag strip and actions live *over* the footage; no separate title bar. */
+.floating-video-chrome {
+  position: absolute;
+  z-index: 11;
+  inset: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  height: 51px;
+  padding: 4px 5px 0 4px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, rgba(5, 8, 12, .68), rgba(5, 8, 12, .18) 70%, transparent);
+  opacity: 1;
+  transition: opacity 190ms ease;
+}
+.floating-video-drag {
+  /* Only the grip takes touches; dragging must not consume half of a 240px video. */
+  flex: 0 0 42px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 42px;
+  min-width: 42px;
+  height: 37px;
+  padding: 0 7px;
+  cursor: move;
+  touch-action: none;
+  user-select: none;
+  pointer-events: auto;
+}
+.floating-video-drag svg {
+  flex: none;
+  opacity: .75;
+}
+.floating-video-drag span {
+  position: absolute;
+  top: 13px;
+  left: 42px;
+  display: block;
+  max-width: calc(100% - 132px);
+  pointer-events: none;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: rgba(255, 255, 255, .91);
+  text-shadow: 0 1px 5px rgba(0, 0, 0, .45);
+}
+[data-floating-narrow] .floating-video-drag span { display: none; }
+.floating-video-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+}
+.floating-video-actions button {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 35px;
+  height: 35px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(10, 13, 18, .20);
+  color: rgba(255, 255, 255, .95);
+  cursor: pointer;
+  transition: background-color 170ms ease, transform 170ms ease;
+}
+.floating-video-actions button:active { background: rgba(255, 255, 255, .18); transform: scale(.94); }
+.floating-video-actions button:hover { background: rgba(15, 20, 27, .55); }
+[data-floating-chrome='hidden'] .floating-video-chrome { opacity: 0; }
+[data-floating-chrome='hidden'] .floating-video-actions { pointer-events: none; }
+[data-floating-chrome='hidden'] .floating-video-actions button { pointer-events: none; }
+.floating-video-idle-grip {
+  position: absolute;
+  z-index: 11;
+  top: 8px;
+  left: 13px;
+  width: 18px;
+  height: 3px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .60);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 170ms ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .30);
+}
+[data-floating-chrome='hidden'] .floating-video-idle-grip { opacity: 1; }
+
+/* Floating playback offers only one central play/pause and a quiet timeline. */
+/* Compact HUDs: readable feedback without hiding the film behind large overlays. */
+[data-video-compact] .ink-gesture-level {
+  display: flex;
+  width: 29px;
+  padding: 5px 3px;
+  gap: 3px;
+  border-radius: 9px;
+  background: rgba(17, 20, 25, .58);
+}
+[data-video-compact] .ink-gesture-level--brightness { left: 5px; }
+[data-video-compact] .ink-gesture-level--volume { right: 5px; }
+[data-video-compact] .ink-gesture-level-track { height: 30px; width: 2px; }
+[data-video-compact] .ink-gesture-level svg { width: 13px; height: 13px; }
+[data-video-compact] .ink-gesture-level-value { font-size: 9px; }
+[data-video-compact] .ink-gesture-notice--top { align-items: center; padding-top: 0; }
+[data-video-compact] .ink-gesture-notice-body {
+  min-height: 27px;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: 9px;
+  font-size: 10px;
+}
+[data-video-compact] .ink-gesture-notice-body svg { width: 13px; height: 13px; }
+[data-video-compact] .ink-gesture-time { font-size: 12px; }
+[data-video-compact] .ink-gesture-secondary { display: none; }
 [data-video-compact] .ink-video-top-chrome { display: none; }
-[data-video-compact] .ink-video-abs-center { width: 42px; height: 42px; }
-.floating-video-resize { position: absolute; bottom: 0; right: 0; z-index: 10; display: flex; align-items: end; justify-content: end; width: 44px; height: 44px; padding: 4px; cursor: nwse-resize; background: linear-gradient(135deg,transparent 30%,rgba(0,0,0,.7)); touch-action: none; }
-[data-video-compact] .video-fullscreen-control { margin-right: 32px; }
-.floating-video-tip { position: absolute; top: 48px; left: 6px; right: 6px; z-index: 12; background: rgba(0,0,0,.85); padding: 8px; border-radius: 6px; font-size: 11px; line-height: 1.5; }
-.floating-video-window :focus-visible, .video-session-page :focus-visible { outline: 2px solid #e9d5a5; outline-offset: -3px; }
-.video-session-page { position: fixed; inset: 0; z-index: 120; background: #0c0d10; color: #f6f2e9; padding: var(--sat) var(--sar) var(--sab) var(--sal); overflow-y: auto; }
-.video-session-page header { display: flex; align-items: center; gap: 8px; min-height: 56px; border-bottom: 1px solid rgba(255,255,255,.12); }
-.video-session-page h2 { flex: 1; min-width: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.video-session-page-content { max-width: 960px; margin: 0 auto; padding: 16px; }
-[data-eink] .floating-video-window { box-shadow: none; border: 2px solid currentColor; }
-@media (prefers-reduced-motion: reduce) { .floating-video-window * { transition: none !important; } }
+[data-video-compact] .ink-video-bottom-chrome {
+  /* The last 44px belongs to the resize hit target, never the seek slider. */
+  padding: 0 44px 4px 10px;
+  background: linear-gradient(to top, rgba(5, 8, 12, .40), transparent);
+}
+[data-video-compact] .ink-video-bottom-chrome > div:last-child { display: none; }
+[data-video-compact] .ink-video-bottom-chrome > div:first-child { margin: 0; gap: 0; }
+[data-video-compact] .ink-video-bottom-chrome .video-time { display: none; }
+[data-video-compact] .ink-video-bottom-chrome .ink-video-seek-track { height: 2px; }
+[data-video-compact] .ink-video-bottom-chrome .ink-seek::-webkit-slider-thumb { width: 10px; height: 10px; margin-top: -4px; box-shadow: none; }
+[data-video-compact] .ink-video-bottom-chrome .ink-seek::-moz-range-thumb { width: 10px; height: 10px; box-shadow: none; }
+[data-video-compact] .ink-video-abs-center {
+  transition: opacity 170ms ease;
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  background: rgba(8, 12, 17, .40);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, .18);
+}
+[data-floating-chrome='hidden'] .ink-video-mini-toggle {
+  opacity: 0;
+  pointer-events: none;
+}
+[data-video-compact] .video-extended-control { display: none; }
+[data-mini-progress] {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 9;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  background: rgba(255, 255, 255, .22);
+}
+[data-mini-progress] > span {
+  display: block;
+  height: 100%;
+  background: var(--tone-paper);
+}
+
+/* Invisible 44px touch zone; the drawn resize glyph is just two fine corner lines. */
+.floating-video-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 14;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  background: transparent;
+  color: var(--tone-paper);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.floating-video-resize span {
+  width: 12px;
+  height: 12px;
+  margin: 0 8px 8px 0;
+  border-right: 1.5px solid rgba(255, 255, 255, .8);
+  border-bottom: 1.5px solid rgba(255, 255, 255, .8);
+  border-radius: 0 0 2px 0;
+  opacity: .70;
+  transition: opacity 150ms ease;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .55));
+}
+.floating-video-resize:hover span,
+.floating-video-resize:focus-visible span { opacity: 1; }
+/* Short first-use hint: a light caption, not a solid plaque across the video. */
+.floating-video-tip {
+  position: absolute;
+  z-index: 12;
+  top: 41px;
+  left: 13px;
+  right: auto;
+  max-width: calc(100% - 26px);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, .90);
+  text-align: left;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, .80);
+  font-size: 10px;
+  line-height: 1.5;
+  pointer-events: auto;
+}
+.floating-video-window :focus-visible,
+.video-session-page :focus-visible {
+  outline: 2px solid var(--tone-paper);
+  outline-offset: -3px;
+}
+.video-session-page {
+  position:fixed; inset:0; z-index:120; overflow-y:auto;
+  padding:var(--sat) var(--sar) var(--sab) var(--sal);
+  background:var(--tone-ink-deep); color:var(--tone-paper);
+}
+.video-session-page header {
+  display:flex; align-items:center; gap:8px; min-height:57px; padding:0 12px;
+  border-bottom:1px solid rgba(255,255,255,.1);
+}
+.video-session-page h2 { flex:1; min-width:0; font-size:15px; font-weight:580; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.video-session-page-content {
+  max-width:1060px; width:100%; margin:0 auto; padding:clamp(12px,3vw,27px);
+}
+.video-session-page-content [data-video-stage] { border-radius:10px; }
+.video-session-page-content > div { box-shadow:0 8px 32px rgba(0,0,0,.25); }
+.video-session-page-meta { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 2px; }
+.video-session-page-meta small { color:rgba(246,244,240,.57); font-size:12px; }
+.video-session-page-meta span { color:var(--tone-paper); font-size:11px; }
+[data-eink] .floating-video-window { box-shadow:none; border:2px solid currentColor; }
+@media (prefers-reduced-motion:reduce) {
+  .floating-video-window *, .video-session-page * { transition:none !important; }
+}

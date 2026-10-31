@@ -1,72 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
-import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
+import { Capacitor, type PluginListenerHandle } from '@capacitor/core'
 import { loadUserScripts } from './scripts'
 import { reduceBrowserMedia, type BrowserMediaEvent, type BrowserMediaTab } from './browserMedia'
 import { DEFAULT_BROWSER_PREFERENCES, type BrowserPreferences } from './browserPreferences'
+import { nativeBrowser, type BrowserState, type BrowserTab, type BrowserRecoverySession, type BrowserFindResult, type BrowserCommand } from './nativeBrowser'
 import type { BrowserContext } from './browserPrivacy'
 import type { BrowserImageSnapshot, BrowserImageLoadRequest, BrowserImageData, BrowserImageCancelRequest } from './browserImages'
 
-export interface BrowserState {
-  url: string | null
-  tabId?: number
-  title?: string
-  back: boolean
-  forward: boolean
-  desktop: boolean
-  loading?: boolean
-  progress?: number
-  error?: string | null
-  privateMode?: boolean
-  userAgent?: string
-  recordHistory?: boolean
-  activeScriptCount?: number
-  matchedScriptCount?: number
-}
-export interface BrowserTab {
-  index: number
-  id: number
-  title: string
-  url: string
-  active: boolean
-  loading: boolean
-  error?: string
-}
-export interface BrowserRecoverySession {
-  tabs: {url: string; title: string; desktop: boolean}[]
-  activeIndex: number
-}
-export interface BrowserFindResult {tabId: number; activeMatch: number; count: number; done: boolean}
-export type BrowserCommand = 'back' | 'forward' | 'reload' | 'stop' | 'desktop' | 'new' | 'home' | 'scanMedia' | 'downloads' | 'scriptMenu'
-interface NativeBrowser {
-  open(args: {url: string; scripts: ReturnType<typeof loadUserScripts>; embedded: true; visible: boolean; top: number; bottom: number; palette: Record<string, string>; settings: BrowserPreferences; recoverySession?: BrowserRecoverySession}): Promise<void>
-  takeRecoverySession(): Promise<{session: BrowserRecoverySession | null}>
-  navigate(args: {action: BrowserCommand | 'url'; url?: string}): Promise<void>
-  state(): Promise<BrowserState>
-  tabs(): Promise<{tabs: BrowserTab[]}>
-  activateTab(args: {index: number}): Promise<void>
-  removeTab(args: {index: number}): Promise<void>
-  setBounds(args: {top: number; bottom: number; visible: boolean}): Promise<void>
-  updateScripts(args: {scripts: ReturnType<typeof loadUserScripts>}): Promise<void>
-  updateSettings(args: {settings: BrowserPreferences}): Promise<void>
-  getBrowserContext(): Promise<BrowserContext>
-  findInPage(args: {query: string; tabId?: number}): Promise<void>
-  findNext(args: {forward: boolean; tabId?: number}): Promise<void>
-  clearFind(): Promise<void>
-  clearSiteData(args: {url: string}): Promise<void>
-  scanImages(args: {tabId: number; requestId: string}): Promise<BrowserImageSnapshot>
-  loadImage(args: BrowserImageLoadRequest): Promise<BrowserImageData>
-  cancelImageRequests(args: BrowserImageCancelRequest): Promise<void>
-  close(): Promise<void>
-  addListener(event: string, callback: (event: any) => void): Promise<PluginListenerHandle>
-}
-const nativeBrowser = registerPlugin<NativeBrowser>('NewsNookBrowser')
-const EMPTY: BrowserState = {url: null, back: false, forward: false, desktop: false}
+export { takeBrowserRecoverySession, type BrowserState, type BrowserTab, type BrowserRecoverySession, type BrowserFindResult, type BrowserCommand } from './nativeBrowser'
 
-export async function takeBrowserRecoverySession(): Promise<BrowserRecoverySession | null> {
-  if (Capacitor.getPlatform() !== 'android') return null
-  const result = await nativeBrowser.takeRecoverySession()
-  return result.session
-}
+const EMPTY: BrowserState = {url: null, back: false, forward: false, desktop: false}
+type InitialBrowserEntry = string | BrowserRecoverySession | null
+
 export async function getBrowserContext(): Promise<BrowserContext> {
   if (Capacitor.getPlatform() !== 'android') return {privateMode: false, privacyCapabilities: {privateMode: false, clearSiteData: false}}
   return nativeBrowser.getBrowserContext()
@@ -87,12 +32,16 @@ export function useBrowserSession(
   onVisit: (url: string, title: string) => void,
   bottomAddress: boolean,
   recoverySession?: BrowserRecoverySession,
-  options: {settings?: BrowserPreferences} = {},
+  options: {settings?: BrowserPreferences; initialUrl?: string; agentSheetRef?: RefObject<HTMLElement | null>; agentSheetVisible?: boolean; agentOperating?: boolean} = {},
 ) {
+  const initialEntry: InitialBrowserEntry = options.initialUrl && /^https?:\/\//i.test(options.initialUrl) ? options.initialUrl
+    : recoverySession && !(options.settings ?? DEFAULT_BROWSER_PREFERENCES).privateMode ? recoverySession : null
   const [state, setState] = useState<BrowserState>(EMPTY)
   const [tabs, setTabs] = useState<BrowserTab[]>([])
   const [mediaTabs, setMediaTabs] = useState<ReadonlyMap<number, BrowserMediaTab>>(() => new Map())
   const [ready, setReady] = useState(false)
+  const [settledInitialEntry, setSettledInitialEntry] = useState<InitialBrowserEntry>(null)
+  const initialSessionSettled = initialEntry === null || settledInitialEntry === initialEntry
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const [images, setImages] = useState<BrowserImageSnapshot | null>(null)
@@ -107,6 +56,9 @@ export function useBrowserSession(
   const queue = useRef<Promise<unknown>>(Promise.resolve())
   const pendingCount = useRef(0)
   const refreshSequence = useRef(0)
+  const initialSession = useRef({entry: initialEntry, settled: initialEntry === null, commandAcknowledged: false, snapshot: -1, hasTabs: false, visible: null as boolean | null})
+  const coveredRef = useRef(covered)
+  coveredRef.current = covered
   const imageSequence = useRef(0)
   const imageRequest = useRef<{tabId: number; requestId: string} | null>(null)
   const stateRef = useRef(state)
@@ -116,10 +68,23 @@ export function useBrowserSession(
   const visit = useRef(onVisit)
   visit.current = onVisit
 
+  useLayoutEffect(() => {
+    if (initialSession.current.entry === initialEntry) return
+    initialSession.current = {entry: initialEntry, settled: initialEntry === null, commandAcknowledged: false, snapshot: -1, hasTabs: false, visible: null}
+  }, [initialEntry])
+
   const getBounds = useCallback(() => {
     const rect = viewport.current?.getBoundingClientRect()
-    return rect ? {top: Math.max(0, rect.top), bottom: Math.max(0, window.innerHeight - rect.bottom)} : {top: 0, bottom: 56}
-  }, [viewport])
+    if (!rect) return {top: 0, bottom: 56, occludedBottom: 0}
+    const top = Math.max(0, rect.top)
+    const bottom = Math.max(0, window.innerHeight - rect.bottom)
+    const sheetTop = options.agentSheetVisible && options.agentSheetRef?.current
+      ? options.agentSheetRef.current.getBoundingClientRect().top : rect.bottom
+    // The native frame keeps the FULL browser viewport. Its drawing and hit testing
+    // are clipped below the floating workbench; DOM geometry and screenshots stay stable.
+    const occludedBottom = Math.max(0, rect.bottom - Math.max(top, sheetTop))
+    return {top, bottom, occludedBottom}
+  }, [viewport, options.agentSheetRef, options.agentSheetVisible])
 
   const invalidateImages = useCallback(() => {
     ++imageSequence.current
@@ -131,23 +96,52 @@ export function useBrowserSession(
     setImageError(null)
   }, [])
 
+  const settleInitialSession = useCallback((entry?: InitialBrowserEntry) => {
+    if (!live.current || closing.current || initialSession.current.settled) return
+    if (entry !== undefined && entry !== initialSession.current.entry) return
+    initialSession.current.settled = true
+    setSettledInitialEntry(initialSession.current.entry)
+  }, [])
+  const checkInitialSession = useCallback(() => {
+    const initial = initialSession.current
+    if (initial.settled || !initial.commandAcknowledged || pendingCount.current || initial.snapshot !== refreshSequence.current) return
+    const expectedVisible = /^https?:\/\//i.test(stateRef.current.url || '') && !stateRef.current.error && !coveredRef.current
+    if (initial.hasTabs && initial.visible !== expectedVisible) return
+    // An initial session needs a local command acknowledgement, its latest snapshot,
+    // and the native visibility acknowledgement. Website loading is independent.
+    settleInitialSession()
+  }, [settleInitialSession])
+
   const refresh = useCallback(async () => {
     const request = ++refreshSequence.current
     const generation = epoch.current
-    const [next, result] = await Promise.all([nativeBrowser.state(), nativeBrowser.tabs()])
-    if (!live.current || generation !== epoch.current || request !== refreshSequence.current) return
-    opened.current = result.tabs.length > 0
-    setReady(opened.current)
-    if (stateRef.current.tabId !== next.tabId) {invalidateImages(); setFindResult(null)}
-    stateRef.current = next
-    setState(next)
-    setTabs(result.tabs)
-    const ids = new Set(result.tabs.map(tab => tab.id))
-    setMediaTabs(previous => {
-      if ([...previous.keys()].every(id => ids.has(id))) return previous
-      return new Map([...previous].filter(([id]) => ids.has(id)))
-    })
-  }, [invalidateImages])
+    try {
+      const [next, result] = await Promise.all([nativeBrowser.state(), nativeBrowser.tabs()])
+      if (!live.current || generation !== epoch.current || request !== refreshSequence.current) return
+      opened.current = result.tabs.length > 0
+      setReady(opened.current)
+      if (stateRef.current.tabId !== next.tabId) {invalidateImages(); setFindResult(null)}
+      stateRef.current = next
+      setState(next)
+      setTabs(result.tabs)
+      initialSession.current.snapshot = request
+      initialSession.current.hasTabs = opened.current
+      const ids = new Set(result.tabs.map(tab => tab.id))
+      setMediaTabs(previous => {
+        if ([...previous.keys()].every(id => ids.has(id))) return previous
+        return new Map([...previous].filter(([id]) => ids.has(id)))
+      })
+      checkInitialSession()
+    } catch (failure) {
+      // A navigation event can supersede the command's refresh. Its latest local
+      // read must still resolve initialization when the bridge reports a failure.
+      if (live.current && generation === epoch.current && request === refreshSequence.current && !initialSession.current.settled) {
+        setError(failure instanceof Error ? failure.message : '浏览器状态读取失败，请重试')
+        settleInitialSession()
+      }
+      throw failure
+    }
+  }, [invalidateImages, checkInitialSession, settleInitialSession])
 
   useEffect(() => {
     live.current = true
@@ -162,7 +156,10 @@ export function useBrowserSession(
         if (disposed) void handle.remove()
         else handles.push(handle)
       }).catch(() => {
-        if (!disposed) setError('浏览器连接失败，请返回后重试')
+        if (!disposed) {
+          setError('浏览器连接失败，请返回后重试')
+          settleInitialSession()
+        }
       })
     }
     if (Capacitor.getPlatform() === 'android') {
@@ -201,6 +198,7 @@ export function useBrowserSession(
         setMediaTabs(new Map())
         invalidateImages()
         setFindResult(null)
+        settleInitialSession()
       })
     }
     return () => {
@@ -217,14 +215,15 @@ export function useBrowserSession(
       handles.forEach(handle => { void handle.remove().catch(() => undefined) })
       if (!closing.current) void nativeBrowser.close().catch(() => undefined)
     }
-  }, [refresh, invalidateImages])
+  }, [refresh, invalidateImages, settleInitialSession])
 
   const visible = ready && /^https?:\/\//i.test(state.url || '') && !state.error && !covered
   useLayoutEffect(() => {
     if (!ready) return
-    type Bounds = {top: number; bottom: number; visible: boolean}
+    const generation = epoch.current
+    type Bounds = {top: number; bottom: number; occludedBottom: number; visible: boolean; agentOperating: boolean}
     const equal = (a: Bounds | null, b: Bounds) =>
-      a?.top === b.top && a.bottom === b.bottom && a.visible === b.visible
+      a?.top === b.top && a.bottom === b.bottom && a.occludedBottom === b.occludedBottom && a.visible === b.visible && a.agentOperating === b.agentOperating
     let stopped = false
     let sending = false
     let frame: number | null = null
@@ -241,8 +240,18 @@ export function useBrowserSession(
       if (equal(lastSent, next)) return
       lastSent = next
       sending = true
-      void nativeBrowser.setBounds(next).catch(() => {
+      initialSession.current.visible = null
+      void nativeBrowser.setBounds(next).then(() => {
+        if (!stopped && live.current && generation === epoch.current && (!desired || equal(next, desired))) {
+          initialSession.current.visible = next.visible
+          checkInitialSession()
+        }
+      }).catch(failure => {
         if (lastSent === next) lastSent = null
+        if (!stopped && live.current && generation === epoch.current && !initialSession.current.settled) {
+          setError(failure instanceof Error ? failure.message : '浏览器显示失败，请重试')
+          settleInitialSession()
+        }
       }).finally(() => {
         sending = false
         flush()
@@ -251,12 +260,12 @@ export function useBrowserSession(
     const sync = () => {
       if (stopped) return
       const bounds = getBounds()
-      desired = {top: Math.round(bounds.top), bottom: Math.round(bounds.bottom), visible}
+      desired = {top: Math.round(bounds.top), bottom: Math.round(bounds.bottom), occludedBottom: Math.round(bounds.occludedBottom), visible, agentOperating: Boolean(options.agentOperating)}
       flush()
     }
     const schedule = () => {
       if (stopped || frame !== null) return
-      timeoutFrame = typeof requestAnimationFrame !== 'function'
+      timeoutFrame = typeof requestAnimationFrame !== 'function' || document.visibilityState === 'hidden'
       frame = timeoutFrame
         ? window.setTimeout(() => { frame = null; sync() }, 16)
         : requestAnimationFrame(() => { frame = null; sync() })
@@ -267,6 +276,7 @@ export function useBrowserSession(
     window.visualViewport?.addEventListener('resize', schedule)
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule)
     if (viewport.current) observer?.observe(viewport.current)
+    if (options.agentSheetVisible && options.agentSheetRef?.current) observer?.observe(options.agentSheetRef.current)
     return () => {
       stopped = true
       if (frame !== null) {
@@ -277,9 +287,9 @@ export function useBrowserSession(
       window.visualViewport?.removeEventListener('resize', schedule)
       observer?.disconnect()
     }
-  }, [ready, visible, getBounds, viewport, bottomAddress])
+  }, [ready, visible, initialEntry, getBounds, viewport, bottomAddress, options.agentSheetVisible, options.agentSheetRef, options.agentOperating, checkInitialSession, settleInitialSession])
 
-  const enqueue = useCallback((operation: () => Promise<void>): Promise<boolean> => {
+  const enqueue = useCallback((operation: () => Promise<void>, throwOnError = false, entry?: InitialBrowserEntry): Promise<boolean> => {
     const generation = epoch.current
     pendingCount.current++
     setPending(true)
@@ -292,16 +302,23 @@ export function useBrowserSession(
         await refresh()
         return true
       } catch (failure) {
-        if (live.current && generation === epoch.current) setError(failure instanceof Error ? failure.message : '操作失败，请重试')
+        if (live.current && generation === epoch.current) {
+          setError(failure instanceof Error ? failure.message : '操作失败，请重试')
+          settleInitialSession(entry)
+        }
+        if (throwOnError) throw failure
         return false
       } finally {
         pendingCount.current = Math.max(0, pendingCount.current - 1)
-        if (live.current && generation === epoch.current) setPending(pendingCount.current > 0)
+        if (live.current && generation === epoch.current) {
+          setPending(pendingCount.current > 0)
+          checkInitialSession()
+        }
       }
     })
     queue.current = result
     return result
-  }, [refresh])
+  }, [refresh, checkInitialSession, settleInitialSession])
 
   const ensureOpen = useCallback(async (url: string, snapshot?: BrowserRecoverySession) => {
     const generation = epoch.current
@@ -310,6 +327,7 @@ export function useBrowserSession(
       await nativeBrowser.updateScripts({scripts: loadUserScripts().filter(script => script.enabled)})
       await nativeBrowser.navigate({action: 'url', url})
     } else {
+      initialSession.current.visible = null
       await nativeBrowser.open({
         url, scripts: loadUserScripts().filter(script => script.enabled),
         settings: settingsRef.current,
@@ -317,6 +335,9 @@ export function useBrowserSession(
         ...(!settingsRef.current.privateMode && snapshot ? {recoverySession: snapshot} : {}),
       })
       if (live.current && !closing.current && generation === epoch.current) opened.current = true
+    }
+    if (live.current && !closing.current && generation === epoch.current && initialSession.current.entry === (snapshot ?? url)) {
+      initialSession.current.commandAcknowledged = true
     }
   }, [getBounds])
 
@@ -327,10 +348,10 @@ export function useBrowserSession(
       recoveryStarted.current = true
       const url = recoverySession.tabs[recoverySession.activeIndex]?.url || recoverySession.tabs[0]?.url || 'about:blank'
       await ensureOpen(url, recoverySession)
-    })
+    }, false, recoverySession)
   }, [enqueue, ensureOpen, recoverySession])
 
-  const open = useCallback((url: string) => enqueue(() => ensureOpen(url)), [enqueue, ensureOpen])
+  const open = useCallback((url: string, throwOnError = false) => enqueue(() => ensureOpen(url), throwOnError, url), [enqueue, ensureOpen])
   const command = useCallback((action: BrowserCommand): Promise<boolean> => {
     if (action === 'stop') {
       const generation = epoch.current
@@ -413,6 +434,6 @@ export function useBrowserSession(
     await nativeBrowser.close().catch(() => undefined)
   }, [])
 
-  return {state, tabs, mediaTabs, ready, pending, error, setError, open, command, activate, remove, updateScripts, updateSettings, clearSiteData,
+  return {state, tabs, mediaTabs, ready, initialSessionSettled, pending, error, setError, open, command, activate, remove, updateScripts, updateSettings, clearSiteData,
     images, scanningImages, imageError, scanImages, loadImage, cancelImageRequests, invalidateImages, findResult, findInPage, findNext, clearFind, close}
 }

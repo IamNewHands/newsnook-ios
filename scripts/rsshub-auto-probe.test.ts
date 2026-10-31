@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { parseRssHubLogicalInput, describeRssHubRoute } from '../src/features/rsshub/input'
+import { twitterProfileRssHubRoute } from '../src/features/rsshub/twitter'
 import { DEFAULT_RSSHUB_INSTANCES, addRssHubInstance } from '../src/features/rsshub/instances'
 import { probeRssHubRoute, probeRssHubRoutes, selectRssHubProbeInstances } from '../src/features/rsshub/probe'
 import type { FeedDiscoveryPreviewResult } from '../src/features/feedDiscovery/types'
@@ -40,7 +41,7 @@ const preview = async (url: string, { signal }: { signal?: AbortSignal }): Promi
 const outcome = await probeRssHubRoute(plain, instances, new AbortController().signal, undefined, preview)
 assert.equal(outcome.state, 'available')
 assert.equal(outcome.instanceId, 'cups')
-assert.ok(outcome.attempts >= 2 && outcome.attempts <= 3, 'at most two fallback requests overlap')
+assert.ok(outcome.attempts >= 2 && outcome.attempts <= 8, 'instance probing stops after a bounded set of candidates')
 assert.equal(outcome.feed?.itemCount, 12)
 assert.equal(checked.length, outcome.attempts)
 const checkedAgain: string[] = []
@@ -124,3 +125,16 @@ alreadyCancelled.abort()
 await assert.rejects(probeRssHubRoute(plain, instances, alreadyCancelled.signal, undefined, preview), { name: 'AbortError' })
 await assert.rejects(probeRssHubRoutes([plain], instances, alreadyCancelled.signal, () => { throw new Error('should not update UI') }), { name: 'AbortError' })
 console.log('rsshub logical input and progressive probe: ok')
+
+for (const url of ['https://x.com/Swang1', 'https://twitter.com/Swang1', 'https://mobile.x.com/Swang1']) {
+  assert.equal(twitterProfileRssHubRoute(url)?.routePath, '/twitter/user/Swang1')
+}
+for (const url of ['https://x.com/home', 'https://x.com/Swang1/status/123456', 'https://evilx.com/Swang1', 'https://x.com/i/bookmarks', 'https://x.com/some-long-handle-exceeding-limit']) {
+  assert.equal(twitterProfileRssHubRoute(url), null, url)
+}
+const failedTwitter = await probeRssHubRoute('/twitter/user/Swang1', instances, new AbortController().signal, undefined, async (url) => ({
+  ok: false, feedUrl: url, kind: 'unknown', message: 'HTTP 503', retryable: true, checkedAt: 123,
+}))
+assert.equal(failedTwitter.state, 'unavailable')
+assert.match(failedTwitter.detail ?? '', /多个实例|已尝试/)
+assert.match(failedTwitter.detail ?? '', /登录凭据/)

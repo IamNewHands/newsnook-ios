@@ -8,7 +8,7 @@ import {
 import { detectLanguage } from '../src/features/translation/detectLanguage'
 import { DEFAULT_TRANSLATION_PREFS, normalizeTranslationPrefs } from '../src/features/translation/config'
 import { isArticleForeign, isValidTranslationQuality } from '../src/features/translation/quality'
-import { collectFeedTranslationWork } from '../src/features/translation/useFeedTranslation'
+import { collectFeedTranslationWork } from '../src/features/translation/feedTranslationWork'
 import type { TranslatedFeedItem } from '../src/features/translation/types'
 import type { Article } from '../src/lib/types'
 

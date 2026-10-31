@@ -2,8 +2,12 @@ import { useCallback, useEffect, useRef } from 'react'
 
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import { hasSeenProductTour } from '../../lib/storage'
-import { isProductTourActive, startProductTour, stopProductTour } from './ProductTourService'
+import type * as ProductTourModule from './ProductTourService'
 import type { TourTab } from './types'
+
+// Loading driver.js on the home screen delays every returning user for a tour
+// they have already completed. Keep the active service cached only after use.
+let tourService: typeof ProductTourModule | null = null
 
 /** 启动页撤除后再等一拍，让首页列表入场动画先落定 */
 const AUTO_START_DELAY_MS = 750
@@ -25,6 +29,8 @@ interface Options {
 export function useProductTour({ ready, setTab, onFinish }: Options) {
   const reduced = useReducedMotion()
   const autoStartedRef = useRef(false)
+  const pendingStartRef = useRef(false)
+  const requestIdRef = useRef(0)
 
   const setTabRef = useRef(setTab)
   setTabRef.current = setTab
@@ -34,23 +40,53 @@ export function useProductTour({ ready, setTab, onFinish }: Options) {
   reducedRef.current = reduced
 
   const start = useCallback(() => {
-    if (isProductTourActive()) return
-    // 等两帧：重看入口会先关设置栈、切回「速闻」，待目标屏挂载后再按可见性收集步骤
+    if (pendingStartRef.current || tourService?.isProductTourActive()) return
+    pendingStartRef.current = true
+    const requestId = ++requestIdRef.current
+    // Wait for the target home screen to commit before inspecting tour anchors.
     requestAnimationFrame(() => {
+      if (requestId !== requestIdRef.current) return
       requestAnimationFrame(() => {
-        startProductTour({
-          setTab: (tab) => setTabRef.current(tab),
-          reduced: reducedRef.current,
-          onFinish: () => onFinishRef.current?.(),
+        if (requestId !== requestIdRef.current) return
+        void import('./ProductTourService').then(service => {
+          tourService = service
+          // Navigating away or pressing Back while the module loads must not
+          // open a stale overlay on top of a different screen.
+          if (requestId !== requestIdRef.current) return
+          pendingStartRef.current = false
+          service.startProductTour({
+            setTab: (tab) => setTabRef.current(tab),
+            reduced: reducedRef.current,
+            onFinish: () => onFinishRef.current?.(),
+          })
+        }).catch(() => {
+          if (requestId === requestIdRef.current) pendingStartRef.current = false
         })
       })
     })
   }, [])
 
   const stopIfActive = useCallback(() => {
-    if (!isProductTourActive()) return false
-    stopProductTour()
+    if (pendingStartRef.current) {
+      ++requestIdRef.current
+      pendingStartRef.current = false
+      return true
+    }
+    if (!tourService?.isProductTourActive()) return false
+    tourService.stopProductTour()
     return true
+  }, [])
+
+  useEffect(() => {
+    if (!ready && pendingStartRef.current) {
+      ++requestIdRef.current
+      pendingStartRef.current = false
+    }
+  }, [ready])
+
+  useEffect(() => () => {
+    ++requestIdRef.current
+    pendingStartRef.current = false
   }, [])
 
   useEffect(() => {

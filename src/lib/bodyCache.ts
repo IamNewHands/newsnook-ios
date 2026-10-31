@@ -5,8 +5,9 @@ import {
   removeLocalKeys,
   writeRawOrThrow,
 } from './storage'
-import { isPartialFeedTeaser, type BodySource } from './resolveBody'
-import { hasEmbedNoise } from './sanitize'
+import { isPartialFeedTeaser } from './resolveBody/guards'
+import type { BodySource } from './resolveBody/shared'
+import { hasEmbedNoise } from './embedNoise'
 import { hasBrokenTextEncoding } from './textEncoding'
 import type { Article } from './types'
 import { withArticlePreviewImage } from './articlePreview'

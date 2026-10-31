@@ -11,33 +11,20 @@ import { ProxyAgent, fetch as undiciFetch } from 'undici'
 import { SocksProxyAgent } from 'socks-proxy-agent'
 
 import { normalizeProxyPrefs } from './src/features/proxy/config.ts'
+import { imageReferer } from './src/lib/imageProxy.ts'
 import { planNodeUpstream } from './src/features/proxy/nodeAgent.ts'
 import type { ProxyPrefs } from './src/features/proxy/types.ts'
 import { type NewsSource } from './src/sources/registry.ts'
 import { applyWebViewCssCompat } from './scripts/webview-css-compat.ts'
-import { applyUiScale } from './scripts/ui-scale-css.ts'
 
 const { version: appVersion } = JSON.parse(readFileSync('./package.json', 'utf-8')) as {
   version: string
 }
 
-/**
- * 构建戳，显示在「我的 → 关于」的「构建」上。
- *
- * 必须**每次构建都不一样**。自签安装时 `CFBundleShortVersionString` 固定跟随上游
- * （1.8.9，设备端工具靠它判断有没有新版本，不能改），所以如果这里也只到「年月」，
- * 同一个上游版本下的所有构建在设备上完全无法区分：用户报「插件没生效」时，
- * 第一步就卡在「你到底装的是哪一版」，而答案恰恰决定了是代码问题还是装错包。
- * CI 里用 run number + 短 SHA；本地开发用日期 + 时分。
- */
+/** 构建年月戳，如 2026.08 */
 function buildStamp(): string {
-  const run = process.env.GITHUB_RUN_NUMBER?.trim()
-  const sha = process.env.GITHUB_SHA?.trim().slice(0, 7)
-  if (run) return sha ? `${run}-${sha}` : run
   const now = new Date()
-  const pad = (value: number) => String(value).padStart(2, '0')
-  const date = `${now.getFullYear()}.${pad(now.getMonth() + 1)}.${pad(now.getDate())}`
-  return `${date}-${pad(now.getHours())}${pad(now.getMinutes())}`
+  return `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
 const BROWSER_UA =
@@ -453,10 +440,6 @@ function upstreamProxy(): Plugin {
             return
           }
 
-          // 微信图床：带他站 / localhost Referer 会返回「未经允许不可引用」占位图；不传 Referer 即可
-          const isWechatImage =
-            isImage &&
-            /(?:^|\.)(?:mmbiz\.qpic\.cn|mmecoa\.qpic\.cn|qlogo\.cn)$/i.test(targetUrl.hostname)
           // 网易 flv CDN：带 localhost Origin 会 403，代理侧不传 Origin，只带站点 Referer
           const headers: Record<string, string> = {
             // Bilibili server-side page fetch with a mobile UA is less stable and may return
@@ -475,18 +458,16 @@ function upstreamProxy(): Plugin {
                   'text/html,application/xhtml+xml,application/xml,application/json;q=0.9,*/*;q=0.8',
             'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
           }
-          if (!isWechatImage) {
-            headers.Referer =
-              isNetease
-                ? isMedia
-                  ? 'https://3g.163.com/'
-                  : 'https://www.163.com/'
-                : isBilibiliPage || isBilibiliAsset
-                  ? 'https://www.bilibili.com/'
-                  : targetUrl.hostname.endsWith('.translate.goog')
-                    ? 'https://translate.google.com/'
-                    : `${targetUrl.origin}/`
-          }
+          const referer = isImage
+            ? imageReferer(targetUrl.href)
+            : isNetease
+              ? isMedia ? 'https://3g.163.com/' : 'https://www.163.com/'
+              : isBilibiliPage || isBilibiliAsset
+                ? 'https://www.bilibili.com/'
+                : targetUrl.hostname.endsWith('.translate.goog')
+                  ? 'https://translate.google.com/'
+                  : `${targetUrl.origin}/`
+          if (referer) headers.Referer = referer
 
           const range = isMedia ? req.headers.range : undefined
           if (range) headers.Range = range
@@ -704,11 +685,10 @@ function unlayerCssPlugin(): Plugin {
             code: Buffer.from(res.css),
             targets: { chrome: 69 << 16 },
           })
-          // lightningcss 无法降级含 var() 的 color-mix，最终扫一遍兜底
+          // Lower known theme colors; preserve other complete color-mix expressions.
+          // A regex ending at the first ')' corrupts nested var() values and can
+          // discard valid modern-browser styling or break final CSS compression.
           let css = colorMixToRgb(lowered.code.toString())
-            .replace(/color-mix\([^)]*\)/g, (m) => {
-              return m.includes('var(') ? 'transparent' : m
-            })
 
           // Flex gap polyfill: Chrome < 84 不支持 flex gap。
           // 为每个 .gap-* utility 追加精确的 margin fallback。
@@ -716,7 +696,7 @@ function unlayerCssPlugin(): Plugin {
           css.replace(
             /\.(gap-[^\s{]+)\s*\{\s*(column-gap|row-gap|gap):\s*([^;}]+);?\s*\}/g,
             (_full, cls: string, prop: string, val: string) => {
-              const sel = `.${cls}`
+              const sel = `.${cls}`.replace(/\\\./g, '\\.')
               if (prop === 'column-gap') {
                 gapFallbacks.push(
                   `html[data-no-flex-gap="1"] ${sel} > * + * { margin-left: ${val.trim()}; }`,
@@ -743,8 +723,7 @@ function unlayerCssPlugin(): Plugin {
 
           // lightningcss 不降级 :where()（Chrome 88+）；剥离 @property 后部分
           // Android WebView 又匹配不到 Tailwind 的 @supports 变量兜底 → divide-y 等失效
-          // 最后一步：把所有 px 字号挂到 --ui-scale 上，供「界面字体」设置项消费
-          file.source = applyUiScale(applyWebViewCssCompat(css))
+          file.source = applyWebViewCssCompat(css, { minify: true })
         }
       }
     },

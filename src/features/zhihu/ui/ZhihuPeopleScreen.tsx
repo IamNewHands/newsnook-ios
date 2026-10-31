@@ -9,6 +9,7 @@ import type { ZhihuContentSummary, ZhihuEntityRef } from '../types'
 import type { ZhihuAccountRef } from '../session/types'
 import { ZhihuContentRow, ZhihuEmptyState, ZhihuErrorBanner, ZhihuLoadingState, ZhihuSurface } from './ZhihuUi'
 import { formatZhihuCount } from './ZhihuUiUtils'
+import { ZhihuRemarkBadge, ZhihuRemarkEditButton } from './ZhihuUserRemark'
 
 interface Props {
   token: string
@@ -341,6 +342,10 @@ export function ZhihuPeopleScreen({ token, service, onOpen, interaction, authent
                   </button>
                 )}
               </div>
+              <div className="mt-1 flex min-h-8 flex-wrap items-center gap-1.5">
+                <ZhihuRemarkBadge author={profile} />
+                <ZhihuRemarkEditButton author={profile} showLabel className="border border-haze/60" />
+              </div>
               {profile.headline && <p className="mt-1 text-[12.5px] leading-relaxed text-paper-muted">{profile.headline}</p>}
             </div>
           </div>
@@ -471,7 +476,10 @@ export function ZhihuPeopleScreen({ token, service, onOpen, interaction, authent
             <button key={person.id} type="button" onClick={() => onOpen({ kind: 'people', id: person.token })} className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-paper/5">
               {person.avatarUrl ? <img src={person.avatarUrl} alt="" className="size-10 rounded-xl object-cover" loading="lazy" /> : <span className="flex size-10 items-center justify-center rounded-xl bg-paper/5"><UserRound size={17} className="text-paper-faint" /></span>}
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-display text-[15px] font-medium text-paper">{person.name}</span>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate font-display text-[15px] font-medium text-paper">{person.name}</span>
+                  <ZhihuRemarkBadge author={person} compact />
+                </span>
                 {person.headline && <span className="mt-0.5 line-clamp-2 block text-[11px] leading-[1.55] text-paper-faint">{person.headline}</span>}
               </span>
               {typeof person.followerCount === 'number' && <span className="shrink-0 font-mono text-[9.5px] text-paper-faint">{formatZhihuCount(person.followerCount)} 关注者</span>}

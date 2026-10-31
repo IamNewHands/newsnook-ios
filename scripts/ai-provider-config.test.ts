@@ -94,11 +94,13 @@ console.log('Testing AI provider configuration...')
     apiKey: 'translation-key',
     model: 'translation-model',
     concurrency: 3,
+    allowInsecureHttp: false,
   })
   assert.deepEqual(resolveAiFeatureConfig(prefs, 'speedRead'), {
     endpoint: 'https://reader.example.test/v1',
     apiKey: 'reader-key',
     model: 'speed-model',
+    allowInsecureHttp: false,
   })
   assert.equal(prefs.cloud.openai.endpoint, 'https://translate.example.test/v1')
   assert.equal(prefs.cloud.openai.model, 'translation-model')
@@ -121,3 +123,17 @@ console.log('Testing AI provider configuration...')
 }
 
 console.log('All AI provider configuration tests passed.')
+
+{
+  const prefs = normalizeTranslationPrefs({ ai: {
+    providers: [{ id: 'http-gateway', name: 'HTTP gateway', endpoint: 'http://gateway.example.com:8317/v1',
+      apiKey: 'test-key', allowInsecureHttp: true, capabilities: { tts: true } }],
+    translation: { providerId: 'http-gateway', model: 'model-a', concurrency: 2 },
+    speedRead: { providerId: 'http-gateway', model: 'model-b' },
+  } })
+  assert.equal(prefs.ai.providers[0].allowInsecureHttp, true)
+  assert.equal(resolveAiFeatureConfig(prefs, 'translation').allowInsecureHttp, true)
+  assert.equal(resolveAiFeatureConfig(prefs, 'speedRead').allowInsecureHttp, true)
+  const reset = normalizeTranslationPrefs({ ai: { ...prefs.ai, providers: [{ ...prefs.ai.providers[0], allowInsecureHttp: 'true' }] } })
+  assert.equal(reset.ai.providers[0].allowInsecureHttp, false, 'only an actual boolean opt-in grants plaintext access')
+}

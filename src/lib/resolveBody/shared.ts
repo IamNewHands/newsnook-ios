@@ -13,7 +13,7 @@ import { getRuntimeProxyPrefs } from '../http'
 import { normalizeContentImages } from '../normalizeImages'
 import { sanitizeArticleHtml } from '../sanitize'
 
-export type BodySource = 'feed' | 'readability' | 'netease' | 'video' | 'blocked'
+export type BodySource = 'feed' | 'feed-excerpt' | 'readability' | 'netease' | 'video' | 'blocked'
 
 export interface ResolvedBody {
   contentHtml: string
@@ -30,22 +30,7 @@ export interface ResolvedBody {
  */
 export type MediaResolvedHandler = (resolved: ResolvedBody) => void
 
-export function stripTags(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-export function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
+export { stripTags, escapeHtml } from '../htmlText'
 
 function imageUrlTransform(url: string): string | null {
   const transport = resolveProxyTransport(

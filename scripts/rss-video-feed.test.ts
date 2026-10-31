@@ -95,6 +95,46 @@ assert.equal(jsonArticle.contentType, 'video')
 assert.equal(jsonArticle.videoUrl, undefined)
 assert.equal(jsonArticle.image, 'https://i0.hdslb.com/bfs/archive/json.jpg')
 
+const longForm = `<p>${'这是包含视频但仍应完整阅读的周刊正文。'.repeat(55)}</p><video controls><source src="https://cdn.example.com/demo.mp4" type="video/mp4"></video><p>更多图文内容</p>`
+const mixedXml = `<rss version="2.0"><channel><item><title>带视频的长文章</title><link>https://example.com/posts/286/</link><description><![CDATA[${longForm}]]></description></item></channel></rss>`
+const [mixedArticle] = parseSourcePayload(source, mixedXml)
+assert.equal(mixedArticle.contentType, 'article', '长图文内嵌视频时不能把整个条目变成视频摘要')
+assert.equal(mixedArticle.videoUrl, undefined)
+assert.equal(normalizeLegacyVideoArticle(mixedArticle).contentType, 'article', '旧缓存升级不能再误判长图文')
+assert.equal(normalizeLegacyVideoArticle({ ...mixedArticle, contentType: 'video', videoUrl: 'https://cdn.example.com/demo.mp4' }).contentType, 'article', '修复已经缓存的错误视频类型')
+const mixedResolved = await resolveArticleBody(mixedArticle)
+assert.equal(mixedResolved.bodySource, 'feed', '带视频的长文章必须保留 RSS 全文')
+assert.match(mixedResolved.contentHtml, /更多图文内容/)
+
+// An embedded player is not an article-level video declaration. Even compact
+// editorials must not silently become a 220-character video teaser.
+const briefEditorial = `<p>${'带视频的文章有多段简短的叙述，应该继续显示正文。'.repeat(8)}</p><video controls><source src="https://cdn.example.com/embedded.mp4"></video><p>文章收尾</p>`
+const briefXml = `<rss version="2.0"><channel><item><title>含视频的短图文</title><link>https://example.com/posts/12/</link><description><![CDATA[${briefEditorial}]]></description></item></channel></rss>`
+const [briefArticle] = parseSourcePayload(source, briefXml)
+assert.equal(briefArticle.contentType, 'article', '短图文不能仅因为有 <video> 就被归为纯视频')
+assert.equal(briefArticle.videoUrl, undefined)
+assert.equal(normalizeLegacyVideoArticle({ ...briefArticle, contentType: 'video', videoUrl: 'https://cdn.example.com/embedded.mp4' }).contentType, 'article')
+
+const briefJson = JSON.stringify({
+  version: 'https://jsonfeed.org/version/1.1',
+  title: '混合内容 JSON Feed',
+  items: [{ id: 'short-1', title: '短篇图文', url: 'https://example.com/posts/13/', content_html: briefEditorial }],
+})
+assert.equal(parseSourcePayload(source, briefJson)[0]?.contentType, 'article', 'JSON Feed 使用相同的正文优先规则')
+
+// An explicit video enclosure must still win over editorial copy; a video-only
+// entry without copy must also retain its existing playback behavior.
+const explicitVideoXml = `<rss version="2.0"><channel><item><title>明确的视频附件</title><link>https://example.com/video/21</link><description><![CDATA[${briefEditorial}]]></description><enclosure url="https://cdn.example.com/video/21.mp4" type="video/mp4" /></item></channel></rss>`
+assert.equal(parseSourcePayload(source, explicitVideoXml)[0]?.contentType, 'video')
+const [explicitArticle] = parseSourcePayload(source, explicitVideoXml)
+assert.equal(normalizeLegacyVideoArticle(explicitArticle).contentType, 'video', '真正的视频附件不能被缓存兼容逻辑误降级')
+// Atom uses rel="enclosure" rather than RSS <enclosure>.
+const enclosureAtom = `<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>Atom 视频附件</title><link rel="alternate" href="https://example.com/posts/15/"/><link rel="enclosure" href="https://cdn.example.com/atom.mp4" type="video/mp4"/><content type="html"><![CDATA[${briefEditorial}]]></content></entry></feed>`
+assert.equal(parseSourcePayload(source, enclosureAtom)[0]?.contentType, 'video')
+
+const videoOnlyXml = `<rss version="2.0"><channel><item><title>纯视频内容</title><link>https://example.com/posts/14/</link><description><![CDATA[<video controls src="https://cdn.example.com/only.mp4"></video>]]></description></item></channel></rss>`
+assert.equal(parseSourcePayload(source, videoOnlyXml)[0]?.contentType, 'video')
+
 const legacy = normalizeLegacyVideoArticle({
   ...bilibiliArticle,
   contentType: 'article',

@@ -37,6 +37,16 @@ assert.deepEqual(
   ),
   ['new', 'same', 'old'],
 )
+// A refresh must replace the misclassified old video metadata with the
+// corrected article, not preserve the cached video flag for matching IDs.
+const repaired = mergeHeadPage(
+  [{ ...article('same-id', 20), contentType: 'video', videoUrl: 'https://cdn.example.com/embedded.mp4' }],
+  [{ ...article('same-id', 21), contentType: 'article' }],
+)
+assert.equal(repaired.length, 1)
+assert.equal(repaired[0].contentType, 'article')
+assert.equal(repaired[0].videoUrl, undefined)
+
 assert.deepEqual(mergeOlderPage([article('a', 30)], [article('a', 30), article('b', 20)]), {
   merged: [article('a', 30), article('b', 20)],
   added: 1,

@@ -15,6 +15,7 @@ import type { ZhihuEntityRef } from '../types'
 import { canExecuteZhihuOperation } from '../protocol'
 import { ZhihuAuthorAvatar, ZhihuEmptyState, ZhihuErrorBanner, ZhihuSectionHeader } from './ZhihuUi'
 import { formatZhihuCount } from './ZhihuUiUtils'
+import { ZhihuRemarkBadge, ZhihuRemarkEditButton } from './ZhihuUserRemark'
 
 interface Props {
   target: ZhihuCommentTarget
@@ -414,7 +415,7 @@ function CommentItem({
           <ZhihuAuthorAvatar author={comment.author} className={depth === 0 ? 'size-8' : 'size-7'} />
         </button>
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5 leading-none">
+          <div className="flex min-w-0 flex-wrap items-center gap-1 leading-tight">
             <button
               type="button"
               onClick={() => onNavigate(
@@ -425,10 +426,13 @@ function CommentItem({
             >
               {comment.author.name}
             </button>
+            <ZhihuRemarkBadge author={comment.author} />
+            <ZhihuRemarkEditButton author={comment.author} />
             {comment.replyToAuthor && (
               <>
                 <span className="shrink-0 text-[10px] text-paper-faint/70">回复</span>
                 <span className="min-w-0 truncate text-[11px] text-paper-muted">{comment.replyToAuthor.name}</span>
+                <ZhihuRemarkBadge author={comment.replyToAuthor} compact />
               </>
             )}
           </div>

@@ -4,7 +4,7 @@ import {
   type PluginListenerHandle,
 } from '@capacitor/core'
 
-import { normalizeOpenAiBaseUrl } from '../../translation/openai'
+import { assertOpenAiEndpointAndKey } from '../../translation/openai'
 import type { AiProviderConfig } from '../../translation/types'
 import { isNativeReadAloudAvailable, ReadAloudNative } from '../native'
 import type {
@@ -63,15 +63,12 @@ function buildEndpoint(
   if (!selection.model.trim()) throw new Error('AI TTS 未填写 Model')
   if (!selection.voice.trim()) throw new Error('请填写 AI TTS Voice')
 
-  const normalizedBase = normalizeOpenAiBaseUrl(provider.endpoint.trim())
+  const normalizedBase = assertOpenAiEndpointAndKey(provider)
   let base: URL
   try {
     base = new URL(normalizedBase)
   } catch {
     throw new Error('AI TTS Base URL 格式不正确')
-  }
-  if (base.protocol !== 'https:') {
-    throw new Error('为保护 API Key，AI TTS Base URL 必须使用 HTTPS')
   }
 
   let path = base.pathname.replace(/\/+$/, '')
@@ -226,6 +223,7 @@ async function fetchSpeechPayload(
       url: requestConfig.url.toString(),
       headers: requestConfig.headers,
       data: requestConfig.body,
+      disableRedirects: requestConfig.url.protocol === 'http:',
       responseType:
         requestConfig.responseKind === 'chat-json' ? 'json' : 'blob',
       connectTimeout: CONNECT_TIMEOUT_MS,

@@ -1,5 +1,6 @@
 import { memo, useEffect, useId, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Capacitor } from '@capacitor/core'
 import {
   ArrowDown,
   ArrowUp,
@@ -128,6 +129,9 @@ export function PresetSwitcher({
   const [renameTarget, setRenameTarget] = useState<ManagedItem | null>(null)
   const [browserQuery, setBrowserQuery] = useState('')
   const titleId = useId()
+  // The embedded WebView has an Android implementation only. User agent
+  // detection would incorrectly expose it in Android's ordinary web browsers.
+  const canOpenBrowser = Capacitor.getPlatform() === 'android'
 
   useEffect(() => {
     if (!open) {
@@ -136,7 +140,7 @@ export function PresetSwitcher({
   }, [open])
 
   const handleOpenBrowserWithQuery = (queryText?: string) => {
-    if (!onOpenBrowser) return
+    if (!canOpenBrowser || !onOpenBrowser) return
     const trimmed = (queryText !== undefined ? queryText : browserQuery).trim()
     setOpen(false)
     setBrowserQuery('')
@@ -293,7 +297,7 @@ export function PresetSwitcher({
             </div>
           </div>
 
-            {onOpenBrowser ? (
+            {canOpenBrowser && onOpenBrowser ? (
               <div className="px-3.5 pt-3 sm:px-5">
                 <div className="flex w-full items-center gap-2 rounded-xl border border-haze/80 bg-ink p-1.5 transition-colors focus-within:border-cinnabar/40 focus-within:bg-ink-raised hover:border-cinnabar/30">
                   <button

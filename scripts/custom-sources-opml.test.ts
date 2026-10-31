@@ -95,6 +95,26 @@ assert.equal(updatedPrefs.customSources?.[0].name, '阮一峰博客')
 assert.equal(updatedPrefs.customSources?.[0].label, '阮博客')
 assert.equal(updatedPrefs.customSources?.[0].url, 'https://feed.ruanyifeng.com/atom.xml')
 
+// RSSHub source identity and fallback metadata survive renaming, but never
+// follow a changed URL without a newly verified route.
+const hubMetadata = {
+  generator: 'rsshub' as const, providerId: 'rsshub', entryId: 'rsshub:logical:/jike/user/123',
+  routeKey: '/jike/user/123', instanceId: 'stsecurity',
+  verification: { status: 'verified' as const, checkedAt: 123 },
+}
+const hub = addCustomSource(DEFAULT_PREFERENCES, {
+  name: '即刻订阅', url: 'https://rsshub.stsecurity.moe/jike/user/123', discovery: hubMetadata,
+})
+const renamedHub = updateCustomSource(hub.nextPrefs, hub.newSourceId, { name: '新名称' })
+assert.deepEqual(renamedHub.customSources?.[0].discovery, hubMetadata, 'rename keeps RSSHub instance and route')
+const movedHub = updateCustomSource(hub.nextPrefs, hub.newSourceId, { url: 'https://example.com/atom.xml' })
+assert.equal(movedHub.customSources?.[0].discovery, undefined, 'edited URL cannot retain stale RSSHub route')
+const reboundHub = updateCustomSource(hub.nextPrefs, hub.newSourceId, {
+  url: 'https://rsshub.cups.moe/jike/user/123',
+  discovery: { ...hubMetadata, instanceId: 'cups' },
+})
+assert.equal(reboundHub.customSources?.[0].discovery?.instanceId, 'cups', 're-verified URL keeps new instance metadata')
+
 // 4. Persistence & Normalization roundtrip
 const serialized = JSON.stringify(updatedPrefs)
 const parsed = JSON.parse(serialized)

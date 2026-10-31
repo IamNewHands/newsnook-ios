@@ -193,7 +193,7 @@ public class DlnaCastPlugin extends Plugin {
                     playWithRetry(device);
                     directReady = confirmDirectPlayback(device);
                 } catch (Exception directError) {
-                    Log.i(TAG, "Direct cast unavailable for " + device.id + "; falling back to relay");
+                    if (BuildConfig.DEBUG) Log.i(TAG, "Direct cast unavailable for " + device.id + "; falling back to relay");
                 }
 
                 if (directReady) {
@@ -246,7 +246,7 @@ public class DlnaCastPlugin extends Plugin {
                 sessions.put(sessionId, session);
                 saveCastResume(session);
 
-                Log.i(TAG, "Cast started renderer=" + device.id + " mode=" + mode);
+                if (BuildConfig.DEBUG) Log.i(TAG, "Cast started renderer=" + device.id + " mode=" + mode);
                 call.resolve(sessionToJson(session));
             } catch (Exception error) {
                 Context context = getContext();
@@ -354,7 +354,7 @@ public class DlnaCastPlugin extends Plugin {
                 result.put("status", statusToJson(session, transport));
                 call.resolve(result);
             } catch (Exception error) {
-                Log.d(TAG, "Cast restore deferred: " + safeMessage(error));
+                if (BuildConfig.DEBUG) Log.d(TAG, "Cast restore deferred: " + safeMessage(error));
                 call.resolve(new JSObject());
             }
         });
@@ -494,7 +494,7 @@ public class DlnaCastPlugin extends Plugin {
         }
 
         try {
-            Log.i(
+            if (BuildConfig.DEBUG) Log.i(
                 TAG,
                 "Discovery start interface=" + multicastInterface.getName() + " timeoutMs=" + timeoutMs
             );
@@ -514,7 +514,7 @@ public class DlnaCastPlugin extends Plugin {
                         lanHttp
                     );
                     if (device == null || device.avTransport == null) {
-                        Log.d(TAG, "Ignoring UPnP response without AVTransport: " + entry.getKey());
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Ignoring UPnP response without AVTransport: " + entry.getKey());
                         continue;
                     }
                     found.put(device.id, device);
@@ -536,7 +536,7 @@ public class DlnaCastPlugin extends Plugin {
                 throw new IOException("已发现局域网设备，但无法读取投屏信息：" + detail);
             }
 
-            Log.i(
+            if (BuildConfig.DEBUG) Log.i(
                 TAG,
                 "Discovery finished responses=" + locations.size() + " renderers=" + found.size()
             );
@@ -685,7 +685,7 @@ public class DlnaCastPlugin extends Plugin {
             }
         }
 
-        Log.i(
+        if (BuildConfig.DEBUG) Log.i(
             TAG,
             "SSDP finished interface=" + multicastInterface.getName()
                 + " packets=" + responseCount

@@ -327,6 +327,21 @@ export function AiProviderSettings({ prefs, onChange }: Props) {
                     />
                     <label className="flex items-center justify-between gap-4 rounded-xl border border-haze bg-ink px-3.5 py-3">
                       <span className="min-w-0">
+                        <span className="block text-[13px] text-paper">允许明文 HTTP API</span>
+                        <span className="mt-0.5 block text-[11px] leading-relaxed text-paper-faint">
+                          仅 Android 原生请求可用。密钥和内容未经加密，仅对可信的自建服务开启。
+                        </span>
+                      </span>
+                      <input
+                        type="checkbox"
+                        aria-label="允许明文 HTTP API"
+                        checked={provider.allowInsecureHttp === true}
+                        onChange={(event) => updateProvider(provider.id, { allowInsecureHttp: event.target.checked })}
+                        className="h-4 w-4 shrink-0 accent-[var(--color-cinnabar)]"
+                      />
+                    </label>
+                    <label className="flex items-center justify-between gap-4 rounded-xl border border-haze bg-ink px-3.5 py-3">
+                      <span className="min-w-0">
                         <span className="block text-[13px] text-paper">支持 AI TTS</span>
                         <span className="mt-0.5 block font-mono text-[9.5px] leading-relaxed text-paper-faint">
                           仅在该接口明确兼容 /audio/speech 时开启

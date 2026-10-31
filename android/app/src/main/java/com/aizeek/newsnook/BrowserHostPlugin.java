@@ -1,27 +1,37 @@
 package com.aizeek.newsnook;
 
+import android.animation.ValueAnimator;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Paint;
+import android.graphics.Rect;
+import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Message;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.inputmethod.EditorInfo;
 import android.webkit.CookieManager;
-import android.webkit.DownloadListener;
-import android.webkit.URLUtil;
+import android.webkit.JsResult;
+import android.webkit.JsPromptResult;
 import android.webkit.WebChromeClient;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebResourceRequest;
@@ -32,6 +42,8 @@ import androidx.webkit.WebStorageCompat;
 import androidx.webkit.WebViewFeature;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -143,6 +155,8 @@ public class BrowserHostPlugin extends Plugin {
         int documentScriptVersion = -1;
         boolean freshDocumentRequired;
         BrowserPageProfile pageProfile;
+        BrowserAgentRuntime agent;
+        BrowserAgentInput agentInput;
         boolean siteDataClearing;
         boolean recreateAfterSiteClear;
         int progress;
@@ -160,6 +174,126 @@ public class BrowserHostPlugin extends Plugin {
         boolean includeSubdomains;
         int retirementGeneration;
         SiteDataClear(PluginCall call, String host) { this.call = call; this.host = host; }
+    }
+
+    /**
+     * A native WebView is layered ABOVE Capacitor's HTML UI. Rather than shrink the
+     * WebView when an AI sheet opens (which changes CSS viewport and DOM positions),
+     * clip only the rendered/touchable portion. Web content keeps its real layout.
+     */
+    private static final class ClippedBrowserFrame extends FrameLayout {
+        private int occludedBottomPx;
+        private boolean agentOperating;
+        private final Paint agentPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF agentBorder = new RectF();
+        private ValueAnimator agentBreathing;
+        private float agentIntensity = 1f;
+        private final Paint sheetShadowPaint = new Paint();
+        private int sheetShadowBottom = -1;
+
+        ClippedBrowserFrame(Context context) { super(context); }
+
+        void setAgentOperating(boolean operating, int color) {
+            agentPaint.setColor(color);
+            if (agentOperating == operating) return;
+            agentOperating = operating;
+            syncAgentBreathing();
+            invalidate();
+        }
+
+        private void syncAgentBreathing() {
+            boolean animate = agentOperating && isAttachedToWindow() && isShown() && getWindowVisibility() == VISIBLE
+                && (Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled());
+            if (animate && agentBreathing == null) {
+                agentBreathing = ValueAnimator.ofFloat(.45f, 1f);
+                agentBreathing.setDuration(1400);
+                agentBreathing.setRepeatMode(ValueAnimator.REVERSE);
+                agentBreathing.setRepeatCount(ValueAnimator.INFINITE);
+                agentBreathing.addUpdateListener(value -> {
+                    agentIntensity = (float) value.getAnimatedValue();
+                    invalidate();
+                });
+                agentBreathing.start();
+            } else if (!animate && agentBreathing != null) {
+                agentBreathing.cancel();
+                agentBreathing = null;
+                agentIntensity = 1f;
+            }
+        }
+
+        @Override protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            syncAgentBreathing();
+        }
+
+        @Override protected void onDetachedFromWindow() {
+            if (agentBreathing != null) {
+                agentBreathing.cancel();
+                agentBreathing = null;
+            }
+            super.onDetachedFromWindow();
+        }
+
+        @Override protected void onVisibilityChanged(View changedView, int visibility) {
+            super.onVisibilityChanged(changedView, visibility);
+            syncAgentBreathing();
+        }
+
+        @Override protected void onWindowVisibilityChanged(int visibility) {
+            super.onWindowVisibilityChanged(visibility);
+            if (visibility != VISIBLE && agentBreathing != null) {
+                agentBreathing.cancel();
+                agentBreathing = null;
+            } else if (visibility == VISIBLE) syncAgentBreathing();
+        }
+
+        void setOccludedBottom(int pixels) {
+            int next = Math.max(0, pixels);
+            if (occludedBottomPx == next) return;
+            occludedBottomPx = next;
+            invalidate();
+        }
+
+        @Override public void draw(Canvas canvas) {
+            int visibleHeight = Math.max(0, getHeight() - occludedBottomPx);
+            int save = canvas.save();
+            canvas.clipRect(0, 0, getWidth(), visibleHeight);
+            super.draw(canvas);
+            if (occludedBottomPx > 0 && visibleHeight > 0) {
+                // HTML shadows sit UNDER this native WebView, so paint the sheet's
+                // backdrop and elevation here. Keep page input and screenshots intact.
+                canvas.drawColor(Color.argb(30, 0, 0, 0));
+                float shadowHeight = 32 * getResources().getDisplayMetrics().density;
+                if (sheetShadowBottom != visibleHeight) {
+                    sheetShadowBottom = visibleHeight;
+                    sheetShadowPaint.setShader(new LinearGradient(0, visibleHeight - shadowHeight,
+                        0, visibleHeight, Color.TRANSPARENT, Color.argb(75, 0, 0, 0), Shader.TileMode.CLAMP));
+                }
+                canvas.drawRect(0, Math.max(0, visibleHeight - shadowHeight), getWidth(), visibleHeight, sheetShadowPaint);
+            }
+            // Draw above the native website, within the exposed viewport. This never
+            // enters page DOM/screenshots or consumes touches intended for the page.
+            if (agentOperating && visibleHeight > 0 && getWidth() > 0) {
+                float density = getResources().getDisplayMetrics().density;
+                agentPaint.setStyle(Paint.Style.STROKE);
+                for (int band = 14; band >= 2; band--) {
+                    float width = band * density;
+                    agentPaint.setStrokeWidth(width * 2);
+                    agentPaint.setAlpha(Math.round((band == 2 ? 155 : 5) * agentIntensity));
+                    agentBorder.set(0, 0, getWidth(), visibleHeight);
+                    canvas.drawRoundRect(agentBorder, 10 * density, 10 * density, agentPaint);
+                }
+            }
+            canvas.restoreToCount(save);
+        }
+
+        @Override public boolean dispatchTouchEvent(MotionEvent event) {
+            // Let the Capacitor HTML layer underneath handle dragging and clicking
+            // inside the assistant sheet. Native web content remains interactive above.
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN
+                    && event.getY() >= Math.max(0, getHeight() - occludedBottomPx)) return false;
+            return super.dispatchTouchEvent(event);
+        }
     }
 
     private SiteDataClear siteDataClear;
@@ -190,8 +324,23 @@ public class BrowserHostPlugin extends Plugin {
     private volatile boolean closing;
     private boolean destroyed;
     private boolean activityPaused;
+    private boolean agentBackgroundHeld;
     private boolean embeddedVisible = true;
     private int scriptVersion;
+    private String agentScriptAsset;
+    private final BrowserAgentSession agentOwner = new BrowserAgentSession();
+    private BrowserAgentFiles agentFiles;
+    private final BrowserAgentDialogs agentDialogs = new BrowserAgentDialogs();
+    private ActivityResultLauncher<Intent> agentChooserLauncher;
+    private String launchedChooserId;
+    private boolean agentBarrier;
+    private boolean agentDrainInFlight;
+    private long agentDrainGeneration;
+    private Tab agentDrainTab;
+    private String agentDrainRunId;
+    private final List<Runnable> agentDrainSuccess = new ArrayList<>();
+    private final List<java.util.function.Consumer<String>> agentDrainFailure = new ArrayList<>();
+    private boolean agentTabTransition;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private Tab fullscreenTab;
     private View customFullscreen;
@@ -567,6 +716,7 @@ public class BrowserHostPlugin extends Plugin {
         boolean visible = Boolean.TRUE.equals(call.getBoolean("visible", true));
         float top = call.getFloat("top", 0f);
         float bottom = call.getFloat("bottom", 0f);
+        float occludedBottom = call.getFloat("occludedBottom", 0f);
         onUi(call, () -> {
             savePrivacyPreference(requestedSettings.privateMode);
             closeNative();
@@ -579,8 +729,11 @@ public class BrowserHostPlugin extends Plugin {
                 preferences = getContext().getSharedPreferences("newsnook-native-browser", Context.MODE_PRIVATE);
                 browserSettings = requestedSettings;
                 updatePalette(palette);
-                if (embed) createEmbedded(top, bottom);
-                else createDialog();
+                if (embed) {
+                    createEmbedded(top, bottom);
+                    if (pageFrame instanceof ClippedBrowserFrame)
+                        ((ClippedBrowserFrame) pageFrame).setOccludedBottom(dp(occludedBottom));
+                } else createDialog();
                 if (recovery != null) {
                     restoreTabs(recovery);
                     call.resolve();
@@ -687,23 +840,54 @@ public class BrowserHostPlugin extends Plugin {
         state.put("loading", tab != null && (tab.loading || tab.preparing));
         state.put("progress", tab == null ? 0 : tab.progress);
         state.put("error", tab == null || tab.error == null ? JSONObject.NULL : tab.error);
+        state.put("documentId", tab == null || tab.agent == null ? "" : tab.agent.documentId());
+        state.put("agentState", agentOwner.state());
+        state.put("agentViewport", agentViewportState(tab));
         return state;
+    }
+
+    private JSObject agentViewportState(Tab tab) {
+        WebView view = tab == null ? null : tab.webView;
+        int width = view == null ? 0 : view.getWidth(), height = view == null ? 0 : view.getHeight();
+        Rect bounds = tab == current && isLive(tab, view) ? agentVisibleBounds(view) : new Rect();
+        boolean visible = width > 0 && height > 0 && !bounds.isEmpty();
+        boolean occluded = view != null && (bounds.left > view.getPaddingLeft() || bounds.top > view.getPaddingTop()
+            || bounds.right < width - view.getPaddingRight() || bounds.bottom < height - view.getPaddingBottom());
+        return new JSObject().put("width", width).put("height", height)
+            .put("visibleRect", new JSObject().put("left", bounds.left).put("top", bounds.top)
+                .put("right", bounds.right).put("bottom", bounds.bottom))
+            .put("visible", visible).put("occluded", occluded)
+            .put("layoutPending", view != null && (view.isLayoutRequested() || pageFrame != null && pageFrame.isLayoutRequested()));
     }
 
     @PluginMethod public void setBounds(PluginCall call) {
         float top = call.getFloat("top", 0f);
         float bottom = call.getFloat("bottom", 0f);
         boolean visible = Boolean.TRUE.equals(call.getBoolean("visible", true));
+        boolean agentOperating = Boolean.TRUE.equals(call.getBoolean("agentOperating", false));
+        float occludedBottom = call.getFloat("occludedBottom", 0f);
         onUi(call, () -> {
             if (!embeddedMode || pageFrame == null) { call.resolve(); return; }
+            Rect previousVisible = current == null || current.webView == null ? null : agentVisibleBounds(current.webView);
             setEmbeddedBounds(top, bottom);
+            if (pageFrame instanceof ClippedBrowserFrame) {
+                ((ClippedBrowserFrame) pageFrame).setOccludedBottom(dp(occludedBottom));
+                ((ClippedBrowserFrame) pageFrame).setAgentOperating(agentOperating, accent);
+            }
             // 拖拽面板期间会高频更新可视区域。仅在显隐真正改变时切换 WebView 生命周期，
             // 否则每帧 onResume()/onPause() 都会干扰渲染与视频播放。
             if (embeddedVisible != visible) {
                 embeddedVisible = visible;
+                if (current != null && current.agent != null) current.agent.invalidateVisual();
+                if (!visible) pauseAgentForHuman("hidden");
                 pageFrame.setVisibility(visible ? View.VISIBLE : View.GONE);
                 syncTabActivity();
             }
+            // Occlusion changes only the clipped overlay. The shot still requires identical
+            // visible bounds at dispatch, while real View layout/scroll events retire it.
+            if (current != null && previousVisible != null && !previousVisible.equals(agentVisibleBounds(current.webView)))
+                cancelAgentInputForViewport(current);
+            layoutBackgroundAgent();
             call.resolve();
         });
     }
@@ -749,12 +933,426 @@ public class BrowserHostPlugin extends Plugin {
         onUi(call, () -> { closeNative(); call.resolve(); });
     }
 
+    private String agentScriptSource() throws java.io.IOException {
+        if (agentScriptAsset != null) return agentScriptAsset;
+        try (java.io.InputStream input = getContext().getAssets().open("browser-agent.js");
+             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
+            byte[] chunk = new byte[4096];
+            int count;
+            while ((count = input.read(chunk)) != -1) out.write(chunk, 0, count);
+            agentScriptAsset = out.toString(java.nio.charset.StandardCharsets.UTF_8.name());
+            return agentScriptAsset;
+        }
+    }
+
+    @PluginMethod public void agentSession(PluginCall call) {
+        onUi(call, () -> {
+            String action = call.getString("action", ""), runId = call.getString("runId", "");
+            try {
+                if ("start".equals(action) || "resume".equals(action)) {
+                    if (agentBarrier) { call.reject("网页正在确认停止，请稍候"); return; }
+                    if (agentDialogs.isShowing()) { call.reject("请先处理网页确认框"); return; }
+                    if (activityPaused) { call.reject("请先返回浏览器页面"); return; }
+                    Tab tab = current;
+                    if (tab == null || !isLive(tab, tab.webView) || tab.agent == null || pageFrame == null) {
+                        call.reject("请先打开网页"); return;
+                    }
+                    int requestedTab = call.getInt("tabId", tab.id);
+                    if (requestedTab != tab.id) { call.reject("标签页已切换"); return; }
+                    if (!browserSettings.javaScriptEnabled) { call.reject("请先在浏览器设置中启用 JavaScript"); return; }
+                    if ("start".equals(action)) agentOwner.start(runId, tab.id);
+                    else agentOwner.resume(runId, tab.id);
+                    tab.agent.resume(runId);
+                    try {
+                        BrowserAgentForegroundService.acquire(getContext(), () -> pauseAgentForHuman("background_service_stopped"));
+                        agentBackgroundHeld = true;
+                        tab.webView.getSettings().setOffscreenPreRaster(true);
+                    } catch (RuntimeException error) {
+                        pauseAgentForHuman("background_service_failed");
+                        call.reject("无法启动后台任务服务，请重试"); return;
+                    }
+                    call.resolve(agentSessionState());
+                    return;
+                }
+                if (!"pause".equals(action) && !"stop".equals(action)) { call.reject("无效的任务状态"); return; }
+                agentOwner.requireOwner(runId);
+                Tab tab = findAgentTab(agentOwner.tabId());
+                if ("stop".equals(action)) agentOwner.stop(runId); else agentOwner.pause(runId);
+                releaseAgentBackground();
+                if (agentFiles != null) {
+                    if ("stop".equals(action)) agentFiles.cancelRun(runId);
+                    else if (tab != null && tab.agent != null) agentFiles.cancelDocument(tab.id, tab.agent.documentId());
+                }
+                drainAgent(tab, runId, () -> call.resolve(agentSessionState()), call::reject);
+                if ("stop".equals(action)) agentDialogs.close(true);
+            } catch (IllegalArgumentException | IllegalStateException error) { call.reject(error.getMessage()); }
+        });
+    }
+
+    private JSObject agentSessionState() {
+        Tab tab = findAgentTab(agentOwner.tabId());
+        return new JSObject().put("runId", agentOwner.runId()).put("state", agentOwner.state())
+            .put("tabId", tab == null ? -1 : tab.id)
+            .put("documentId", tab == null || tab.agent == null ? "" : tab.agent.documentId())
+            .put("capabilities", tab == null || tab.agent == null ? new JSONObject() : tab.agent.capabilities());
+    }
+
+    private Tab findAgentTab(int id) { for (Tab tab : tabs) if (tab.id == id) return tab; return null; }
+
+    private void drainAgent(Tab tab, String runId, Runnable success, java.util.function.Consumer<String> failure) {
+        if (agentDrainSuccess.isEmpty() && !agentDrainInFlight) {
+            agentDrainTab = tab;
+            agentDrainRunId = runId;
+        } else if (!runId.equals(agentDrainRunId)) { failure.accept("另一任务仍在确认停止"); return; }
+        agentDrainSuccess.add(success);
+        agentDrainFailure.add(failure);
+        agentBarrier = true;
+        if (tab != null && tab.agentInput != null) tab.agentInput.cancel(true);
+        continueAgentDrain();
+    }
+
+    private void continueAgentDrain() {
+        // A modal JavaScript dialog suspends script execution. Start the renderer ACK timer
+        // only after the user has answered or an explicit stop has cancelled the dialog.
+        if (agentDrainInFlight || agentDialogs.isShowing() || agentDrainSuccess.isEmpty()) return;
+        Tab tab = agentDrainTab;
+        if (tab == null || tab.agent == null || !isLive(tab, tab.webView)) { finishAgentDrain(null); return; }
+        agentDrainInFlight = true;
+        long generation = ++agentDrainGeneration;
+        tab.agent.cancelRun(agentDrainRunId,
+            () -> { if (generation == agentDrainGeneration) finishAgentDrain(null); },
+            reason -> { if (generation == agentDrainGeneration) finishAgentDrain("网页未确认停止，请关闭当前标签页后重试：" + reason); });
+    }
+
+    private void finishAgentDrain(String error) {
+        agentDrainGeneration++;
+        agentDrainInFlight = false;
+        agentBarrier = error != null;
+        List<Runnable> success = new ArrayList<>(agentDrainSuccess);
+        List<java.util.function.Consumer<String>> failure = new ArrayList<>(agentDrainFailure);
+        agentDrainSuccess.clear(); agentDrainFailure.clear();
+        agentDrainTab = null; agentDrainRunId = null;
+        for (int index = 0; index < success.size(); index++) {
+            if (error == null) success.get(index).run(); else failure.get(index).accept(error);
+        }
+    }
+
+    private void releaseAgentBackground() {
+        if (!agentBackgroundHeld) return;
+        agentBackgroundHeld = false;
+        BrowserAgentForegroundService.release(getContext());
+        for (Tab tab : tabs) if (tab.webView != null) tab.webView.getSettings().setOffscreenPreRaster(false);
+        syncTabActivity();
+    }
+
+    private void pauseAgentForHuman(String reason) {
+        if (!agentOwner.isRunning()) return;
+        String runId = agentOwner.runId();
+        Tab tab = findAgentTab(agentOwner.tabId());
+        agentOwner.pause(runId);
+        releaseAgentBackground();
+        if (tab != null && tab.agent != null) {
+            tab.agent.invalidateVisual();
+            if (agentFiles != null) agentFiles.cancelDocument(tab.id, tab.agent.documentId());
+        }
+        if (agentDialogs.isShowing())
+            notifyListeners("agentSessionState", agentSessionState().put("reason", reason).put("awaitingUser", true));
+        drainAgent(tab, runId, () -> notifyListeners("agentSessionState", agentSessionState().put("reason", reason)),
+            error -> notifyListeners("agentSessionState", agentSessionState().put("reason", reason).put("error", error)));
+    }
+
+    private boolean showAgentDialog(Tab tab, WebView view, String url, String message, String kind,
+                                    String defaultValue, JsResult result) {
+        if (!isLive(tab, view)) return true;
+        if (current != tab || !activityAvailable()) { result.cancel(); return true; }
+        String documentId = tab.agent == null ? "" : tab.agent.documentId();
+        agentDialogs.show(getActivity(), tab.id, documentId, url, message, kind, defaultValue,
+            () -> {
+                for (Tab active : tabs) if (active.agent != null) active.agent.setNativeDialogPending(true);
+                pauseAgentForHuman("js_dialog");
+            },
+            value -> { if (result instanceof JsPromptResult) ((JsPromptResult) result).confirm(value); else result.confirm(); },
+            result::cancel, () -> {
+                for (Tab active : tabs) if (active.agent != null) active.agent.setNativeDialogPending(false);
+                continueAgentDrain();
+            });
+        return true;
+    }
+
+    private Rect agentVisibleBounds(WebView view) {
+        int bottom = view.getHeight();
+        if (pageFrame instanceof ClippedBrowserFrame)
+            bottom = Math.min(bottom, pageFrame.getHeight() - ((ClippedBrowserFrame) pageFrame).occludedBottomPx - view.getTop());
+        if (activityPaused && !(agentBackgroundHeld && agentOwner.isRunning())
+                || embeddedMode && !embeddedVisible || customFullscreen != null) return new Rect();
+        return new Rect(view.getPaddingLeft(), view.getPaddingTop(),
+            Math.max(view.getPaddingLeft(), view.getWidth() - view.getPaddingRight()),
+            Math.max(view.getPaddingTop(), bottom - view.getPaddingBottom()));
+    }
+
+    private boolean agentRequestLive(Tab tab, WebView view, BrowserAgentSession.Request request) {
+        return request.isLive() && !agentBarrier && isLive(tab, view) && current == tab
+            && tab.agent != null && request.documentId.equals(tab.agent.documentId());
+    }
+
+    private java.util.function.BooleanSupplier agentInputGuard(Tab tab, WebView view, BrowserAgentSession.Request request) {
+        Rect bounds = agentVisibleBounds(view);
+        return () -> !bounds.isEmpty() && agentRequestLive(tab, view, request) && bounds.equals(agentVisibleBounds(view));
+    }
+
+    private void cancelAgentInputForViewport(Tab tab) {
+        if (tab.agentInput == null || !tab.agentInput.hasActiveInput()) return;
+        if (agentOwner.tabId() == tab.id) agentOwner.invalidate("网页可见区域已变化，请重新观察");
+        if (tab.agentInput != null) tab.agentInput.cancel(true);
+    }
+
+    private void resolveAgent(PluginCall call, BrowserAgentSession.Request request, JSONObject result) {
+        if (result.has("error") && request.wasDispatched()) {
+            BrowserAgentRuntime.put(result, "dispatched", true);
+            BrowserAgentRuntime.put(result, "code", "OUTCOME_UNKNOWN");
+        }
+        if (request.complete()) call.resolve(new JSObject().put("result", result));
+    }
+
+    private void rejectAgent(PluginCall call, String message, boolean dispatched) {
+        if (dispatched) call.resolve(new JSObject().put("result", new JSObject()
+            .put("error", message).put("code", "OUTCOME_UNKNOWN").put("dispatched", true)));
+        else call.reject(message);
+    }
+
+    /** All mutations, including delayed navigation and touch UP events, carry native run ownership. */
+    @PluginMethod public void agentAction(PluginCall call) {
+        onUi(call, () -> {
+            String action = call.getString("action", ""), runId = call.getString("runId", ""), requestId = call.getString("requestId", "");
+            Tab tab = current;
+            boolean navigation = java.util.Arrays.asList("navigate", "back", "forward", "new_tab", "switch_tab", "close_tab").contains(action);
+            if (tab == null || !isLive(tab, tab.webView) || tab.agent == null || call.getInt("tabId", -1) != tab.id || agentBarrier) {
+                call.reject("当前标签页不可操作，请重新观察"); return;
+            }
+            String expectedDocument = call.getString("documentId", "");
+            if ((!"observe".equals(action) || !expectedDocument.isEmpty()) && !tab.agent.documentId().equals(expectedDocument)) {
+                call.reject("网页文档已变化，请重新观察"); return;
+            }
+            boolean fileAction = java.util.Arrays.asList("files", "choose_files", "read_file").contains(action);
+            if (!navigation && !fileAction && (!isHttpUrl(tab.url) || tab.loading || tab.preparing)) {
+                call.reject("请等待网页加载并重新观察"); return;
+            }
+            final BrowserAgentSession.Request request;
+            try { request = agentOwner.begin(runId, requestId, tab.id, tab.agent.documentId(),
+                (message, dispatched) -> rejectAgent(call, message, dispatched)); }
+            catch (IllegalArgumentException | IllegalStateException error) { call.reject(error.getMessage()); return; }
+            WebView view = tab.webView;
+            BrowserAgentRuntime runtime = tab.agent;
+            Runnable timeout = () -> request.fail("操作超时，请重新观察网页");
+            mainHandler.postDelayed(timeout, "choose_files".equals(action) ? 300_000 : 20_000);
+            request.onCancel(() -> {
+                mainHandler.removeCallbacks(timeout);
+                runtime.cancelRequest(requestId);
+                if (agentFiles != null) agentFiles.disarmRun(runId);
+                if (tab.agentInput != null) tab.agentInput.cancel(true);
+            });
+            java.util.function.Consumer<JSONObject> done = result -> {
+                mainHandler.removeCallbacks(timeout);
+                if ("click".equals(action) && (result.has("error") || result.optBoolean("requiresScreenshot")) && agentFiles != null)
+                    agentFiles.disarmRun(runId);
+                resolveAgent(call, request, result);
+            };
+            try {
+                if (agentFiles != null && !java.util.Arrays.asList("click", "choose_files", "observe", "screenshot", "files", "read_file").contains(action))
+                    agentFiles.disarmRun(runId);
+                if (navigation) { agentNavigate(call, request, tab, action, timeout); return; }
+                JSONObject args = new JSONObject(call.getData().toString());
+                if (fileAction) {
+                    BrowserAgentFiles files = agentFiles();
+                    if ("files".equals(action)) {
+                        if (args.has("cancelFileId")) files.cancelFile(args.optString("cancelFileId"), runId);
+                        if (args.has("forgetFileId")) files.forgetFile(args.optString("forgetFileId"), runId);
+                        done.accept(files.list(runId));
+                    } else if ("choose_files".equals(action)) {
+                        request.onCancel(() -> files.cancelDocument(tab.id, request.documentId));
+                        files.chooseFiles(tab.id, request.documentId, runId, requestId, args, done, request::fail);
+                    } else {
+                        request.onCancel(() -> files.cancelDocument(tab.id, request.documentId));
+                        files.readFile(tab.id, request.documentId, runId, requestId, args, done, request::fail);
+                    }
+                    return;
+                }
+                if ("observe".equals(action)) { runtime.observe(runId, requestId, tab.id, done, request::fail); return; }
+                if ("screenshot".equals(action)) {
+                    runtime.capture(runId, requestId, tab.id, args.optString("snapshot"), agentVisibleBounds(view),
+                        () -> agentRequestLive(tab, view, request), done, request::fail);
+                    return;
+                }
+                if ("key".equals(action)) {
+                    if (args.optString("snapshot").isEmpty()) { request.fail("必须先观察网页"); return; }
+                    runtime.executeFrame(runId, requestId, args.optString("frameId", "main"), args.optString("frameDocumentId"),
+                        BrowserAgentRuntime.json("action", "validate", "snapshot", args.optString("snapshot")), result -> {
+                            if (!agentRequestLive(tab, view, request)) return;
+                            if (!result.optBoolean("ok")) { done.accept(result); return; }
+                            runtime.invalidateVisual();
+                            tab.agentInput.key(args.optString("key"), agentInputGuard(tab, view, request), request::markDispatched,
+                                () -> done.accept(BrowserAgentRuntime.json("ok", true, "dispatched", true, "method", "native_key")), request::fail);
+                        }, request::fail);
+                    return;
+                }
+                if ("gesture".equals(action) || "tap".equals(action)) {
+                    JSONObject gesture = args.optJSONObject("gesture");
+                    if ("tap".equals(action)) gesture = BrowserAgentRuntime.json("kind", "tap", "points", new JSONArray()
+                        .put(BrowserAgentRuntime.json("x", args.optDouble("x", -1), "y", args.optDouble("y", -1))));
+                    if (gesture == null) { request.fail("缺少手势参数"); return; }
+                    JSONObject command = gesture;
+                    String shotId = args.optString("shotId");
+                    if (!runtime.validateShot(shotId, agentVisibleBounds(view))) { request.fail("截图已失效，请重新截图"); return; }
+                    runtime.executeFrame(runId, requestId, "main", "", BrowserAgentRuntime.json("action", "validate", "snapshot", runtime.shotSnapshot()), result -> {
+                        if (!agentRequestLive(tab, view, request)) return;
+                        if (!result.optBoolean("ok") || !runtime.validateShot(shotId, agentVisibleBounds(view))) {
+                            request.fail("网页画面已变化，请重新截图"); return;
+                        }
+                        runtime.invalidateVisual();
+                        tab.agentInput.perform(command, agentVisibleBounds(view), agentInputGuard(tab, view, request), request::markDispatched,
+                            () -> done.accept(BrowserAgentRuntime.json("ok", true, "dispatched", true, "method", "native_touch")), request::fail);
+                    }, request::fail);
+                    return;
+                }
+                if (!java.util.Arrays.asList("click", "type", "choose", "submit", "scroll").contains(action)) {
+                    request.fail("不支持的 Agent 操作"); return;
+                }
+                if (args.optString("text").length() > 16_000) { request.fail("输入内容过长"); return; }
+                if (!"scroll".equals(action) && (args.optInt("id", -1) < 0 || args.optInt("id", -1) >= 160)) {
+                    request.fail("无效的元素编号"); return;
+                }
+                if (args.optString("snapshot").isEmpty()) { request.fail("必须先观察网页"); return; }
+                runtime.invalidateVisual();
+                if ("click".equals(action)) args.put("action", "prepare_click");
+                String frameId = args.optString("frameId", "main");
+                runtime.executeFrame(runId, requestId, frameId, args.optString("frameDocumentId"), args,
+                    "click".equals(action) ? () -> {} : request::markDispatched, result -> {
+                    if (!agentRequestLive(tab, view, request)) return;
+                    if (!"click".equals(action) || !result.optBoolean("ok")) { done.accept(result); return; }
+                    if (!runtime.isMainFrame(frameId) || !result.optBoolean("isTop")) {
+                        done.accept(BrowserAgentRuntime.json("ok", false, "requiresScreenshot", true, "error", "请依据新截图点击此框架中的目标")); return;
+                    }
+                    JSONObject viewport = result.optJSONObject("viewport");
+                    double width = viewport == null ? 0 : viewport.optDouble("width"), height = viewport == null ? 0 : viewport.optDouble("height");
+                    double scaleX = (view.getWidth() - view.getPaddingLeft() - view.getPaddingRight()) / width;
+                    double scaleY = (view.getHeight() - view.getPaddingTop() - view.getPaddingBottom()) / height;
+                    if (!Double.isFinite(scaleX) || !Double.isFinite(scaleY) || scaleX <= 0 || scaleY <= 0 || Math.abs(scaleX / scaleY - 1) > .08) {
+                        done.accept(BrowserAgentRuntime.json("ok", false, "requiresScreenshot", true, "error", "页面缩放状态不确定，请使用新截图")); return;
+                    }
+                    double x = view.getPaddingLeft() + (result.optDouble("x") - viewport.optDouble("offsetLeft")) * scaleX;
+                    double y = view.getPaddingTop() + (result.optDouble("y") - viewport.optDouble("offsetTop")) * scaleY;
+                    JSONObject gesture = BrowserAgentRuntime.json("kind", "tap", "points", new JSONArray().put(BrowserAgentRuntime.json("x", x, "y", y)));
+                    try { if (agentFiles != null) agentFiles.authorizeUploadClick(tab.id, request.documentId, runId, args); }
+                    catch (IllegalStateException error) { request.fail(error.getMessage()); return; }
+                    tab.agentInput.perform(gesture, agentVisibleBounds(view), agentInputGuard(tab, view, request), request::markDispatched,
+                        () -> done.accept(BrowserAgentRuntime.json("ok", true, "dispatched", true, "method", "native_touch")), request::fail);
+                }, request::fail);
+            } catch (Exception error) { request.fail(error.getMessage() == null ? "Agent 操作失败" : error.getMessage()); }
+        });
+    }
+
+    private void agentNavigate(PluginCall call, BrowserAgentSession.Request request, Tab original, String action, Runnable timeout) {
+        String targetUrl = null;
+        if ("navigate".equals(action) || "new_tab".equals(action)) {
+            targetUrl = normalizeUrl(call.getString("url", ""));
+            if (targetUrl == null || !isHttpUrl(targetUrl)) { request.fail("仅支持 HTTP/HTTPS 网站"); return; }
+        }
+        if ("switch_tab".equals(action) || "close_tab".equals(action)) {
+            Tab target = findAgentTab(call.getInt("targetTabId", -1));
+            if (target == null) { request.fail("目标标签页已关闭"); return; }
+            request.markDispatched();
+            if (!request.complete()) return;
+            mainHandler.removeCallbacks(timeout);
+            agentTabTransition = true;
+            try {
+                if ("switch_tab".equals(action)) selectTab(target); else closeTab(target);
+                if (current != null) agentOwner.moveToTab(current.id);
+                call.resolve(new JSObject().put("result", agentNavigationResult()));
+            } catch (RuntimeException error) { rejectAgent(call, "标签页切换或关闭结果未确认，请重新观察", true); }
+            finally { agentTabTransition = false; }
+            return;
+        }
+        Tab target = original;
+        if ("new_tab".equals(action)) {
+            if (tabs.size() >= MAX_TABS) { request.fail("最多同时打开 6 个标签页"); return; }
+            request.markDispatched();
+            agentTabTransition = true;
+            try { createTab(targetUrl, null); target = current; }
+            finally { agentTabTransition = false; }
+            if (target == null || target == original || target.webView == null) { request.fail("无法创建标签页"); return; }
+            agentOwner.transfer(request, target.id);
+            // The guarded runnable below owns the first load, even if userscript preparation is slow.
+            target.hasLoaded = true;
+        }
+        final Tab tab = target;
+        final WebView view = tab.webView;
+        final String url = targetUrl;
+        Runnable navigation = () -> {
+            if (!request.isLive() || current != tab || !isLive(tab, view) || agentOwner.tabId() != tab.id) return;
+            if ("back".equals(action) && !view.canGoBack() || "forward".equals(action) && !view.canGoForward()) {
+                request.fail("没有可前往的历史页面"); return;
+            }
+            request.markDispatched();
+            if (!request.complete()) return;
+            mainHandler.removeCallbacks(timeout);
+            tab.agent.invalidateVisual();
+            try {
+                if ("back".equals(action)) view.goBack();
+                else if ("forward".equals(action)) view.goForward();
+                else { tab.url = url; tab.error = null; view.loadUrl(url); }
+                call.resolve(new JSObject().put("result", agentNavigationResult().put("navigating", true)));
+            } catch (RuntimeException error) { rejectAgent(call, "网页导航结果未确认，请重新观察", true); }
+        };
+        request.onCancel(() -> { if (tab.pendingNavigation == navigation) tab.pendingNavigation = null; });
+        runNavigation(tab, navigation);
+    }
+
+    private JSObject agentNavigationResult() {
+        return new JSObject().put("ok", true).put("tabId", current == null ? -1 : current.id)
+            .put("documentId", current == null || current.agent == null ? "" : current.agent.documentId())
+            .put("closed", current == null);
+    }
+
+    private BrowserAgentFiles agentFiles() {
+        if (agentFiles == null) agentFiles = new BrowserAgentFiles(getContext(), new BrowserAgentFiles.Host() {
+            @Override public android.app.Activity getActivity() { return BrowserHostPlugin.this.getActivity(); }
+            @Override public boolean isDocumentLive(int tabId, String documentId) {
+                Tab tab = findAgentTab(tabId);
+                return tab != null && isLive(tab, tab.webView) && tab.agent != null && tab.agent.documentId().equals(documentId);
+            }
+            @Override public boolean isPrivateTab(int tabId) { return privateMode(); }
+            @Override public void onEvent(JSONObject event) {
+                try { notifyListeners("agentFileEvent", new JSObject(event.toString())); }
+                catch (org.json.JSONException ignored) { }
+            }
+            @Override public void launchChooser(String requestId, Intent intent) { launchAgentChooser(requestId, intent); }
+        });
+        return agentFiles;
+    }
+
+    private void launchAgentChooser(String requestId, Intent intent) {
+        if (!activityAvailable() || launchedChooserId != null) throw new IllegalStateException("系统文件选择器尚未结束");
+        if (agentChooserLauncher == null) {
+            agentChooserLauncher = getActivity().getActivityResultRegistry().register("newsnook-browser-files-" + java.util.UUID.randomUUID(),
+                new ActivityResultContracts.StartActivityForResult(), result -> {
+                    String id = launchedChooserId;
+                    launchedChooserId = null;
+                    if (agentFiles != null && id != null) agentFiles.handleChooserResult(id, result.getResultCode(), result.getData());
+                });
+        }
+        launchedChooserId = requestId;
+        try { agentChooserLauncher.launch(intent); }
+        catch (RuntimeException error) { launchedChooserId = null; throw error; }
+    }
+
     @PluginMethod public void navigate(PluginCall call) {
         String action = call.getString("action", "");
         String url = call.getString("url", "");
         onUi(call, () -> {
             if ("downloads".equals(action)) { openDownloads(); call.resolve(); return; }
             if (current == null) { call.reject("浏览器未打开"); return; }
+            if (java.util.Arrays.asList("back", "forward", "reload", "stop", "desktop", "url", "new", "home").contains(action))
+                pauseAgentForHuman("navigation");
             final Tab tab = current;
             switch (action) {
                 case "back": goBack(); break;
@@ -834,7 +1432,7 @@ public class BrowserHostPlugin extends Plugin {
         pageFrame.setLayoutParams(params);
     }
     private void createEmbedded(float top, float bottom) {
-        pageFrame = new FrameLayout(getActivity());
+        pageFrame = new ClippedBrowserFrame(getActivity());
         pageFrame.setBackgroundColor(Color.WHITE);
         pageFrame.setVisibility(embeddedVisible ? View.VISIBLE : View.GONE);
         embeddedRoot().addView(pageFrame, new FrameLayout.LayoutParams(-1, -1, Gravity.TOP));
@@ -963,6 +1561,19 @@ public class BrowserHostPlugin extends Plugin {
         tab.siteDataClearing = false;
         tab.recreateAfterSiteClear = false;
         WebView view = new WebView(getActivity()) {
+            @Override public boolean dispatchKeyEvent(KeyEvent event) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN && (tab.agentInput == null || !tab.agentInput.isDispatching())
+                        && agentOwner.tabId() == tab.id) pauseAgentForHuman("user_key");
+                return super.dispatchKeyEvent(event);
+            }
+            @Override public boolean dispatchTouchEvent(MotionEvent event) {
+                if (event.getActionMasked() == MotionEvent.ACTION_DOWN
+                        && (tab.agentInput == null || !tab.agentInput.isDispatching())) {
+                    if (tab.agent != null) tab.agent.invalidateVisual();
+                    if (agentOwner.tabId() == tab.id) pauseAgentForHuman("user_touch");
+                }
+                return super.dispatchTouchEvent(event);
+            }
             @Override public android.view.inputmethod.InputConnection onCreateInputConnection(EditorInfo info) {
                 android.view.inputmethod.InputConnection connection = super.onCreateInputConnection(info);
                 if (privateMode() && Build.VERSION.SDK_INT >= 26)
@@ -979,6 +1590,18 @@ public class BrowserHostPlugin extends Plugin {
                 view.setImportantForContentCapture(View.IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS);
         }
         tab.webView = view;
+        tab.agentInput = new BrowserAgentInput(view);
+        try { tab.agent = new BrowserAgentRuntime(view, agentScriptSource(), () -> isLive(tab, view)); }
+        catch (java.io.IOException error) {
+            if (!privateMode()) android.util.Log.e("NewsNookBrowser", "Agent script unavailable", error);
+        }
+        view.setOnScrollChangeListener((web, x, y, oldX, oldY) -> { if (tab.agent != null) tab.agent.invalidateVisual(); });
+        view.addOnLayoutChangeListener((web, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
+                if (tab.agent != null) tab.agent.invalidateVisual();
+                cancelAgentInputForViewport(tab);
+            }
+        });
         tab.pageProfile = new BrowserPageProfile(view);
         tab.error = null;
         tab.loading = false;
@@ -986,7 +1609,7 @@ public class BrowserHostPlugin extends Plugin {
         tab.hasLoaded = false;
         WebSettings settings = view.getSettings();
         settings.setJavaScriptEnabled(true); settings.setDomStorageEnabled(true);
-        settings.setSupportMultipleWindows(false);
+        settings.setSupportMultipleWindows(true);
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
         settings.setAllowFileAccess(false); settings.setAllowContentAccess(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
@@ -1002,6 +1625,14 @@ public class BrowserHostPlugin extends Plugin {
         view.setWebViewClient(new WebViewClient() {
             @Override public void onPageStarted(WebView web, String address, Bitmap icon) {
                 if (!isLive(tab, web) || deferForSiteClear(tab, address)) return;
+                if (tab.agent != null) {
+                    String previousDocument = tab.agent.documentId();
+                    agentDialogs.cancelDocument(tab.id, previousDocument, true);
+                    if (agentFiles != null) agentFiles.cancelDocument(tab.id, previousDocument);
+                    if (agentOwner.tabId() == tab.id) agentOwner.invalidate("网页正在导航，请重新观察");
+                    if (tab.agentInput != null) tab.agentInput.cancel(true);
+                    tab.agent.onPageStarted(address);
+                }
                 tab.url = address; tab.loading = true; tab.progress = 0; tab.error = null;
                 tab.recordHistory = !privateMode();
                 tab.documentScriptVersion = tab.scriptVersion;
@@ -1087,6 +1718,43 @@ public class BrowserHostPlugin extends Plugin {
             }
         });
         view.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onCreateWindow(WebView web, boolean isDialog, boolean isUserGesture, Message resultMsg) {
+                if (!isLive(tab, web) || current != tab || !isUserGesture || pageFrame == null
+                        || tabs.size() >= MAX_TABS || resultMsg == null || resultMsg.getTarget() == null
+                        || !(resultMsg.obj instanceof WebView.WebViewTransport)) return false;
+                pauseAgentForHuman("popup");
+                createTab("about:blank", null);
+                Tab popup = current;
+                if (popup == null || popup == tab || popup.webView == null) return false;
+                // The transport owns the first navigation. Userscript preparation must not
+                // later overwrite a login window's URL with our initial about:blank value.
+                popup.hasLoaded = true;
+                ((WebView.WebViewTransport) resultMsg.obj).setWebView(popup.webView);
+                resultMsg.sendToTarget();
+                return true;
+            }
+            @Override public void onCloseWindow(WebView web) {
+                if (isLive(tab, web)) closeTab(tab);
+            }
+            @Override public boolean onJsAlert(WebView web, String url, String message, JsResult result) {
+                return showAgentDialog(tab, web, url, message, "alert", "", result);
+            }
+            @Override public boolean onJsConfirm(WebView web, String url, String message, JsResult result) {
+                return showAgentDialog(tab, web, url, message, "confirm", "", result);
+            }
+            @Override public boolean onJsPrompt(WebView web, String url, String message, String defaultValue, JsPromptResult result) {
+                return showAgentDialog(tab, web, url, message, "prompt", defaultValue, result);
+            }
+            @Override public boolean onJsBeforeUnload(WebView web, String url, String message, JsResult result) {
+                return showAgentDialog(tab, web, url, message, "before_unload", "", result);
+            }
+            @Override public boolean onShowFileChooser(WebView web, android.webkit.ValueCallback<Uri[]> callback, FileChooserParams params) {
+                if (!isLive(tab, web) || current != tab || tab.agent == null) { callback.onReceiveValue(null); return true; }
+                String runId = agentOwner.isRunning() && agentOwner.tabId() == tab.id ? agentOwner.runId() : "";
+                return agentFiles().onShowFileChooser(tab.id, tab.agent.documentId(), runId, params, result -> {
+                    if (isLive(tab, web)) callback.onReceiveValue(result);
+                });
+            }
             @Override public boolean onConsoleMessage(android.webkit.ConsoleMessage message) {
                 return privateMode() || super.onConsoleMessage(message);
             }
@@ -1127,7 +1795,11 @@ public class BrowserHostPlugin extends Plugin {
             }
         });
         view.setDownloadListener((link, agent, disposition, mime, size) -> {
-            if (isLive(tab, view)) enqueueDownload(link, disposition, mime);
+            if (!isLive(tab, view) || tab.agent == null) return;
+            try {
+                String runId = agentOwner.isRunning() && agentOwner.tabId() == tab.id ? agentOwner.runId() : "";
+                agentFiles().enqueueDownload(tab.id, tab.agent.documentId(), runId, link, agent, disposition, mime, size);
+            } catch (Exception error) { Toast.makeText(getContext(), "下载失败，请检查文件地址", Toast.LENGTH_SHORT).show(); }
         });
         tab.images = new BrowserImageCapture(view, tab.id, tab.url);
         // Attach the same passive probe before any user script starts executing.
@@ -1254,6 +1926,7 @@ public class BrowserHostPlugin extends Plugin {
 
     private void selectTab(Tab tab) {
         if (!tabs.contains(tab) || pageFrame == null || closing) return;
+        if (current != tab && !agentTabTransition) pauseAgentForHuman("tab_switch");
         if (current != tab && fullscreenTab != null) exitFullscreen();
         if (current != null) {
             if (current.webView != null) current.webView.onPause();
@@ -1277,6 +1950,7 @@ public class BrowserHostPlugin extends Plugin {
             ViewGroup parent = (ViewGroup) tab.webView.getParent();
             if (parent != null) parent.removeView(tab.webView);
             pageFrame.addView(tab.webView, new FrameLayout.LayoutParams(-1, -1));
+            layoutBackgroundAgent();
             return;
         }
         LinearLayout errorPage = new LinearLayout(getActivity());
@@ -1300,12 +1974,34 @@ public class BrowserHostPlugin extends Plugin {
         pageFrame.addView(errorPage, new FrameLayout.LayoutParams(-1, -1));
     }
 
+    private void layoutBackgroundAgent() {
+        if (!activityPaused || !agentBackgroundHeld || !agentOwner.isRunning() || pageFrame == null) return;
+        int width = pageFrame.getWidth(), height = pageFrame.getHeight();
+        int left = pageFrame.getLeft(), top = pageFrame.getTop();
+        if (embeddedMode && pageFrame.getParent() instanceof View) {
+            View parent = (View) pageFrame.getParent();
+            FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) pageFrame.getLayoutParams();
+            if (parent.getWidth() > 0 && parent.getHeight() > 0) {
+                left = params.leftMargin; top = params.topMargin;
+                width = parent.getWidth() - left - params.rightMargin;
+                height = parent.getHeight() - top - params.bottomMargin;
+            }
+        }
+        // A stopped window has no traversal; new tabs still need the established viewport.
+        if (width <= 0 || height <= 0) return;
+        pageFrame.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
+        pageFrame.layout(left, top, left + width, top + height);
+    }
+
     private void syncTabActivity() {
         if (current == null || current.webView == null) return;
-        boolean active = !closing && !activityPaused && (!embeddedMode || embeddedVisible);
+        boolean active = !closing && (!activityPaused || agentBackgroundHeld && agentOwner.isRunning()) && (!embeddedMode || embeddedVisible);
         if (active) current.webView.onResume();
         else current.webView.onPause();
-        if (current.media != null) current.media.setActive(active);
+        current.webView.getSettings().setOffscreenPreRaster(agentBackgroundHeld && agentOwner.isRunning());
+        layoutBackgroundAgent();
+        if (current.media != null) current.media.setActive(active && !activityPaused);
     }
     private void updateChrome() {
         if (current == null) return;
@@ -1566,24 +2262,6 @@ public class BrowserHostPlugin extends Plugin {
         }
     }
 
-    private void enqueueDownload(String url, String disposition, String mime) {
-        if (!isHttpUrl(url)) return;
-        enqueueConfirmedDownload(url, disposition, mime);
-    }
-
-    private void enqueueConfirmedDownload(String url, String disposition, String mime) {
-        try {
-            android.app.DownloadManager manager=(android.app.DownloadManager)getContext().getSystemService(Context.DOWNLOAD_SERVICE);
-            android.app.DownloadManager.Request request=new android.app.DownloadManager.Request(Uri.parse(url));
-            request.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            request.setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS,
-                URLUtil.guessFileName(url,disposition,mime));
-            String cookie=CookieManager.getInstance().getCookie(url);
-            if(cookie!=null)request.addRequestHeader("Cookie",cookie);
-            manager.enqueue(request);
-            Toast.makeText(getContext(),"已添加到下载任务",Toast.LENGTH_SHORT).show();
-        } catch(Exception e){ Toast.makeText(getContext(),"下载失败",Toast.LENGTH_SHORT).show(); }
-    }
     private void exitFullscreen() { exitFullscreen(true); }
 
     private void exitFullscreen(boolean notifyWebView) {
@@ -1610,6 +2288,21 @@ public class BrowserHostPlugin extends Plugin {
     private void releaseTabView(Tab tab, boolean rendererGone) {
         WebView view = tab.webView;
         tab.webView = null;
+        if (tab.agentInput != null) tab.agentInput.cancel(!rendererGone);
+        tab.agentInput = null;
+        if (tab.agent != null) {
+            agentDialogs.cancelDocument(tab.id, tab.agent.documentId(), !rendererGone);
+            if (agentFiles != null) agentFiles.cancelDocument(tab.id, tab.agent.documentId());
+            if (agentOwner.tabId() == tab.id && !agentTabTransition) {
+                if (agentFiles != null) agentFiles.cancelRun(agentOwner.runId());
+                agentOwner.stopCurrent();
+                releaseAgentBackground();
+                agentBarrier = false;
+                notifyListeners("agentSessionState", agentSessionState().put("reason", rendererGone ? "renderer_exit" : "tab_closed"));
+            }
+            tab.agent.close(!rendererGone);
+            tab.agent = null;
+        }
         tab.loading = false;
         tab.preparing = false;
         tab.pendingNavigation = null;
@@ -1646,6 +2339,10 @@ public class BrowserHostPlugin extends Plugin {
         if (closing) return;
         boolean wasOpen = pageFrame != null || dialog != null || !tabs.isEmpty();
         closing=true;
+        agentOwner.stopCurrent();
+        releaseAgentBackground();
+        agentDialogs.close(true);
+        if (agentFiles != null) { agentFiles.close(); agentFiles = null; }
         SiteDataClear clearing = siteDataClear;
         siteDataClear = null;
         if (clearing != null) clearing.call.reject("浏览器已关闭");
@@ -1658,6 +2355,7 @@ public class BrowserHostPlugin extends Plugin {
         List<Tab> released = new ArrayList<>(tabs);
         tabs.clear(); current=null;
         for (Tab tab : released) releaseTab(tab);
+        finishAgentDrain(null);
         nextTabId = 1;
         scriptSnapshot=null; address=null; titleView=null; tabCounter=null; menuButton=null;
         progress=null; backButton=null; forwardButton=null; desktopButton=null;
@@ -1666,6 +2364,16 @@ public class BrowserHostPlugin extends Plugin {
     }
     @Override protected void handleOnPause() {
         activityPaused = true;
+        // An explicit document picker owns the foreground temporarily; cancelling it here
+        // would cancel every upload immediately after the chooser opens.
+        if (launchedChooserId == null && !agentBackgroundHeld) pauseAgentForHuman("background");
+        syncTabActivity();
+    }
+
+    @Override protected void handleOnStop() {
+        // Capacitor/Cordova may pause its controller WebView after handleOnPause.
+        if (agentBackgroundHeld && agentOwner.isRunning() && getBridge() != null)
+            getBridge().getWebView().onResume();
         syncTabActivity();
     }
 
@@ -1676,6 +2384,7 @@ public class BrowserHostPlugin extends Plugin {
 
     @Override protected void handleOnDestroy() {
         destroyed = true;
+        if (agentChooserLauncher != null) { agentChooserLauncher.unregister(); agentChooserLauncher = null; }
         if (Looper.myLooper() == Looper.getMainLooper()) closeNative();
         else mainHandler.post(this::closeNative);
     }

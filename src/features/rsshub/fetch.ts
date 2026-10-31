@@ -15,6 +15,7 @@ import {
 const INSTANCE_TIMEOUT_MS = 8_000
 const COOLDOWN_MS = 3 * 60_000
 const MAX_ATTEMPTS = 2
+const TWITTER_MAX_ATTEMPTS = 4
 const cooldown = new Map<string, number>()
 const sticky = new Map<string, string>()
 
@@ -120,7 +121,9 @@ export async function fetchRssHubSourceText(
   }
 
   let lastError: unknown
-  for (const target of targetUrls.slice(0, allowFallback ? MAX_ATTEMPTS : 1)) {
+  const maxAttempts = allowFallback && /^\/twitter\/(?:user|media|keyword)\//.test(routePath)
+    ? TWITTER_MAX_ATTEMPTS : MAX_ATTEMPTS
+  for (const target of targetUrls.slice(0, allowFallback ? maxAttempts : 1)) {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
     const ctl = timeoutSignal(signal)
     try {

@@ -91,8 +91,15 @@ export async function probeRssHubRoute(
     await check(candidates[cursor++])
     if (!ctl.signal.aborted) await Promise.all([worker(), worker()])
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
-    return success ?? { ...lastFailure, attempts,
-      ...(ctl.signal.aborted ? { failureKind: 'timeout', detail: '检测超时，请重试或选择服务实例' } : {}) }
+    if (success) return success
+    const detail = ctl.signal.aborted ? '检测超时，请重试或选择服务实例' : lastFailure.detail
+    const isTwitter = /^\/twitter\//.test(routePath)
+    return { ...lastFailure, attempts,
+      detail: isTwitter && attempts > 1
+        ? `已尝试 ${attempts} 个实例，仍无法获取 X 内容（${detail}）。该路由可能需要 RSSHub 运营方配置 X 登录凭据`
+        : detail,
+      ...(ctl.signal.aborted ? { failureKind: 'timeout' as const } : {}),
+    }
   } finally {
     globalThis.clearTimeout(timer)
     signal.removeEventListener('abort', cancel)

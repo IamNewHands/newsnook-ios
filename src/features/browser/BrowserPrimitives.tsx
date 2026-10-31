@@ -48,13 +48,14 @@ export function BrowserSheet({title, children, onClose}: {title: string; childre
   </div>
 }
 
-export function BrowserPageHeader({title, onBack, children, subtitle}: {
+export function BrowserPageHeader({title, onBack, children, subtitle, onTitleActivate}: {
   title: string; onBack: () => void; children?: ReactNode; subtitle?: string
+  onTitleActivate?: () => void
 }) {
   return <header className="browser-page-header">
     <BrowserIconButton label="返回浏览器" onClick={onBack}><ArrowLeft size={21} strokeWidth={1.8}/></BrowserIconButton>
     <div className="browser-page-heading">
-      <h2>{title}</h2>
+      <h2>{onTitleActivate ? <button type="button" className="browser-page-title-tap" aria-label={title} onClick={onTitleActivate}>{title}</button> : title}</h2>
       {subtitle && <p>{subtitle}</p>}
     </div>
     {children && <div className="browser-page-actions">{children}</div>}

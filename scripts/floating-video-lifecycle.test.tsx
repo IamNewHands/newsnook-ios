@@ -77,7 +77,7 @@ function video() { const v = document.querySelector('video'); assert.ok(v); retu
 try {
   await render()
   const original = video()
-  await act(async () => { original.currentTime = 42; await original.play(); original.dispatchEvent(new window.Event('canplay')); original.playbackRate = 1.5; original.dispatchEvent(new window.Event('ratechange')) })
+  await act(async () => { original.currentTime = 42; await original.play(); original.dispatchEvent(new window.Event('loadedmetadata')); original.dispatchEvent(new window.Event('canplay')); original.playbackRate = 1.5; original.dispatchEvent(new window.Event('ratechange')) })
   const count = loads
   await click('悬浮播放')
   assert.ok(document.querySelector('[data-floating-video-window]'))
@@ -87,25 +87,52 @@ try {
   assert.equal(loads, count, 'presentation must not reload media')
   assert.equal(hardwareBackLayerCount(), 0, 'a floating window must not consume page back')
   const floating = document.querySelector<HTMLElement>('[data-floating-video-window]')!
+  assert.equal(floating.querySelector('.floating-video-titlebar'), null, 'video must not lose 44px to a separate header')
+  assert.ok(floating.querySelector('.floating-video-chrome'), 'drag and window actions overlay video')
+  assert.equal(floating.querySelectorAll('.floating-video-actions button').length, 2, 'restore and close are the only floating corner actions')
+  assert.ok(Math.abs(Number.parseFloat(floating.style.height) - Number.parseFloat(floating.style.width) * 9 / 16) < 0.01, 'frame follows media ratio')
   assert.ok(floating.querySelector('.floating-video-tip'), 'first floating playback offers a guide')
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 2750)) })
+  assert.equal(floating.dataset.floatingChrome, 'hidden', 'controls fade away while video plays')
+  assert.ok(floating.querySelector('[data-mini-progress]'), 'idle playback retains a passive progress track')
+  await act(async () => {
+    const touch = new window.Event('pointerdown', { bubbles: true })
+    Object.assign(touch, { pointerId: 111, button: 0, pointerType: 'mouse', clientX: 130, clientY: 220 })
+    floating.dispatchEvent(touch)
+  })
+  assert.equal(floating.dataset.floatingChrome, 'shown', 'a touch reveals the mini-player controls')
   await click('恢复播放页')
   assert.equal(floating.querySelector('.floating-video-tip'), null, 'hiding the window must dismiss its guide')
   await click('悬浮播放')
   assert.equal(floating.querySelector('.floating-video-tip'), null, 'returning to floating mode must not pin a cancelled guide')
   const compactSurface = floating.querySelector<HTMLElement>('[data-video-gesture-surface]')!
-  const compactChrome = floating.querySelector<HTMLElement>('.ink-video-bottom-chrome')!
-  await act(async () => {
-    const event = new window.Event('pointerup', { bubbles: true })
-    Object.assign(event, { pointerId: 7, clientX: 120, clientY: 40 })
-    compactSurface.dispatchEvent(event)
-    compactSurface.dispatchEvent(new window.Event('click', { bubbles: true }))
+  const captured = new Set<number>()
+  Object.assign(compactSurface, {
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: Number.parseFloat(floating.style.width),
+      height: Number.parseFloat(floating.style.height) }),
+    setPointerCapture: (id: number) => captured.add(id),
+    hasPointerCapture: (id: number) => captured.has(id),
+    releasePointerCapture: (id: number) => captured.delete(id),
   })
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 385)) })
-  assert.ok(!compactChrome.className.includes('opacity-100'), 'compact tap may hide controls but old click timer must not reverse it')
-  await act(async () => { compactSurface.dispatchEvent(new window.Event('click', { bubbles: true })) })
-  assert.ok(compactChrome.className.includes('opacity-100'), 'compact tap shows controls')
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 385)) })
-  assert.ok(compactChrome.className.includes('opacity-100'), 'compact controls must not vanish after legacy double-tap timeout')
+  const compactChrome = floating.querySelector<HTMLElement>('.ink-video-bottom-chrome')!
+  const beforeTapVisible = compactChrome.className.includes('opacity-100')
+  const tap = async (id: number) => {
+    await act(async () => {
+      for (const type of ['pointerdown', 'pointerup']) {
+        const event = new window.Event(type, { bubbles: true })
+        Object.assign(event, { pointerId: id, pointerType: 'touch', button: 0, clientX: 120, clientY: 40 })
+        compactSurface.dispatchEvent(event)
+      }
+      const click = new window.Event('click', { bubbles: true })
+      Object.assign(click, { detail: 1 })
+      compactSurface.dispatchEvent(click)
+    })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 385)) })
+  }
+  await tap(7)
+  assert.equal(compactChrome.className.includes('opacity-100'), !beforeTapVisible, 'a real compact pointer tap toggles controls exactly once')
+  await tap(8)
+  assert.equal(compactChrome.className.includes('opacity-100'), beforeTapVisible, 'next tap restores previous control state without a duplicate click toggle')
   const drag = floating.querySelector<HTMLElement>('[aria-label="移动悬浮窗口"]')!
   const left = Number.parseFloat(floating.style.left)
   await act(async () => { const event = new window.Event('keydown', { bubbles: true }); Object.assign(event, { key: 'ArrowLeft' }); drag.dispatchEvent(event); await new Promise(resolve => setTimeout(resolve, 5)) })

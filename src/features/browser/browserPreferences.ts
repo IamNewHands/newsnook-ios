@@ -21,6 +21,8 @@ export interface BrowserPreferences {
 export const BROWSER_KEYS = {
   history: 'newsnook:browser:history:v1',
   bookmarks: 'newsnook:browser:bookmarks:v1',
+  /** Explicitly saved while privacy recording is enabled; never mixed into public bookmarks. */
+  privateBookmarks: 'newsnook:browser:private-bookmarks:v1',
   search: 'newsnook:browser:search:v1',
   addressPosition: 'newsnook:browser:address-position:v1',
   hiddenHosts: 'newsnook:browser:hidden-hosts:v1',

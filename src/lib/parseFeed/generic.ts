@@ -7,7 +7,9 @@ import { XMLBuilder, XMLParser } from 'fast-xml-parser'
 
 import type { NewsSource } from '../../sources/registry'
 import type { Article } from '../types'
-import { isLikelyVideoArticleUrl } from '../videoArticle'
+import { classifyFeedBody } from '../feedBodyEvidence'
+import { escapeHtml } from '../htmlText'
+import { hasArticleTextAlongsideVideo, isLikelyVideoArticleUrl } from '../videoArticle'
 import {
   asRecord,
   audioUrlFromNode,
@@ -58,6 +60,31 @@ function linkOfAtomEntry(node: Unknown): string {
   return text(node.link)
 }
 
+/** RSS/Atom and JSON Feed may carry plain text without any HTML tags.
+ * Keep the original paragraph and line structure, but escape it before
+ * treating it as HTML. The downstream sanitizer remains authoritative. */
+function feedValueToHtml(value: string, allowMarkup = true): string {
+  if (!value) return ''
+  if (allowMarkup && /<[a-z][\s\S]*?>/i.test(value)) return value
+  return value.split(/\r?\n[\t ]*\r?\n+/)
+    .map((chunk) => `<p>${escapeHtml(chunk).replace(/\r?\n/g, '<br>')}</p>`)
+    .join('')
+}
+
+/** Explicit media enclosures and video-page URLs denote video entries.
+ * An inline <video>/<iframe> alone does not: written posts may include embeds.
+ */
+function isVideoFeedEntry(
+  link: string,
+  html: string,
+  media: ReturnType<typeof videoMediaFromNode>,
+  explicitlyVideo = false,
+): boolean {
+  if (explicitlyVideo || isLikelyVideoArticleUrl(link) || media.declaredByFeed) return true
+  if (!media.directUrl && !media.playerPageUrl) return false
+  return !hasArticleTextAlongsideVideo(html)
+}
+
 function parseJsonFeed(source: NewsSource, payload: string, fetchedAt: number): Article[] {
   const data = JSON.parse(payload) as Unknown
   const items = toArray(data.items)
@@ -66,9 +93,10 @@ function parseJsonFeed(source: NewsSource, payload: string, fetchedAt: number): 
   for (const raw of items) {
     const node = asRecord(raw)
     if (!node) continue
-    const html =
-      text(node.content_html) ||
-      (text(node.content_text) ? `<p>${text(node.content_text)}</p>` : '')
+    const rawHtml = text(node.content_html)
+    const rawText = text(node.content_text)
+    const html = rawHtml ? feedValueToHtml(rawHtml) : feedValueToHtml(rawText, false)
+    const feedBodyEvidence = classifyFeedBody(html || text(node.summary), rawHtml || rawText ? 'content' : 'summary')
     const summaryText =
       text(node.summary) ||
       text(node.content_text) ||
@@ -76,10 +104,7 @@ function parseJsonFeed(source: NewsSource, payload: string, fetchedAt: number): 
     const link = text(node.url) || text(node.external_url) || text(node.id)
     const image = imageOf(node, html, link)
     const video = videoMediaFromNode(node, html)
-    const contentType =
-      video.directUrl || video.playerPageUrl || isLikelyVideoArticleUrl(link)
-        ? 'video'
-        : undefined
+    const contentType = isVideoFeedEntry(link, html, video) ? 'video' : undefined
 
     const article = buildArticle(
       source,
@@ -87,12 +112,13 @@ function parseJsonFeed(source: NewsSource, payload: string, fetchedAt: number): 
         title: text(node.title),
         link,
         html,
+        feedBodyEvidence,
         summaryText,
         dateRaw: text(node.date_published) || text(node.date_modified),
         image,
         audioUrl: audioUrlFromNode(node, html),
         contentType,
-        videoUrl: video.directUrl,
+        videoUrl: contentType === 'video' ? video.directUrl : undefined,
       },
       fetchedAt,
     )
@@ -156,9 +182,18 @@ export function parseXmlFeed(source: NewsSource, payload: string, fetchedAt: num
         if (Array.isArray(ordered?.[key])) xhtmlBodies.set(key, xhtmlBuilder.build(ordered[key]) as string)
       }
     }
-    const bodies = ['encoded', 'content', 'description', 'summary']
-      .flatMap((key) => xhtmlBodies.has(key) ? [xhtmlBodies.get(key)!] : toArray(node[key]).map(text)).filter(Boolean)
-    const html = bodies[0] ?? ''
+    const bodyFields = ['encoded', 'content', 'description', 'summary'] as const
+    const bodyValues = bodyFields.flatMap((key) =>
+      (xhtmlBodies.has(key) ? [xhtmlBodies.get(key)!] : toArray(node[key]).map(text))
+        .filter(Boolean).map((value) => ({ key, value })),
+    )
+    const bodies = bodyValues.map((body) => body.value)
+    const rawBody = bodies[0] ?? ''
+    const field = bodyValues[0]?.key
+    const atomType = isAtom && field ? text(asRecord(node[field])?.['@_type']).toLowerCase() : ''
+    const html = feedValueToHtml(rawBody, atomType !== 'text')
+    const feedBodyEvidence = classifyFeedBody(rawBody,
+      field === 'encoded' || (isAtom && field === 'content') ? 'content' : field === 'summary' ? 'summary' : 'description')
     const descriptionText = stripTags(
       text(pick(node, 'description', 'summary')) || html,
     )
@@ -167,11 +202,12 @@ export function parseXmlFeed(source: NewsSource, payload: string, fetchedAt: num
     const video = videoMediaFromNode(node, html)
     // 虎嗅官方 RSS 用自定义 <type>video_article</type>；通用 Feed 则根据
     // enclosure / attachment / iframe / 明确的视频详情页识别，避免把播放器 DOM 当普通正文。
-    const contentType =
-      (source.id === 'huxiu' && text(node.type).toLowerCase() === 'video_article') ||
-      Boolean(video.directUrl || video.playerPageUrl || isLikelyVideoArticleUrl(link))
-        ? 'video'
-        : undefined
+    const contentType = isVideoFeedEntry(
+      link,
+      html,
+      video,
+      source.id === 'huxiu' && text(node.type).toLowerCase() === 'video_article',
+    ) ? 'video' : undefined
 
     const article = buildArticle(
       source,
@@ -179,12 +215,13 @@ export function parseXmlFeed(source: NewsSource, payload: string, fetchedAt: num
         title: text(node.title),
         link,
         html,
+        feedBodyEvidence,
         summaryText: descriptionText,
         dateRaw,
         image: imageOf(node, bodies.join('\n'), link),
         audioUrl: audioUrlFromNode(node, html),
         contentType,
-        videoUrl: video.directUrl,
+        videoUrl: contentType === 'video' ? video.directUrl : undefined,
       },
       fetchedAt,
     )

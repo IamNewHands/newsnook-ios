@@ -7,6 +7,8 @@
  * `divide-y` / `divide-haze` silently drop on Android WebView.
  */
 
+import { transform } from 'lightningcss'
+
 /**
  * Replace `:where(inner)` with `inner`, balancing parentheses so nested
  * selectors like `:not(:last-child)` survive.
@@ -80,7 +82,17 @@ export function legacyMotionFallbackCss(css: string): string {
   return fallbacks.length ? `@supports not (translate: 0px 0px) {\n${fallbacks.join('\n')}\n}` : ''
 }
 
-export function applyWebViewCssCompat(css: string): string {
+export function applyWebViewCssCompat(css: string, options: { minify?: boolean } = {}): string {
   const normalized = unwrapWhereSelectors(css)
-  return `${normalized}\n${TW_VAR_FALLBACK_CSS}\n${legacyMotionFallbackCss(normalized)}\n`
+  const compatible = `${normalized}\n${TW_VAR_FALLBACK_CSS}\n${legacyMotionFallbackCss(normalized)}\n`
+  if (!options.minify) return compatible
+
+  // Generate the legacy fallbacks before merging rules, then restore production
+  // compression lost by the preceding compatibility transforms.
+  return transform({
+    filename: 'webview-compatible.css',
+    code: Buffer.from(compatible),
+    targets: { chrome: 69 << 16 },
+    minify: true,
+  }).code.toString()
 }

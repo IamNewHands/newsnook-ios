@@ -293,13 +293,20 @@ public class LinuxDoSessionPlugin extends Plugin {
         notifyListeners("linuxDoUploadProgress", event);
     }
 
-    private final OkHttpClient identityClient = new OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(120, TimeUnit.SECONDS)
-        .followRedirects(false)
-        .followSslRedirects(false)
-        .build();
+    private OkHttpClient identityClient;
+
+    private synchronized OkHttpClient identityClient() {
+        if (identityClient == null) {
+            identityClient = new OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .writeTimeout(120, TimeUnit.SECONDS)
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .build();
+        }
+        return identityClient;
+    }
 
     @Override
     public void load() {
@@ -474,7 +481,7 @@ public class LinuxDoSessionPlugin extends Plugin {
         if (!cookie.isEmpty()) builder.header("Cookie", cookie);
         if (!userAgent.isEmpty()) builder.header("User-Agent", userAgent);
 
-        identityClient.newCall(builder.build()).enqueue(new Callback() {
+        identityClient().newCall(builder.build()).enqueue(new Callback() {
             @Override
             public void onFailure(Call ignored, IOException error) {
                 userApiAuth.clearCredential();
@@ -645,7 +652,7 @@ public class LinuxDoSessionPlugin extends Plugin {
         if (!cookie.isEmpty()) builder.header("Cookie", cookie);
         if (!userAgent.isEmpty()) builder.header("User-Agent", userAgent);
 
-        identityClient.newCall(builder.build()).enqueue(new Callback() {
+        identityClient().newCall(builder.build()).enqueue(new Callback() {
             @Override
             public void onFailure(Call ignored, IOException error) {
                 call.reject("Connect 网络请求失败", "LINUXDO_CONNECT_NETWORK");
@@ -754,7 +761,7 @@ public class LinuxDoSessionPlugin extends Plugin {
             .header("X-SILENCE-LOGGER", "true").header("User-Agent", currentUserAgent())
             .post(RequestBody.create(body, MediaType.parse("application/x-www-form-urlencoded; charset=UTF-8")));
         if (!sharedKey.isEmpty()) builder.header("X-Shared-Session-Key", sharedKey);
-        identityClient.newCall(builder.build()).enqueue(new Callback() {
+        identityClient().newCall(builder.build()).enqueue(new Callback() {
             @Override
             public void onFailure(Call ignored, IOException error) {
                 call.reject("Linux.do 话题更新网络请求失败", "LINUXDO_MESSAGE_BUS_NETWORK");
@@ -810,7 +817,7 @@ public class LinuxDoSessionPlugin extends Plugin {
             else builder.delete(requestBody);
         }
 
-        identityClient.newCall(builder.build()).enqueue(new Callback() {
+        identityClient().newCall(builder.build()).enqueue(new Callback() {
             @Override
             public void onFailure(Call ignored, IOException error) {
                 call.reject("Linux.do 网络请求失败", "LINUXDO_REQUEST_NETWORK");
@@ -1267,7 +1274,7 @@ public class LinuxDoSessionPlugin extends Plugin {
             if (!cookie.isEmpty()) csrfBuilder.header("Cookie", cookie);
             if (!userAgent.isEmpty()) csrfBuilder.header("User-Agent", userAgent);
 
-            identityClient.newCall(csrfBuilder.build()).enqueue(new Callback() {
+            identityClient().newCall(csrfBuilder.build()).enqueue(new Callback() {
                 @Override
                 public void onFailure(Call ignored, IOException error) {
                     session.file.delete();
@@ -1321,7 +1328,7 @@ public class LinuxDoSessionPlugin extends Plugin {
         if (!userAgent.isEmpty()) uploadBuilder.header("User-Agent", userAgent);
         userApiAuth.applyHeaders(uploadBuilder);
 
-        identityClient.newCall(uploadBuilder.build()).enqueue(new Callback() {
+        identityClient().newCall(uploadBuilder.build()).enqueue(new Callback() {
             @Override
             public void onFailure(Call ignoredUpload, IOException error) {
                 session.file.delete();
@@ -1805,7 +1812,7 @@ public class LinuxDoSessionPlugin extends Plugin {
             .header("User-Api-Key", credential.key)
             .header("User-Api-Client-Id", credential.clientId)
             .build();
-        identityClient.newCall(request).enqueue(new Callback() {
+        identityClient().newCall(request).enqueue(new Callback() {
             @Override
             public void onFailure(Call ignored, IOException error) {
                 // The one-time-password scope cannot access normal APIs. Local removal is sufficient.
@@ -1893,7 +1900,7 @@ public class LinuxDoSessionPlugin extends Plugin {
             if (!cookie.isEmpty()) builder.header("Cookie", cookie);
             if (!userAgent.isEmpty()) builder.header("User-Agent", userAgent);
 
-            identityClient.newCall(builder.build()).enqueue(new Callback() {
+            identityClient().newCall(builder.build()).enqueue(new Callback() {
                 @Override
                 public void onFailure(Call ignored, IOException error) {
                     JSONObject cached = cachedSessionUser();

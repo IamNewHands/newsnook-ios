@@ -36,17 +36,31 @@ import org.json.JSONException;
 public class BergamotTranslationPlugin extends Plugin {
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
-    private final OkHttpClient httpClient = new OkHttpClient.Builder()
-        .retryOnConnectionFailure(true)
-        .build();
+    private OkHttpClient httpClient;
 
     private BergamotModelStore store;
-    private boolean nativeLoaded = false;
-    private String nativeLoadError = null;
+    private boolean nativeLoadAttempted;
+    private volatile boolean nativeLoaded = false;
+    private volatile String nativeLoadError = null;
 
     @Override
     public void load() {
         store = new BergamotModelStore(getContext());
+    }
+
+    private synchronized OkHttpClient httpClient() {
+        if (httpClient == null) {
+            httpClient = new OkHttpClient.Builder()
+                .retryOnConnectionFailure(true)
+                .build();
+        }
+        return httpClient;
+    }
+
+    /** Capability queries and translation still observe the real engine state. */
+    private synchronized void ensureNativeLoaded() {
+        if (nativeLoadAttempted) return;
+        nativeLoadAttempted = true;
         try {
             System.loadLibrary("c++_shared");
         } catch (Throwable ignored) {
@@ -102,7 +116,8 @@ public class BergamotTranslationPlugin extends Plugin {
 
         executor.execute(() -> {
             try {
-                store.download(pair, httpClient, notifier::updateBytes);
+                ensureNativeLoaded();
+                store.download(pair, httpClient(), notifier::updateBytes);
                 bridge.getActivity().runOnUiThread(() -> {
                     notifier.clear();
                     call.resolve(modelStateObject(pair));
@@ -124,6 +139,7 @@ public class BergamotTranslationPlugin extends Plugin {
         if (pair == null) return;
         executor.execute(() -> {
             try {
+                ensureNativeLoaded();
                 if (nativeLoaded && nativeEngineReady()) {
                     nativeUnload(pair.pairKey);
                 }
@@ -142,6 +158,7 @@ public class BergamotTranslationPlugin extends Plugin {
         BergamotModelCatalog.PairSpec pair = readPair(call);
         if (pair == null) return;
 
+        ensureNativeLoaded();
         if (!nativeLoaded) {
             call.reject(
                 "ENGINE_NOT_BUILT：原生库未链接（" +
@@ -213,6 +230,7 @@ public class BergamotTranslationPlugin extends Plugin {
     }
 
     private JSObject engineStateObject() {
+        ensureNativeLoaded();
         JSObject result = new JSObject();
         boolean engineReady = nativeLoaded && nativeEngineReady();
         result.put("engineReady", engineReady);

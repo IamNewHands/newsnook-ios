@@ -23,10 +23,13 @@ const manifest = {
   sources: { test: { categoryId: 'mix', articleIds: [article.id] } },
   articles: { [article.id]: { article, sourceId: 'test', bytes: 100, savedAt: 1 } },
 }
+let resolveManifest!: () => void
+const manifestReady = new Promise<void>(resolve => { resolveManifest = resolve })
 mock.module('@capacitor/filesystem', {
   namedExports: {
     Directory: { Data: 'DATA' }, Encoding: { UTF8: 'utf8' },
     Filesystem: { readFile: async (options: { path: string }) => {
+      await manifestReady
       if (options.path.endsWith('manifest-a.json')) return { data: JSON.stringify(manifest) }
       throw new Error('File not found')
     } },
@@ -47,7 +50,9 @@ function Harness() {
 let root = createRoot(document.getElementById('root')!)
 try {
   await act(async () => { root.render(<Harness />) })
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)) })
+  assert.equal(result!.restored, false, 'startup must know the durable offline snapshot is still restoring')
+  await act(async () => { resolveManifest(); await manifestReady })
+  assert.equal(result!.restored, true, 'offline restoration completes before startup can report usable cached content')
   assert.equal(result!.snapshot.articles[0]?.id, article.id, 'the old manifest must load without any feed list')
   const html = '<p>正文</p><img src="https://example.org/photo.jpg">'
   const preview = withArticlePreviewImage(article, html)

@@ -237,8 +237,14 @@ export function FeedStoreScreen({ prefs, currentCategoryId, currentPresetId, cur
         if (previewController.current === controller && result.feed) {
           setSelectedInstanceId(result.instanceId ?? '')
           setPreview(result.feed)
-        } else if (previewController.current === controller) {
-          setError(result.detail ?? 'RSSHub 暂不可用')
+        } else if (previewController.current === controller && !controller.signal.aborted) {
+          const kind = result.failureKind ?? 'unknown'
+          setPreview({
+            ok: false, feedUrl: effectiveFeedUrl, kind,
+            message: result.detail ?? 'RSSHub 暂不可用',
+            retryable: !['forbidden', 'not-found', 'verification', 'invalid-feed'].includes(kind),
+            checkedAt: Date.now(),
+          })
         }
         return
       }

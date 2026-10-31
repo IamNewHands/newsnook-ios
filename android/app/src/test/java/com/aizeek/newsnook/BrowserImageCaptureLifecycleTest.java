@@ -2,11 +2,20 @@ package com.aizeek.newsnook;
 
 import static org.junit.Assert.*;
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.os.Looper;
 import android.webkit.ValueCallback;
 import android.webkit.WebView;
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.Random;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,6 +31,7 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.Shadows;
 import org.robolectric.annotation.Config;
+import org.robolectric.annotation.GraphicsMode;
 import org.robolectric.annotation.LooperMode;
 
 @RunWith(RobolectricTestRunner.class)
@@ -178,16 +188,119 @@ public class BrowserImageCaptureLifecycleTest {
         BrowserImageCapture.SourceCache cache = new BrowserImageCapture.SourceCache();
         cache.put("https://cdn.example/one.jpg", new BrowserImageCapture.Bytes(new byte[5 * 1024 * 1024], "image/jpeg"));
         cache.put("https://cdn.example/two.jpg", new BrowserImageCapture.Bytes(new byte[5 * 1024 * 1024], "image/jpeg"));
-        assertNotNull("a second read of the same url is served from memory", cache.get("https://cdn.example/one.jpg"));
+        BrowserImageCapture.Bytes active = cache.get("https://cdn.example/one.jpg");
+        assertNotNull("a second read of the same url is served from memory", active);
+        active.release();
         cache.put("https://cdn.example/three.jpg", new BrowserImageCapture.Bytes(new byte[5 * 1024 * 1024], "image/jpeg"));
-        assertNull("the byte budget evicts the oldest source first", cache.get("https://cdn.example/one.jpg"));
-        assertNotNull(cache.get("https://cdn.example/two.jpg"));
-        assertNotNull(cache.get("https://cdn.example/three.jpg"));
+        assertNull("the memory budget evicts the least recently USED source", cache.get("https://cdn.example/two.jpg"));
+        BrowserImageCapture.Bytes one = cache.get("https://cdn.example/one.jpg");
+        BrowserImageCapture.Bytes three = cache.get("https://cdn.example/three.jpg");
+        assertNotNull(one); assertNotNull(three);
+        one.release(); three.release();
         BrowserImageCapture.SourceCache page = new BrowserImageCapture.SourceCache();
         for (int index = 0; index < 25; index++)
             page.put("https://cdn.example/p" + index + ".jpg", new BrowserImageCapture.Bytes(new byte[1024], "image/jpeg"));
         assertNull("the entry budget evicts the oldest sources first", page.get("https://cdn.example/p0.jpg"));
         assertNotNull(page.get("https://cdn.example/p24.jpg"));
+    }
+
+    @Test public void sampledDecodeRespectsPixelBudgetBeforeAllocatingBitmap() {
+        assertEquals(1, BrowserImageCapture.sampleSize(800, 600, 2560, 2_560_000L));
+        for (int[] dimensions : new int[][] {{9000, 9000}, {100000, 40000}, {200000, 200000}, {600, 200000}}) {
+            int sample = BrowserImageCapture.sampleSize(dimensions[0], dimensions[1], 2560, 2_560_000L);
+            assertTrue(sample > 1);
+            assertTrue(dimensions[0] / sample <= 2560);
+            assertTrue(dimensions[1] / sample <= 2560);
+            assertTrue((long) (dimensions[0] / sample) * (dimensions[1] / sample) <= 2_560_000L);
+        }
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test public void sevenMegabytePngDecodesToBoundedPreviewWithoutRejectingSource() throws Exception {
+        // Generate the high-entropy >6MB original in this test; do not commit a huge binary fixture.
+        File source = File.createTempFile("browser-original-", ".png", RuntimeEnvironment.getApplication().getCacheDir());
+        Bitmap image = Bitmap.createBitmap(1700, 1700, Bitmap.Config.ARGB_8888);
+        int[] pixels = new int[1700 * 1700];
+        Random random = new Random(51491);
+        for (int index = 0; index < pixels.length; index++) pixels[index] = 0xff000000 | random.nextInt(0x1000000);
+        image.setPixels(pixels, 0, 1700, 0, 0, 1700, 1700);
+        try {
+            try (FileOutputStream output = new FileOutputStream(source)) {
+                assertTrue(image.compress(Bitmap.CompressFormat.PNG, 100, output));
+            }
+            assertTrue("source must reproduce the original >6MB bug", source.length() > 6L * 1024 * 1024);
+            Method method = BrowserImageCapture.class.getDeclaredMethod("encode", BrowserImageCapture.Bytes.class, boolean.class);
+            method.setAccessible(true);
+            Object result = method.invoke(null, new BrowserImageCapture.Bytes(source, "image/png"), false);
+            Field value = result.getClass().getDeclaredField("value");
+            Field width = result.getClass().getDeclaredField("width");
+            Field height = result.getClass().getDeclaredField("height");
+            value.setAccessible(true); width.setAccessible(true); height.setAccessible(true);
+            assertTrue("only a bounded preview crosses the bridge", ((byte[]) value.get(result)).length <= 2 * 1024 * 1024);
+            assertTrue((int) width.get(result) <= 2560);
+            assertTrue((int) height.get(result) <= 2560);
+        } finally {
+            image.recycle();
+            source.delete();
+        }
+    }
+
+    @Test public void oversizedSixMegabyteSourceCanBeStreamedWithoutHeapBuffer() throws Exception {
+        final long[] written = {0};
+        OutputStream sink = new OutputStream() {
+            @Override public void write(int value) { written[0]++; }
+            @Override public void write(byte[] bytes, int offset, int length) { written[0] += length; }
+        };
+        InputStream generated = new InputStream() {
+            int remaining = 7 * 1024 * 1024 + 123;
+            @Override public int read() { if (remaining == 0) return -1; remaining--; return 0x31; }
+            @Override public int read(byte[] dest, int offset, int length) {
+                if (remaining == 0) return -1;
+                int chunk = Math.min(remaining, length);
+                Arrays.fill(dest, offset, offset + chunk, (byte) 0x31);
+                remaining -= chunk;
+                return chunk;
+            }
+        };
+        long count = BrowserImageCapture.spoolBounded(generated, sink, 128L * 1024 * 1024);
+        assertTrue(count > 6L * 1024 * 1024);
+        assertEquals(count, written[0]);
+        try {
+            BrowserImageCapture.spoolBounded(new ByteArrayInputStream(new byte[8193]), sink, 8192);
+            fail("oversized streams must still reject at the protective source budget");
+        } catch (IOException expected) { assertTrue(expected.getMessage().contains("过大")); }
+    }
+
+    @Test public void diskSourceCacheEvictsFilesButKeepsBorrowedSourcesAlive() throws Exception {
+        File directory = RuntimeEnvironment.getApplication().getCacheDir();
+        BrowserImageCapture.SourceCache cache = new BrowserImageCapture.SourceCache();
+        File[] files = new File[3];
+        BrowserImageCapture.Bytes borrowed = null;
+        try {
+            for (int index = 0; index < files.length; index++) {
+                files[index] = File.createTempFile("browser-large-", ".jpg", directory);
+                try (FileOutputStream output = new FileOutputStream(files[index])) {
+                    byte[] block = new byte[16 * 1024];
+                    for (int n = 0; n < 15 * 1024 * 1024 / block.length; n++) output.write(block);
+                }
+                BrowserImageCapture.Bytes bytes = new BrowserImageCapture.Bytes(files[index], "image/jpeg");
+                cache.put("large-" + index, bytes);
+                bytes.release();
+                if (index == 0) borrowed = cache.get("large-0");
+            }
+            assertNull(cache.get("large-0"));
+            assertTrue("borrowed file must survive LRU eviction", files[0].exists());
+            BrowserImageCapture.Bytes second = cache.get("large-1");
+            BrowserImageCapture.Bytes third = cache.get("large-2");
+            assertNotNull(second); assertNotNull(third);
+            second.release(); third.release();
+            cache.discard("large-1");
+            assertFalse("explicit export can transfer source ownership without making another disk copy", files[1].exists());
+        } finally {
+            if (borrowed != null) borrowed.release();
+            cache.clear();
+        }
+        for (File file : files) assertFalse("cache and borrowed references must be released", file.exists());
     }
 
     @Test public void boundedReaderRejectsAnOversizedStreamBeforeReturningBytes() throws Exception {

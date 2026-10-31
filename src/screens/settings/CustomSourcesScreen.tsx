@@ -36,7 +36,12 @@ import {
   allRegisteredCategories,
   type Preferences,
 } from '../../sources/preferences'
-import type { NewsSource } from '../../sources/registry'
+import type { NewsSource, SourceDiscoveryMetadata } from '../../sources/registry'
+import { findSubscriptionDuplicate } from '../../features/feedDiscovery/subscriptionActions'
+import { validateFeedUrl } from '../../features/feedDiscovery/routeBuilder'
+import { parseRssHubLogicalInput, describeRssHubRoute } from '../../features/rsshub/input'
+import { normalizeRssHubInstances } from '../../features/rsshub/instances'
+import { probeRssHubRoute } from '../../features/rsshub/probe'
 import { MAX_CATALOG_BYTES } from '../../features/siteCatalog/context'
 import { getSiteCleanDomain } from '../../features/siteCatalog/uiUtils'
 import { probeCatalog } from '../../features/siteCatalog/probe'
@@ -56,12 +61,13 @@ interface Props {
       kind?: NewsSource['kind']
       catalogProfile?: NewsSource['catalogProfile']
       frameworkHint?: FrameworkHint
+      discovery?: SourceDiscoveryMetadata
     },
     targetCategoryId?: CategoryId,
   ) => void
   onUpdateCustomSource: (
     sourceId: string,
-    patch: Partial<Pick<NewsSource, 'name' | 'label' | 'url' | 'siteUrl' | 'kind' | 'frameworkHint' | 'catalogProfile'>>,
+    patch: Partial<Pick<NewsSource, 'name' | 'label' | 'url' | 'siteUrl' | 'kind' | 'frameworkHint' | 'catalogProfile' | 'discovery'>>,
   ) => void
   onDeleteCustomSource: (sourceId: string) => void
   onDeleteCustomSources: (sourceIds: string[]) => void
@@ -95,6 +101,7 @@ export function CustomSourcesScreen({
   useEffect(() => () => probeController.current?.abort(), [])
   const [probing, setProbing] = useState(false)
   const [probeError, setProbeError] = useState<string | null>(null)
+  const [probedRssHub, setProbedRssHub] = useState<{ url: string; discovery: SourceDiscoveryMetadata } | null>(null)
   const [probeDiscoveredFeeds, setProbeDiscoveredFeeds] = useState<{ title: string; url: string }[]>([])
   const [probeCatalogHit, setProbeCatalogHit] = useState<{
     name: string
@@ -189,6 +196,7 @@ export function CustomSourcesScreen({
     setProbeError(null)
     setProbeDiscoveredFeeds([])
     setProbeCatalogHit(null)
+    setProbedRssHub(null)
     setEditingSourceId(null)
     setShowAddModal(false)
   }
@@ -270,6 +278,7 @@ export function CustomSourcesScreen({
     setInputName(source.name)
     setInputLabel(source.label)
     setInputSiteUrl(source.siteUrl ?? '')
+    setProbedRssHub(null)
     setProbeError(null)
     setProbeDiscoveredFeeds([])
     setProbeCatalogHit(
@@ -292,9 +301,40 @@ export function CustomSourcesScreen({
     setProbing(true)
     setProbeError(null)
     setProbeDiscoveredFeeds([])
+    if (probedRssHub?.url !== url) setProbedRssHub(null)
     // Retain the last valid configuration if re-probing fails.
 
     try {
+      // Logical RSSHub URIs identify routes, not HTTP origins. Resolve the exact
+      // route through the configured public instances before saving it as a feed.
+      const logical = parseRssHubLogicalInput(url)
+      if (/^rsshub:/i.test(url) && !logical) throw new Error('RSSHub 逻辑地址格式无效，请使用 rsshub://站点/路由')
+      if (logical) {
+        const result = await probeRssHubRoute(
+          logical.routePath, normalizeRssHubInstances(prefs.rsshubInstances), controller.signal,
+        )
+        if (controller.signal.aborted || probeController.current !== controller) return
+        if (result.state !== 'available' || !result.feedUrl || !result.feed) {
+          setProbeError(result.detail ?? 'RSSHub 路由暂时无法获取内容，请更换服务实例或稍后重试。')
+          return
+        }
+        setProbedRssHub({
+          url: result.feedUrl,
+          discovery: {
+            providerId: 'rsshub', entryId: 'rsshub:logical:' + logical.routePath,
+            generator: 'rsshub', routeKey: logical.routePath, instanceId: result.instanceId,
+            verification: { status: 'verified', checkedAt: result.feed.checkedAt },
+          },
+        })
+        setProbeCatalogHit(null)
+        setInputUrl(result.feedUrl)
+        if (!inputName.trim()) {
+          const name = result.feed.title || describeRssHubRoute(logical.routePath)
+          setInputName(name)
+          setInputLabel(name.slice(0, 4))
+        }
+        return
+      }
       const probeUrl = url.startsWith('http://') || url.startsWith('https://') ? url : `https://${url}`
       const { html: text, url: normalizedUrl } = await fetchProbeEntryPage(
         probeUrl,
@@ -402,8 +442,30 @@ export function CustomSourcesScreen({
     e?.preventDefault()
     let url = inputUrl.trim()
     if (!url) return
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      url = `https://${url}`
+    if (/^rsshub:/i.test(url)) {
+      try { parseRssHubLogicalInput(url) } catch (error) {
+        setProbeError(error instanceof Error ? error.message : 'RSSHub 逻辑地址无效')
+        return
+      }
+      setProbeError('请先点击「探测」，选择实际可用的 RSSHub 服务后再保存。')
+      return
+    }
+    if (/^[a-z][a-z\d+.-]*:/i.test(url) && !/^https?:\/\//i.test(url)) {
+      setProbeError('仅支持 HTTP、HTTPS 或 rsshub:// 订阅地址')
+      return
+    }
+    if (!/^https?:\/\//i.test(url)) url = `https://${url}`
+    try { url = validateFeedUrl(url) } catch (error) {
+      setProbeError(error instanceof Error ? error.message : '订阅地址无效')
+      return
+    }
+    const discovery = probedRssHub?.url === url ? probedRssHub.discovery : undefined
+    if (discovery && !editingSourceId) {
+      const existing = findSubscriptionDuplicate(prefs, { url, discovery })
+      if (existing) {
+        setProbeError(existing.kind === 'builtin' ? '该来源已内置，无需重复订阅。' : '该 RSSHub 路由已经订阅，无需重复添加。')
+        return
+      }
     }
     const name = inputName.trim() || url
     const label = inputLabel.trim() || name.slice(0, 4)
@@ -420,6 +482,7 @@ export function CustomSourcesScreen({
         name,
         label,
         siteUrl,
+        ...(discovery ? { discovery } : {}),
         ...(probeCatalogHit ? { kind: 'web-catalog' as const, frameworkHint: hint, catalogProfile: probeCatalogHit.catalogProfile } : {}),
       })
     } else {
@@ -431,6 +494,7 @@ export function CustomSourcesScreen({
           label,
           url,
           siteUrl,
+          ...(discovery ? { discovery } : {}),
           ...(probeCatalogHit ? { kind: 'web-catalog' as const, frameworkHint: hint, catalogProfile: probeCatalogHit.catalogProfile } : {}),
           ...(hint ? { frameworkHint: hint } : {}),
         },
@@ -872,11 +936,12 @@ export function CustomSourcesScreen({
                 <div className="mt-1.5 flex gap-2">
                   <input
                     id={urlInputId}
-                    type="url"
+                    type="text"
+                    inputMode="url"
                     required
                     value={inputUrl}
-                    onChange={(e) => { probeController.current?.abort(); probeController.current = null; setProbing(false); setInputUrl(e.target.value); setProbeCatalogHit(null); setProbeDiscoveredFeeds([]) }}
-                    placeholder="https://example.com/feed.xml 或 https://example.com"
+                    onChange={(e) => { probeController.current?.abort(); probeController.current = null; setProbing(false); setInputUrl(e.target.value); setProbedRssHub(null); setProbeError(null); setProbeCatalogHit(null); setProbeDiscoveredFeeds([]) }}
+                    placeholder="https://example.com/feed.xml 或 rsshub://站点/路由"
                     className="min-w-0 flex-1 rounded-xl border border-haze bg-ink-raised px-3.5 py-2.5 text-[14px] text-paper placeholder-paper-faint/45 transition-colors focus:border-cinnabar focus:outline-none"
                   />
                   <button
@@ -890,6 +955,11 @@ export function CustomSourcesScreen({
                   </button>
                 </div>
 
+                {probedRssHub && (
+                  <p role="status" className="mt-1.5 text-[11px] text-cinnabar-soft">
+                    RSSHub 已验证 · {new URL(probedRssHub.url).hostname}
+                  </p>
+                )}
                 {probeError && (
                   <p className="mt-1.5 flex items-center gap-1 font-mono text-[11px] text-rose-400">
                     <AlertCircle size={12} />

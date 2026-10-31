@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { parseHTML } from 'linkedom'
 import React, { act } from 'react'
+import { Capacitor } from '@capacitor/core'
+
+const originalGetPlatform = Capacitor.getPlatform
+let platform = 'android'
 
 const { window } = parseHTML('<!doctype html><html><body><div id="root"></div></body></html>')
 Object.assign(globalThis, {
@@ -16,6 +20,7 @@ Object.defineProperty(window.document, 'oninput', { configurable: true, value: n
 
 const { createRoot } = await import('react-dom/client')
 const { PresetSwitcher } = await import('../src/components/PresetSwitcher')
+Capacitor.getPlatform = () => platform
 
 const root = createRoot(document.getElementById('root')!)
 let manageCalls = 0
@@ -197,7 +202,22 @@ try {
   })
   assert.equal(browserOpenedUrl, 'https://example.com/site')
 
+  // A callback can still be supplied by a caller on Web. It must never expose
+  // controls for the native-only embedded browser, even in an Android browser.
+  platform = 'web'
+  await render(builtins, [], true)
+  await click(document.querySelector('button[aria-haspopup="dialog"]') as HTMLButtonElement)
+  assert.ok(!document.querySelector('button[aria-label="进入网页浏览器"]'),
+    'Web must hide the embedded browser entry rather than offer an unusable action')
+  assert.ok(!document.querySelector('input[aria-label="搜索或输入网址"]'),
+    'Web must hide the embedded browser search field')
+  assert.ok(!document.querySelector('button[aria-label="进入浏览器搜索"]'))
+  assert.ok(document.body.textContent?.includes('中国资讯'), 'Web keeps working presets')
+  assert.ok(document.body.textContent?.includes('CMS 站点'), 'Web keeps CMS navigation')
+  assert.ok(!document.body.textContent?.includes('社区入口'))
+
   console.log('preset-switcher-ui: ok')
 } finally {
+  Capacitor.getPlatform = originalGetPlatform
   await act(async () => root.unmount())
 }

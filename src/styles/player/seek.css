@@ -33,3 +33,12 @@
   background: var(--color-cinnabar);
 }
 
+/* V2: quiet at rest, precise and tactile while scrubbing. */
+.ink-video-seek-track { transition: height 160ms ease; }
+.ink-video-seek-played { background: #e8ceb1; }
+[data-video-scrubbing='true'] .ink-video-seek-track { height: 5px; }
+.ink-seek::-webkit-slider-thumb { background: #e8ceb1; border: 2px solid #faf6ee; width: 12px; height: 12px; margin-top: -4.5px; box-shadow: 0 1px 7px rgba(0,0,0,.35); }
+.ink-seek::-moz-range-thumb { background: #e8ceb1; border-color: #faf6ee; width: 12px; height: 12px; box-shadow: 0 1px 7px rgba(0,0,0,.35); }
+[data-video-scrubbing='true'] .ink-seek::-webkit-slider-thumb { width: 16px; height: 16px; margin-top: -5.5px; }
+[data-video-scrubbing='true'] .ink-seek::-moz-range-thumb { width: 16px; height: 16px; }
+@media (prefers-reduced-motion: reduce) { .ink-video-seek-track { transition: none; } }

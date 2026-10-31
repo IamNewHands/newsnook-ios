@@ -38,12 +38,13 @@ const dialogSource = readFileSync(new URL('../src/components/ConfirmDialog.tsx',
 const contextMenuSource = readFileSync(new URL('../src/components/ContextActionMenu.tsx', import.meta.url), 'utf8')
 const updateDialogSource = readFileSync(new URL('../src/features/appUpdate/UpdateDialog.tsx', import.meta.url), 'utf8')
 
-assert.match(appSource, /dismissTopHardwareBackLayer\(\)/, 'App backButton chain must ask transient layers before navigation or exit')
+assert.match(appSource, /dismissTopHardwareBackLayer\(\)/, 'App backButton chain must ask transient layers before navigation or backgrounding')
 assert.match(
   appSource,
-  /backButton[\s\S]*dismissTopHardwareBackLayer\(\)[\s\S]*CapacitorApp\.exitApp\(\)/,
-  'exitApp must remain the final fallback after transient overlays and routes',
+  /backButton[\s\S]*dismissTopHardwareBackLayer\(\)[\s\S]*CapacitorApp\.minimizeApp\(\)/,
+  'minimizeApp must be the final fallback after transient overlays and routes',
 )
+assert.doesNotMatch(appSource, /CapacitorApp\.exitApp\(\)/, 'Back must never call Activity.finish via Capacitor exitApp')
 assert.match(presetSource, /useHardwareBackLayer\(open/, 'PresetSwitcher sheet must consume Android back')
 assert.match(dialogSource, /useHardwareBackLayer\(open/, 'shared dialogs must consume Android back')
 assert.match(contextMenuSource, /useHardwareBackLayer\(open/, 'context menus must consume Android back')

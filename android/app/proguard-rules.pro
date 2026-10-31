@@ -19,3 +19,11 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Backport Capacitor's annotation-interface rules until the dependency includes
+# https://github.com/ionic-team/capacitor/pull/8646 (fixes #8589).
+# Runtime annotation proxies instantiate these contracts through reflection.
+# Keeping only annotated plugin classes lets R8 fold permission metadata to null.
+-keep @interface com.getcapacitor.annotation.** { *; }
+-keep @interface com.getcapacitor.PluginMethod { *; }
+-keep @interface com.getcapacitor.NativePlugin { *; }

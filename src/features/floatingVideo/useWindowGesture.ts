@@ -53,6 +53,14 @@ export function useWindowGesture(rootRef: RefObject<HTMLDivElement | null>, slot
     captures.current.clear()
     for (const [id, target] of held) if (target.hasPointerCapture?.(id)) target.releasePointerCapture(id)
   }, [])
+  const forgetPointer = useCallback((id: number) => {
+    pointers.current.delete(id)
+    if (pointers.current.size < 2) pinchStart.current = null
+    if (interaction.current?.id === id) interaction.current = null
+    const target = captures.current.get(id)
+    captures.current.delete(id)
+    if (target?.hasPointerCapture?.(id)) target.releasePointerCapture(id)
+  }, [])
   useEffect(() => {
     if (hidden) { cancel(); return }
     const video = slotRef.current?.querySelector('video')
@@ -75,7 +83,7 @@ export function useWindowGesture(rootRef: RefObject<HTMLDivElement | null>, slot
   useEffect(() => {
     if (hidden) { setTip(false); return }
     if (!tip) return
-    const timer = window.setTimeout(() => setTip(false), 6000)
+    const timer = window.setTimeout(() => setTip(false), 2600)
     return () => window.clearTimeout(timer)
   }, [hidden, tip])
   useEffect(() => {
@@ -92,6 +100,13 @@ export function useWindowGesture(rootRef: RefObject<HTMLDivElement | null>, slot
     root?.addEventListener('loadedmetadata', sync, true)
     window.addEventListener('resize', sync)
     window.addEventListener('blur', cancel)
+    // Pointerup can be retargeted outside the floating window by WebView.
+    // Only clean tracked IDs; normal child/outer handlers already finished.
+    const onOutsidePointerEnd = (event: globalThis.PointerEvent) => {
+      if (pointers.current.has(event.pointerId) || captures.current.has(event.pointerId)) forgetPointer(event.pointerId)
+    }
+    window.addEventListener('pointerup', onOutsidePointerEnd)
+    window.addEventListener('pointercancel', onOutsidePointerEnd)
     const viewport = window.visualViewport
     viewport?.addEventListener('resize', sync)
     viewport?.addEventListener('scroll', sync)
@@ -100,13 +115,15 @@ export function useWindowGesture(rootRef: RefObject<HTMLDivElement | null>, slot
       root?.removeEventListener('loadedmetadata', sync, true)
       window.removeEventListener('resize', sync)
       window.removeEventListener('blur', cancel)
+      window.removeEventListener('pointerup', onOutsidePointerEnd)
+      window.removeEventListener('pointercancel', onOutsidePointerEnd)
       viewport?.removeEventListener('resize', sync)
       viewport?.removeEventListener('scroll', sync)
       if (frame.current != null) cancelAnimationFrame(frame.current)
       frame.current = null
       cancel()
     }
-  }, [apply, cancel, rootRef, slotRef])
+  }, [apply, cancel, forgetPointer, rootRef, slotRef])
 
   const gesture = (resizing: boolean) => ({
     onPointerDown(event: PointerEvent<HTMLElement>) {
@@ -165,6 +182,7 @@ export function useWindowGesture(rootRef: RefObject<HTMLDivElement | null>, slot
           captures.current.set(id, event.currentTarget)
         }
         event.preventDefault()
+        event.stopPropagation() // The frame exclusively owns the two-finger gesture.
         setTip(false)
       }
     },
@@ -181,11 +199,16 @@ export function useWindowGesture(rootRef: RefObject<HTMLDivElement | null>, slot
         y: current.y - (start.y - start.rect.y) * factor, width: start.rect.width * factor })
     },
     onPointerUpCapture(event: PointerEvent<HTMLDivElement>) {
-      pointers.current.delete(event.pointerId)
-      captures.current.delete(event.pointerId)
-      pinchStart.current = null
-      if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+      forgetPointer(event.pointerId)
     },
     onPointerCancelCapture: cancel,
+    onLostPointerCaptureCapture(event: PointerEvent<HTMLDivElement>) {
+      const owner = captures.current.get(event.pointerId)
+      // During a two-finger resize the frame steals capture from the player;
+      // that child lostcapture is expected and must not end the resize.
+      if (owner === event.currentTarget && owner.hasPointerCapture?.(event.pointerId)) return false
+      forgetPointer(event.pointerId)
+      return true
+    },
   } }
 }

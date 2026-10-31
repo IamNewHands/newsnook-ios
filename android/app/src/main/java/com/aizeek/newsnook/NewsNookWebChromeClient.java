@@ -29,6 +29,20 @@ final class NewsNookWebChromeClient extends BridgeWebChromeClient {
     }
 
     @Override public boolean onConsoleMessage(android.webkit.ConsoleMessage message) {
+        if (message.message().startsWith("__NNSTART ")) {
+            if (BuildConfig.DEBUG || BuildConfig.STARTUP_BENCHMARK) {
+                android.util.Log.i("NewsNookStartup", message.message() + " elapsed=" + android.os.SystemClock.elapsedRealtime() + "ms");
+            }
+            // The frame signal must originate from the packaged Capacitor main
+            // document, not an arbitrary article, browser tab or embedded iframe.
+            String source = message.sourceId();
+            if (message.message().startsWith("__NNSTART first-ui-frame web=")
+                    && source != null && source.startsWith("https://localhost/")
+                    && context instanceof MainActivity) {
+                ((MainActivity) context).notifyFirstUiPaintFromConsole();
+            }
+            return true;
+        }
         return BrowserHostPlugin.isPrivacyModeEnabled(context) || super.onConsoleMessage(message);
     }
 

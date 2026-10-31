@@ -26,6 +26,8 @@ interface Props {
   eager?: boolean
   /** 加载失败时是否整块收起；默认保留一块安静的底色 */
   collapseOnError?: boolean
+  /** 直连及代理/原生重试均失败时通知列表，按需寻找替代封面。 */
+  onFailed?: () => void
   /** 点击看大图；提供后容器可聚焦并可键盘激活 */
   onOpen?: (src: string) => void
   /** 未允许前不设 src；点击占位后再加载 */
@@ -47,6 +49,7 @@ const InkImageFrame = memo(function InkImageFrame({
   className = '',
   eager,
   collapseOnError,
+  onFailed,
   onOpen,
   deferLoad,
 }: Props & { src: string }) {
@@ -58,6 +61,7 @@ const InkImageFrame = memo(function InkImageFrame({
   const [state, setState] = useState<LoadState>('loading')
   const ownedBlobRef = useRef<string | null>(null)
   const retryAttemptedRef = useRef(false)
+  const failureNotifiedRef = useRef(false)
   const mountedRef = useRef(true)
 
   useEffect(() => {
@@ -151,6 +155,10 @@ const InkImageFrame = memo(function InkImageFrame({
     if (!mountedRef.current) return
     setState('error')
     setPhase('failed')
+    if (!failureNotifiedRef.current) {
+      failureNotifiedRef.current = true
+      onFailed?.()
+    }
   }
 
   const retryAfterError = () => {

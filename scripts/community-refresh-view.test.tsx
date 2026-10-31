@@ -73,7 +73,7 @@ const article: any = { id: 'news', sourceId: 'test', title: 'A hero', link: 'htt
 await act(async () => { root.render(<LeadStory article={article} read={false} saved={false} onOpen={noop} variant="lead" />); await flush() })
 const hero = host.querySelector('.lead-hero')!
 await act(async () => { host.querySelector('img')!.dispatchEvent(new window.Event('error')); await flush() })
-assert.ok(hero.querySelector('.h-\\[13\\.75rem\\]'), 'failed hero image must retain its full-height frame')
+assert.ok(hero.querySelector('.h-\\[14\\.5rem\\]'), 'failed hero image must retain its full-height frame')
 await act(async () => { root.render(null); await flush() })
 
 // No animation frames are flushed: returning must restore content and scroll before paint.

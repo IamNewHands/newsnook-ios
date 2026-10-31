@@ -36,6 +36,7 @@ function stateWithProviders(): LocalRuntimeState {
               name: '翻译网关',
               endpoint: 'https://translate.example.test/v1',
               apiKey: 'translation-secret',
+              allowInsecureHttp: true,
             },
             {
               id: 'reader',
@@ -74,6 +75,7 @@ assert.equal(serialized.includes('translation-secret'), false)
 assert.equal(serialized.includes('reader-secret'), false)
 assert.ok(serialized.includes('translation-model'))
 assert.ok(serialized.includes('speed-model'))
+assert.ok(serialized.includes('allowInsecureHttp'), 'HTTP consent is ordinary non-secret provider metadata')
 
 assert.deepEqual(projection[entityKey('secret', aiProviderSecretKey('translator'))]?.payload, {
   value: 'translation-secret',
@@ -97,11 +99,13 @@ assert.deepEqual(resolveAiFeatureConfig(restored.prefs.translation, 'translation
   apiKey: 'translation-secret',
   model: 'translation-model',
   concurrency: 3,
+  allowInsecureHttp: true,
 })
 assert.deepEqual(resolveAiFeatureConfig(restored.prefs.translation, 'speedRead'), {
   endpoint: 'https://reader.example.test/v1',
   apiKey: 'reader-secret',
   model: 'speed-model',
+  allowInsecureHttp: false,
 })
 
 

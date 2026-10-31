@@ -48,6 +48,7 @@ import {
   ZhihuSurface,
 } from './ZhihuUi'
 import { formatZhihuCount, zhihuEntityLabel } from './ZhihuUiUtils'
+import { ZhihuRemarkBadge, ZhihuRemarkEditButton } from './ZhihuUserRemark'
 
 interface Props {
   refValue: ZhihuEntityRef
@@ -921,10 +922,11 @@ export function ZhihuContentScreen({ refValue, preview, onArticleRead, contentSe
             >
               <ZhihuAuthorAvatar author={detail.author} className="size-10 shrink-0" />
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                   <span className="truncate font-sans text-[14.5px] font-semibold text-paper transition-colors group-hover:text-sky-500">
                     {detail.author.name}
                   </span>
+                  <ZhihuRemarkBadge author={detail.author} />
                 </div>
                 {detail.author.headline ? (
                   <p className="truncate text-[12px] text-paper-muted">
@@ -936,6 +938,7 @@ export function ZhihuContentScreen({ refValue, preview, onArticleRead, contentSe
               </div>
             </button>
 
+            <ZhihuRemarkEditButton author={detail.author} showLabel className="border border-haze/60 hover:border-sky-500/35" />
             {detail.author.token && (
               <button
                 type="button"

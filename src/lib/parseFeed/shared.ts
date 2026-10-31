@@ -165,15 +165,17 @@ export function audioUrlFromNode(node: Unknown, html: string): string | undefine
 export function videoMediaFromNode(
   node: Unknown,
   html: string,
-): { directUrl?: string; playerPageUrl?: string } {
+): { directUrl?: string; playerPageUrl?: string; declaredByFeed: boolean } {
   let playerPageUrl: string | undefined
+  let declaredByFeed = false
 
   for (const rec of enclosureRecords(node)) {
     const url = httpUrl(rec['@_url'])
     const type = typeof rec['@_type'] === 'string' ? rec['@_type'] : ''
-    if (url && isDirectVideoMediaUrl(url, type)) return { directUrl: url, playerPageUrl }
+    if (url && isDirectVideoMediaUrl(url, type)) return { directUrl: url, playerPageUrl, declaredByFeed: true }
     if (url && /^text\/html\b/i.test(type) && isLikelyEmbeddedVideoPageUrl(url)) {
       playerPageUrl ??= url
+      declaredByFeed = true
     }
   }
 
@@ -184,7 +186,7 @@ export function videoMediaFromNode(
     const href = httpUrl(rec['@_href'])
     const type = typeof rec['@_type'] === 'string' ? rec['@_type'] : ''
     if (href && rel === 'enclosure' && isDirectVideoMediaUrl(href, type)) {
-      return { directUrl: href, playerPageUrl }
+      return { directUrl: href, playerPageUrl, declaredByFeed: true }
     }
     if (
       href &&
@@ -193,6 +195,7 @@ export function videoMediaFromNode(
       isLikelyEmbeddedVideoPageUrl(href)
     ) {
       playerPageUrl ??= href
+      declaredByFeed = true
     }
   }
 
@@ -201,15 +204,17 @@ export function videoMediaFromNode(
     if (!rec) continue
     const url = httpUrl(text(rec.url))
     const type = text(rec.mime_type) || text(rec.mimeType)
-    if (url && isDirectVideoMediaUrl(url, type)) return { directUrl: url, playerPageUrl }
+    if (url && isDirectVideoMediaUrl(url, type)) return { directUrl: url, playerPageUrl, declaredByFeed: true }
     if (url && /^text\/html\b/i.test(type) && isLikelyEmbeddedVideoPageUrl(url)) {
       playerPageUrl ??= url
+      declaredByFeed = true
     }
   }
 
   return {
     directUrl: extractDirectVideoUrlFromHtml(html),
     playerPageUrl: playerPageUrl ?? extractEmbeddedVideoPageUrl(html),
+    declaredByFeed,
   }
 }
 
@@ -264,6 +269,7 @@ export function buildArticle(
     dateRaw: string
     image?: string
     contentType?: Article['contentType']
+    feedBodyEvidence?: Article['feedBodyEvidence']
     videoUrl?: string
     audioUrl?: string
     neteaseDocId?: string
@@ -283,6 +289,7 @@ export function buildArticle(
     title,
     summary,
     contentHtml: raw.html && raw.html.includes('<') ? raw.html : undefined,
+    feedBodyEvidence: raw.feedBodyEvidence,
     image: raw.image,
     publishedAt: published ?? fetchedAt,
     hasRealDate: published != null,

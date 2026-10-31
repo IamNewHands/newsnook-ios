@@ -68,4 +68,32 @@ assert.ok(!motionFallback.includes('.unrelated'))
 assert.ok(applyWebViewCssCompat(tailwindMotion).includes(motionFallback))
 assert.equal(legacyMotionFallbackCss('.something{color:blue}'), '')
 
-console.log('webview-css-compat: ok')
+// The compatibility pass runs after Vite's normal CSS minifier. Its final
+// output must stay compact without losing the legacy fallbacks just added.
+const expandedCss = Array.from({ length: 40 }, (_, index) => `
+            .startup-rule-${index} {
+                padding-top: 10px;
+                padding-right: 10px;
+                padding-bottom: 10px;
+                padding-left: 10px;
+                color: rgb(255, 0, 0);
+            }
+`).join('\n') + tailwindMotion + '\nhtml[data-no-flex-gap="1"] .gap-2 > * + * { margin-left: 8px; }'
+const compact = applyWebViewCssCompat(expandedCss, { minify: true })
+assert.ok(compact.length < applyWebViewCssCompat(expandedCss).length * 0.6,
+  'The final compatibility pass must not expand a minified production stylesheet')
+assert.ok(!compact.includes(':where('), 'Minification must retain the WebView 69 selector fix')
+assert.ok(!compact.includes('@property'), 'Minification must not restore unsupported property registration')
+assert.match(compact, /--tw-border-style:solid/)
+assert.match(compact, /--tw-translate-x:0px/)
+assert.match(compact, /--tw-legacy-scale-x:0?\.9(?:;|})/)
+assert.match(compact, /data-no-flex-gap[^}]+margin-left:8px/)
+assert.match(compact, /transform:translate\(/)
+const dynamicColor = applyWebViewCssCompat(
+  '.wiki-selection-popover{background:color-mix(in srgb,var(--wiki-bg) 92%,transparent)}',
+  { minify: true },
+)
+assert.match(dynamicColor, /var\(--wiki-bg\)/,
+  'A complete nested runtime color must survive final CSS parsing and minification')
+
+console.log('webview-css-compat: selectors, fallback variables, motion, dynamic colors, and final minification passed')

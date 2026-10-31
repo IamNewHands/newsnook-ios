@@ -4,6 +4,7 @@
  */
 
 import type { NewsSource } from '../../sources/registry'
+import { previewImageUrl } from '../articlePreview'
 import type { Article } from '../types'
 import { parseGenericFeed } from './generic'
 import { isBogusLatepostListDate } from './dateEnrichment'
@@ -185,7 +186,7 @@ export function parseJiqizhixin(source: NewsSource, payload: string, fetchedAt: 
     const link = `https://www.jiqizhixin.com/articles/${slug || id}`
     const summary = text(post.content) || text(post.description)
     const imageRaw = text(post.coverImageUrl) || text(post.cover_image_url)
-    const image = imageRaw ? preferHttpsAsset(imageRaw) : undefined
+    const image = previewImageUrl(imageRaw, link) ?? firstImageIn(summary, link)
 
     const article = buildArticle(
       source,

@@ -37,6 +37,9 @@ import {
   preferPublisherFetchUrl,
 } from './resolveBody/guards'
 import { extractWithReadability, isLikelyVideoPageUrl } from './resolveBody/extractors'
+import { isPreferredFeedBody, isPartialFeedTeaser } from './feedBodyEvidence'
+import { recoverFeedContent } from './resolveBody/feedContent'
+import { normalizeFeedLayout } from './resolveBody/feedLayout'
 import {
   resolveAieraBody,
   resolveHuxiuVideoBody,
@@ -188,23 +191,29 @@ export async function resolveArticleBody(
   extraSources?: NewsSource[],
   onMediaResolved?: MediaResolvedHandler,
 ): Promise<ResolvedBody> {
-  if (
-    article.contentType !== 'video' &&
-    (isInlineFlashBody(article.contentHtml, article.sourceId) ||
-      (isSubstantialHtml(article.contentHtml) && !hasBrokenTextEncoding(article.contentHtml!)))
-  ) {
-    let contentHtml = await absolutizeHtml(
-      article.contentHtml!,
-      article.originUrl || 'https://local.invalid/',
-    )
-    const embeddedFrames = article.contentHtml!.match(/<iframe\b[^>]*>/gi) || []
+  // The list cache keeps a lightweight completeness signal, not full HTML.
+  // Rehydrate only complete/legacy generic feeds when their body is absent.
+  const source = findSource(article.sourceId, extraSources)
+  let feedArticle = article
+  if (source?.kind === 'feed' && article.contentType !== 'video' && !article.contentHtml) {
+    try {
+      feedArticle = await recoverFeedContent(article, source, signal)
+    } catch (error) {
+      if (signal?.aborted) throw error
+    }
+  }
+  const availableFeedHtml = feedArticle.contentHtml
+  const renderFeed = async (excerpt = false): Promise<ResolvedBody> => {
+    const baseUrl = article.originUrl || 'https://local.invalid/'
+    let contentHtml = await absolutizeHtml(normalizeFeedLayout(availableFeedHtml!), baseUrl)
+    const embeddedFrames = availableFeedHtml!.match(/<iframe\b[^>]*>/gi) || []
     const hasNonYoutubeEmbed = embeddedFrames.some(
       (frame) => !/youtube(?:-nocookie)?\.com\/embed\//i.test(frame),
     )
     if (hasNonYoutubeEmbed && article.originUrl) {
       const mediaOptions = {
         pageUrl: article.originUrl,
-        html: article.contentHtml,
+        html: availableFeedHtml,
         runtime: true,
         timeoutMs: 6000,
         signal,
@@ -212,7 +221,7 @@ export async function resolveArticleBody(
       if (onMediaResolved) {
         scheduleMediaDiscovery(
           mediaOptions,
-          { contentHtml, bodySource: 'feed' },
+          { contentHtml, bodySource: excerpt ? 'feed-excerpt' : 'feed' },
           article.title,
           article.image,
           (resolved) => onMediaResolved(withArticleAudio(resolved, article)),
@@ -220,7 +229,7 @@ export async function resolveArticleBody(
       } else {
         const descriptor = await discoverMediaDescriptor(mediaOptions).catch(() => null)
         const enriched = applyMediaDescriptor(
-          { contentHtml, bodySource: 'feed' },
+          { contentHtml, bodySource: excerpt ? 'feed-excerpt' : 'feed' },
           descriptor,
           article.title,
           article.image,
@@ -231,11 +240,24 @@ export async function resolveArticleBody(
     return withArticleAudio(
       {
         contentHtml,
-        bodySource: 'feed',
-        image: firstImageIn(article.contentHtml!, article.originUrl),
+        bodySource: excerpt ? 'feed-excerpt' : 'feed',
+        image: firstImageIn(availableFeedHtml!, article.originUrl),
       },
       article,
     )
+  }
+
+  if (
+    article.contentType !== 'video' && availableFeedHtml &&
+    !hasBrokenTextEncoding(availableFeedHtml) &&
+    feedArticle.feedBodyEvidence !== 'teaser' &&
+    !isPartialFeedTeaser(availableFeedHtml) &&
+    (isInlineFlashBody(availableFeedHtml, article.sourceId) ||
+      (source?.kind === 'feed'
+        ? isPreferredFeedBody(feedArticle.feedBodyEvidence)
+        : isSubstantialHtml(availableFeedHtml)))
+  ) {
+    return renderFeed()
   }
 
   // 新 RSS 视频稿带 contentType；旧列表缓存没有该字段，但正文同样很短。
@@ -565,7 +587,18 @@ export async function resolveArticleBody(
     }
   }
 
-  // NYT / WSJ / Reuters 等硬拦截：至少给出摘要 + 引导外开，避免只剩 HTTP 状态码
+  // When the publisher cannot be read, retain usable syndication content.
+  // Mark an unproven description as an excerpt rather than claiming it is full.
+  if (
+    availableFeedHtml &&
+    !hasBrokenTextEncoding(availableFeedHtml) && !isPartialFeedTeaser(availableFeedHtml) &&
+    (stripTags(availableFeedHtml).length >= 12 || /<(?:img|video|audio)\b/i.test(availableFeedHtml))
+  ) {
+    return renderFeed(true)
+  }
+
+  // Publisher extraction really failed and the syndication text is absent or
+  // an explicit teaser. Do not assert a paywall without a positive signal.
   if (resolvedOriginUrl || article.summary?.trim()) {
     return buildBlockedPublisherFallback(article, resolvedOriginUrl)
   }

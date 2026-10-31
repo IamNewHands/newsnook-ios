@@ -9,8 +9,8 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"
     />
-    <!-- 启动阶段固定深色；主题色等启动页交还后再改，避免状态栏区域闪米白 -->
-    <meta name="theme-color" content="#0E0F12" />
+    <!-- Native splash and initial WebView placeholder share the same white background. -->
+    <meta name="theme-color" content="#FFFFFF" />
     <meta name="referrer" content="no-referrer" />
     <meta name="description" content="有所闻 News Nook，直连原发媒体的沉浸式阅读应用。" />
     <!--
@@ -46,25 +46,25 @@
       }
 
       /*
-       * #boot-splash 只是 WebView 首帧的深色壳，防止系统开屏撤走后露白。
-       * 静态/完整启动画面仍由 React StartupSplash 绘制，这里不画假竖线。
+       * The initial WebView shell matches Android's white splash window.
+       * React removes the placeholder after the actual app UI commits.
        */
       html,
       body {
         margin: 0;
-        background: #0e0f12;
+        background: #fff;
       }
 
       html[data-boot='splash'],
       html[data-boot='splash'] body {
-        background: #0e0f12;
+        background: #fff;
       }
 
       #boot-splash {
         position: fixed;
         z-index: 2147483646;
         inset: 0;
-        background: #0e0f12;
+        background: #fff;
         pointer-events: none;
       }
     </style>
@@ -83,6 +83,10 @@
     />
     <title>有所闻 · News Nook</title>
     <script>
+      console.info('__NNSTART html-head web=' + performance.now().toFixed(1) + 'ms')
+      try {
+        window.NewsNookNative?.reportStartupStage?.('html-head', performance.now())
+      } catch (_) { /* diagnostic only */ }
       // WebView 版本检测：低于 Chrome 69 直接提示，不进入应用
       ;(function () {
         var ua = navigator.userAgent
@@ -249,7 +253,7 @@
         }
       })()
 
-      // 在样式表生效前定好明暗与风格方案。启动阶段不改 theme-color，避免状态栏闪米白。
+      // Resolve the saved palette before external CSS; the starting chrome is white until real UI paints.
       // 数据源是 localStorage 镜像，真实偏好稍后由 main.tsx 再校准一次。
       ;(function () {
         document.documentElement.dataset.boot = 'splash'
@@ -295,7 +299,7 @@
     </script>
   </head>
   <body>
-    <!-- 纯深色壳；竖排与文案由 StartupSplash 负责 -->
+    <!-- White WebView boot placeholder; no separate animation or splash delay. -->
     <div id="boot-splash" aria-hidden="true"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>

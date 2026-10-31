@@ -1,0 +1,138 @@
+name: Browser Agent
+
+on:
+  pull_request:
+    branches: [beta]
+    paths:
+      - 'src/features/browser/**'
+      - 'android/app/src/**/BrowserAgent*'
+      - 'android/app/src/**/BrowserHost*'
+      - 'android/app/src/**/*Pdf*'
+      - 'android/app/src/**/NewsNookApplication*'
+      - 'android/app/src/**/MainActivity*'
+      - 'android/app/src/**/AndroidManifest.xml'
+      - 'android/app/src/main/assets/browser-agent.js'
+      - 'android/**/*.gradle*'
+      - 'android/gradle.properties'
+      - 'android/gradle/**'
+      - 'android/gradlew*'
+      - 'scripts/browser*'
+      - 'packages/contracts/**'
+      - 'capacitor.config.*'
+      - 'tsconfig*.json'
+      - 'vite.config.*'
+      - 'package*.json'
+      - '.github/workflows/browser-agent-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-agent-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - run: npm ci
+      - run: npm run build:contracts
+      - run: npm run test:browser
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser-agent:chromium
+      - run: npm run lint
+      - run: npm run build
+      - run: npx cap sync android
+      - name: Native behavior and cloud debug build
+        working-directory: android
+        run: ./gradlew :app:testCloudDebugUnitTest :app:assembleCloudDebug --no-daemon
+      - name: Native test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-agent-tests
+          path: android/app/build/reports/tests/
+          if-no-files-found: ignore
+
+  agent-device-tests:
+    name: Agent device tests (API ${{ matrix.api-level }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # API 28 covers the legacy isolated-service binding path.
+          - api-level: 28
+            test-classes: com.aizeek.newsnook.BrowserAgentFilesVisualTest
+          # The WebView suite asserts its required provider capabilities before running.
+          - api-level: 34
+            test-classes: com.aizeek.newsnook.BrowserAgentFilesVisualTest,com.aizeek.newsnook.BrowserAgentWebViewTest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - name: Enable KVM for the isolated emulator
+        run: |
+          test -c /dev/kvm
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+      - run: npm ci
+      - run: npm run build
+      - run: npx cap sync android
+      - name: Compile the app and instrumented tests
+        working-directory: android
+        run: ./gradlew :app:assembleCloudDebug :app:assembleCloudDebugAndroidTest --no-daemon
+      # AGENTS.md: connectedAndroidTest may uninstall its target. This job uses only
+      # a new AVD on an ephemeral GitHub-hosted runner, with no restored device data.
+      - name: Run the selected Agent classes on a fresh AVD
+        uses: reactivecircus/android-emulator-runner@v2.38.0
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          avd-name: newsnook-agent-${{ matrix.api-level }}-${{ github.run_id }}-${{ github.run_attempt }}
+          force-avd-creation: true
+          emulator-port: 5554
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-linux-hw-accel: false
+          disable-animations: true
+          working-directory: android
+          script: ./gradlew :app:connectedCloudDebugAndroidTest "-Pandroid.testInstrumentationRunnerArguments.class=${{ matrix.test-classes }}" --no-daemon --stacktrace
+      - name: Instrumented test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-agent-device-tests-api-${{ matrix.api-level }}
+          path: |
+            android/app/build/reports/androidTests/connected/
+            android/app/build/outputs/androidTest-results/connected/
+          if-no-files-found: warn

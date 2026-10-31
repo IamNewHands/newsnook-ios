@@ -799,6 +799,12 @@ async function testAiTts(): Promise<void> {
   assert.equal(await chatBlob.text(), 'chat-completions-audio')
   assert.equal(chatBlob.type, 'audio/wav')
 
+  await assert.rejects(() => __aiTtsTest.fetchSpeechBlob({ ...providerConfig, endpoint: 'http://gateway.example.org:8123/v1' },
+    { providerId: 'openai', protocol: 'chat-completions', model: 'mimo', voice: 'custom', format: 'wav' }, 'hello', 1), /HTTPS/)
+  await __aiTtsTest.fetchSpeechBlob({ ...providerConfig, endpoint: 'http://gateway.example.org:8123/v1', allowInsecureHttp: true },
+    { providerId: 'openai', protocol: 'chat-completions', model: 'mimo', voice: 'custom', format: 'wav' }, 'hello', 1)
+  assert.equal(requestUrl, 'http://gateway.example.org:8123/v1/chat/completions')
+
   await assert.rejects(
     () =>
       __aiTtsTest.fetchSpeechBlob(

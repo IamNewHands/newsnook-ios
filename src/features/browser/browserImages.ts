@@ -1,6 +1,8 @@
 export const BROWSER_IMAGE_LIMIT = 240
 export const BROWSER_IMAGE_PAGE_SIZE = 24
-export const BROWSER_IMAGE_MAX_BYTES = 6 * 1024 * 1024
+/** Safety bound only for legacy inline bridge payloads; new large originals travel by file URI. */
+export const BROWSER_IMAGE_BRIDGE_MAX_BYTES = 8 * 1024 * 1024
+export const BROWSER_IMAGE_SOURCE_BUDGET_BYTES = 128 * 1024 * 1024
 
 export type BrowserImageKind = 'img' | 'srcset' | 'lazy' | 'background' | 'svg'
 export interface BrowserImageCandidate {
@@ -49,7 +51,9 @@ export interface BrowserImageData {
   documentId: string
   requestId: string
   imageId: string
-  dataUrl: string
+  /** Display/thumbnail uses bounded Base64; explicit original export returns a private file URI. */
+  dataUrl?: string
+  fileUri?: string
   mimeType: string
   byteLength: number
   width: number
@@ -101,18 +105,33 @@ export function dedupeBrowserImages(items: readonly BrowserImageCandidate[]): Br
 
 export function browserImageBlob(data: BrowserImageData): Blob {
   if (!/^image\/(?:png|jpe?g|webp|gif|avif|bmp|x-icon|vnd\.microsoft\.icon|svg\+xml)$/i.test(data.mimeType)
-    || !Number.isInteger(data.byteLength) || data.byteLength <= 0 || data.byteLength > BROWSER_IMAGE_MAX_BYTES) {
-    throw new Error('图片格式或大小超出查看预算，请返回网页查看')
+    || !Number.isInteger(data.byteLength) || data.byteLength <= 0 || data.byteLength > BROWSER_IMAGE_BRIDGE_MAX_BYTES) {
+    throw new Error('图片数据无效或超出传输预算')
   }
   const prefix = `data:${data.mimeType};base64,`
-  if (!data.dataUrl.startsWith(prefix)) throw new Error('图片数据格式无效，请重新扫描')
+  if (!data.dataUrl?.startsWith(prefix)) throw new Error('图片数据格式无效，请重新扫描')
   const raw = data.dataUrl.slice(prefix.length)
-  if (raw.length > Math.ceil(BROWSER_IMAGE_MAX_BYTES / 3) * 4 + 4) throw new Error('图片过大，请返回网页查看')
+  if (raw.length > Math.ceil(BROWSER_IMAGE_BRIDGE_MAX_BYTES / 3) * 4 + 4) throw new Error('图片传输数据无效')
   const binary = atob(raw)
   if (binary.length !== data.byteLength) throw new Error('图片数据不完整，请重试')
   const bytes = new Uint8Array(binary.length)
   for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index)
   return new Blob([bytes], { type: data.mimeType })
+}
+
+export interface BrowserImageFile {
+  fileUri: string
+  mimeType: string
+  byteLength: number
+  requestId: string
+}
+
+export function isBrowserImageFile(data: BrowserImageData | Blob | BrowserImageFile): data is BrowserImageFile {
+  return 'fileUri' in data && typeof data.fileUri === 'string' && /^file:\/\/\//.test(data.fileUri)
+    && 'mimeType' in data && typeof data.mimeType === 'string' && /^image\//.test(data.mimeType)
+    && 'byteLength' in data && Number.isInteger(data.byteLength)
+    && data.byteLength > 0 && data.byteLength <= BROWSER_IMAGE_SOURCE_BUDGET_BYTES
+    && 'requestId' in data && typeof data.requestId === 'string' && data.requestId.length > 0
 }
 
 /**
@@ -172,9 +191,9 @@ type ImageJob = {
   key: string
   request: BrowserImageLoadRequest
   original: boolean
-  resolve: (value: string | Blob) => void
+  resolve: (value: string | Blob | BrowserImageFile) => void
   reject: (error: Error) => void
-  promise: Promise<string | Blob>
+  promise: Promise<string | Blob | BrowserImageFile>
   finish?: () => void
 }
 
@@ -219,8 +238,13 @@ export class BrowserImageLoader {
     return this.enqueue(item, thumbnail, false) as Promise<string>
   }
 
-  original(item: BrowserImageCandidate): Promise<Blob> {
-    return this.enqueue(item, false, true) as Promise<Blob>
+  original(item: BrowserImageCandidate): Promise<Blob | BrowserImageFile> {
+    return this.enqueue(item, false, true) as Promise<Blob | BrowserImageFile>
+  }
+
+  releaseOriginal(file: BrowserImageFile): Promise<void> {
+    return this.cancelNative({ tabId: this.snapshot.tabId, documentId: this.snapshot.documentId,
+      requestId: file.requestId })
   }
 
   displayWindow(items: readonly BrowserImageCandidate[]): void {
@@ -260,7 +284,7 @@ export class BrowserImageLoader {
     this.pump()
   }
 
-  private enqueue(item: BrowserImageCandidate, thumbnail: boolean, original: boolean): Promise<string | Blob> {
+  private enqueue(item: BrowserImageCandidate, thumbnail: boolean, original: boolean): Promise<string | Blob | BrowserImageFile> {
     if (this.closed) return Promise.reject(new Error('看图模式已关闭'))
     const key = (original ? 'o:' : thumbnail ? 't:' : 'd:') + item.id
     const existing = this.jobs.get(key)
@@ -276,7 +300,7 @@ export class BrowserImageLoader {
       thumbnail, ...(original ? { original: true } : {}),
     }
     let resolve!: ImageJob['resolve'], reject!: ImageJob['reject']
-    const promise = new Promise<string | Blob>((yes, no) => { resolve = yes; reject = no })
+    const promise = new Promise<string | Blob | BrowserImageFile>((yes, no) => { resolve = yes; reject = no })
     const job = { key, request, original, resolve, reject, promise }
     this.jobs.set(key, job)
     if (thumbnail) this.queue.push(job)
@@ -310,7 +334,7 @@ export class BrowserImageLoader {
         if (!job.original) this.errors.set(job.key, message)
         job.reject(new Error(message))
         if (!this.closed) { this.changed(); this.pump() }
-      }, 20000)
+      }, job.request.thumbnail ? 35000 : job.original ? 95000 : 65000)
       job.finish = () => { if (finish()) job.reject(new Error('图片读取已取消')) }
       void Promise.resolve().then(() => {
         if (complete || this.closed) throw new Error('图片读取已取消')
@@ -318,8 +342,9 @@ export class BrowserImageLoader {
       }).then(data => {
         if (complete || this.closed) return
         if (!isBrowserImageResponseCurrent(job.request, data)) throw new Error('网页已变化，请重新扫描')
-        const blob = browserImageBlob(data)
-        const result = job.original ? blob : this.memory.put(job.key, blob, job.request.thumbnail)
+        const file = job.original && isBrowserImageFile(data) ? data as BrowserImageFile : null
+        const blob = file ? null : browserImageBlob(data)
+        const result = file || (job.original ? blob! : this.memory.put(job.key, blob!, job.request.thumbnail))
         if (!finish()) return
         job.resolve(result)
         this.changed()

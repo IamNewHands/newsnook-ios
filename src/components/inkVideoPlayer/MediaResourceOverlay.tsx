@@ -60,13 +60,13 @@ function MediaResourceRow({
       type="button"
       aria-current={active ? 'true' : undefined}
       onClick={onSelect}
-      className={`flex w-full items-center gap-2.5 px-5 py-3.5 text-left text-paper transition-colors ${
+      className={`ink-player-source-list-row flex w-full items-center gap-2.5 px-5 py-3.5 text-left text-paper transition-colors ${
         active ? 'bg-paper/10' : 'hover:bg-paper/5 active:bg-paper/10'
       }`}
     >
       <span
         className={`flex h-7 min-w-7 items-center justify-center rounded-full font-mono text-[10px] ${
-          active ? 'bg-cinnabar text-white' : 'bg-paper/10'
+          active ? 'bg-paper/15 text-paper' : 'bg-paper/10'
         }`}
       >
         {index + 1}
@@ -83,7 +83,7 @@ function MediaResourceRow({
             </span>
           )}
           {active && (
-            <span className="rounded-full border border-cinnabar/40 px-1.5 py-0.5 text-[9px] leading-none text-cinnabar-soft">
+            <span className="rounded-full border border-paper/25 px-1.5 py-0.5 text-[9px] leading-none text-paper/85">
               当前播放
             </span>
           )}
@@ -153,7 +153,8 @@ export function MediaResourceOverlay({
           aria-expanded={false}
           title={`视频资源（${resources.length}）`}
           onClick={onToggle}
-          className="fixed z-[100] flex items-center gap-2 rounded-full border border-haze bg-ink/95 px-3.5 py-2 text-paper shadow-xl shadow-black/35 backdrop-blur-md transition-transform hover:scale-105 active:scale-95"
+          data-theme="dark"
+          className="ink-player-resource-fab fixed z-[100] flex items-center gap-2 rounded-full border border-haze bg-ink/95 px-3.5 py-2 text-paper shadow-xl shadow-black/35 backdrop-blur-md transition-transform hover:scale-105 active:scale-95"
           style={{
             zIndex: layer,
             bottom: 'calc(var(--sab, 0px) + 76px)',
@@ -169,7 +170,8 @@ export function MediaResourceOverlay({
 
       {open && (
         <div
-          className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 p-0 backdrop-blur-sm md:items-center md:p-4"
+          data-theme="dark"
+          className="ink-player-resource-dialog fixed inset-0 z-[100] flex items-end justify-center bg-black/40 p-0 md:items-center md:p-4"
           role="presentation"
           style={{ zIndex: layer }}
           data-no-page-tap=""
@@ -188,7 +190,7 @@ export function MediaResourceOverlay({
             role="dialog"
             aria-modal="true"
             aria-label={`已嗅探到 ${resources.length} 个资源`}
-            className="flex max-h-[min(78vh,520px)] w-full max-w-sm flex-col overflow-hidden rounded-t-3xl border border-haze bg-ink-raised shadow-2xl md:rounded-2xl"
+            className="ink-player-resource-panel flex max-h-[min(78vh,520px)] w-full max-w-sm flex-col overflow-hidden rounded-t-3xl border border-haze bg-ink-raised shadow-2xl md:rounded-2xl"
             style={{ paddingBottom: 'calc(var(--sab, 0px) + 12px)', outline: dialogRef ? 'none' : undefined }}
             onClick={(event) => event.stopPropagation()}
             onPointerDown={(event) => event.stopPropagation()}
@@ -242,6 +244,7 @@ export function MediaResourceScreen({
     <div
       data-media-resource-screen=""
       data-no-page-tap=""
+      data-theme="dark"
       role="dialog"
       aria-modal="true"
       aria-label="媒体资源"

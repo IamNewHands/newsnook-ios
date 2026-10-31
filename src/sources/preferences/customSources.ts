@@ -163,7 +163,8 @@ export function updateCustomSource(
     catalogProfileOpaque: patch.catalogProfile || url !== current.url || kind !== current.kind ? undefined : current.catalogProfileOpaque,
     catalogProfile: Object.hasOwn(patch, 'catalogProfile') ? normalizeCatalogProfile(patch.catalogProfile, url) : url === current.url && kind === current.kind ? current.catalogProfile : undefined,
     ...(patch.paused !== undefined ? { paused: patch.paused } : {}),
-    ...(patch.discovery !== undefined ? { discovery: patch.discovery } : {}),
+    discovery: Object.hasOwn(patch, 'discovery')
+      ? patch.discovery : url === current.url && kind === current.kind ? current.discovery : undefined,
   }
 
   const nextList = [...list]

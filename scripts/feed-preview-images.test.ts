@@ -60,3 +60,12 @@ it('falls back to a body image when a JSON Feed image is a placeholder', () => {
   const article = parseSourcePayload(source, JSON.stringify({ version: 'https://jsonfeed.org/version/1.1', items: [{ title: 'News', url: 'https://example.org/news', image: 'data:image/gif;base64,R0lG', content_html: '<img src="/photo.jpg">' }] }))[0]
   assert.equal(article?.image, 'https://example.org/photo.jpg')
 })
+
+// Machine Heart JSON catalog: relative cover metadata and rich summaries.
+const jiqiSource: NewsSource = { ...source, id: 'jiqizhixin', kind: 'jiqizhixin' }
+const jiqi = (entry: Record<string, unknown>) => parseSourcePayload(jiqiSource, JSON.stringify({ success: true, articles: [
+  { id: '2026-10-22-5', title: '机器之心文章', publishedAt: '2026-10-22T04:00:00Z', ...entry },
+] }))[0]
+assert.equal(jiqi({ coverImageUrl: '/cover.jpg' })?.image, 'https://www.jiqizhixin.com/cover.jpg')
+assert.equal(jiqi({ content: '<p>摘要</p><img data-src="https://images.example.org/photo.jpg">' })?.image, 'https://images.example.org/photo.jpg')
+assert.equal(jiqi({ cover_image_url: 'https://www.jiqizhixin.com/images/placeholder.png', content: '<img src="/body.jpg">' })?.image, 'https://www.jiqizhixin.com/body.jpg')

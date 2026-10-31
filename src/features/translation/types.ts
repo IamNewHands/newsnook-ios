@@ -1,4 +1,4 @@
-export type LocalTranslationProviderId = 'mlkit' | 'bergamot' | 'apple'
+export type LocalTranslationProviderId = 'mlkit' | 'bergamot'
 
 export type CloudTranslationProviderId = 'google' | 'azure' | 'deepl' | 'deeplx' | 'openai'
 
@@ -28,6 +28,8 @@ export interface CloudTranslationConfig {
   model?: string
   /** OpenAI 兼容及 DeepLX 单段模式并发；合法 1–10（DeepLX 建议 1–3），缺省 2。 */
   concurrency?: number
+  /** Allow explicitly opted-in plaintext HTTP for an OpenAI-compatible API on Android. */
+  allowInsecureHttp?: boolean
 }
 
 export interface AiProviderCapabilities {
@@ -41,6 +43,8 @@ export interface AiProviderConfig {
   name: string
   endpoint: string
   apiKey: string
+  /** Explicit per-provider consent to use unencrypted HTTP; off by default. */
+  allowInsecureHttp?: boolean
   /**
    * 能力必须显式声明。聊天/翻译接口可用不代表 /audio/speech 一定存在。
    * 老配置缺字段时由 normalizeAiPrefs 做兼容迁移。
@@ -92,11 +96,6 @@ export interface TranslationRequest {
   targetLanguage: TranslationLanguage
   /** 与 texts 等长；缺省时 OpenAI 按 paragraph 处理 */
   textKinds?: TranslationTextKind[]
-  /**
-   * 与 texts 等长；同一个来源段落拆出的多个文本节点共用一个分组号。
-   * 批处理只在分组边界切批，避免一个段落被切到两批、出现半段译文半段原文。
-   */
-  groupIds?: readonly number[]
   signal?: AbortSignal
   onBatch?: (batchTranslations: string[], startIndex: number) => void
 }
@@ -109,6 +108,10 @@ export interface TranslationProvider {
 export interface TranslatedArticleContent {
   title: string
   html: string
+  /** 双语对照排版 HTML（保留原文并在各语义段落后追加 .reader-translation） */
+  compareHtml?: string
+  /** 仅显示译文排版 HTML（以译文段落替换原文，保留媒体节点） */
+  replaceHtml?: string
   /** 实际用于翻译的原文语言（auto 解析后）；云端 auto 时可能仍为 auto */
   resolvedSourceLanguage?: TranslationSourceLanguage
   /** 本地检测置信不足或不支持时已回退英语 */
@@ -129,6 +132,6 @@ export interface TranslateArticleOptions {
 export function isLocalTranslationProviderId(
   id: TranslationProviderId,
 ): id is LocalTranslationProviderId {
-  return id === 'mlkit' || id === 'bergamot' || id === 'apple'
+  return id === 'mlkit' || id === 'bergamot'
 }
 

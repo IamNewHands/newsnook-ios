@@ -1,3 +1,4 @@
+import { stripTags } from './htmlText'
 import type { Article } from './types'
 
 /**
@@ -159,12 +160,34 @@ function firstImageUrl(html?: string): string | undefined {
   return /^https?:\/\//i.test(candidate) ? candidate : undefined
 }
 
+/** A playable embed inside a written article must not turn its prose into a video teaser. */
+export function hasArticleTextAlongsideVideo(html?: string): boolean {
+  if (!html || !/<(?:video|iframe)\b/i.test(html)) return false
+  const plainText = stripTags(html).replace(/&(?:nbsp|amp|quot|lt|gt|#\d+|#x[\da-f]+);/gi, ' ')
+  return plainText.length >= 80
+}
+
 /**
  * 兼容升级前已经落盘的自定义 Feed：旧版本把 RSSHub/Bilibili 视频当文章缓存。
  * 只在存在强视频信号时升级类型，不改普通文章。
  */
 export function normalizeLegacyVideoArticle(article: Article): Article {
-  if (article.contentType === 'video') return article
+  if (article.contentType === 'video') {
+    // Earlier parsers could mistake a video nested inside editorial HTML for
+    // an article-level video. Preserve separately declared video enclosures.
+    const inlineUrl = extractDirectVideoUrlFromHtml(article.contentHtml)
+    const inlinePlayer = extractEmbeddedVideoPageUrl(article.contentHtml)
+    const videoMatchesInline = Boolean(inlineUrl && article.videoUrl === inlineUrl)
+    if (
+      hasArticleTextAlongsideVideo(article.contentHtml) &&
+      !isLikelyVideoArticleUrl(article.originUrl) &&
+      (videoMatchesInline || (!article.videoUrl && inlinePlayer))
+    ) {
+      return { ...article, contentType: 'article', videoUrl: undefined }
+    }
+    return article
+  }
+  if (hasArticleTextAlongsideVideo(article.contentHtml)) return article
 
   const playerPageUrl = extractEmbeddedVideoPageUrl(article.contentHtml)
   const directVideoUrl = article.videoUrl || extractDirectVideoUrlFromHtml(article.contentHtml)

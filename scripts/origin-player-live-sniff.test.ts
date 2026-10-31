@@ -203,8 +203,8 @@ assert.equal(withHls?.url, 'https://cdn.example/index.m3u8')
   )
   assert.match(
     overlay,
-    /bg-black\/60/,
-    'sheet must use the shared modal scrim',
+    /ink-player-resource-dialog[^\n]*bg-black\/40/,
+    'resource sheet keeps its backing scrim restrained so the video remains visible',
   )
 }
 
