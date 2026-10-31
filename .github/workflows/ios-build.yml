@@ -268,14 +268,19 @@ jobs:
           } > release-notes.md
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "滚动 release $TAG 已存在，就地更新说明与资产"
-            gh release edit "$TAG" --title "$TITLE" --notes-file release-notes.md --latest
           else
             echo "创建滚动 release $TAG"
-            gh release create "$TAG" --title "$TITLE" --notes-file release-notes.md --latest
+            gh release create "$TAG" --title "$TITLE" --notes-file release-notes.md
           fi
           gh release upload "$TAG" "$ASSET" --clobber
+          # 3) 刷新 release 的 published_at。`gh release upload --clobber` 只替换资产文件，
+          #    release 对象自身的 published_at 仍是 tag 第一次发布的时间，页面上就会一直
+          #    显示「XX 天前」。先置草稿、再立即发布，GitHub 会把发布时间重打成当前时刻。
+          #    两次 PATCH 之间约 1 秒内下载链接会短暂 404，属可接受窗口。
+          gh release edit "$TAG" --draft --title "$TITLE" --notes-file release-notes.md
+          gh release edit "$TAG" --draft=false --latest --title "$TITLE" --notes-file release-notes.md
           echo "=== 当前 release ==="
-          gh release view "$TAG" --json url,assets --jq '.url, (.assets[] | "\(.name)  \(.size) bytes")'
+          gh release view "$TAG" --json url,publishedAt,assets --jq '.url, .publishedAt, (.assets[] | "\(.name)  \(.size) bytes")'
 
       - name: Job summary
         if: always()
