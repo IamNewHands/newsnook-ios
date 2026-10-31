@@ -63,8 +63,15 @@ import type { LinuxDoSessionSnapshot } from '../types'
 import type { LinuxDoProfileDraft, LinuxDoProfileSection } from '../people/sections'
 import { ProfileSectionView } from './ProfileSectionView'
 import { BookmarksView } from './CommunityViews'
+import { LinuxDoCookedBody } from './LinuxDoCookedBody'
+import { useLinuxDoImageSrc } from './useLinuxDoImageSrc'
 import { ago, avatar, compact, isLinuxDoSiteAdmin, readableError, tagGlyph } from './utils'
 import { isLinuxDoVerificationError, LinuxDoRequestError, type LinuxDoVerify } from './VerificationAction'
+
+function LinuxDoBadgeImage({ badgeImageUrl, alt = '', className = 'h-7 w-7 object-contain' }: { badgeImageUrl?: string; alt?: string; className?: string }) {
+  const src = useLinuxDoImageSrc(badgeImageUrl)
+  return src ? <img src={src} alt={alt} className={className} /> : <Award size={19} />
+}
 
 export interface UserProfileAccountControls {
   onPrivateMessages?: () => void
@@ -516,9 +523,9 @@ function ActivityCard({
         </button>
       ) : null}
       {action.excerpt ? (
-        <div
+        <LinuxDoCookedBody
+          html={action.excerpt}
           className="linuxdo-post-prose reader-prose mt-2 line-clamp-4 select-text text-[11.5px] leading-[1.65] text-paper-muted"
-          dangerouslySetInnerHTML={{ __html: action.excerpt }}
         />
       ) : null}
       <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[9.5px] text-paper-faint">
@@ -1021,7 +1028,7 @@ export function UserProfileView({
         </div>
 
         {profile.bioCooked ? (
-          <div className="linuxdo-post-prose reader-prose mt-3.5 rounded-2xl border-l-2 border-cinnabar/50 bg-paper/[0.025] p-3 select-text text-[12px] leading-[1.7] text-paper-muted" dangerouslySetInnerHTML={{ __html: profile.bioCooked }} />
+          <LinuxDoCookedBody html={profile.bioCooked} className="linuxdo-post-prose reader-prose mt-3.5 rounded-2xl border-l-2 border-cinnabar/50 bg-paper/[0.025] p-3 select-text text-[12px] leading-[1.7] text-paper-muted" />
         ) : null}
 
         {/* 核心高光三联看板 (The Highlight Triad) */}
@@ -1577,7 +1584,7 @@ export function UserProfileView({
                               className={`relative grid h-12 w-12 place-items-center rounded-full transition-transform duration-200 group-hover:scale-108 group-hover:rotate-2 ${tierMeta.tokenRing} ${tierMeta.tokenBg}`}
                             >
                               {badge.imageUrl ? (
-                                <img src={badge.imageUrl} alt={badge.name} className="h-7 w-7 object-contain drop-shadow-xs" />
+                                <LinuxDoBadgeImage badgeImageUrl={badge.imageUrl} alt={badge.name} className="h-7 w-7 object-contain drop-shadow-xs" />
                               ) : (
                                 <IconComp size={22} strokeWidth={1.9} className={`${tierMeta.tokenIcon} drop-shadow-xs`} />
                               )}
@@ -1640,7 +1647,7 @@ export function UserProfileView({
                               className={`grid h-11 w-11 place-items-center rounded-full transition-transform duration-200 group-hover:scale-105 ${tierMeta.tokenRing} ${tierMeta.tokenBg}`}
                             >
                               {badge.imageUrl ? (
-                                <img src={badge.imageUrl} alt={badge.name} className="h-6 w-6 object-contain drop-shadow-xs" />
+                                <LinuxDoBadgeImage badgeImageUrl={badge.imageUrl} alt={badge.name} className="h-6 w-6 object-contain drop-shadow-xs" />
                               ) : (
                                 <IconComp size={20} strokeWidth={1.9} className={`${tierMeta.tokenIcon} drop-shadow-xs`} />
                               )}

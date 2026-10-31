@@ -34,7 +34,8 @@ function resolvedUrl(value: string, pageUrl: string): string | undefined {
     .replace(/\\u003d/gi, '=')
     .replace(/\\u002f/gi, '/')
     .replace(/\\\//g, '/')
-  if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('javascript:')) return undefined
+  // 协议白名单由下面的 isHttpUrl 统一把关，避免只挡少数前缀。
+  if (!trimmed) return undefined
   try {
     const url = new URL(trimmed, pageUrl).href
     return isHttpUrl(url) ? url : undefined
