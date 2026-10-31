@@ -41,7 +41,7 @@ import { startCatalogMaintenance } from './features/rssCatalog/maintenance'
 import {
   buildReadingProfile,
   collectReadArticles,
-  rankRecommendations,
+  rankRecommendationsForSource,
   recommendationReadiness,
   scopeSignalsToSources,
 } from './lib/recommend'
@@ -122,6 +122,7 @@ import {
   resetCategoryLayout,
   resetCategorySources,
   resetTypography,
+  resetUiPrefs,
   setAutoRefreshOnCategorySwitch,
   setCategoryOrder,
   moveCategory,
@@ -145,10 +146,15 @@ import {
   updateCustomSource,
   renameSource,
   updateTypography,
+  updateUiPrefs,
+  UI_FONT_WEIGHT_OPTIONS,
+  UI_SCALE_OPTIONS,
+  resolveUiFontOption,
   visibleCategories,
   withFavoriteCategory,
   withRecommendCategory,
   type TypographyPrefs,
+  type UiPrefs,
 } from './sources/preferences'
 import { SITES, SOURCES, findSite, findSource, makeCustomSourceId } from './sources/registry'
 import { findSubscriptionDuplicate, replaceCustomSourceInstance, setCustomSourcePaused, setCustomSourcesPaused } from './features/feedDiscovery/subscriptionActions'
@@ -182,6 +188,7 @@ const LocalSearchScreen = lazyScreen(() => import('./screens/settings/LocalSearc
 const PresetListScreen = lazyScreen(() => import('./screens/settings/PresetListScreen').then(module => ({ default: module.PresetListScreen })))
 const StorageScreen = lazyScreen(() => import('./screens/settings/StorageScreen').then(module => ({ default: module.StorageScreen })))
 const TypographyScreen = lazyScreen(() => import('./screens/settings/TypographyScreen').then(module => ({ default: module.TypographyScreen })))
+const UiFontScreen = lazyScreen(() => import('./screens/settings/UiFontScreen').then(module => ({ default: module.UiFontScreen })))
 const TranslationScreen = lazyScreen(() => import('./screens/settings/TranslationScreen').then(module => ({ default: module.TranslationScreen })))
 const ReadAloudScreen = lazyScreen(() => import('./screens/settings/ReadAloudScreen').then(module => ({ default: module.ReadAloudScreen })))
 const AiSettingsScreen = lazyScreen(() => import('./screens/settings/AiSettingsScreen').then(module => ({ default: module.AiSettingsScreen })))
@@ -220,7 +227,7 @@ const LinuxDoWorkspace = lazy(() =>
 // Warm local page code after the first usable frame, one idle turn at a time.
 // Importing a screen does not mount it or start its data requests.
 const navigationScreens = [
-  FeedStoreScreen, MeScreen, AppearanceScreen, TypographyScreen,
+  FeedStoreScreen, MeScreen, AppearanceScreen, TypographyScreen, UiFontScreen,
   CategorySettingsScreen, CustomSourcesScreen, LaterScreen, HistoryScreen,
   LocalSearchScreen, PresetListScreen, CategorySourcesScreen, CategoryEditScreen,
   CustomSchemeScreen, StorageScreen, TranslationScreen, ReadAloudScreen,
@@ -669,8 +676,11 @@ export default function App() {
   const closeReader = useCallback(() => {
     setReading(null)
     clearShareLocation()
+    // 右滑返回的收尾动画故意把阅读器停在屏幕外、等 React 卸载它。同一 tick 里
+    // 复位合成层会把正文画回屏幕原位一帧——观感是「返回时跳一下」。等两帧再
+    // 收拾：那时阅读器已经不在了，这里只清列表侧的残留。
     window.requestAnimationFrame(() => {
-      recoverAppScrollAfterNavigation()
+      window.requestAnimationFrame(recoverAppScrollAfterNavigation)
     })
   }, [])
 
@@ -875,21 +885,36 @@ export default function App() {
     )
   }, [categoryId, recommendScope, recommendProfileSeq, laterRef])
 
+  /**
+   * 单源聚焦：先按源裁剪候选，再做推荐排序与截断（顺序由
+   * lib/recommend.rankRecommendationsForSource 保证）。反过来的话，
+   * 推荐栏的 RECOMMEND_LIMIT 会先吃掉整个候选池——信源一多，低频源
+   * （一天一两条的小众软件这类）挤不进全局前 120 条，点开该源就是空列表，
+   * 而信源入口上的条数徽标仍显示有内容。
+   */
+  const sourceScopedArticles = useMemo(
+    () =>
+      categoryFilterSourceId
+        ? articles.filter((item) => item.sourceId === categoryFilterSourceId)
+        : articles,
+    [articles, categoryFilterSourceId],
+  )
+
   /** 推荐结果：排除已读与稍后读（稍后读有专页），冷启动退化为按时间 */
   const recommendedArticles = useMemo(() => {
     if (!recommendProfile) return null
     const excludeIds = new Set(readIdsRef.current)
     for (const item of laterRef.current) excludeIds.add(item.id)
-    return rankRecommendations(articles, recommendProfile, { excludeIds })
-  }, [articles, recommendProfile, laterRef])
+    return rankRecommendationsForSource(articles, recommendProfile, categoryFilterSourceId, {
+      excludeIds,
+    })
+  }, [articles, recommendProfile, categoryFilterSourceId])
 
   /** 单源筛选时保持数组引用稳定：每次渲染现算会让列表翻译等依赖 articles 的 effect 反复中止重启 */
-  const displayedArticles = useMemo(() => {
-    const base = recommendedArticles ?? articles
-    return categoryFilterSourceId
-      ? base.filter((item) => item.sourceId === categoryFilterSourceId)
-      : base
-  }, [articles, recommendedArticles, categoryFilterSourceId])
+  const displayedArticles = useMemo(
+    () => recommendedArticles ?? sourceScopedArticles,
+    [recommendedArticles, sourceScopedArticles],
+  )
 
   const articlesForCategory = useCallback(
     (id: CategoryId) => {
@@ -1322,6 +1347,15 @@ export default function App() {
     return `${family?.label ?? '黑体'} · 字号${scale?.label ?? '自定义'} · 行高 ${prefs.typography.lineHeight}${indent}`
   }, [prefs.typography])
 
+  const uiFontSummary = useMemo(() => {
+    const font = resolveUiFontOption(prefs.ui.fontFamily)
+    const scale = UI_SCALE_OPTIONS.find((item) => item.value === prefs.ui.scale)
+    const weight = UI_FONT_WEIGHT_OPTIONS.find((item) => item.id === prefs.ui.weight)
+    const parts = [font.label, `字号${scale?.label ?? '自定义'}`]
+    if (weight && weight.id !== 'regular') parts.push(`字重${weight.label}`)
+    return parts.join(' · ')
+  }, [prefs.ui])
+
   const appearanceSummary = useMemo(() => {
     const mode = THEME_MODES.find((item) => item.id === prefs.theme)
     const scheme = THEME_SCHEMES.find((item) => item.id === prefs.scheme)
@@ -1373,6 +1407,17 @@ export default function App() {
             update((prev) => updateTypography(prev, patch))
           }
           onReset={() => update(resetTypography)}
+          onBack={() => setSettingsRoute(null)}
+        />
+      )
+    }
+
+    if (settingsRoute.name === 'ui-font') {
+      return (
+        <UiFontScreen
+          prefs={prefs}
+          onChange={(patch: Partial<UiPrefs>) => update((prev) => updateUiPrefs(prev, patch))}
+          onReset={() => update(resetUiPrefs)}
           onBack={() => setSettingsRoute(null)}
         />
       )
@@ -1862,6 +1907,7 @@ export default function App() {
           }`}
           presetsSummary={`${presets.activePreset?.name ?? '未选择'} · ${regularCategories.length} 分类 · ${enabledIds.length} 源`}
           typographySummary={typographySummary}
+          uiFontSummary={uiFontSummary}
           appearanceSummary={appearanceSummary}
           translationSummary={translationSummary}
           readAloudSummary={readAloudSummary}
@@ -1882,6 +1928,7 @@ export default function App() {
           onOpenCategories={() => setSettingsRoute({ name: 'categories', returnTo: 'me' })}
           onOpenPresets={() => setSettingsRoute({ name: 'presets' })}
           onOpenTypographySettings={() => setSettingsRoute({ name: 'typography' })}
+          onOpenUiFontSettings={() => setSettingsRoute({ name: 'ui-font' })}
           onOpenAppearanceSettings={() => setSettingsRoute({ name: 'appearance' })}
           onOpenTranslationSettings={() => setSettingsRoute({ name: 'translation' })}
           onOpenWikiSettings={() => window.dispatchEvent(new Event('newsnook:open-wiki-settings'))}
@@ -2175,6 +2222,11 @@ export default function App() {
               setTab('me')
             }}
             readAloudPrefs={prefs.readAloud}
+            floatReaderNav={prefs.ui.floatReaderNav}
+            onToggleFloatReaderNav={(enabled) => update((prev) => updateUiPrefs(prev, { floatReaderNav: enabled }))}
+            onTranslationProviderChange={(provider) =>
+              update((prev) => ({ ...prev, translation: { ...prev.translation, provider } }))
+            }
             customSources={prefs.customSources}
             einkMode={Boolean(prefs.einkMode)}
             wifiOnlyAutoLoadMedia={Boolean(prefs.wifiOnlyAutoLoadMedia)}

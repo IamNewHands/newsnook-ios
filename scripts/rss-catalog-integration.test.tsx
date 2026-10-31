@@ -21,7 +21,10 @@ try {
   }
   await act(async () => root.render(<FeedStoreScreen prefs={DEFAULT_PREFERENCES} currentCategoryId="cn-headlines" currentPresetId="test" currentPresetName="日常" enabledIds={[]} onSubscribe={() => { created++; return ok() }} onAddBuiltinToCategory={() => { added++; return ok() }} onPause={ok} onUpdateSubscription={ok} onDelete={ok} onOpenSource={() => {}} onBack={() => {}} />))
   assert.ok(document.querySelector('section[aria-label="RSS 目录"]'), 'the normal store entry opens the offline catalog')
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)) })
+  await act(async () => {
+    const { rssCatalogService } = await import('../src/features/rssCatalog/runtime')
+    await rssCatalogService.load()
+  })
   const first = document.querySelector('[data-catalog-feed]') as HTMLButtonElement
   assert.ok(first)
   await act(async () => first.click())

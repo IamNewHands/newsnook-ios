@@ -11,6 +11,7 @@ export type SettingsRoute =
   | { name: 'feed-store'; returnTo?: 'custom-sources' }
   | { name: 'channels'; returnTo?: CategoryReturnTo }
   | { name: 'typography' }
+  | { name: 'ui-font' }
   | { name: 'appearance' }
   | { name: 'custom-scheme' }
   | { name: 'storage' }

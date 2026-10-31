@@ -63,10 +63,10 @@ try {
   window.cancelAnimationFrame = id => { frames.delete(id) }
   window.getComputedStyle = (() => ({ transform: 'none' })) as typeof window.getComputedStyle
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 320 })
-  motion.getBoundingClientRect = () => ({ left: 0, top: 0, right: 320, bottom: 640, width: 320, height: 640, x: 0, y: 0, toJSON() {} })
-  motion.setPointerCapture = () => {}
-  motion.hasPointerCapture = () => true
-  motion.releasePointerCapture = () => {}
+  backdrop.getBoundingClientRect = () => ({ left: 0, top: 0, right: 320, bottom: 640, width: 320, height: 640, x: 0, y: 0, toJSON() {} })
+  backdrop.setPointerCapture = () => {}
+  backdrop.hasPointerCapture = () => true
+  backdrop.releasePointerCapture = () => {}
   for (const [type, x] of [['pointerdown', 5], ['pointermove', 200], ['pointerup', 220]] as const) {
     const event = new window.Event(type, { bubbles: true, cancelable: true })
     Object.assign(event, { pointerId: 1, pointerType: 'pen', isPrimary: true, clientX: x, clientY: 100 })
@@ -77,9 +77,19 @@ try {
       pending.forEach(callback => callback(performance.now()))
     })
   }
-  assert.equal(calls, 3, 'the content layer still supports a committed edge swipe')
-  assert.equal(backdrop.style.visibility ?? '', '', 'a completed swipe must not hide the opaque backdrop while the parent is pending')
-  assert.equal(backdrop.style.transform ?? '', '', 'swipe transforms belong to content rather than exposing the menu underneath')
+  assert.equal(calls, 3, 'the whole opaque shell supports a committed edge swipe')
+  assert.equal(backdrop.style.visibility, 'hidden', 'the committed shell waits off-screen until navigation is scheduled')
+  assert.notEqual(backdrop.style.transform ?? '', '', 'safe-area and opaque background move with the content')
+  for (let turn = 0; turn < 2; turn++) {
+    await act(async () => {
+      const pending = [...frames.values()]
+      frames.clear()
+      pending.forEach(callback => callback(performance.now()))
+    })
+  }
+  assert.equal(backdrop.style.visibility ?? '', '', 'a retained shell recovers visibility after two animation frames')
+  assert.equal(backdrop.style.transform ?? '', '', 'a retained shell clears its committed transform')
+  assert.equal(calls, 3, 'recovery cannot navigate a second level')
   console.log('Settings back: direct parent, opaque pending surface, single navigation, reduced motion and edge swipe passed')
 } finally {
   await act(async () => root.unmount())
