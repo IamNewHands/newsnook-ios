@@ -1,7 +1,6 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 
 import { getRuntimeProxyPrefs } from '../../lib/http'
-import { log } from '../../lib/logger'
 import { currentProxyRuntime } from '../proxy/runtime'
 import { resolveProxyTransport } from '../proxy/transport'
 import { isHttpUrl } from './classifier'
@@ -9,30 +8,16 @@ import { originOf } from './originHeaders'
 import { shouldBridgeNativePlayback } from './playback'
 import type { MediaObservation } from './types'
 
-let sessionSequence = 0
-
-/**
- * 会话 id 只用于把原生回调配到本次请求上。randomUUID 缺失时仍走 CSPRNG，
- * 不用 Math.random 这种可预测的兜底，避免观察结果被别的会话冒充。
- */
-function newSessionId(prefix: string): string {
-  const crypto = globalThis.crypto
-  if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID()
-  const bytes = new Uint8Array(16)
-  if (typeof crypto?.getRandomValues === 'function') crypto.getRandomValues(bytes)
-  sessionSequence += 1
-  const suffix = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
-  return `${prefix}-${Date.now()}-${sessionSequence}-${suffix}`
-}
-
 interface NativeMediaSnifferPlugin {
   sniff(options: { url: string; timeoutMs: number; referrer?: string; sessionId: string }): Promise<{
     observations: MediaObservation[]
     pageUrl?: string
   }>
+  cancelSniff(options: { sessionId: string }): Promise<void>
   startLiveSession(options: { url: string; referrer?: string; sessionId: string }): Promise<void>
   stopLiveSession(options: { sessionId: string }): Promise<void>
   setLiveSessionVisible(options: { visible: boolean; sessionId?: string }): Promise<void>
+  setLiveSessionInteractive(options: { interactive: boolean; sessionId?: string }): Promise<void>
   setLiveSurfaceSuppressed(options: { suppressed: boolean }): Promise<void>
   setLiveSessionBounds(options: {
     x: number
@@ -43,8 +28,8 @@ interface NativeMediaSnifferPlugin {
     sessionId?: string
   }): Promise<void>
   addListener(
-    eventName: 'mediaObservation',
-    listener: (event: { sessionId?: string; observation?: MediaObservation }) => void,
+    eventName: 'mediaObservation' | 'mediaDocument',
+    listener: (event: { sessionId?: string; documentEpoch?: number; pageUrl?: string; observation?: MediaObservation }) => void,
   ): Promise<PluginListenerHandle>
   preparePlayback(options: {
     sessionId?: string
@@ -131,24 +116,16 @@ export async function prepareNativeMediaPlayback(options: {
   const playbackUrl = nativePreparePlaybackUrl(options)
   const origins = collectPlaybackOrigins(options)
   if (!playbackUrl) return intercept
-  try {
-    await NativeMediaSniffer.preparePlayback({
-      ...(options.sessionId ? { sessionId: options.sessionId } : {}),
-      url: playbackUrl,
-      intercept,
-      sourcePage: options.sourcePage,
-      format: options.format,
-      headers: options.headers,
-      ...(origins.length ? { origins } : {}),
-      ...(transport.kind === 'native-tunnel' ? { proxy: transport.tunnel } : {}),
-    })
-  } catch (error: unknown) {
-    // 原生播放上下文是**加分项**：它只是把抓到的 Referer/Cookie 交给原生链路。
-    // 插件缺席或平台没实现（例如 iOS）时必须降级成「直连播放」，绝不能让
-    // 调用方（投屏、播放器）因为这一步失败而整体失败。
-    log.sniffer.debug('native media prepare skipped', { error })
-    return false
-  }
+  await NativeMediaSniffer.preparePlayback({
+    ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+    url: playbackUrl,
+    intercept,
+    sourcePage: options.sourcePage,
+    format: options.format,
+    headers: options.headers,
+    ...(origins.length ? { origins } : {}),
+    ...(transport.kind === 'native-tunnel' ? { proxy: transport.tunnel } : {}),
+  })
   return intercept
 }
 
@@ -175,17 +152,11 @@ let cachedStreamProxyPort: number | null = null
 export async function getNativeStreamProxyPort(): Promise<number | null> {
   if (!Capacitor.isNativePlatform()) return null
   if (cachedStreamProxyPort != null) return cachedStreamProxyPort
-  try {
-    const result = await NativeMediaSniffer.getStreamProxyPort()
-    const port = Number(result?.port)
-    if (!Number.isFinite(port) || port <= 0) return null
-    cachedStreamProxyPort = port
-    return port
-  } catch (error: unknown) {
-    // 没有本地中转端口就等于「不需要中转」，不是错误：直连播放照常。
-    log.sniffer.debug('native stream proxy unavailable', { error })
-    return null
-  }
+  const result = await NativeMediaSniffer.getStreamProxyPort()
+  const port = Number(result?.port)
+  if (!Number.isFinite(port) || port <= 0) return null
+  cachedStreamProxyPort = port
+  return port
 }
 
 export async function nativeStreamProxyUrl(url: string, session?: string): Promise<string | null> {
@@ -229,15 +200,19 @@ export async function observeMediaInNativePage(
   timeoutMs = 6000,
   referrer?: string,
   onObservation?: (observation: MediaObservation) => void,
+  signal?: AbortSignal,
 ): Promise<MediaObservation[]> {
-  if (!Capacitor.isNativePlatform()) return []
-  const sessionId = newSessionId('media')
+  if (!Capacitor.isNativePlatform() || signal?.aborted) return []
+  const sessionId = typeof globalThis.crypto?.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : `media-${Date.now()}-${Math.random().toString(36).slice(2)}`
   const streamed: MediaObservation[] = []
   let listener: PluginListenerHandle | undefined
+  let abortSniff: (() => void) | undefined
   try {
     try {
       listener = await NativeMediaSniffer.addListener('mediaObservation', (event) => {
-        if (event.sessionId !== sessionId || !event.observation) return
+        if (signal?.aborted || event.sessionId !== sessionId || !event.observation) return
         const [observation] = observationsWithoutSessionNonce([event.observation])
         streamed.push(observation)
         onObservation?.(observation)
@@ -246,16 +221,22 @@ export async function observeMediaInNativePage(
       // Older installed native shells may not expose the incremental event;
       // the final sniff result remains a compatible fallback.
     }
-    let final: MediaObservation[] = []
-    try {
-      const result = await NativeMediaSniffer.sniff({ url, timeoutMs, referrer, sessionId })
-      final = Array.isArray(result.observations)
-        ? observationsWithoutSessionNonce(result.observations)
-        : []
-    } catch (error: unknown) {
-      // 插件缺席或平台没实现：保留已经流式收到的观察结果，别一起丢掉。
-      log.sniffer.debug('native sniff unavailable', { error })
-    }
+    if (signal?.aborted) return []
+    const aborted = new Promise<{ observations: MediaObservation[] }>(resolve => {
+      abortSniff = () => {
+        void NativeMediaSniffer.cancelSniff({ sessionId }).catch(() => undefined)
+        resolve({ observations: [] })
+      }
+      signal?.addEventListener('abort', abortSniff, { once: true })
+    })
+    const result = await Promise.race([
+      NativeMediaSniffer.sniff({ url, timeoutMs, referrer, sessionId }),
+      aborted,
+    ])
+    if (signal?.aborted) return []
+    const final = Array.isArray(result.observations)
+      ? observationsWithoutSessionNonce(result.observations)
+      : []
     const seen = new Set(final.map(observationIdentity))
     for (const observation of streamed) {
       if (seen.has(observationIdentity(observation))) continue
@@ -263,29 +244,39 @@ export async function observeMediaInNativePage(
     }
     return final
   } finally {
+    if (abortSniff) signal?.removeEventListener('abort', abortSniff)
     await listener?.remove().catch(() => undefined)
   }
 }
-
-/**
- * 「原站播放器」内嵌视图：Android 是覆盖在 WebView 上的原生 WebView，
- * iOS 同样是原生 WKWebView 覆盖层（`MediaSnifferLiveSession`）。
- */
-const LIVE_SNIFF_PLATFORMS = ['android', 'ios']
 
 export async function startNativeLiveSniffSession(options: {
   url: string
   referrer?: string
   onObservation: (observation: MediaObservation) => void
+  onDocumentChanged?: (epoch: number) => void
 }): Promise<{ sessionId: string; stop: () => Promise<void> }> {
-  if (!LIVE_SNIFF_PLATFORMS.includes(Capacitor.getPlatform())) {
-    throw new Error('Live sniff session requires a native shell')
+  if (Capacitor.getPlatform() !== 'android') {
+    throw new Error('Live sniff session is Android-only')
   }
-  const sessionId = newSessionId('live')
+  const sessionId = typeof globalThis.crypto?.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : `live-${Date.now()}-${Math.random().toString(36).slice(2)}`
   let listener: PluginListenerHandle | undefined
+  let documentListener: PluginListenerHandle | undefined
+  let documentEpoch: number | undefined
+  const acceptDocument = (epoch: number | undefined) => {
+    if (typeof epoch !== 'number' || epoch === documentEpoch) return
+    const previous = documentEpoch
+    documentEpoch = epoch
+    if (previous !== undefined) options.onDocumentChanged?.(epoch)
+  }
   try {
+    documentListener = await NativeMediaSniffer.addListener('mediaDocument', event => {
+      if (event.sessionId === sessionId && event.pageUrl) acceptDocument(event.documentEpoch)
+    })
     listener = await NativeMediaSniffer.addListener('mediaObservation', (event) => {
       if (event.sessionId !== sessionId || !event.observation) return
+      acceptDocument(event.documentEpoch)
       const [observation] = observationsWithoutSessionNonce([event.observation])
       options.onObservation(observation)
     })
@@ -293,24 +284,40 @@ export async function startNativeLiveSniffSession(options: {
     // Older shells without the event still start the visible WebView;
     // candidates then only appear after a future plugin upgrade.
   }
-  await NativeMediaSniffer.startLiveSession({
-    url: options.url,
-    referrer: options.referrer,
-    sessionId,
-  })
+  try {
+    await NativeMediaSniffer.startLiveSession({
+      url: options.url,
+      referrer: options.referrer,
+      sessionId,
+    })
+  } catch (error) {
+    await listener?.remove().catch(() => undefined)
+    await documentListener?.remove().catch(() => undefined)
+    throw error
+  }
   let stopped = false
   const stop = async () => {
     if (stopped) return
     stopped = true
     await listener?.remove().catch(() => undefined)
+    await documentListener?.remove().catch(() => undefined)
     await NativeMediaSniffer.stopLiveSession({ sessionId }).catch(() => undefined)
   }
   return { sessionId, stop }
 }
 
 export async function setNativeLiveSessionVisible(visible: boolean, sessionId?: string): Promise<void> {
-  if (!LIVE_SNIFF_PLATFORMS.includes(Capacitor.getPlatform())) return
+  if (Capacitor.getPlatform() !== 'android') return
   await NativeMediaSniffer.setLiveSessionVisible({ visible, sessionId }).catch(() => undefined)
+}
+
+/** Keep the origin page loaded for sniffing, but expose touch/visuals only in assisted mode. */
+export async function setNativeLiveSessionInteractive(
+  interactive: boolean,
+  sessionId?: string,
+): Promise<void> {
+  if (Capacitor.getPlatform() !== 'android') return
+  await NativeMediaSniffer.setLiveSessionInteractive({ interactive, sessionId }).catch(() => undefined)
 }
 
 export async function setNativeLiveSessionBounds(bounds: {
@@ -321,7 +328,7 @@ export async function setNativeLiveSessionBounds(bounds: {
   cornerRadius?: number
   sessionId?: string
 }): Promise<void> {
-  if (!LIVE_SNIFF_PLATFORMS.includes(Capacitor.getPlatform())) return
+  if (Capacitor.getPlatform() !== 'android') return
   await NativeMediaSniffer.setLiveSessionBounds(bounds).catch(() => undefined)
 }
 

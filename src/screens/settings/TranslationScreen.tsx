@@ -19,33 +19,25 @@ import { SettingsSection, SettingsShell } from '../../components/SettingsShell'
 import { ConfirmDialog, OptionPickerDialog } from '../../components/ConfirmDialog'
 import { ToggleSwitch } from '../../components/ToggleSwitch'
 import {
-  availableTranslationProviders,
   TRANSLATION_LANGUAGES,
+  TRANSLATION_PROVIDERS,
   TRANSLATION_SOURCE_LANGUAGES,
   translationDisplayModeLabel,
   translationLanguageLabel,
   translationProviderLabel,
 } from '../../features/translation/config'
 import {
-  AppleTranslation,
   BergamotTranslation,
-  isAppleTranslationAvailable,
   isBergamotTranslationAvailable,
   isLocalTranslationAvailable,
   MlKitTranslation,
-  type AppleLanguageState,
   type BergamotModelState,
   type MlKitModelState,
 } from '../../features/translation/native'
-import {
-  appleLanguage,
-  createTranslationProvider,
-  mlKitLanguage,
-} from '../../features/translation/providers'
+import { createTranslationProvider, mlKitLanguage } from '../../features/translation/providers'
 import { listOpenAiModels } from '../../features/translation/openai'
 import type {
   CloudTranslationConfig,
-  TranslationLanguage,
   TranslationPrefs,
   TranslationProviderId,
 } from '../../features/translation/types'
@@ -64,7 +56,6 @@ type AsyncState = 'idle' | 'working' | 'success' | 'error'
 const PROVIDER_ICONS: Record<TranslationProviderId, typeof Cloud> = {
   mlkit: Smartphone,
   bergamot: Smartphone,
-  apple: Smartphone,
   google: Languages,
   azure: CloudCog,
   deepl: Cloud,
@@ -165,12 +156,8 @@ function ConcurrencyField({
 export function TranslationScreen({ prefs, onChange, onBack, onOpenAiSettings }: Props) {
   const localTranslationAvailable = isLocalTranslationAvailable()
   const bergamotAvailable = isBergamotTranslationAvailable()
-  const appleAvailable = isAppleTranslationAvailable()
   const [modelState, setModelState] = useState<MlKitModelState | null>(null)
   const [bergamotState, setBergamotState] = useState<BergamotModelState | null>(null)
-  const [appleState, setAppleState] = useState<AppleLanguageState | null>(null)
-  /** 自动检测模式下已就绪的原文语言；用于把「到底装没装」如实显示出来。 */
-  const [appleReadySources, setAppleReadySources] = useState<TranslationLanguage[]>([])
   const [modelAction, setModelAction] = useState<AsyncState>('idle')
   const [modelMessage, setModelMessage] = useState('')
   const [showKey, setShowKey] = useState(false)
@@ -187,18 +174,6 @@ export function TranslationScreen({ prefs, onChange, onBack, onOpenAiSettings }:
   const autoSource = prefs.sourceLanguage === 'auto'
   const source = prefs.sourceLanguage === 'auto' ? null : mlKitLanguage(prefs.sourceLanguage)
   const target = mlKitLanguage(prefs.targetLanguage)
-  const appleSource = prefs.sourceLanguage === 'auto' ? null : appleLanguage(prefs.sourceLanguage)
-  const appleTarget = appleLanguage(prefs.targetLanguage)
-  /**
-   * 系统语言包是按「原文 → 译文」语对装的，而自动检测下原文语言要等正文出来才知道。
-   * 所以这里对每一种可能的原文都问一遍状态，把已装好的语对如实列出来。
-   */
-  const appleSourceCandidates = useMemo<TranslationLanguage[]>(() => {
-    if (prefs.sourceLanguage !== 'auto') return [prefs.sourceLanguage]
-    return TRANSLATION_LANGUAGES.map((item) => item.id).filter(
-      (id) => id !== prefs.targetLanguage,
-    )
-  }, [prefs.sourceLanguage, prefs.targetLanguage])
 
   useEffect(() => {
     let disposed = false
@@ -241,69 +216,17 @@ export function TranslationScreen({ prefs, onChange, onBack, onOpenAiSettings }:
     }
   }, [prefs.provider, bergamotAvailable, source, target])
 
-  useEffect(() => {
-    let disposed = false
-    setAppleState(null)
-    setAppleReadySources([])
-    if (prefs.provider !== 'apple' || !appleAvailable) return
-    void Promise.all(
-      appleSourceCandidates.map((code) =>
-        AppleTranslation.getLanguageStatus({
-          sourceLanguage: appleLanguage(code),
-          targetLanguage: appleTarget,
-        }).then((state) => ({ code, state })),
-      ),
-    )
-      .then((results) => {
-        if (disposed) return
-        const ready = results.filter((item) => item.state.ready).map((item) => item.code)
-        setAppleReadySources(ready)
-        setAppleState({
-          status:
-            ready.length > 0
-              ? 'installed'
-              : results.some((item) => item.state.status === 'supported')
-                ? 'supported'
-                : 'unsupported',
-          ready: ready.length > 0,
-        })
-      })
-      .catch(() => {
-        if (!disposed) {
-          setAppleReadySources([])
-          setAppleState({ status: 'unsupported', ready: false })
-        }
-      })
-    return () => {
-      disposed = true
-    }
-  }, [prefs.provider, appleAvailable, appleSourceCandidates, appleTarget])
-
   const activeCloud =
     isLocalTranslationProviderId(prefs.provider) || prefs.provider === 'openai'
       ? null
       : prefs.cloud[prefs.provider]
   const providerName = translationProviderLabel(prefs.provider)
-  const availableProviders = useMemo(() => availableTranslationProviders(), [])
-  /**
-   * Google / Microsoft 不填 Key 时走浏览器内置翻译的免费通道，
-   * 所以这两个提供商的 Key 是真正可选的；DeepLX 的自建服务也允许留空。
-   */
-  const freeChannelAvailable = prefs.provider === 'google' || prefs.provider === 'azure'
-  const apiKeyOptional = prefs.provider === 'deeplx' || freeChannelAvailable
-  const apiKeyInUse = Boolean(activeCloud?.apiKey.trim())
-  const apiKeyLabel =
-    prefs.provider === 'deeplx'
-      ? '访问令牌（可选）'
-      : freeChannelAvailable
-        ? 'API KEY（可留空）'
-        : 'API KEY'
-  const apiKeyPlaceholder =
-    prefs.provider === 'deeplx'
-      ? 'URL 已包含令牌时可留空'
-      : freeChannelAvailable
-        ? '留空即用免费通道，无需密钥'
-        : '仅保存在这台设备'
+  const availableProviders = TRANSLATION_PROVIDERS.filter(
+    (provider) =>
+      (provider.id !== 'mlkit' || localTranslationAvailable) &&
+      (provider.id !== 'bergamot' || bergamotAvailable),
+  )
+  const apiKeyOptional = prefs.provider === 'deeplx'
   const modelCaption = useMemo(() => {
     if (!localTranslationAvailable) return '当前版本不支持本地翻译'
     if (autoSource) return '预下载请先指定原文语言'
@@ -323,21 +246,6 @@ export function TranslationScreen({ prefs, onChange, onBack, onOpenAiSettings }:
     }
     return '尚未下载该语对（约 40–50 MB）'
   }, [autoSource, bergamotAvailable, bergamotState])
-
-  const appleCaption = useMemo(() => {
-    if (!appleAvailable) return '当前系统不支持（需要 iOS 18 及以上）'
-    if (!appleState) return '正在检查语言包…'
-    if (appleState.status === 'unsupported') {
-      return autoSource ? '系统不支持这些语对' : '系统不支持这个语对'
-    }
-    if (appleState.ready) {
-      if (!autoSource) return '语言包已就绪'
-      const names = appleReadySources.map((code) => translationLanguageLabel(code)).join('、')
-      return `已下载：${names} → ${translationLanguageLabel(prefs.targetLanguage)}`
-    }
-    if (autoSource) return '尚未下载语言包：自动检测模式下，首次翻译时系统会提示下载'
-    return '尚未下载语言包（由系统管理）'
-  }, [autoSource, appleAvailable, appleState, appleReadySources, prefs.targetLanguage])
 
   const updateCloud = (patch: Partial<CloudTranslationConfig>) => {
     if (isLocalTranslationProviderId(prefs.provider)) return
@@ -427,28 +335,6 @@ export function TranslationScreen({ prefs, onChange, onBack, onOpenAiSettings }:
     } catch (error) {
       setModelAction('error')
       setModelMessage(error instanceof Error ? error.message : 'Bergamot 模型删除失败')
-    }
-  }
-
-  const prepareApplePack = async () => {
-    if (!appleSource) return
-    setModelAction('working')
-    setModelMessage('正在请求系统下载语言包，请在系统弹窗里确认…')
-    try {
-      const state = await AppleTranslation.prepareLanguagePack({
-        sourceLanguage: appleSource,
-        targetLanguage: appleTarget,
-      })
-      setAppleState(state)
-      setModelAction(state.ready ? 'success' : 'error')
-      setModelMessage(
-        state.ready
-          ? '语言包已就绪，现在可以完全离线翻译。'
-          : '系统还没完成语言包下载，可以稍后再试。',
-      )
-    } catch (error) {
-      setModelAction('error')
-      setModelMessage(error instanceof Error ? error.message : '语言包下载失败')
     }
   }
 
@@ -671,56 +557,7 @@ export function TranslationScreen({ prefs, onChange, onBack, onOpenAiSettings }:
         </ul>
       </SettingsSection>
 
-      {prefs.provider === 'apple' ? (
-        <div className="page-x pt-5">
-          <div className="mx-auto max-w-3xl rounded-2xl border border-haze bg-ink-raised p-5 shadow-[var(--shadow-lift)]">
-            <div className="flex items-start gap-3">
-              <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${appleState?.ready ? 'bg-emerald-500' : 'bg-cinnabar'}`} />
-              <span className="min-w-0 flex-1">
-                <span className="block font-display text-[19px] text-paper">系统语言包</span>
-                <span className="mt-1 block text-[11.5px] text-paper-faint">{appleCaption}</span>
-              </span>
-            </div>
-            <p className="mt-4 text-[11px] leading-relaxed text-paper-faint">
-              语言包由 iOS 下载并管理，下载后翻译不再联网。删除请到「设置 → 翻译 → 已下载的语言」。
-            </p>
-            <div className="mt-4">
-              {autoSource ? (
-                <p className="rounded-xl border border-haze bg-ink px-3.5 py-3 text-[11px] leading-relaxed text-paper-faint">
-                  原文语言是「自动检测」，而语言包要按具体语对下载，所以这里没法预下载。
-                  直接去翻译文章即可：系统会按识别出的原文语言弹出下载提示。
-                </p>
-              ) : (
-                <button
-                  type="button"
-                  disabled={
-                    !appleAvailable ||
-                    appleState?.status === 'unsupported' ||
-                    modelAction === 'working' ||
-                    Boolean(appleState?.ready)
-                  }
-                  onClick={() => void prepareApplePack()}
-                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-cinnabar/50 bg-cinnabar/12 px-4 text-[12.5px] text-paper disabled:opacity-35"
-                >
-                  {modelAction === 'working' ? <LoaderCircle size={15} className="animate-spin" /> : <Download size={15} />}
-                  {!appleAvailable
-                    ? '系统不支持'
-                    : appleState?.ready
-                      ? '已下载'
-                      : appleState?.status === 'unsupported'
-                        ? '系统不支持该语对'
-                        : '下载语言包'}
-                </button>
-              )}
-            </div>
-            {modelMessage && (
-              <p className={`mt-3 text-[11px] leading-relaxed ${modelAction === 'error' ? 'text-cinnabar-soft' : 'text-paper-faint'}`}>
-                {modelMessage}
-              </p>
-            )}
-          </div>
-        </div>
-      ) : prefs.provider === 'mlkit' ? (
+      {prefs.provider === 'mlkit' ? (
         <div className="page-x pt-5">
           <div className="mx-auto max-w-3xl rounded-2xl border border-haze bg-ink-raised p-5 shadow-[var(--shadow-lift)]">
             <div className="flex items-start gap-3">
@@ -831,10 +668,10 @@ export function TranslationScreen({ prefs, onChange, onBack, onOpenAiSettings }:
               onChange={(endpoint) => updateCloud({ endpoint })}
             />
             <Field
-              label={apiKeyLabel}
+              label={apiKeyOptional ? '访问令牌（可选）' : 'API KEY'}
               value={activeCloud.apiKey}
               type={showKey ? 'text' : 'password'}
-              placeholder={apiKeyPlaceholder}
+              placeholder={apiKeyOptional ? 'URL 已包含令牌时可留空' : '仅保存在这台设备'}
               onChange={(apiKey) => updateCloud({ apiKey })}
               suffix={
                 <button type="button" aria-label={showKey ? '隐藏 API Key' : '显示 API Key'} onClick={() => setShowKey((value) => !value)} className="ml-2 p-2">
@@ -842,13 +679,6 @@ export function TranslationScreen({ prefs, onChange, onBack, onOpenAiSettings }:
                 </button>
               }
             />
-            {freeChannelAvailable && !apiKeyInUse && (
-              <p className="rounded-xl border border-haze bg-ink px-3.5 py-3 text-[11px] leading-relaxed text-paper-faint">
-                {prefs.provider === 'google'
-                  ? '未填密钥：使用 Chrome 内置翻译的无密钥端点。可能被限速，且在中国大陆网络下通常不可达——那种情况请改用 Microsoft Translator，或填入自己的 Key。'
-                  : '未填密钥：使用 Edge 内置翻译的免费令牌网关，无需注册。可能被限速；填入自己的 Azure Key 可获得配额与稳定性保证。'}
-              </p>
-            )}
             {prefs.provider === 'deeplx' && (
               <ConcurrencyField
                 value={activeCloud.concurrency ?? 2}
@@ -856,7 +686,7 @@ export function TranslationScreen({ prefs, onChange, onBack, onOpenAiSettings }:
                 onCommit={(concurrency) => updateCloud({ concurrency })}
               />
             )}
-            {prefs.provider === 'azure' && apiKeyInUse && (
+            {prefs.provider === 'azure' && (
               <Field
                 label="AZURE REGION（可选）"
                 value={activeCloud.region ?? ''}

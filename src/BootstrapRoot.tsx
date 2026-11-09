@@ -21,6 +21,7 @@ import {
 import { applyTheme, applyThemeScheme, themeSurface } from './lib/theme'
 import { normalizePreferences } from './sources/preferences'
 
+
 /**
  * 先恢复原生偏好，再挂载业务界面，避免首页用旧镜像反写原生存储。
  *

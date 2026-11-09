@@ -1,7 +1,5 @@
-import { useRef } from 'react'
 import { BookmarkCheck, BookmarkPlus, Languages, List, Settings2, Share2, Type, X } from 'lucide-react'
 
-import { useSwipeDismiss } from '../hooks/useEdgeSwipeBack'
 import { FONT_SCALE_OPTIONS } from '../sources/preferences'
 import type { ReaderTranslationMode } from './ReaderTranslationMenu'
 
@@ -54,10 +52,6 @@ export function EinkReaderMenu({
   onBackToList,
   onOpenSettings,
 }: Props) {
-  // 左缘右滑返回：阅读菜单与遮罩一起滑出，回到正文。
-  const surfaceRef = useRef<HTMLDivElement>(null)
-  useSwipeDismiss(surfaceRef, open, onClose)
-
   if (!open) return null
 
   const scaleLabel =
@@ -75,11 +69,7 @@ export function EinkReaderMenu({
           : '翻译'
 
   return (
-    <div
-      ref={surfaceRef}
-      className="swipe-back-surface absolute inset-0 z-40 flex flex-col justify-end"
-      data-no-page-tap
-    >
+    <div className="absolute inset-0 z-40 flex flex-col justify-end" data-no-page-tap>
       <button
         type="button"
         aria-label="关闭阅读菜单"

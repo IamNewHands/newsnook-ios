@@ -8,11 +8,9 @@ import { ImageLightbox } from '../components/ImageLightbox'
 import { collectImageGallery, type ImageGallery } from '../lib/imageGallery'
 import { EinkReaderMenu } from '../components/EinkReaderMenu'
 import { ReaderMoreMenu } from '../components/ReaderMoreMenu'
-import { TranslationChannelSheet } from '../components/TranslationChannelSheet'
 import { ReaderScrollIndicator } from '../components/ReaderScrollIndicator'
 import { ReaderTranslationBar } from '../components/ReaderTranslationBar'
 import { ReaderTranslationMenu, type ReaderTranslationMode } from '../components/ReaderTranslationMenu'
-import { ReaderFloatNav } from '../components/ReaderFloatNav'
 import { ShareArticleSheet } from '../components/ShareArticleSheet'
 import { InkAudioPlayer } from '../components/InkAudioPlayer'
 import { InkImage } from '../components/InkImage'
@@ -61,7 +59,7 @@ import {
   usableShareTitle,
   withResolvedShareTitle,
 } from '../lib/shareLink'
-import { resolveArticleBody, type BodySource } from '../lib/resolveBody'
+import { resolveArticleBody, pageUserAgentForArticle, type BodySource } from '../lib/resolveBody'
 import { articleCoverUrl } from '../lib/articleAudio'
 import { isExcerptUpgrade, shouldRecheckCachedExcerpt, shouldReplaceCachedBody } from '../lib/feedBodyEvidence'
 import { shouldRenderStandaloneCover } from '../lib/articlePreview'
@@ -72,7 +70,6 @@ import type { TypographyPrefs } from '../sources/preferences'
 import { resolveAiFeatureConfig } from '../features/translation/aiConfig'
 import { createTranslationService } from '../features/translation/service'
 import {
-  availableTranslationProviders,
   translationDisplayModeLabel,
   translationLanguageLabel,
   translationProviderLabel,
@@ -81,7 +78,6 @@ import type {
   TranslatedArticleContent,
   TranslationDisplayMode,
   TranslationPrefs,
-  TranslationProviderId,
 } from '../features/translation/types'
 import { hasSpeedReadableText } from '../features/speedRead/service'
 import { useSpeedRead } from '../features/speedRead/useSpeedRead'
@@ -89,15 +85,11 @@ import { ReadAloudBar } from '../features/readAloud/ReadAloudBar'
 import { segmentArticle } from '../features/readAloud/segmenter'
 import { useReadAloud } from '../features/readAloud/useReadAloud'
 import type { ReadAloudPrefs } from '../features/readAloud/types'
-import {
-  commentsLabelFor,
-  fetchCommentCount,
-  shouldShowCommentEntry,
-  supportsComments,
-} from '../features/comments/service'
+import { fetchCommentCount, supportsComments } from '../features/comments/service'
 import { CommentsDrawer } from '../features/comments/components/CommentsDrawer'
 import { articleFromRelatedLink } from '../features/catalogEngine/toArticles'
-import type { NewsSource } from '../sources/registry'
+import { isCustomSourceId, type NewsSource } from '../sources/registry'
+import { isVideoDocumentUrl } from '../lib/videoDocumentUrl'
 import type { InkVideoPlayerFullscreenHandle } from '../components/InkVideoPlayer'
 
 interface Props {
@@ -112,12 +104,6 @@ interface Props {
   onTranslationPrefsChange?: (patch: Partial<TranslationPrefs>) => void
   onOpenTranslationSettings?: () => void
   readAloudPrefs: ReadAloudPrefs
-  /** 正文顶栏直接切换翻译通道；不传时只展示当前通道，不给切换入口 */
-  onTranslationProviderChange?: (provider: TranslationProviderId) => void
-  /** 是否显示悬浮上下翻页手柄（仅滚动阅读模式生效） */
-  floatReaderNav?: boolean
-  /** 切换悬浮翻页手柄开关（用于设置持久化） */
-  onToggleFloatReaderNav?: (enabled: boolean) => void
   customSources?: NewsSource[]
   /** 墨水屏模式：分页阅读；false/缺省时保持滚动阅读 */
   einkMode?: boolean
@@ -147,9 +133,6 @@ export function ReaderScreen({
   onTranslationPrefsChange,
   onOpenTranslationSettings,
   readAloudPrefs,
-  onTranslationProviderChange,
-  floatReaderNav = true,
-  onToggleFloatReaderNav,
   customSources,
   einkMode = false,
   fontScale = 1,
@@ -168,10 +151,8 @@ export function ReaderScreen({
   const prevEinkRef = useRef(einkMode)
   const videoFullscreenRef = useRef<InkVideoPlayerFullscreenHandle | null>(null)
   const originPlayerCloseRef = useRef<OriginPlayerCloseHandle | null>(null)
-  const useOriginSurface = shouldUseOriginPlayerSurface({
-    sourceId: article.sourceId,
-    contentType: article.contentType,
-  })
+
+  const isVideoDocument = article.contentType === 'video' || (isCustomSourceId(article.sourceId) && isVideoDocumentUrl(article.originUrl))
   const feedEmbeddedPlayerUrl = useMemo(
     () => article.contentType === 'video' ? extractEmbeddedVideoPageUrl(article.contentHtml) : undefined,
     [article.contentHtml, article.contentType],
@@ -179,6 +160,10 @@ export function ReaderScreen({
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [html, setHtml] = useState('')
   const [bodySource, setBodySource] = useState<BodySource | null>(null)
+  const useOriginSurface = !article.videoUrl && shouldUseOriginPlayerSurface({
+    sourceId: article.sourceId,
+    contentType: bodySource === 'video' || isVideoDocument ? 'video' : article.contentType,
+  })
   const [resolvedOriginUrl, setResolvedOriginUrl] = useState<string | undefined>()
   const [resolvedTitle, setResolvedTitle] = useState<string | undefined>()
   const [error, setError] = useState<string | null>(null)
@@ -189,7 +174,7 @@ export function ReaderScreen({
   const excerptAttemptRef = useRef<{ id: string; at: number } | null>(null)
   const [retryToken, setRetryToken] = useState(0)
   const [localBodyRestoredFor, setLocalBodyRestoredFor] = useState<string | null>(null)
-  const localBodyRestorePending = retryToken === 0 && article.contentType !== 'video' &&
+  const localBodyRestorePending = retryToken === 0 && !isVideoDocument &&
     localBodyRestoredFor !== article.id
   useStartupBlocker(startupVisible && localBodyRestorePending)
   const [unlockedMediaUrls, setUnlockedMediaUrls] = useState<string[]>([])
@@ -242,16 +227,6 @@ export function ReaderScreen({
     [article, resolvedOriginUrl],
   )
 
-  // 入口可见性：WordPress / Substack 等来源必须确知有评论才显示入口（零评论不渲染）
-  const showCommentEntry = useMemo(
-    () =>
-      shouldShowCommentEntry(
-        { ...article, originUrl: resolvedOriginUrl || article.originUrl },
-        commentCount,
-      ),
-    [article, resolvedOriginUrl, commentCount],
-  )
-
   useEffect(() => {
     if (!canComment) return
     const controller = new AbortController()
@@ -271,7 +246,6 @@ export function ReaderScreen({
   const [einkMenuOpen, setEinkMenuOpen] = useState(false)
   const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   const [shareSheetOpen, setShareSheetOpen] = useState(false)
-  const [channelSheetOpen, setChannelSheetOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [resumedPosition, setResumedPosition] = useState(false)
   const lastScrollTopRef = useRef(0)
@@ -360,16 +334,6 @@ export function ReaderScreen({
         overlayCloserRef.current = prev
       }
     }
-    if (channelSheetOpen) {
-      const prev = overlayCloserRef.current
-      overlayCloserRef.current = () => {
-        setChannelSheetOpen(false)
-        return true
-      }
-      return () => {
-        overlayCloserRef.current = prev
-      }
-    }
     if (moreMenuOpen) {
       const prev = overlayCloserRef.current
       overlayCloserRef.current = () => {
@@ -391,7 +355,6 @@ export function ReaderScreen({
       }
     }
   }, [
-    channelSheetOpen,
     commentsOpen,
     einkMenuOpen,
     moreMenuOpen,
@@ -499,10 +462,10 @@ export function ReaderScreen({
     }
   }, [article.id, einkMode, html.length, loadState])
 
-  // 屏幕右侧边缘向左滑动手势拉出评论
+  // 屏幕右侧边缘向左滑动手势拉出跟贴
   useEffect(() => {
     const element = shellRef.current
-    if (!element || !showCommentEntry || commentsOpen || lightbox) return
+    if (!element || !canComment || commentsOpen || lightbox) return
 
     let startX = 0
     let startY = 0
@@ -554,14 +517,12 @@ export function ReaderScreen({
       element.removeEventListener('touchmove', onTouchMove)
       element.removeEventListener('touchend', onTouchEnd)
     }
-  }, [showCommentEntry, commentsOpen, lightbox])
+  }, [canComment, commentsOpen, lightbox])
 
   useEdgeSwipeBack({
     containerRef: shellRef,
     onBack: onClose,
-    disabled: Boolean(
-      lightbox || commentsOpen || einkMenuOpen || moreMenuOpen || shareSheetOpen || channelSheetOpen,
-    ),
+    disabled: Boolean(lightbox || commentsOpen || einkMenuOpen || moreMenuOpen || shareSheetOpen),
     reduced,
   })
 
@@ -662,7 +623,7 @@ export function ReaderScreen({
     }
 
     // 正文内容是静态的，命中缓存直接出，断网也能重读；重新抽取时才绕过
-    if (retryToken === 0 && article.contentType !== 'video') {
+    if (retryToken === 0 && !isVideoDocument) {
       const cached = loadCachedBody(article.id)
       if (cached && !shouldReplaceCachedBody(article, cached)) {
         setHtml(cached.html)
@@ -743,7 +704,7 @@ export function ReaderScreen({
     }
 
     // 普通正文热缓存优先保持同步首屏；未命中时再读持久预存，最后才联网。
-    if (retryToken === 0 && article.contentType !== 'video') {
+    if (retryToken === 0 && !isVideoDocument) {
       void loadPrestoredBody(article.id).then((prestored) => {
         if (controller.signal.aborted) return
         if (prestored && !shouldReplaceCachedBody(article, prestored)) {
@@ -772,7 +733,7 @@ export function ReaderScreen({
     }
 
     return () => controller.abort()
-  }, [article, customSources, onCacheChange, retryToken])
+  }, [article, customSources, onCacheChange, retryToken, isVideoDocument])
 
   // Offline-first: show a cached, unconfirmed excerpt immediately. Retry it
   // quietly when stale or on reconnection; never turn a transient failure into
@@ -960,9 +921,6 @@ export function ReaderScreen({
     () => createTranslationService(translationPrefs),
     [translationPrefs],
   )
-  /** 顶栏通道切换用的候选：只列当前平台/安装包真正可用的翻译方式 */
-  const translationProviderOptions = useMemo(() => availableTranslationProviders(), [])
-  const canSwitchProvider = Boolean(onTranslationProviderChange) && translationProviderOptions.length > 1
 
   const speedReadConfig = useMemo(
     () => resolveAiFeatureConfig({ ai: translationPrefs.ai }, 'speedRead'),
@@ -1013,7 +971,7 @@ export function ReaderScreen({
     articleId: article.id,
     viewportRef: rootRef,
     contentRef: contentMeasureRef,
-    measureKey: `${proseHtml.length}:${showTranslation}:${loadState}`,
+    measureKey: `${proseHtml.length}:${showTranslation}:${loadState}:${fontScale}`,
     ready: loadState === 'ready',
   })
 
@@ -1028,22 +986,8 @@ export function ReaderScreen({
   pagedSyncRef.current = paged.syncFromScrollTop
   pagedOffsetRef.current = paged.currentStartOffset
 
-  const einkGateRef = useRef({
-    lightbox,
-    commentsOpen,
-    einkMenuOpen,
-    moreMenuOpen,
-    shareSheetOpen,
-    channelSheetOpen,
-  })
-  einkGateRef.current = {
-    lightbox,
-    commentsOpen,
-    einkMenuOpen,
-    moreMenuOpen,
-    shareSheetOpen,
-    channelSheetOpen,
-  }
+  const einkGateRef = useRef({ lightbox, commentsOpen, einkMenuOpen, moreMenuOpen, shareSheetOpen })
+  einkGateRef.current = { lightbox, commentsOpen, einkMenuOpen, moreMenuOpen, shareSheetOpen }
 
   useEffect(() => {
     const wasEink = prevEinkRef.current
@@ -1083,7 +1027,7 @@ export function ReaderScreen({
 
     const onCaptureClick = (event: MouseEvent) => {
       const gate = einkGateRef.current
-      if (gate.lightbox || gate.commentsOpen || gate.einkMenuOpen || gate.moreMenuOpen || gate.shareSheetOpen || gate.channelSheetOpen) return
+      if (gate.lightbox || gate.commentsOpen || gate.einkMenuOpen || gate.moreMenuOpen || gate.shareSheetOpen) return
       const target = event.target
       if (!(target instanceof Element)) return
 
@@ -1120,7 +1064,7 @@ export function ReaderScreen({
     void setVolumePageTurnEnabled(true)
     void addVolumePageTurnListener((direction) => {
       const gate = einkGateRef.current
-      if (gate.lightbox || gate.commentsOpen || gate.einkMenuOpen || gate.moreMenuOpen || gate.shareSheetOpen || gate.channelSheetOpen) return
+      if (gate.lightbox || gate.commentsOpen || gate.einkMenuOpen || gate.moreMenuOpen || gate.shareSheetOpen) return
       if (direction === 'prev') pagedGoPrevRef.current()
       else pagedGoNextRef.current()
     }).then((dispose) => {
@@ -1133,7 +1077,7 @@ export function ReaderScreen({
 
     const onKeyDown = (event: KeyboardEvent) => {
       const gate = einkGateRef.current
-      if (gate.lightbox || gate.commentsOpen || gate.einkMenuOpen || gate.moreMenuOpen || gate.shareSheetOpen || gate.channelSheetOpen) return
+      if (gate.lightbox || gate.commentsOpen || gate.einkMenuOpen || gate.moreMenuOpen || gate.shareSheetOpen) return
       const target = event.target
       if (
         target instanceof HTMLElement &&
@@ -1180,9 +1124,6 @@ export function ReaderScreen({
       resolvedOriginUrl,
     ],
   )
-
-  // 各来源对评论的称呼不同（跟贴 / 评论 / 吐槽 / 讨论 / 回复），界面文案跟随来源取词
-  const commentNoun = useMemo(() => commentsLabelFor(commentsArticle), [commentsArticle])
 
   const isCjkArticle = useMemo(() => {
     const textSample = `${displayedTitle} ${displayedHtml.slice(0, 1500)}`
@@ -1369,17 +1310,25 @@ export function ReaderScreen({
     pendingPartialRef.current = null
   }, [])
 
-  /**
-   * 用指定通道跑一次正文翻译。
-   * 切换通道后要立刻用新通道重跑，不能等 `translationPrefs` 绕一圈 props 回来——
-   * 那时闭包里的 service 还是旧的，会拿旧通道再翻一遍。所以这里显式收 providerId。
-   */
-  const runTranslation = async (providerId: TranslationProviderId) => {
-    const activePrefs: TranslationPrefs = { ...translationPrefs, provider: providerId }
-    const service =
-      providerId === translationPrefs.provider
-        ? translationService
-        : createTranslationService(activePrefs)
+  const toggleTranslation = async () => {
+    if (loadState !== 'ready') return
+
+    // 1. 如果正在翻译中，点击取消本次翻译并切回原文；丢弃半成品，避免之后被当成完整译文直接展示
+    if (translationState === 'loading') {
+      cancelTranslation()
+      setTranslated(null)
+      setTranslationState('idle')
+      setTranslationError('')
+      setShowTranslation(false)
+      return
+    }
+
+    // 2. 如果已有完整译文且空闲，点击切换菜单打开/关闭
+    if (translated && translationState === 'idle') {
+      setTranslationMenuOpen((prev) => !prev)
+      return
+    }
+
     cancelTranslation()
     const controller = new AbortController()
     translationAbortRef.current = controller
@@ -1395,12 +1344,10 @@ export function ReaderScreen({
         if (!pending || controller.signal.aborted) return
         setTranslated(pending)
       }
-      const result = await service.translateArticle(
+      const result = await translationService.translateArticle(
         article.title,
         html,
-        // 强制 compare 让 service 同时产出双语对照与纯译文两份 DOM，
-        // 之后切换显示方式就不用再翻一遍。
-        { ...activePrefs, displayMode: 'compare' },
+        { ...translationPrefs, displayMode: 'compare' },
         {
           signal: controller.signal,
           onPartial: (partial) => {
@@ -1451,46 +1398,6 @@ export function ReaderScreen({
     }
   }
 
-  const toggleTranslation = async () => {
-    if (loadState !== 'ready') return
-
-    // 1. 如果正在翻译中，点击取消本次翻译并切回原文；丢弃半成品，避免之后被当成完整译文直接展示
-    if (translationState === 'loading') {
-      cancelTranslation()
-      setTranslated(null)
-      setTranslationState('idle')
-      setTranslationError('')
-      setShowTranslation(false)
-      return
-    }
-
-    // 2. 如果已有完整译文且空闲，点击切换显示方式菜单（原文 / 双语 / 仅译文）
-    if (translated && translationState === 'idle') {
-      setTranslationMenuOpen((prev) => !prev)
-      return
-    }
-
-    await runTranslation(translationPrefs.provider)
-  }
-
-  /**
-   * 切换翻译通道：写回偏好；正在看译文（或上一次失败）时立刻用新通道重跑，
-   * 否则只清掉旧通道留下的译文，等读者自己点「翻译」。
-   */
-  const switchTranslationProvider = (provider: TranslationProviderId) => {
-    setChannelSheetOpen(false)
-    if (provider === translationPrefs.provider) return
-    onTranslationProviderChange?.(provider)
-    if (showTranslation || translationState === 'error' || translationState === 'loading') {
-      void runTranslation(provider)
-      return
-    }
-    cancelTranslation()
-    setTranslated(null)
-    setTranslationError('')
-    setTranslationState('idle')
-  }
-
   return (
     <div
       ref={shellRef}
@@ -1498,6 +1405,12 @@ export function ReaderScreen({
       style={{
         paddingTop: 'var(--sat)',
         paddingBottom: 'var(--sab)',
+        animation: reduced ? undefined : 'reader-in 360ms var(--ease-ink) both',
+      }}
+      onAnimationEnd={(e) => {
+        if (e.target === shellRef.current && e.animationName === 'reader-in') {
+          e.currentTarget.style.animation = 'none'
+        }
       }}
     >
       <style>{`@keyframes reader-in { from { opacity: 0; transform: translateY(24px) } to { opacity: 1; transform: none } }`}</style>
@@ -1512,17 +1425,8 @@ export function ReaderScreen({
         </div>
       )}
 
-      {/*
-        入场动画挂在内层而不是上面那层：CSS 动画（含 fill-mode 的终态）优先级高于
-        内联 style，动画挂在外层会把右滑返回写的内联 transform 顶掉。同理，右滑
-        返回要拖动的必须是**这一整层不透明的壳**（含上下安全区），而不是壳里那块
-        `flex-1` 的正文面 —— 只拖正文面时，安全区那两条留白原地不动、左右又露出
-        下层列表，观感就是「返回时闪一下空白、不够丝滑」。设置外壳与两个站点工作
-        区都是这个形状。
-      */}
       <div
-        className="flex min-h-0 flex-1 flex-col"
-        style={{ animation: reduced ? undefined : 'reader-in 360ms var(--ease-ink) both' }}
+        className="flex min-h-0 flex-1 flex-col bg-ink"
       >
         <header
           data-surface="reader-chrome"
@@ -1593,21 +1497,6 @@ export function ReaderScreen({
                   />
                 )}
               </button>
-              {canSwitchProvider && (
-                <button
-                  type="button"
-                  onClick={() => setChannelSheetOpen(true)}
-                  aria-expanded={channelSheetOpen}
-                  aria-label={`切换翻译通道（当前 ${translationProviderLabel(translationPrefs.provider)}）`}
-                  className="-ml-1 flex h-9 w-5 shrink-0 items-center justify-center text-paper-muted transition-colors duration-200"
-                >
-                  <ChevronDown
-                    size={13}
-                    strokeWidth={2}
-                    className={channelSheetOpen ? 'text-cinnabar' : undefined}
-                  />
-                </button>
-              )}
               {canSpeedRead && (
                 <button
                   type="button"
@@ -1681,16 +1570,16 @@ export function ReaderScreen({
                   {saved ? '已收藏' : '收藏'}
                 </span>
               </button>
-              {showCommentEntry && (
+              {canComment && (
                 <button
                   type="button"
                   onClick={() => setCommentsOpen(true)}
-                  aria-label={`查看${commentNoun}与评论`}
+                  aria-label="查看跟贴与评论"
                   className="flex h-9 items-center gap-1 px-1 text-paper-muted hover:text-cinnabar transition-colors duration-200"
                 >
                   <MessageSquare size={14} strokeWidth={1.7} className={commentsOpen ? 'text-cinnabar' : 'text-paper-muted'} />
                   <span className={`font-mono text-[10px] tracking-[0.08em] ${commentsOpen ? 'text-cinnabar-soft' : 'text-paper-muted'}`}>
-                    {commentCount != null && commentCount > 0 ? commentCount : commentNoun}
+                    {commentCount != null && commentCount > 0 ? commentCount : '跟贴'}
                   </span>
                 </button>
               )}
@@ -1728,13 +1617,10 @@ export function ReaderScreen({
           <div
             ref={rootRef}
             {...{ [SCROLL_SURFACE_ATTR]: '' }}
+            data-eink-reader-viewport={einkMode ? '' : undefined}
             onScroll={einkMode ? undefined : handleScroll}
             className={`reader-font-pinch-surface scroll-hidden h-full overflow-x-hidden ${
-              einkMode
-                ? paged.pageSliceHeight > paged.pageHeight
-                  ? 'overflow-y-auto'
-                  : 'overflow-hidden'
-                : 'overflow-y-auto'
+              einkMode ? 'overflow-hidden' : 'overflow-y-auto'
             }`}
           >
           <div
@@ -1874,12 +1760,14 @@ export function ReaderScreen({
             {useOriginSurface && (feedEmbeddedPlayerUrl || resolvedOriginUrl || article.originUrl) && (
               <OriginPlayerSurface
                 pageUrl={feedEmbeddedPlayerUrl || resolvedOriginUrl || article.originUrl!}
+                userAgent={pageUserAgentForArticle(article, customSources)}
                 referrer={resolvedOriginUrl || article.originUrl || feedEmbeddedPlayerUrl}
                 title={article.title}
                 poster={article.image}
                 openOriginal={() => void openOriginal()}
                 closeHandleRef={originPlayerCloseRef}
                 suppressResourceFab={speedReadOpen}
+                autoUseReader
               />
             )}
 
@@ -2019,7 +1907,7 @@ export function ReaderScreen({
                 </div>
               )}
 
-              {loadState === 'ready' && showCommentEntry && (
+              {loadState === 'ready' && canComment && (
                 <div data-reader-block className="mt-8">
                   <div
                     role="button"
@@ -2036,12 +1924,12 @@ export function ReaderScreen({
                       </div>
                       <div className="min-w-0 text-left">
                         <h3 className="text-[14px] font-semibold text-paper group-hover:text-cinnabar transition">
-                          网友精彩{commentNoun}
+                          网友精彩跟贴与讨论
                         </h3>
                         <p className="mt-0.5 font-mono text-[11px] text-paper-faint truncate">
                           {commentCount != null && commentCount > 0
-                            ? `共 ${commentCount} 条${commentNoun} · 点击展开热评与盖楼`
-                            : `点击展开网友观点与最新${commentNoun}`}
+                            ? `共 ${commentCount} 条跟贴互动 · 点击展开热评与盖楼`
+                            : '点击展开网友观点与最新讨论'}
                         </p>
                       </div>
                     </div>
@@ -2056,7 +1944,6 @@ export function ReaderScreen({
           </div>
           </div>
           {!einkMode && <ReaderScrollIndicator targetRef={rootRef} />}
-          {!einkMode && floatReaderNav && <ReaderFloatNav targetRef={rootRef} />}
         </div>
 
 
@@ -2133,16 +2020,6 @@ export function ReaderScreen({
           setMoreMenuOpen(false)
           setRetryToken((token) => token + 1)
         }}
-        floatReaderNav={floatReaderNav}
-        onToggleFloatReaderNav={onToggleFloatReaderNav}
-      />
-
-      <TranslationChannelSheet
-        open={channelSheetOpen}
-        active={translationPrefs.provider}
-        providers={translationProviderOptions}
-        onClose={() => setChannelSheetOpen(false)}
-        onSelect={switchTranslationProvider}
       />
 
       <ReaderTranslationMenu
@@ -2235,7 +2112,7 @@ export function ReaderScreen({
       )}
 
       {/* 底部右下角悬浮跟贴胶囊（随时一触即达） */}
-      {showCommentEntry && !commentsOpen && !shareSheetOpen && !einkMode && !speedReadOpen && (
+      {canComment && !commentsOpen && !shareSheetOpen && !einkMode && !speedReadOpen && (
         <div
           className={`fixed right-4 z-40 transition-all duration-300 pointer-events-auto safe-bottom-20 ${
             (einkMode ? chromeVisible : pillVisible)
@@ -2246,7 +2123,7 @@ export function ReaderScreen({
           <button
             type="button"
             onClick={() => setCommentsOpen(true)}
-            aria-label={`查看${commentNoun}`}
+            aria-label="查看跟贴讨论"
             className="group flex items-center gap-2 rounded-full border border-haze bg-ink/95 px-3.5 py-2 text-paper shadow-xl shadow-black/35 backdrop-blur-md transition hover:scale-105 hover:border-cinnabar/60 active:scale-95"
           >
             <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-cinnabar/15 text-cinnabar group-hover:bg-cinnabar group-hover:text-white transition">
@@ -2255,10 +2132,10 @@ export function ReaderScreen({
             <span className="font-mono text-[12px] font-medium tracking-[0.03em] text-paper">
               {commentCount != null && commentCount > 0 ? (
                 <>
-                  <span className="text-cinnabar font-semibold">{commentCount}</span> {commentNoun}
+                  <span className="text-cinnabar font-semibold">{commentCount}</span> 跟贴
                 </>
               ) : (
-                `看${commentNoun}`
+                '看跟贴'
               )}
             </span>
           </button>
