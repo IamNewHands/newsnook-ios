@@ -18,19 +18,27 @@ const CAPABILITIES: ReadAloudProviderCapabilities = {
   voices: true,
   rate: true,
   pitch: true,
-  // Android TTS 本身没有 pause；原生 service 用 stop + onRangeStart offset 重建实现语义暂停。
+  // 两端原生通道都实现了语义暂停：Android TTS 没有 pause，由原生 service 用
+  // stop + onRangeStart offset 重建；iOS 用 AVSpeechSynthesizer 的真暂停。
   pauseResume: true,
-  // onRangeStart 仅在较新 Android/TTS 引擎上可靠；事件可用时仍会记录 offset。
+  // 逐词进度事件两端都能发（Android onRangeStart / iOS willSpeakRangeOfSpeechString），
+  // 但 Android 侧只在较新 TTS 引擎上可靠，所以这里统一保守声明。
   rangeProgress: false,
   exactTime: false,
   seekByCharacter: true,
   streaming: false,
-  // 是否离线取决于用户选中的系统 Voice，Provider 层不能统一宣称离线。
+  // 是否离线取决于用户选中的系统音色，Provider 层不能统一宣称离线。
   offline: false,
 }
 
 let sequence = 0
 
+/**
+ * 原生系统 TTS：Android 走 `TextToSpeech`，iOS 走 `AVSpeechSynthesizer`，
+ * 由同一个 `ReadAloud` 插件暴露同一套方法与事件。
+ * 类名与 provider id 里的 `android` 是历史包袱（`ReadAloudProviderId` 是 JS 侧
+ * 稳定标识），行为与平台无关。
+ */
 export class AndroidSystemTtsProvider implements ReadAloudProvider {
   readonly id = 'android-system' as const
   readonly capabilities = CAPABILITIES
@@ -52,7 +60,7 @@ export class AndroidSystemTtsProvider implements ReadAloudProvider {
     events: ReadAloudSpeakEvents,
   ): Promise<ReadAloudHandle> {
     if (!isNativeReadAloudAvailable()) {
-      throw new Error('当前 Android 安装包不支持系统朗读')
+      throw new Error('当前安装包不支持系统朗读')
     }
     if (options.signal?.aborted) {
       throw new DOMException('朗读已取消', 'AbortError')

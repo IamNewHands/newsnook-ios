@@ -44,7 +44,10 @@ try {
     />,
   ))
 
-  const chip = [...document.querySelectorAll('button')].find((item) => item.textContent?.includes(source.name))
+  const trigger = document.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')
+  assert.ok(trigger, 'source filter panel trigger exists')
+  await click(trigger)
+  const chip = [...document.querySelectorAll('[role="radiogroup"] button')].find((item) => item.textContent?.includes(source.name))
   assert.ok(chip, 'source chip exists')
   await act(async () => {
     const event = new window.Event('contextmenu', { bubbles: true, cancelable: true })

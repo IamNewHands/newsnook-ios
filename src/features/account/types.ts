@@ -3,7 +3,8 @@
  *
  * 账户是纯可选能力：未登录时整个模块只提供一个 `anonymous` 状态，
  * 阅读、解析、缓存都不经过这里。UI 只依赖 `AccountAdapter`，
- * Web（Cookie Session）与 Android（Keystore 里的 Bearer）差异全部收在实现里。
+ * Web（Cookie Session）与原生壳（Android Keystore / iOS Keychain 里的 Bearer）
+ * 的差异全部收在实现里。
  */
 
 import type { DevicePlatform } from '@newsnook/contracts/protocol'
@@ -11,7 +12,7 @@ import type { AuthConfigResponse } from '@newsnook/contracts'
 
 import type { CloudFetch } from '../sync/transport'
 
-export type AccountPlatform = Extract<DevicePlatform, 'web' | 'android'>
+export type AccountPlatform = Extract<DevicePlatform, 'web' | 'android' | 'ios'>
 
 /** 邮箱密码登录记为 `credential`，其余是 OAuth provider id */
 export type SocialProvider = 'google' | 'github' | 'linuxdo'

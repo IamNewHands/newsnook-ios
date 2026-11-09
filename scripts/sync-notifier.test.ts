@@ -1,5 +1,5 @@
 /**
- * 同步通知策略：什么值得进 Android 通知栏，什么必须闭嘴。
+ * 同步通知策略：什么值得进系统通知栏（Android 通知栏 / iOS 通知中心），什么必须闭嘴。
  * 运行：npm run test:sync-notifier
  */
 import assert from 'node:assert/strict'

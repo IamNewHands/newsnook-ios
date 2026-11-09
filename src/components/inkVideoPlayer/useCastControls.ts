@@ -7,8 +7,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 
 import {
+  addManualDlnaDevice,
   discoverDlnaDevices,
   isDlnaCastAvailable,
+  isManualDlnaDeviceSupported,
+  removeManualDlnaDevice,
   startDlnaCast,
   type DlnaCastDevice,
   type DlnaCastSession,
@@ -21,6 +24,7 @@ import {
   useDlnaCastSession,
 } from '../../features/cast/session'
 import { prepareNativeMediaPlayback } from '../../features/mediaSniffer/native'
+import { isAirPlaySupported, showAirPlayPicker } from './airPlay'
 import { playableFormatForUrl, type PlayableFormat } from './playback'
 
 export function useCastControls(options: {
@@ -57,6 +61,7 @@ export function useCastControls(options: {
   const [castDevices, setCastDevices] = useState<DlnaCastDevice[]>([])
   const [castSearching, setCastSearching] = useState(false)
   const [castConnectingId, setCastConnectingId] = useState<string | null>(null)
+  const [castManualPending, setCastManualPending] = useState(false)
   const [castError, setCastError] = useState<string | null>(null)
   const {
     session: castSession,
@@ -64,9 +69,12 @@ export function useCastControls(options: {
     error: castSessionError,
   } = useDlnaCastSession()
 
+  const manualDeviceSupported = isManualDlnaDeviceSupported()
+  const airPlaySupported = isAirPlaySupported()
+
   const refreshCastDevices = useCallback(async () => {
     if (!isDlnaCastAvailable()) {
-      setCastError('投屏仅支持 Android 真机')
+      setCastError('当前平台不支持投屏')
       return
     }
     setCastSearching(true)
@@ -84,7 +92,7 @@ export function useCastControls(options: {
 
   const openCastPicker = useCallback(() => {
     if (!isDlnaCastAvailable()) {
-      showPlayerToast('投屏仅支持 Android 真机')
+      showPlayerToast('当前平台不支持投屏')
       return
     }
     setCastError(null)
@@ -143,6 +151,59 @@ export function useCastControls(options: {
     }
   }, [current, duration, exitFullscreen, extraUrls, format, immersive, requestHeaders, sourcePage, src, title, videoRef])
 
+  const addManualCastDevice = useCallback(
+    async (address: string) => {
+      if (!manualDeviceSupported) {
+        setCastError('当前平台不支持手动添加投屏设备')
+        return
+      }
+      const trimmed = address.trim()
+      if (!trimmed) {
+        setCastError('请填写电视的 IP 地址')
+        return
+      }
+      setCastManualPending(true)
+      setCastError(null)
+      try {
+        const device = await addManualDlnaDevice({ address: trimmed })
+        setCastDevices((current) => [
+          ...current.filter((item) => item.id !== device.id),
+          device,
+        ])
+        // 手输一次 IP 的意图就是投屏，别再让用户点一次。
+        await connectCastDevice(device)
+      } catch (error) {
+        setCastError(error instanceof Error ? error.message : '添加投屏设备失败')
+      } finally {
+        setCastManualPending(false)
+      }
+    },
+    [connectCastDevice, manualDeviceSupported],
+  )
+
+  const removeManualCastDevice = useCallback(
+    async (deviceId: string) => {
+      if (!manualDeviceSupported) return
+      try {
+        await removeManualDlnaDevice(deviceId)
+      } catch {
+        // 移除失败不阻塞 UI：下面照样把它从列表里摘掉。
+      }
+      setCastDevices((current) => current.filter((item) => item.id !== deviceId))
+    },
+    [manualDeviceSupported],
+  )
+
+  /**
+   * AirPlay 走 WebKit 的 `webkitShowPlaybackTargetPicker()`，路由的是这个 video
+   * 元素本身（不是 App 的音频会话），所以不需要任何原生代码。
+   */
+  const startAirPlay = useCallback(() => {
+    if (!showAirPlayPicker(videoRef.current)) {
+      showPlayerToast('当前 WebView 不支持 AirPlay，请改用投屏')
+    }
+  }, [showPlayerToast, videoRef])
+
   const sendCastControl = useCallback(async (
     action: 'play' | 'pause' | 'seek' | 'volume',
     value?: number,
@@ -183,13 +244,19 @@ export function useCastControls(options: {
     castDevices,
     castSearching,
     castConnectingId,
+    castManualPending,
     castError,
     castSession,
     castStatus,
     castSessionError,
+    manualDeviceSupported,
+    airPlaySupported,
     openCastPicker,
     refreshCastDevices,
     connectCastDevice,
+    addManualCastDevice,
+    removeManualCastDevice,
+    startAirPlay,
     sendCastControl,
     endCast,
   }

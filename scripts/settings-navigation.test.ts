@@ -13,6 +13,7 @@ for (const returnTo of ['presets', 'me', undefined] as const) {
 }
 for (const [route, parent] of [
   [{ name: 'presets' }, null],
+  [{ name: 'ui-font' }, null],
   [{ name: 'changelog' }, { name: 'about' }],
   [{ name: 'licenses' }, { name: 'about' }],
   [{ name: 'custom-scheme' }, { name: 'appearance' }],

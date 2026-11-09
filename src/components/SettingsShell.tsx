@@ -1,9 +1,10 @@
-import { useCallback, useRef, type ReactNode } from 'react'
+import { useCallback, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft } from 'lucide-react'
 
 import { useEdgeSwipeBack } from '../hooks/useEdgeSwipeBack'
 import { useReducedMotion } from '../hooks/useReducedMotion'
 import { haptics } from '../lib/haptics'
+import { isSwipeBackNavigation, markSwipeBackNavigation } from '../lib/edgeSwipeBack'
 
 interface Props {
   title: ReactNode
@@ -22,26 +23,44 @@ export function SettingsShell({ title, caption, toolbar, className, action, foot
   const containerRef = useRef<HTMLDivElement | null>(null)
   const onBackRef = useRef(onBack)
   onBackRef.current = onBack
+  /**
+   * 右滑返回时不播「从右滑入」的入场动画：返回是弹栈，父级页应该在子页滑走的
+   * 同时直接出现。再滑入一次会看成两级动画，正是「返回时跳一下」的来源之一。
+   */
+  const [entering] = useState(() => !isSwipeBackNavigation())
 
   const handleBack = useCallback(() => {
     void haptics.tick()
     onBackRef.current()
   }, [])
 
-  // 支持从屏幕左边缘向右平滑滑动返回上一级
+  /** 右滑已经把手势里的本页送出屏幕，这里只补上父级的路由状态。 */
+  const handleSwipeBack = useCallback(() => {
+    markSwipeBackNavigation()
+    onBackRef.current()
+  }, [])
+
+  /**
+   * 左缘右滑返回接在统一外壳里：每个设置页自带的 `onBack` 就是它的上一级，接
+   * 一次就覆盖全部二级页，各页不必各自接线。只认左缘窄条（`edgeOnly`），免得
+   * 和分类管理里的横向拖拽抢手势。
+   */
   useEdgeSwipeBack({
     containerRef,
-    onBack: () => onBackRef.current(),
+    onBack: handleSwipeBack,
+    edgeOnly: true,
+    resetAfterBack: true,
     reduced,
   })
 
-  const animationStyle = reduced
+  const animationStyle = reduced || !entering
     ? undefined
     : 'settings-in 180ms var(--ease-ink)'
 
   return (
     <div
-      className={`paper-settings-shell absolute inset-0 z-30 flex flex-col overflow-hidden bg-ink ${className ?? ""}`}
+      ref={containerRef}
+      className={`paper-settings-shell reader-swipe-surface absolute inset-0 z-30 flex flex-col overflow-hidden bg-ink ${className ?? ""}`}
       style={{
         paddingBottom: 'var(--sab)',
       }}
@@ -49,7 +68,8 @@ export function SettingsShell({ title, caption, toolbar, className, action, foot
       <style>{`
         @keyframes settings-in { from { transform: translate3d(12px, 0, 0) } to { transform: translate3d(0, 0, 0) } }
       `}</style>
-      <div ref={containerRef} className="flex min-h-0 flex-1 flex-col" style={{ animation: animationStyle }}>
+      {/* 入场动画不占用整壳右滑写入的 transform。 */}
+      <div className="flex min-h-0 flex-1 flex-col" style={{ animation: animationStyle }}>
         <header className="paper-settings-shell-header shrink-0 bg-ink/90 backdrop-blur-md">
           <div className="paper-settings-shell-header-inner page-x lg:px-8 max-w-4xl mx-auto w-full">
             <div className="flex items-start gap-2">
