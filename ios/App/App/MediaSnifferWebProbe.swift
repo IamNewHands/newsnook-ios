@@ -371,6 +371,19 @@ extension MediaSnifferLiveSession: WKNavigationDelegate {
            let url = navigationAction.request.url,
            let scheme = url.scheme?.lowercased(),
            scheme == "http" || scheme == "https" {
+            // 锚点跳转不创建新文档，document-start 脚本不会重跑；完整 reload 必须换 nonce。
+            if navigationAction.navigationType != .reload,
+               let current = webView.url,
+               var before = URLComponents(url: current, resolvingAgainstBaseURL: false),
+               var after = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+                let fragmentChanged = before.fragment != after.fragment
+                before.fragment = nil
+                after.fragment = nil
+                if fragmentChanged && before.url == after.url {
+                    decisionHandler(.allow)
+                    return
+                }
+            }
             documentEpoch += 1
             beginDocument()
             onDocumentChanged(documentEpoch, url.absoluteString)
